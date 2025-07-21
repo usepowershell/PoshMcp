@@ -64,7 +64,7 @@ public class McpTestClient
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
-            WorkingDirectory = "/home/stmuraws/source/PoshMcp" // Use absolute path to solution root
+            WorkingDirectory = Directory.GetCurrentDirectory() // Use current directory as solution root
         };
 
         _serverProcess = new Process { StartInfo = startInfo };

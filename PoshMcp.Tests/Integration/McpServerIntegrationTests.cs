@@ -200,7 +200,7 @@ public class InProcessMcpServer : IDisposable
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
-            WorkingDirectory = "/home/stmuraws/source/PoshMcp"
+            WorkingDirectory = Directory.GetCurrentDirectory()
         };
 
         _serverProcess = new Process { StartInfo = startInfo };
