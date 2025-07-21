@@ -35,13 +35,14 @@ public static class McpToolFactoryV2
     private static Dictionary<string, MethodInfo>? _generatedMethods;
 
     /// <summary>
-    /// Gets PowerShell command metadata including help synopsis and verb information
+    /// Gets PowerShell command metadata including parameter-set-specific syntax and verb information
     /// </summary>
     /// <param name="commandInfo">CommandInfo to analyze</param>
+    /// <param name="parameterSet">Specific parameter set to generate description for</param>
     /// <param name="powerShell">PowerShell instance for executing queries</param>
     /// <param name="logger">Logger instance</param>
-    /// <returns>Command metadata with synopsis, verb info, and safety characteristics</returns>
-    private static PowerShellCommandMetadata GetCommandMetadata(CommandInfo commandInfo, PSPowerShell powerShell, ILogger logger)
+    /// <returns>Command metadata with parameter-set-specific syntax, verb info, and safety characteristics</returns>
+    private static PowerShellCommandMetadata GetCommandMetadata(CommandInfo commandInfo, CommandParameterSetInfo parameterSet, PSPowerShell powerShell, ILogger logger)
     {
         var metadata = new PowerShellCommandMetadata
         {
@@ -54,38 +55,27 @@ public static class McpToolFactoryV2
 
         try
         {
-            // Get help information for the command to extract synopsis
+            // Get parameter-set-specific syntax description instead of general help
             try
             {
-                powerShell.Commands.Clear();
-                powerShell.AddCommand("Get-Help")
-                         .AddParameter("Name", commandInfo.Name)
-                         .AddParameter("ErrorAction", "SilentlyContinue");
-
-                var helpResult = powerShell.Invoke();
-                powerShell.Commands.Clear();
-
-                if (helpResult.Count > 0 && helpResult[0] != null)
+                var parameterSetSyntax = parameterSet.ToString();
+                if (!string.IsNullOrWhiteSpace(parameterSetSyntax))
                 {
-                    var helpObject = helpResult[0];
-
-                    // Try to get Synopsis property
-                    var synopsisProperty = helpObject.Properties["Synopsis"];
-                    if (synopsisProperty?.Value != null)
-                    {
-                        var synopsis = synopsisProperty.Value.ToString()?.Trim();
-                        if (!string.IsNullOrWhiteSpace(synopsis) &&
-                            !synopsis.Equals(commandInfo.Name, StringComparison.OrdinalIgnoreCase))
-                        {
-                            metadata.Description = synopsis;
-                            logger.LogDebug($"Found synopsis for {commandInfo.Name}: {synopsis}");
-                        }
-                    }
+                    // Create a full command syntax showing command name + parameter set
+                    metadata.Description = $"{commandInfo.Name} {parameterSetSyntax}";
+                    logger.LogDebug($"Generated parameter-set-specific description for {commandInfo.Name} ({parameterSet.Name}): {metadata.Description}");
+                }
+                else
+                {
+                    // Fallback to command name if parameter set syntax is empty
+                    metadata.Description = commandInfo.Name;
+                    logger.LogDebug($"No parameter set syntax available for {commandInfo.Name} ({parameterSet.Name}), using command name as fallback");
                 }
             }
             catch (Exception ex)
             {
-                logger.LogWarning($"Could not retrieve help for command {commandInfo.Name}: {ex.Message}");
+                logger.LogWarning($"Could not generate parameter-set syntax for command {commandInfo.Name} ({parameterSet.Name}): {ex.Message}");
+                metadata.Description = commandInfo.Name; // Fallback to command name
             }
 
             // Analyze the command verb using Get-Verb to determine safety characteristics
@@ -209,8 +199,8 @@ public static class McpToolFactoryV2
             logger.LogError($"Error getting metadata for command {commandInfo.Name}: {ex.Message}");
         }
 
-        logger.LogDebug($"Command metadata for {metadata.CommandName}: Description='{metadata.Description}', IsDestructive={metadata.IsDestructive}, IsReadOnly={metadata.IsReadOnly}, IsIdempotent={metadata.IsIdempotent}");
-
+        logger.LogDebug($"Command metadata for {metadata.CommandName} ({parameterSet.Name}): Description='{metadata.Description}', IsDestructive={metadata.IsDestructive}, IsReadOnly={metadata.IsReadOnly}, IsIdempotent={metadata.IsIdempotent}");
+        
         return metadata;
     }
 
@@ -229,7 +219,7 @@ public static class McpToolFactoryV2
             logger.LogTrace($"  Config type: {config.GetType().Name}");
 
             // Get all available PowerShell commands with their metadata based on configuration
-            var (commands, commandsMetadata) = GetAvailableCommandsWithMetadata(config, logger);
+            var commands = GetAvailableCommands(config, logger);
 
             if (!commands.Any())
             {
@@ -265,27 +255,21 @@ public static class McpToolFactoryV2
             var successCount = 0;
             var failureCount = 0;
 
-            // Create a mapping from method names to source commands for metadata lookup
+            // Create a mapping from method names to parameter-set-specific metadata
             var methodToCommandMap = new Dictionary<string, PowerShellCommandMetadata>();
-
+            var powerShell = PowerShellRunspaceHolder.Instance;
+            
             foreach (var command in commands)
             {
-                // Get the command metadata
-                var metadata = commandsMetadata.GetValueOrDefault(command.Name, new PowerShellCommandMetadata
-                {
-                    CommandName = command.Name,
-                    Description = command.Name,
-                    IsDestructive = false,
-                    IsReadOnly = false,
-                    IsIdempotent = false
-                });
-
-                // For each parameter set of this command, create method name mapping
+                // For each parameter set of this command, create parameter-set-specific metadata
                 foreach (var parameterSet in command.ParameterSets)
                 {
                     var methodName = PowerShellDynamicAssemblyGenerator.SanitizeMethodName(command.Name, parameterSet.Name);
+                    
+                    // Get parameter-set-specific metadata instead of general command metadata
+                    var metadata = GetCommandMetadata(command, parameterSet, powerShell, logger);
                     methodToCommandMap[methodName] = metadata;
-                    logger.LogDebug($"Mapped method '{methodName}' to command '{command.Name}' with metadata");
+                    logger.LogDebug($"Created parameter-set-specific metadata for method '{methodName}' from command '{command.Name}' parameter set '{parameterSet.Name}'");
                 }
             }
 
@@ -390,22 +374,8 @@ public static class McpToolFactoryV2
                 commands.AddRange(namedCommands);
                 logger.LogInformation($"Added {namedCommands.Count} commands by name");
 
-
-                foreach (var cmd in namedCommands)
-                {
-                    if (logger.IsEnabled(LogLevel.Trace))
-                    {
-                        logger.LogTrace($"  Added command: {cmd.Name} (Type: {cmd.CommandType})");
-                    }
-                    var cmdMetadata = GetCommandMetadata(cmd, powerShell, logger);
-                    metadata[cmd.Name] = cmdMetadata;
-                }
-
-            }
-            else
-            {
-                logger.LogDebug("No function names specified in configuration");
-
+                // Extract metadata for named commands
+                // (metadata extraction moved to per-parameter-set in GetToolsList)
             }
 
             // Always process modules if specified
@@ -417,21 +387,8 @@ public static class McpToolFactoryV2
                 commands.AddRange(newModuleCommands);
                 logger.LogInformation($"Added {newModuleCommands.Count} new commands from modules");
 
-
-                foreach (var cmd in newModuleCommands)
-                {
-                    if (logger.IsEnabled(LogLevel.Trace))
-                    {
-                        logger.LogTrace($"  Added module command: {cmd.Name} from {cmd.Module}");
-
-                    }
-
-                    if (!metadata.ContainsKey(cmd.Name))
-                    {
-                        var cmdMetadata = GetCommandMetadata(cmd, powerShell, logger);
-                        metadata[cmd.Name] = cmdMetadata;
-                    }
-                }
+                // Extract metadata for module commands
+                // (metadata extraction moved to per-parameter-set in GetToolsList)
             }
             else
             {
@@ -444,14 +401,7 @@ public static class McpToolFactoryV2
                 var beforeCount = commands.Count;
                 logger.LogDebug($"Applying {config.IncludePatterns.Count} include patterns to {beforeCount} commands...");
                 commands = ApplyIncludePatterns(commands, config.IncludePatterns, logger);
-                var addedCount = commands.Count - beforeCount;
-                logger.LogInformation($"Include patterns resulted in {commands.Count} commands (net change: {addedCount:+#;-#;0})");
-
-                // Keep only metadata for included commands
-                var includedCommandNames = commands.Select(c => c.Name).ToHashSet();
-                var filteredMetadata = metadata.Where(kvp => includedCommandNames.Contains(kvp.Key))
-                                              .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-                metadata = filteredMetadata;
+                logger.LogInformation($"Included {commands.Count - beforeCount} commands based on include patterns");
             }
             else
             {
@@ -465,12 +415,7 @@ public static class McpToolFactoryV2
                 logger.LogDebug($"Applying {config.ExcludePatterns.Count} exclude patterns to {beforeCount} commands...");
                 commands = ApplyExcludePatterns(commands, config.ExcludePatterns, logger);
                 logger.LogInformation($"Excluded {beforeCount - commands.Count} commands based on exclude patterns");
-
-                // Keep only metadata for remaining commands
-                var remainingCommandNames = commands.Select(c => c.Name).ToHashSet();
-                var filteredMetadata = metadata.Where(kvp => remainingCommandNames.Contains(kvp.Key))
-                                              .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-                metadata = filteredMetadata;
+                logger.LogInformation($"Excluded {beforeCount - commands.Count} commands based on exclude patterns");
             }
             else
             {
@@ -478,23 +423,13 @@ public static class McpToolFactoryV2
             }
 
             logger.LogInformation($"Final command count after processing: {commands.Count}");
-            logger.LogInformation($"Extracted metadata for {metadata.Count} commands");
-
-            if (logger.IsEnabled(LogLevel.Debug))
-            {
-                logger.LogDebug("Final command list:");
-                foreach (var cmd in commands.OrderBy(c => c.Name))
-                {
-                    logger.LogDebug($"  {cmd.Name} ({cmd.CommandType})");
-                }
-            }
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error discovering PowerShell commands");
         }
 
-        return (commands, metadata);
+        return (commands, new Dictionary<string, PowerShellCommandMetadata>()); // Empty metadata dictionary since it's now generated per-parameter-set
     }
 
     /// <summary>
