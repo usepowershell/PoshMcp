@@ -126,6 +126,15 @@ public static class McpToolFactoryV2
                                     metadata.IsReadOnly = true;
                                     metadata.IsIdempotent = true;
                                 }
+                                else if (verbPart.Equals("Set", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    metadata.IsIdempotent = true; // Set operations are often idempotent
+                                }
+                                else if (verbPart.Equals("Remove", StringComparison.OrdinalIgnoreCase) ||
+                                         verbPart.Equals("Clear", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    metadata.IsDestructive = true; // Remove/Clear are destructive even if in Common group
+                                }
                                 break;
 
                             case "DATA":
@@ -179,7 +188,8 @@ public static class McpToolFactoryV2
                              verbPart.Equals("Delete", StringComparison.OrdinalIgnoreCase) ||
                              verbPart.Equals("Clear", StringComparison.OrdinalIgnoreCase) ||
                              verbPart.Equals("Stop", StringComparison.OrdinalIgnoreCase) ||
-                             verbPart.Equals("Kill", StringComparison.OrdinalIgnoreCase))
+                             verbPart.Equals("Kill", StringComparison.OrdinalIgnoreCase) ||
+                             verbPart.Equals("Start", StringComparison.OrdinalIgnoreCase))
                     {
                         metadata.IsDestructive = true;
                     }
