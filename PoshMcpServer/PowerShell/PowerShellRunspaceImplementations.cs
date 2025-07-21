@@ -139,9 +139,42 @@ public class IsolatedPowerShellRunspace : IPowerShellRunspace, IDisposable
 
         lock (_lock)
         {
-            _powerShell?.Dispose();
-            _runspace?.Dispose();
-            _semaphore?.Dispose();
+            try
+            {
+                // Clear any pending commands before disposal to prevent empty pipeline issues
+                if (_powerShell != null)
+                {
+                    if (_powerShell.InvocationStateInfo.State == PSInvocationState.Running)
+                    {
+                        _powerShell.Stop();
+                    }
+                    _powerShell.Commands?.Clear();
+                    _powerShell.Dispose();
+                }
+            }
+            catch (Exception)
+            {
+                // Ignore disposal errors to prevent crashes during cleanup
+            }
+
+            try
+            {
+                _runspace?.Dispose();
+            }
+            catch (Exception)
+            {
+                // Ignore disposal errors to prevent crashes during cleanup
+            }
+
+            try
+            {
+                _semaphore?.Dispose();
+            }
+            catch (Exception)
+            {
+                // Ignore disposal errors to prevent crashes during cleanup
+            }
+
             _disposed = true;
         }
     }

@@ -1,4 +1,5 @@
 using System;
+using System.Management.Automation;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -33,6 +34,19 @@ public class PowerShellCleanupService : IHostedService
             // Get the PowerShell instance to dispose it properly
             var powerShell = PowerShellRunspaceHolder.Instance;
             var runspace = powerShell.Runspace;
+
+            // Clear any pending commands before disposal to prevent empty pipeline issues
+            if (powerShell.InvocationStateInfo.State == System.Management.Automation.PSInvocationState.NotStarted ||
+                powerShell.InvocationStateInfo.State == System.Management.Automation.PSInvocationState.Completed)
+            {
+                powerShell.Commands?.Clear();
+            }
+            else if (powerShell.InvocationStateInfo.State == System.Management.Automation.PSInvocationState.Running)
+            {
+                // Stop any running operations before disposal
+                powerShell.Stop();
+                powerShell.Commands?.Clear();
+            }
 
             powerShell.Dispose();
             runspace?.Dispose();

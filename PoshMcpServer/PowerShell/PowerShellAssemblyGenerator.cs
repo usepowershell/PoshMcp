@@ -636,6 +636,13 @@ public class PowerShellAssemblyGenerator
     {
         try
         {
+            // Check if pipeline contains commands before invoking
+            if (ps.Commands.Commands.Count == 0)
+            {
+                logger.LogWarning($"Cannot {operationName}: PowerShell pipeline contains no commands");
+                return new Collection<PSObject>();
+            }
+
             return await Task.Run(() => ps.Invoke(), cancellationToken);
         }
         catch (Exception ex)
