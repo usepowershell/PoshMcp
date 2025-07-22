@@ -13,6 +13,7 @@
     <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.7" />
     <PackageReference Include="Microsoft.PowerShell.SDK" Version="7.4.11" />
     <PackageReference Include="ModelContextProtocol" Version="0.3.0-preview.2" />
+    <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
   </ItemGroup>
 
   <ItemGroup>

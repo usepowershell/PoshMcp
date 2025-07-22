@@ -4,7 +4,10 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using PoshMcp.PowerShell;
+using System;
+using System.CommandLine;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -14,16 +17,156 @@ namespace PoshMcp;
 
 public class Program
 {
-    public static async Task Main(string[] args)
+    public static async Task<int> Main(string[] args)
+    {
+        // Set up command line parsing
+        var rootCommand = new RootCommand("PowerShell MCP Server - Provides access to PowerShell commands via Model Context Protocol");
+        
+        var evaluateToolsOption = new Option<bool>(
+            aliases: new[] { "--evaluate-tools", "-e" },
+            description: "Evaluate and list discovered PowerShell tools without starting the MCP server");
+        
+        var verboseOption = new Option<bool>(
+            aliases: new[] { "--verbose", "-v" },
+            description: "Enable verbose logging");
+            
+        var debugOption = new Option<bool>(
+            aliases: new[] { "--debug", "-d" },
+            description: "Enable debug logging");
+            
+        var traceOption = new Option<bool>(
+            aliases: new[] { "--trace", "-t" },
+            description: "Enable trace logging");
+
+        rootCommand.AddOption(evaluateToolsOption);
+        rootCommand.AddOption(verboseOption);
+        rootCommand.AddOption(debugOption);
+        rootCommand.AddOption(traceOption);
+
+        rootCommand.SetHandler(async (evaluateTools, verbose, debug, trace) =>
+        {
+            // Determine log level based on options
+            LogLevel logLevel = LogLevel.Information;
+            if (trace) logLevel = LogLevel.Trace;
+            else if (debug) logLevel = LogLevel.Debug;
+            else if (verbose) logLevel = LogLevel.Debug; // Verbose maps to Debug level
+
+            if (evaluateTools)
+            {
+                await RunToolEvaluationAsync(logLevel);
+            }
+            else
+            {
+                await RunMcpServerAsync(args, logLevel);
+            }
+        }, evaluateToolsOption, verboseOption, debugOption, traceOption);
+
+        return await rootCommand.InvokeAsync(args);
+    }
+
+    private static async Task RunToolEvaluationAsync(LogLevel logLevel)
+    {
+        Console.Error.WriteLine("=== PowerShell MCP Server - Tool Evaluation Mode ===");
+        Console.Error.WriteLine();
+
+        // Create a simple logger factory for evaluation mode
+        using var loggerFactory = LoggerFactory.Create(builder =>
+            builder.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace)
+                   .SetMinimumLevel(logLevel));
+
+        var logger = loggerFactory.CreateLogger("ToolEvaluation");
+
+        try
+        {
+            logger.LogInformation("Starting tool evaluation mode");
+            logger.LogDebug($"Log level set to: {logLevel}");
+
+            // Load configuration similar to main server
+            var appDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? Directory.GetCurrentDirectory();
+            var configPath = Path.Combine(appDirectory, "appsettings.json");
+
+            string finalConfigPath;
+            if (File.Exists(configPath))
+            {
+                finalConfigPath = configPath;
+            }
+            else if (File.Exists("appsettings.json"))
+            {
+                finalConfigPath = "appsettings.json";
+            }
+            else
+            {
+                finalConfigPath = configPath;
+                await CreateDefaultConfigFileAsync(configPath);
+            }
+
+            logger.LogInformation($"Loading configuration from: {finalConfigPath}");
+
+            // Build configuration
+            var configuration = new ConfigurationBuilder()
+                .AddJsonFile(finalConfigPath, optional: false, reloadOnChange: false)
+                .Build();
+
+            var config = new PowerShellConfiguration();
+            configuration.GetSection("PowerShellConfiguration").Bind(config);
+
+            logger.LogDebug("Configuration loaded successfully");
+            logger.LogTrace($"Function names: {string.Join(", ", config.FunctionNames)}");
+            logger.LogTrace($"Modules: {string.Join(", ", config.Modules)}");
+            logger.LogTrace($"Include patterns: {string.Join(", ", config.IncludePatterns)}");
+            logger.LogTrace($"Exclude patterns: {string.Join(", ", config.ExcludePatterns)}");
+
+            // Discover tools using the same logic as the main server
+            logger.LogInformation("Discovering PowerShell tools...");
+            var tools = McpToolFactoryV2.GetToolsList(config, logger);
+
+            // Report results
+            Console.Error.WriteLine();
+            Console.Error.WriteLine($"=== Tool Discovery Results ===");
+            Console.Error.WriteLine($"Total tools discovered: {tools.Count}");
+            Console.Error.WriteLine();
+
+            if (tools.Count > 0)
+            {
+                Console.Error.WriteLine("Successfully created MCP tools from discovered PowerShell commands.");
+                Console.Error.WriteLine("Tools are ready to be exposed via the MCP server.");
+                Console.Error.WriteLine();
+                Console.Error.WriteLine("To start the MCP server with these tools, run without the --evaluate-tools flag.");
+            }
+            else
+            {
+                Console.Error.WriteLine("No tools were discovered. Check your configuration and PowerShell environment.");
+                Console.Error.WriteLine();
+                Console.Error.WriteLine("Ensure that:");
+                Console.Error.WriteLine("- PowerShell commands specified in FunctionNames exist");
+                Console.Error.WriteLine("- Modules specified in Modules are available");
+                Console.Error.WriteLine("- Include/exclude patterns are not filtering out all commands");
+            }
+
+            logger.LogInformation("Tool evaluation completed successfully");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error during tool evaluation: {ErrorMessage}", ex.Message);
+            Console.Error.WriteLine($"Error: {ex.Message}");
+        }
+    }
+
+    private static async Task RunMcpServerAsync(string[] args, LogLevel? overrideLogLevel = null)
     {
         var builder = Host.CreateApplicationBuilder(args);
 
-        // Configure logging first
+        // Configure logging
         builder.Logging.AddConsole(consoleLogOptions =>
         {
             // Configure all logs to go to stderr
             consoleLogOptions.LogToStandardErrorThreshold = LogLevel.Trace;
         });
+
+        if (overrideLogLevel.HasValue)
+        {
+            builder.Logging.SetMinimumLevel(overrideLogLevel.Value);
+        }
 
         // Configure settings - look for appsettings.json in the application directory
         var appDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? Directory.GetCurrentDirectory();
