@@ -1,16 +1,8 @@
 using PoshMcp.PowerShell;
-using System;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.Management.Automation;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Xunit;
 using Xunit.Abstractions;
-using System.Linq;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace PoshMcp.Tests.Functional.PowerShellCommandExecution;
 
