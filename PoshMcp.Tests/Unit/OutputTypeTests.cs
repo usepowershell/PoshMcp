@@ -7,7 +7,7 @@ using PoshMcp.PowerShell;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace PoshMcp.Tests;
+namespace PoshMcp.Tests.Unit;
 
 /// <summary>
 /// Tests for examining PowerShell command OutputType information

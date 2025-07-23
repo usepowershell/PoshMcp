@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace PoshMcp.Tests;
+namespace PoshMcp.Tests.Unit;
 
 /// <summary>
 /// Tests for PowerShell parameter type handling in dynamic assembly generation

@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace PoshMcp.Tests;
+namespace PoshMcp.Tests.Functional;
 
 /// <summary>
 /// Tests for PowerShell dynamic assembly generation

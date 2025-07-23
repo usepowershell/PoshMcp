@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace PoshMcp.Tests;
+namespace PoshMcp.Tests.Integration;
 
 /// <summary>
 /// Integration tests for the complete PowerShell dynamic assembly workflow

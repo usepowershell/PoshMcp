@@ -15,7 +15,7 @@ using Newtonsoft.Json.Linq;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace PoshMcp.Tests;
+namespace PoshMcp.Tests.Integration;
 
 /// <summary>
 /// Integration tests that run the MCP server in-process and communicate with external clients

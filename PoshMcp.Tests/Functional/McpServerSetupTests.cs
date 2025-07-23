@@ -11,7 +11,7 @@ using PoshMcp.PowerShell;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace PoshMcp.Tests;
+namespace PoshMcp.Tests.Functional;
 
 /// <summary>
 /// Tests for MCP server setup including configuration loading and tool factory

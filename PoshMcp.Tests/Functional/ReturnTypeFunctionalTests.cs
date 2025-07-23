@@ -10,14 +10,14 @@ using PoshMcp.PowerShell;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace PoshMcp.Tests;
+namespace PoshMcp.Tests.Functional;
 
 /// <summary>
-/// Integration tests for the new string (JSON) return type system
+/// Functional tests for the new string (JSON) return type system
 /// </summary>
-public class ReturnTypeIntegrationTests : PowerShellTestBase
+public class ReturnTypeFunctionalTests : PowerShellTestBase
 {
-    public ReturnTypeIntegrationTests(ITestOutputHelper output) : base(output) { }
+    public ReturnTypeFunctionalTests(ITestOutputHelper output) : base(output) { }
 
     [Fact]
     public async Task GeneratedMethod_ShouldReturnObjectArray()
