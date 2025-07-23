@@ -9,15 +9,13 @@ using Microsoft.Extensions.Logging;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace PoshMcp.Tests.Functional;
+namespace PoshMcp.Tests.Functional.MethodExecution;
 
 /// <summary>
-/// Tests for generated method execution
+/// Test for direct generated method execution
 /// </summary>
-public class MethodExecutionTests : PowerShellTestBase
+public partial class ExecutionTests : PowerShellTestBase
 {
-    public MethodExecutionTests(ITestOutputHelper output) : base(output) { }
-
     [Fact]
     public async Task GeneratedMethod_ShouldBeCallableDirectly()
     {

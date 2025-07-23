@@ -10,76 +10,22 @@ using PoshMcp.PowerShell;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace PoshMcp.Tests.Functional;
+namespace PoshMcp.Tests.Functional.ReturnType;
 
 /// <summary>
-/// Functional tests for the new string (JSON) return type system
+/// Test for Get-ChildItem handling (currently skipped)
 /// </summary>
-public class ReturnTypeFunctionalTests : PowerShellTestBase
+public partial class GeneratedMethod : PowerShellTestBase
 {
-    public ReturnTypeFunctionalTests(ITestOutputHelper output) : base(output) { }
-
-    [Fact]
-    public async Task GeneratedMethod_ShouldReturnObjectArray()
-    {
-        // Arrange
-        var getProcessCommand = PowerShellRunspace.Instance;
-        getProcessCommand.Commands.Clear();
-        getProcessCommand.AddCommand("Get-Command").AddParameter("Name", "Get-Process");
-        var commandInfo = getProcessCommand.Invoke<CommandInfo>().FirstOrDefault();
-        getProcessCommand.Commands.Clear();
-
-        Assert.NotNull(commandInfo);
-
-        // Generate assembly with the command
-        var assembly = AssemblyGenerator.GenerateAssembly(new[] { commandInfo }, Logger);
-        var methods = AssemblyGenerator.GetGeneratedMethods();
-        var instance = AssemblyGenerator.GetGeneratedInstance(Logger);
-
-        // Log all available methods for debugging
-        Logger.LogInformation($"Available methods: {string.Join(", ", methods.Keys)}");
-
-        var getProcessMethod = methods.Values.FirstOrDefault(m =>
-            m.Name.StartsWith("get_process_id"));
-        Assert.NotNull(getProcessMethod);
-
-        Logger.LogInformation($"Found method: {getProcessMethod.Name}");
-        Logger.LogInformation($"Return type: {getProcessMethod.ReturnType.FullName}");
-
-        // Verify the return type is Task<string>
-        Assert.Equal(typeof(Task<string>), getProcessMethod.ReturnType);
-
-        // Act - invoke the method with current process ID only
-        var currentProcessId = System.Diagnostics.Process.GetCurrentProcess().Id;
-        var parameterDict = new Dictionary<string, object?>
-        {
-            ["Id"] = new Int32[] { currentProcessId },
-            ["cancellationToken"] = CancellationToken.None
-        };
-        var parameters = PowerShellParameterUtils.CreateParameterArray(getProcessMethod, parameterDict);
-
-        Logger.LogInformation($"Invoking method with process ID: {currentProcessId}");
-        var result = await (Task<string>)getProcessMethod.Invoke(instance, parameters)!;
-
-        // Assert
-        Assert.NotNull(result);
-        Assert.False(string.IsNullOrEmpty(result), "Should return a non-empty JSON string");
-        Logger.LogInformation($"Returned JSON: {result}");
-
-        // Verify the result is valid JSON and contains expected process data
-        Assert.Contains("ProcessName", result);
-        Assert.Contains("Id", result);
-        Assert.Contains(currentProcessId.ToString(), result);
-    }
-
     [Fact(Skip = "Skipping Get-ChildItem test as it's hanging")]
-    public async Task GeneratedMethod_ShouldHandleGetChildItemCorrectly()
+    public async Task ShouldHandleGetChildItemCorrectly()
     {
         // Arrange
         var getChildItemCommand = PowerShellRunspace.Instance;
         getChildItemCommand.Commands.Clear();
         getChildItemCommand.AddCommand("Get-Command").AddParameter("Name", "Get-ChildItem");
-        var commandInfo = getChildItemCommand.Invoke<CommandInfo>().FirstOrDefault();
+        var safeResults = SafeInvokePowerShell(getChildItemCommand, "getting Get-ChildItem command info");
+        var commandInfo = safeResults.Select(pso => pso.BaseObject).OfType<CommandInfo>().FirstOrDefault();
         getChildItemCommand.Commands.Clear();
 
         Assert.NotNull(commandInfo);
