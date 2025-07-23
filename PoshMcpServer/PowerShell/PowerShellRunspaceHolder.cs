@@ -53,8 +53,11 @@ public static class PowerShellRunspaceHolder
             }
         ");
 
-        // Execute the initialization script
-        powerShell.Invoke();
+        // Execute the initialization script safely
+        if (powerShell.Commands.Commands.Count > 0)
+        {
+            powerShell.Invoke();
+        }
 
         // Clear any commands from the initialization
         powerShell.Commands.Clear();

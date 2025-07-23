@@ -69,8 +69,11 @@ public class IsolatedPowerShellRunspace : IPowerShellRunspace, IDisposable
             Write-Host ""MCP Test PowerShell session initialized: $McpTestSessionId"" -ForegroundColor Yellow
         ");
 
-        // Execute the initialization script
-        _powerShell.Invoke();
+        // Execute the initialization script safely
+        if (_powerShell.Commands.Commands.Count > 0)
+        {
+            _powerShell.Invoke();
+        }
 
         // Clear any commands from the initialization
         _powerShell.Commands.Clear();

@@ -531,7 +531,8 @@ public class PowerShellAssemblyGenerator
                     Collection<PSObject> results;
                     try
                     {
-                        results = ps.Invoke();
+                        var safeResults = InvokePowerShellSafeSync(ps, logger, $"executing {commandName}");
+                        results = safeResults ?? new Collection<PSObject>();
                     }
                     catch (CommandNotFoundException cmdEx)
                     {
@@ -573,7 +574,8 @@ public class PowerShellAssemblyGenerator
                     Collection<PSObject> jsonResults;
                     try
                     {
-                        jsonResults = ps.Invoke();
+                        var safeJsonResults = InvokePowerShellSafeSync(ps, logger, "converting results to JSON");
+                        jsonResults = safeJsonResults ?? new Collection<PSObject>();
                         ps.Commands.Clear();
                     }
                     catch (Exception ex)
@@ -623,6 +625,39 @@ public class PowerShellAssemblyGenerator
             return true; // Has errors
         }
         return false; // No errors
+    }
+
+    /// <summary>
+    /// Common method to invoke PowerShell commands with error handling (synchronous version)
+    /// </summary>
+    private static Collection<PSObject>? InvokePowerShellSafeSync(
+        System.Management.Automation.PowerShell ps,
+        ILogger logger,
+        string operationName)
+    {
+        try
+        {
+            // Check if pipeline contains commands before invoking
+            if (ps.Commands.Commands.Count == 0)
+            {
+                logger.LogWarning($"Cannot {operationName}: PowerShell pipeline contains no commands");
+                return new Collection<PSObject>();
+            }
+
+            return ps.Invoke();
+        }
+        catch (CommandNotFoundException cmdEx)
+        {
+            logger.LogWarning($"Command not found during {operationName}: {cmdEx.Message}");
+            ps.Commands.Clear();
+            throw; // Re-throw to let the calling code handle this specific case
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning($"Failed to {operationName}: {ex.Message}");
+            ps.Commands.Clear();
+            return null;
+        }
     }
 
     /// <summary>
