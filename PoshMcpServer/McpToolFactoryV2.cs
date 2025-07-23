@@ -33,27 +33,45 @@ public static class McpToolFactoryV2
         try
         {
             logger.LogInformation("Starting MCP tools generation using dynamic assembly approach");
+            logger.LogTrace("Tool factory configuration:");
+            logger.LogTrace($"  Config type: {config.GetType().Name}");
 
             // Get all available PowerShell commands based on configuration
             var commands = GetAvailableCommands(config, logger);
 
             if (!commands.Any())
             {
-                logger.LogWarning("No PowerShell commands found");
+                logger.LogWarning("No PowerShell commands found - check configuration and PowerShell environment");
+                logger.LogDebug("Suggestions:");
+                logger.LogDebug("  - Verify function names exist in PowerShell");
+                logger.LogDebug("  - Check if specified modules are available");
+                logger.LogDebug("  - Review include/exclude patterns");
                 return new List<McpServerTool>();
             }
 
             logger.LogInformation($"Found {commands.Count} PowerShell commands");
+            logger.LogTrace($"Commands to process: [{string.Join(", ", commands.Select(c => c.Name))}]");
 
             // Generate the assembly with all command methods
+            logger.LogDebug("Generating dynamic assembly for PowerShell commands...");
             _generatedAssembly = PowerShellDynamicAssemblyGenerator.GenerateAssembly(commands, logger);
             _generatedInstance = PowerShellDynamicAssemblyGenerator.GetGeneratedInstance(logger);
             _generatedMethods = PowerShellDynamicAssemblyGenerator.GetGeneratedMethods();
 
             logger.LogInformation($"Generated assembly with {_generatedMethods.Count} methods");
+            if (logger.IsEnabled(LogLevel.Trace))
+            {
+                logger.LogTrace("Generated methods:");
+                foreach (var method in _generatedMethods.OrderBy(m => m.Key))
+                {
+                    logger.LogTrace($"  {method.Key} -> {method.Value.ReturnType.Name} with {method.Value.GetParameters().Length} parameters");
+                }
+            }
 
             // Create MCP tools from generated methods
             var tools = new List<McpServerTool>();
+            var successCount = 0;
+            var failureCount = 0;
 
             foreach (var kvp in _generatedMethods)
             {
@@ -62,6 +80,8 @@ public static class McpToolFactoryV2
 
                 try
                 {
+                    logger.LogTrace($"Processing method '{methodName}' for MCP tool creation...");
+                    
                     // Create a delegate from the method
                     var delegateType = GetDelegateTypeForMethod(method);
                     var methodDelegate = Delegate.CreateDelegate(delegateType, _generatedInstance, method);
@@ -86,21 +106,36 @@ public static class McpToolFactoryV2
                     // Create the MCP server tool
                     var tool = McpServerTool.Create(methodDelegate, options);
                     tools.Add(tool);
+                    successCount++;
 
                     logger.LogInformation($"Successfully created MCP tool '{options.Name}' for command '{originalCommandName}'");
                 }
                 catch (Exception ex)
                 {
+                    failureCount++;
                     logger.LogError(ex, $"Failed to create MCP tool for method '{methodName}': {ex.Message}");
+                    if (logger.IsEnabled(LogLevel.Trace))
+                    {
+                        logger.LogTrace($"Method details - Name: {methodName}, Return Type: {method.ReturnType}, Parameters: {method.GetParameters().Length}");
+                    }
                 }
             }
 
             logger.LogInformation($"Successfully created {tools.Count} MCP tools from dynamic assembly");
+            logger.LogDebug($"Tool creation summary: {successCount} succeeded, {failureCount} failed");
+            
+            if (failureCount > 0 && logger.IsEnabled(LogLevel.Debug))
+            {
+                logger.LogDebug("Some tools failed to be created. This may be due to unsupported parameter types or complex PowerShell objects.");
+                logger.LogDebug("The MCP server will still work with the successfully created tools.");
+            }
+            
             return tools;
         }
         catch (Exception ex)
         {
             logger.LogError(ex, $"Failed to generate MCP tools using dynamic assembly: {ex.Message}");
+            logger.LogDebug("This error prevented any tools from being created. Check PowerShell configuration and environment.");
             return new List<McpServerTool>();
         }
     }
@@ -116,40 +151,89 @@ public static class McpToolFactoryV2
         try
         {
             logger.LogInformation("Processing PowerShell configuration...");
+            logger.LogTrace("Configuration details:");
+            logger.LogTrace($"  Function Names: [{string.Join(", ", config.FunctionNames)}]");
+            logger.LogTrace($"  Modules: [{string.Join(", ", config.Modules)}]");
+            logger.LogTrace($"  Include Patterns: [{string.Join(", ", config.IncludePatterns)}]");
+            logger.LogTrace($"  Exclude Patterns: [{string.Join(", ", config.ExcludePatterns)}]");
 
             // Always process function names if specified
             if (config.FunctionNames.Any())
             {
+                logger.LogDebug($"Processing {config.FunctionNames.Count} function names...");
                 var namedCommands = GetCommandsByName(config.FunctionNames, powerShell, logger);
                 commands.AddRange(namedCommands);
                 logger.LogInformation($"Added {namedCommands.Count} commands by name");
+                if (logger.IsEnabled(LogLevel.Trace))
+                {
+                    foreach (var cmd in namedCommands)
+                    {
+                        logger.LogTrace($"  Added command: {cmd.Name} (Type: {cmd.CommandType})");
+                    }
+                }
+            }
+            else
+            {
+                logger.LogDebug("No function names specified in configuration");
             }
 
             // Always process modules if specified
             if (config.Modules.Any())
             {
+                logger.LogDebug($"Processing {config.Modules.Count} modules...");
                 var moduleCommands = GetCommandsByModule(config.Modules, powerShell, logger);
-                commands.AddRange(moduleCommands.Where(mc => !commands.Any(c => c.Name == mc.Name)));
-                logger.LogInformation($"Added {moduleCommands.Count(mc => !commands.Any(c => c.Name == mc.Name))} new commands from modules");
+                var newModuleCommands = moduleCommands.Where(mc => !commands.Any(c => c.Name == mc.Name)).ToList();
+                commands.AddRange(newModuleCommands);
+                logger.LogInformation($"Added {newModuleCommands.Count} new commands from modules");
+                if (logger.IsEnabled(LogLevel.Trace))
+                {
+                    foreach (var cmd in newModuleCommands)
+                    {
+                        logger.LogTrace($"  Added module command: {cmd.Name} from {cmd.Module}");
+                    }
+                }
+            }
+            else
+            {
+                logger.LogDebug("No modules specified in configuration");
             }
 
             // Apply include patterns if specified to filter configured commands 
             if (config.IncludePatterns.Any())
             {
                 var beforeCount = commands.Count;
+                logger.LogDebug($"Applying {config.IncludePatterns.Count} include patterns to {beforeCount} commands...");
                 commands = ApplyIncludePatterns(commands, config.IncludePatterns, logger);
-                logger.LogInformation($"Included {commands.Count - beforeCount} commands based on include patterns");
+                var addedCount = commands.Count - beforeCount;
+                logger.LogInformation($"Include patterns resulted in {commands.Count} commands (net change: {addedCount:+#;-#;0})");
+            }
+            else
+            {
+                logger.LogDebug("No include patterns specified in configuration");
             }
 
             // Apply exclude patterns as final filter
             if (config.ExcludePatterns.Any())
             {
                 var beforeCount = commands.Count;
+                logger.LogDebug($"Applying {config.ExcludePatterns.Count} exclude patterns to {beforeCount} commands...");
                 commands = ApplyExcludePatterns(commands, config.ExcludePatterns, logger);
                 logger.LogInformation($"Excluded {beforeCount - commands.Count} commands based on exclude patterns");
             }
+            else
+            {
+                logger.LogDebug("No exclude patterns specified in configuration");
+            }
 
             logger.LogInformation($"Final command count after processing: {commands.Count}");
+            if (logger.IsEnabled(LogLevel.Debug))
+            {
+                logger.LogDebug("Final command list:");
+                foreach (var cmd in commands.OrderBy(c => c.Name))
+                {
+                    logger.LogDebug($"  {cmd.Name} ({cmd.CommandType})");
+                }
+            }
         }
         catch (Exception ex)
         {
