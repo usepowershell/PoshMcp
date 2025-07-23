@@ -40,7 +40,7 @@ function Get-SomeThing {
         {
             ps.Commands.Clear();
             ps.AddScript(functionDefinition);
-            var defineResult = ps.Invoke();
+            var defineResult = SafeInvokePowerShell(ps, "defining test function for integration test");
             ps.Commands.Clear();
 
             if (ps.HadErrors)

@@ -143,7 +143,7 @@ function Get-SomeOtherData {
             {
                 ps.Commands.Clear();
                 ps.AddScript(testFunctionScript);
-                var result = ps.Invoke();
+                var result = SafeInvokePowerShell(ps, "setting up test function for assembly generation");
                 ps.Commands.Clear();
 
                 if (ps.HadErrors)

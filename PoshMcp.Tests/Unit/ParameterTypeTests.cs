@@ -126,7 +126,7 @@ function Get-SomeOtherData {
             {
                 ps.Commands.Clear();
                 ps.AddScript(testFunctionScript);
-                ps.Invoke();
+                SafeInvokePowerShell(ps, "setting up test function for parameter types");
                 ps.Commands.Clear();
 
                 if (ps.HadErrors)

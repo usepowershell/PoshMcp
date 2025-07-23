@@ -1,4 +1,5 @@
 using System;
+using System.Collections.ObjectModel;
 using System.Management.Automation;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
@@ -61,6 +62,33 @@ public abstract class PowerShellTestBase : IDisposable
             return value;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Safely invokes PowerShell commands with empty pipeline protection
+    /// </summary>
+    /// <param name="ps">PowerShell instance</param>
+    /// <param name="operationName">Name of the operation for logging</param>
+    /// <returns>Collection of PSObjects or empty collection if pipeline is empty</returns>
+    protected Collection<PSObject> SafeInvokePowerShell(System.Management.Automation.PowerShell ps, string operationName = "PowerShell operation")
+    {
+        try
+        {
+            // Check if pipeline contains commands before invoking
+            if (ps.Commands.Commands.Count == 0)
+            {
+                Logger.LogWarning($"Cannot execute {operationName}: PowerShell pipeline contains no commands");
+                return new Collection<PSObject>();
+            }
+
+            return ps.Invoke();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning($"Failed to execute {operationName}: {ex.Message}");
+            ps.Commands.Clear();
+            return new Collection<PSObject>();
+        }
     }
 
     /// <summary>

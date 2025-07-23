@@ -49,12 +49,13 @@ function Get-SomeOtherData {
         var powerShell = PowerShellRunspace.Instance;
         powerShell.Commands.Clear();
         powerShell.AddScript(functionDefinition);
-        powerShell.Invoke();
+        SafeInvokePowerShell(powerShell, "setting up function definition for method execution test");
         powerShell.Commands.Clear();
 
         // Get the function command info
         powerShell.AddCommand("Get-Command").AddParameter("Name", "Get-SomeOtherData");
-        var commands = powerShell.Invoke<CommandInfo>();
+        var commandResults = SafeInvokePowerShell(powerShell, "getting command info");
+        var commands = commandResults.Select(p => p.BaseObject).Cast<CommandInfo>().ToList();
         powerShell.Commands.Clear();
 
         Logger.LogInformation($"Found {commands.Count} commands");
