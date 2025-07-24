@@ -38,7 +38,7 @@ public partial class ExecutePowerShellCommand : PowerShellTestBase
         Assert.NotNull(result);
         // With safe pipeline handling, invalid commands should either return empty array or error message
         // Both are acceptable safe behaviors (no crash)
-        Assert.True(result == "[]" || result.Contains("error"),
+        Assert.True(result.Equals("[]", StringComparison.Ordinal) || result.Contains("error"),
             $"Expected either empty array '[]' or error message, but got: {result}");
     }
 }
