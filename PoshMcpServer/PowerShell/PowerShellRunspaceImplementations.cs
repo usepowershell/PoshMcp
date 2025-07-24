@@ -47,33 +47,15 @@ public class IsolatedPowerShellRunspace : IPowerShellRunspace, IDisposable
 
     public IsolatedPowerShellRunspace()
     {
-        // Create a new runspace for this test instance
-        _runspace = RunspaceFactory.CreateRunspace();
-        _runspace.Open();
-
-        // Create PowerShell instance and associate it with the runspace
-        _powerShell = PSPowerShell.Create();
-        _powerShell.Runspace = _runspace;
-
-        // Set up the PowerShell session with basic configuration
-        _powerShell.AddScript(@"
-            # Set execution policy for this session if on Windows
-            if ($PSVersionTable.Platform -eq 'Windows') {
-                Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
-            } 
-        
+        var testScript = @"
             # Set up some useful variables for testing
             $McpTestSessionStartTime = Get-Date
             $McpTestSessionId = [System.Guid]::NewGuid().ToString()
             
-            Write-Host ""MCP Test PowerShell session initialized: $McpTestSessionId"" -ForegroundColor Yellow
-        ");
+            Write-Host ""MCP Test PowerShell session initialized: $McpTestSessionId"" -ForegroundColor Yellow";
 
-        // Execute the initialization script
-        _powerShell.Invoke();
-
-        // Clear any commands from the initialization
-        _powerShell.Commands.Clear();
+        _powerShell = PowerShellRunspaceInitializer.CreateInitializedRunspace(testScript);
+        _runspace = _powerShell.Runspace;
     }
 
     public PSPowerShell Instance

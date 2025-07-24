@@ -5,6 +5,7 @@ using System.Linq;
 using System.Management.Automation;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -531,7 +532,8 @@ public class PowerShellAssemblyGenerator
                     Collection<PSObject> results;
                     try
                     {
-                        results = ps.Invoke();
+                        var safeResults = InvokePowerShellSafe(ps, logger, $"executing {commandName}");
+                        results = safeResults ?? new Collection<PSObject>();
                     }
                     catch (CommandNotFoundException cmdEx)
                     {
@@ -573,7 +575,8 @@ public class PowerShellAssemblyGenerator
                     Collection<PSObject> jsonResults;
                     try
                     {
-                        jsonResults = ps.Invoke();
+                        var safeJsonResults = InvokePowerShellSafe(ps, logger, "converting results to JSON");
+                        jsonResults = safeJsonResults ?? new Collection<PSObject>();
                         ps.Commands.Clear();
                     }
                     catch (Exception ex)
@@ -626,9 +629,49 @@ public class PowerShellAssemblyGenerator
     }
 
     /// <summary>
+    /// Common method to invoke PowerShell commands with error handling (synchronous version)
+    /// </summary>
+    private static Collection<PSObject>? InvokePowerShellSafe(
+        System.Management.Automation.PowerShell ps,
+        ILogger logger,
+        string operationName)
+    {
+        try
+        {
+            // Check if pipeline contains commands before invoking
+
+            if (ps.Commands.Commands.Count == 0)
+            {
+                logger.LogWarning($"Cannot {operationName}: PowerShell pipeline contains no commands");
+                return new Collection<PSObject>();
+            }
+            else
+            {
+                string firstCommand = ps.Commands.Commands[0].CommandText;
+                // test to see if the first command is a valid powershell command
+
+            }
+
+            return ps.Invoke();
+        }
+        catch (CommandNotFoundException cmdEx)
+        {
+            logger.LogWarning($"Command not found during {operationName}: {cmdEx.Message}");
+            ps.Commands.Clear();
+            throw; // Re-throw to let the calling code handle this specific case
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning($"Failed to {operationName}: {ex.Message}");
+            ps.Commands.Clear();
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Common method to invoke PowerShell commands with error handling
     /// </summary>
-    private static async Task<Collection<PSObject>?> InvokePowerShellSafe(
+    private static async Task<Collection<PSObject>?> InvokePowerShellSafeAsync(
         System.Management.Automation.PowerShell ps,
         ILogger logger,
         string operationName,
@@ -669,7 +712,7 @@ public class PowerShellAssemblyGenerator
           .AddParameter("Depth", 10)
           .AddParameter("Compress", true);
 
-        var jsonResults = await InvokePowerShellSafe(ps, logger, $"convert {operationName} to JSON", cancellationToken);
+        var jsonResults = await InvokePowerShellSafeAsync(ps, logger, $"convert {operationName} to JSON", cancellationToken);
         if (jsonResults == null) return null;
 
         if (jsonResults.Count > 0)
@@ -704,7 +747,7 @@ public class PowerShellAssemblyGenerator
                 // Check if the LastCommandOutput variable exists and has content
                 ps.AddScript("if (Get-Variable -Name 'LastCommandOutput' -ErrorAction SilentlyContinue) { $LastCommandOutput } else { $null }");
 
-                var results = await InvokePowerShellSafe(ps, logger, "retrieve cached command output", cancellationToken);
+                var results = await InvokePowerShellSafeAsync(ps, logger, "retrieve cached command output", cancellationToken);
                 if (results == null) return null;
 
                 // Handle errors
@@ -773,7 +816,7 @@ public class PowerShellAssemblyGenerator
                 }
 
                 // Execute the sorting pipeline
-                var results = await InvokePowerShellSafe(ps, logger, "sort cached command output", cancellationToken);
+                var results = await InvokePowerShellSafeAsync(ps, logger, "sort cached command output", cancellationToken);
                 if (results == null) return null;
 
                 // Handle errors
@@ -856,7 +899,7 @@ public class PowerShellAssemblyGenerator
                 }
 
                 // Execute the filtering pipeline
-                var results = await InvokePowerShellSafe(ps, logger, "filter cached command output", cancellationToken);
+                var results = await InvokePowerShellSafeAsync(ps, logger, "filter cached command output", cancellationToken);
                 if (results == null) return null;
 
                 // Handle errors
@@ -928,7 +971,7 @@ public class PowerShellAssemblyGenerator
                 }
 
                 // Execute the grouping pipeline
-                var results = await InvokePowerShellSafe(ps, logger, "group cached command output", cancellationToken);
+                var results = await InvokePowerShellSafeAsync(ps, logger, "group cached command output", cancellationToken);
                 if (results == null) return null;
 
                 // Handle errors

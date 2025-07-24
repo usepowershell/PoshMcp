@@ -14,21 +14,7 @@ public static class PowerShellRunspaceHolder
 {
     private static readonly Lazy<PSPowerShell> _instance = new(() =>
     {
-        // Create a new runspace
-        var runspace = RunspaceFactory.CreateRunspace();
-        runspace.Open();
-
-        // Create PowerShell instance and associate it with the runspace
-        var powerShell = PSPowerShell.Create();
-        powerShell.Runspace = runspace;
-
-        // Set up the PowerShell session with some initial configuration
-        powerShell.AddScript(@"
-            # Set execution policy for this session if on Windows
-            if ($PSVersionTable.Platform -eq 'Windows') {
-                Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
-            } 
-        
+        var productionScript = @"
             # Set up some useful variables
             $McpServerStartTime = Get-Date
             $McpServerVersion = '1.0.0'
@@ -50,16 +36,9 @@ public static class PowerShellRunspaceHolder
             function Get-SomeData ([string]$test = 'This is some persistent data from the MCP server.') {
                 # Example function to demonstrate state persistence
                 return $test
-            }
-        ");
+            }";
 
-        // Execute the initialization script
-        powerShell.Invoke();
-
-        // Clear any commands from the initialization
-        powerShell.Commands.Clear();
-
-        return powerShell;
+        return PowerShellRunspaceInitializer.CreateInitializedRunspace(productionScript);
     });
 
     private static readonly object _lock = new object();

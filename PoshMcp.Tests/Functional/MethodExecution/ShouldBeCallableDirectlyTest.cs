@@ -9,15 +9,13 @@ using Microsoft.Extensions.Logging;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace PoshMcp.Tests;
+namespace PoshMcp.Tests.Functional.MethodExecution;
 
 /// <summary>
-/// Tests for generated method execution
+/// Test for direct generated method execution
 /// </summary>
-public class MethodExecutionTests : PowerShellTestBase
+public partial class ExecutionTests : PowerShellTestBase
 {
-    public MethodExecutionTests(ITestOutputHelper output) : base(output) { }
-
     [Fact]
     public async Task GeneratedMethod_ShouldBeCallableDirectly()
     {
@@ -49,12 +47,13 @@ function Get-SomeOtherData {
         var powerShell = PowerShellRunspace.Instance;
         powerShell.Commands.Clear();
         powerShell.AddScript(functionDefinition);
-        powerShell.Invoke();
+        SafeInvokePowerShell(powerShell, "setting up function definition for method execution test");
         powerShell.Commands.Clear();
 
         // Get the function command info
         powerShell.AddCommand("Get-Command").AddParameter("Name", "Get-SomeOtherData");
-        var commands = powerShell.Invoke<CommandInfo>();
+        var commandResults = SafeInvokePowerShell(powerShell, "getting command info");
+        var commands = commandResults.Select(p => p.BaseObject).Cast<CommandInfo>().ToList();
         powerShell.Commands.Clear();
 
         Logger.LogInformation($"Found {commands.Count} commands");

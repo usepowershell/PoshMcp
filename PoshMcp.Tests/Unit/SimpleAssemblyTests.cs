@@ -2,7 +2,7 @@ using PoshMcp.PowerShell;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace PoshMcp.Tests;
+namespace PoshMcp.Tests.Unit;
 
 /// <summary>
 /// Simple tests for PowerShell dynamic assembly generation
