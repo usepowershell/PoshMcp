@@ -34,8 +34,8 @@ case "${1:-all}" in
         filter="--filter FullyQualifiedName~Unit"
         ;;
     "functional")
-        ## Validate FUNCTIONAL_FILTER if provided
-        if [ -n "${FUNCTIONAL_FILTER}" ]; then
+        ## Validate TEST_FILTER if provided
+        if [ -n "${TEST_FILTER}" ]; then
             # Get all functional test directories
             functional_dirs=""
             if [ -d "PoshMcp.Tests/Functional" ]; then
@@ -47,33 +47,33 @@ case "${1:-all}" in
                 exit 1
             fi
             
-            # Check if FUNCTIONAL_FILTER matches any directory name (start or full match)
+            # Check if TEST_FILTER matches any directory name (start or full match)
             filter_valid=false
             for dir in ${functional_dirs}; do
                 # Check for exact match or if the directory starts with the filter
-                if [ "${dir}" = "${FUNCTIONAL_FILTER}" ] || [[ "${dir}" == "${FUNCTIONAL_FILTER}"* ]]; then
+                if [ "${dir}" = "${TEST_FILTER}" ] || [[ "${dir}" == "${TEST_FILTER}"* ]]; then
                     filter_valid=true
                     break
                 fi
             done
             
             if [ "${filter_valid}" = false ]; then
-                echo "❌ Invalid FUNCTIONAL_FILTER value: '${FUNCTIONAL_FILTER}'"
+                echo "❌ Invalid TEST_FILTER value: '${TEST_FILTER}'"
                 echo "Available functional test directories:"
                 for dir in ${functional_dirs}; do
                     echo "  - ${dir}"
                 done
                 echo ""
-                echo "FUNCTIONAL_FILTER must match the start or full name of a directory"
+                echo "TEST_FILTER must match the start or full name of a directory"
                 exit 1
             fi
         fi
         echo "⚙️ Running Functional Tests..."
-        filter="--filter FullyQualifiedName~Functional.${FUNCTIONAL_FILTER}"
+        filter="--filter FullyQualifiedName~Functional.${TEST_FILTER}"
         ;;
     "integration")
         echo "🔗 Running Integration Tests..."
-        filter="--filter FullyQualifiedName~Integration"
+        filter="--filter FullyQualifiedName~Integration.${TEST_FILTER}"
         ;;
     "fast")
         echo "🚀 Running Fast Tests (Unit + Functional)..."
@@ -99,7 +99,7 @@ case "${1:-all}" in
         echo "Environment Variables:"
         echo "  TEST_VERBOSITY     Set test output verbosity level (default: normal)"
         echo "                     Valid values: q, quiet, m, minimal, n, normal, d, detailed, diag, diagnostic"
-        echo "  FUNCTIONAL_FILTER  Filter functional tests by directory name (optional)"
+        echo "  TEST_FILTER  Filter functional tests by directory name (optional)"
         echo "                     Must match the start or full name of a directory in PoshMcp.Tests/Functional"
         echo ""
         echo "Examples:"
@@ -108,8 +108,8 @@ case "${1:-all}" in
         echo "  $0                                         # Run all tests"
         echo "  TEST_VERBOSITY=quiet $0 unit               # Run unit tests with minimal output"
         echo "  TEST_VERBOSITY=detailed $0 all             # Run all tests with detailed output"
-        echo "  FUNCTIONAL_FILTER=Generated $0 functional  # Run only GeneratedAssembly functional tests"
-        echo "  FUNCTIONAL_FILTER=McpServer $0 functional  # Run only McpServerSetup functional tests"
+        echo "  TEST_FILTER=Generated $0 functional  # Run only GeneratedAssembly functional tests"
+        echo "  TEST_FILTER=McpServer $0 functional  # Run only McpServerSetup functional tests"
         exit 0
         ;;
     *)

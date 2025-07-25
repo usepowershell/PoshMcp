@@ -20,10 +20,40 @@ namespace PoshMcp.Tests.Integration;
 /// <summary>
 /// Integration tests that run the MCP server in-process and communicate with external clients
 /// </summary>
-public class ServerWithExternalClient : PowerShellTestBase
+public class ServerWithExternalClient : PowerShellTestBase, IAsyncLifetime
 {
+    private InProcessMcpServer? _sharedServer;
+    private ExternalMcpClient? _sharedClient;
+
     public ServerWithExternalClient(ITestOutputHelper output) : base(output)
     {
+    }
+
+    public async Task InitializeAsync()
+    {
+        Logger.LogInformation("=== Initializing shared MCP server and client for integration tests ===");
+
+        _sharedServer = new InProcessMcpServer(Logger);
+        await _sharedServer.StartAsync();
+
+        _sharedClient = new ExternalMcpClient(Logger, _sharedServer);
+        await _sharedClient.StartAsync();
+
+        // Client is already initialized in StartAsync(), no need to call SendInitializeAsync() again
+
+        Logger.LogInformation("=== Shared MCP server and client initialized successfully ===");
+    }
+
+    public Task DisposeAsync()
+    {
+        Logger.LogInformation("=== Disposing shared MCP server and client ===");
+
+        _sharedClient?.Dispose();
+        _sharedServer?.Dispose();
+
+        Logger.LogInformation("=== Shared MCP server and client disposed ===");
+
+        return Task.CompletedTask;
     }
 
     [Fact]
@@ -31,18 +61,8 @@ public class ServerWithExternalClient : PowerShellTestBase
     {
         Logger.LogInformation("=== Starting ShouldInitializeAndListTools Test ===");
 
-        // Start the MCP server in-process
-        using var server = await StartInProcessMcpServerAsync();
-
-        // Start external client process and send requests
-        using var client = await StartExternalClientAsync(server);
-
-        // Send initialize request
-        var initResponse = await client.SendInitializeAsync();
-        Assert.NotNull(initResponse);
-        Assert.Equal("2.0", initResponse["jsonrpc"]?.ToString());
-
-        Logger.LogInformation("Server initialized successfully via external client");
+        // Use shared client instance
+        var client = _sharedClient ?? throw new InvalidOperationException("Shared client not initialized");
 
         // List available tools
         var toolsResponse = await client.SendListToolsAsync();
@@ -68,16 +88,10 @@ public class ServerWithExternalClient : PowerShellTestBase
     {
         Logger.LogInformation("=== Starting ShouldExecutePowerShellCommand Test ===");
 
-        // Start the MCP server in-process  
-        using var server = await StartInProcessMcpServerAsync();
+        // Use shared client instance
+        var client = _sharedClient ?? throw new InvalidOperationException("Shared client not initialized");
 
-        // Start external client process
-        using var client = await StartExternalClientAsync(server);
-
-        // Initialize client
-        await client.SendInitializeAsync();
-
-        // add a check to ensure the tool is available
+        // Verify tools are available
         var toolsResponse = await client.SendListToolsAsync();
         Assert.NotNull(toolsResponse);
         Assert.True(toolsResponse["result"]?["tools"] != null);
@@ -85,7 +99,7 @@ public class ServerWithExternalClient : PowerShellTestBase
         // Call the PowerShell function through MCP
         var callResponse = await client.SendToolCallAsync("get_process_name", new
         {
-            name = "dotnet"
+            Name = new[] { "dotnet" }
         });
 
         // Assert: Verify the response
@@ -116,14 +130,8 @@ public class ServerWithExternalClient : PowerShellTestBase
     {
         Logger.LogInformation("=== Starting ShouldHandleErrors Test ===");
 
-        // Start the MCP server in-process
-        using var server = await StartInProcessMcpServerAsync();
-
-        // Start external client process
-        using var client = await StartExternalClientAsync(server);
-
-        // Initialize client
-        await client.SendInitializeAsync();
+        // Use shared client instance
+        var client = _sharedClient ?? throw new InvalidOperationException("Shared client not initialized");
 
         // Try to call a non-existent tool
         var errorResponse = await client.SendToolCallAsync("NonExistentTool", new { });
@@ -140,29 +148,10 @@ public class ServerWithExternalClient : PowerShellTestBase
     }
 
 
-    #region Helper Methods
+    #region Helper Methods (No longer needed - using shared instances)
 
-    private async Task<InProcessMcpServer> StartInProcessMcpServerAsync()
-    {
-        Logger.LogInformation("Starting in-process MCP server for external client testing...");
-
-        var server = new InProcessMcpServer(Logger);
-        await server.StartAsync();
-
-        Logger.LogInformation("In-process MCP server started successfully");
-        return server;
-    }
-
-    private async Task<ExternalMcpClient> StartExternalClientAsync(InProcessMcpServer server)
-    {
-        Logger.LogInformation("Starting external MCP client process...");
-
-        var client = new ExternalMcpClient(Logger, server);
-        await client.StartAsync();
-
-        Logger.LogInformation("External MCP client started successfully");
-        return client;
-    }
+    // These methods are no longer used since we're using shared server/client instances
+    // Left here for reference but could be removed
 
     #endregion
 }
@@ -173,12 +162,10 @@ public class ServerWithExternalClient : PowerShellTestBase
 public class InProcessMcpServer : IDisposable
 {
     private readonly ILogger _logger;
-    private IHost? _host;
-    private List<McpServerTool>? _tools;
     private readonly CancellationTokenSource _cancellationTokenSource;
     private Process? _serverProcess;
 
-    public bool IsRunning => _host != null;
+    public bool IsRunning => _serverProcess != null && !_serverProcess.HasExited;
 
     public InProcessMcpServer(ILogger logger)
     {
@@ -190,22 +177,41 @@ public class InProcessMcpServer : IDisposable
     {
         _logger.LogInformation("Starting in-process MCP server with external stdio...");
 
+        // Get the absolute path to the server project
+        // Navigate from the test output directory to the workspace root
+        var currentDirectory = Directory.GetCurrentDirectory();
+        var workspaceRoot = currentDirectory;
+
+        // Navigate up until we find the workspace root (containing PoshMcp.sln)
+        while (!File.Exists(Path.Combine(workspaceRoot, "PoshMcp.sln")) &&
+               Path.GetDirectoryName(workspaceRoot) != null)
+        {
+            workspaceRoot = Path.GetDirectoryName(workspaceRoot)!;
+        }
+
+        var serverProjectPath = Path.Combine(workspaceRoot, "PoshMcpServer", "PoshMcp.csproj");
+
+        if (!File.Exists(serverProjectPath))
+        {
+            throw new FileNotFoundException($"Server project not found at: {serverProjectPath}. Workspace root: {workspaceRoot}, Current directory: {currentDirectory}");
+        }
+
         // Start the actual server process that external clients can connect to
         var startInfo = new ProcessStartInfo
         {
             FileName = "dotnet",
-            Arguments = "run --project PoshMcpServer/PoshMcp.csproj",
+            Arguments = $"run --project \"{serverProjectPath}\"",
             UseShellExecute = false,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
-            WorkingDirectory = Directory.GetCurrentDirectory()
+            WorkingDirectory = currentDirectory
         };
 
         _serverProcess = new Process { StartInfo = startInfo };
 
-        // Handle server errors
+        // Handle server errors only - stdout is used for MCP communication
         _serverProcess.ErrorDataReceived += (sender, e) =>
         {
             if (!string.IsNullOrEmpty(e.Data))
@@ -216,11 +222,17 @@ public class InProcessMcpServer : IDisposable
 
         _serverProcess.Start();
         _serverProcess.BeginErrorReadLine();
+        // DO NOT call BeginOutputReadLine() because we need to read stdout ourselves for MCP communication
 
-        // Wait a moment for the server to start
-        await Task.Delay(2000);
+        // Give the process a moment to start before we begin testing connectivity
+        await Task.Delay(3000);
 
-        _logger.LogInformation("In-process MCP server with stdio started successfully");
+        if (_serverProcess.HasExited)
+        {
+            throw new InvalidOperationException($"Server process exited with code {_serverProcess.ExitCode}");
+        }
+
+        _logger.LogInformation("In-process MCP server process started successfully");
     }
 
     public Process GetServerProcess() => _serverProcess ?? throw new InvalidOperationException("Server not started");
@@ -237,9 +249,7 @@ public class InProcessMcpServer : IDisposable
         }
 
         _cancellationTokenSource.Cancel();
-        _host?.Dispose();
         _cancellationTokenSource.Dispose();
-        _tools = null;
 
         _logger.LogInformation("In-process MCP server disposed");
     }
@@ -265,10 +275,43 @@ public class ExternalMcpClient : IDisposable
     {
         _serverProcess = _server.GetServerProcess();
 
-        // Wait a bit more for full initialization
-        await Task.Delay(1000);
+        // Test server readiness by attempting to initialize until it succeeds
+        var maxRetries = 30; // 30 seconds total
+        var retryDelay = 1000; // 1 second between retries
+        var initialized = false;
 
-        _logger.LogInformation("External MCP client connected to server stdio");
+        _logger.LogInformation("Testing server readiness by attempting initialization...");
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                // Check if the server process is still running
+                if (_serverProcess.HasExited)
+                {
+                    throw new InvalidOperationException($"Server process exited with code {_serverProcess.ExitCode}");
+                }
+
+                // Try to send an initialize request
+                await SendInitializeAsync();
+
+                initialized = true;
+                _logger.LogInformation($"Server ready after {attempt} attempt(s)");
+                break;
+            }
+            catch (Exception ex) when (attempt < maxRetries)
+            {
+                _logger.LogDebug($"Initialization attempt {attempt} failed: {ex.Message}. Retrying in {retryDelay}ms...");
+                await Task.Delay(retryDelay);
+            }
+        }
+
+        if (!initialized)
+        {
+            throw new TimeoutException($"Server did not become ready after {maxRetries} attempts");
+        }
+
+        _logger.LogInformation("External MCP client connected to server stdio and server is ready");
     }
 
     public async Task<JObject> SendInitializeAsync()
@@ -330,22 +373,43 @@ public class ExternalMcpClient : IDisposable
         if (_serverProcess?.StandardInput == null || _serverProcess?.StandardOutput == null)
             throw new InvalidOperationException("Server process not available");
 
+        if (_serverProcess.HasExited)
+            throw new InvalidOperationException($"Server process has exited with code {_serverProcess.ExitCode}");
+
         var requestJson = JsonConvert.SerializeObject(request);
         _logger.LogDebug($"[CLIENT REQUEST] {JObject.Parse(requestJson).ToString(Formatting.Indented)}");
 
-        // Send request to server
-        await _serverProcess.StandardInput.WriteLineAsync(requestJson);
-        await _serverProcess.StandardInput.FlushAsync();
+        try
+        {
+            // Send request to server
+            await _serverProcess.StandardInput.WriteLineAsync(requestJson);
+            await _serverProcess.StandardInput.FlushAsync();
 
-        // Read response from server
-        var responseJson = await _serverProcess.StandardOutput.ReadLineAsync();
-        if (string.IsNullOrEmpty(responseJson))
-            throw new InvalidOperationException("No response from server");
+            // Read response from server with timeout
+            var responseTask = _serverProcess.StandardOutput.ReadLineAsync();
+            var timeoutTask = Task.Delay(5000); // 5 second timeout for individual requests
 
-        var response = JObject.Parse(responseJson);
-        _logger.LogDebug($"[SERVER RESPONSE] {response.ToString(Formatting.Indented)}");
+            var completedTask = await Task.WhenAny(responseTask, timeoutTask);
 
-        return response;
+            if (completedTask == timeoutTask)
+            {
+                throw new TimeoutException("Server did not respond within 5 seconds");
+            }
+
+            var responseJson = await responseTask;
+            if (string.IsNullOrEmpty(responseJson))
+                throw new InvalidOperationException("No response from server (empty or null)");
+
+            var response = JObject.Parse(responseJson);
+            _logger.LogDebug($"[SERVER RESPONSE] {response.ToString(Formatting.Indented)}");
+
+            return response;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug($"Request failed: {ex.Message}");
+            throw;
+        }
     }
 
     public void Dispose()
