@@ -97,9 +97,9 @@ public class ServerWithExternalClient : PowerShellTestBase, IAsyncLifetime
         Assert.True(toolsResponse["result"]?["tools"] != null);
 
         // Call the PowerShell function through MCP
-        var callResponse = await client.SendToolCallAsync("get_process_name", new
+        var callResponse = await client.SendToolCallAsync("get_some_data", new
         {
-            Name = new[] { "dotnet" }
+            Name = new[] { "FromIntegrationTest" }
         });
 
         // Assert: Verify the response
@@ -120,7 +120,7 @@ public class ServerWithExternalClient : PowerShellTestBase, IAsyncLifetime
         Logger.LogInformation($"Tool call result from external client: {textContent}");
 
         // Verify the output contains expected data
-        Assert.Contains("dotnet", textContent);
+        Assert.Contains("persistent", textContent);
 
         Logger.LogInformation("PowerShell command executed successfully via external client");
     }
