@@ -502,6 +502,66 @@ public class PowerShellAssemblyGenerator
     }
 
     /// <summary>
+    /// Resolves parameter name case-insensitively against PowerShell command parameters
+    /// </summary>
+    /// <param name="clientParameterName">Parameter name provided by the client (may have different casing)</param>
+    /// <param name="commandInfo">PowerShell command information, if available</param>
+    /// <param name="logger">Logger instance</param>
+    /// <returns>The correctly-cased parameter name for PowerShell, or the original name if no match found</returns>
+    private static string ResolveParameterName(string clientParameterName, CommandInfo? commandInfo, ILogger logger)
+    {
+        try
+        {
+            if (commandInfo?.Parameters == null)
+            {
+                logger.LogDebug($"No command info available, using parameter name as-is: {clientParameterName}");
+                return clientParameterName;
+            }
+
+            // Try exact match first (fastest path)
+            if (commandInfo.Parameters.ContainsKey(clientParameterName))
+            {
+                return clientParameterName;
+            }
+
+            // Try case-insensitive match
+            var matchingParameter = commandInfo.Parameters.Keys
+                .FirstOrDefault(paramName => string.Equals(paramName, clientParameterName, StringComparison.OrdinalIgnoreCase));
+
+            if (matchingParameter != null)
+            {
+                logger.LogDebug($"Resolved parameter name '{clientParameterName}' to '{matchingParameter}' (case-insensitive match)");
+                return matchingParameter;
+            }
+
+            // Try partial match (PowerShell allows partial parameter names if unambiguous)
+            var partialMatches = commandInfo.Parameters.Keys
+                .Where(paramName => paramName.StartsWith(clientParameterName, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (partialMatches.Count == 1)
+            {
+                logger.LogDebug($"Resolved parameter name '{clientParameterName}' to '{partialMatches[0]}' (partial match)");
+                return partialMatches[0];
+            }
+            else if (partialMatches.Count > 1)
+            {
+                logger.LogWarning($"Ambiguous parameter name '{clientParameterName}' matches multiple parameters: {string.Join(", ", partialMatches)}. Using original name.");
+            }
+            else
+            {
+                logger.LogDebug($"No matching parameter found for '{clientParameterName}'. Using original name.");
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, $"Error resolving parameter name '{clientParameterName}': {ex.Message}. Using original name.");
+        }
+
+        return clientParameterName;
+    }
+
+    /// <summary>
     /// Static method called by generated IL code to execute PowerShell commands
     /// </summary>
     public static async Task<string> ExecutePowerShellCommandTyped(
@@ -545,6 +605,23 @@ public class PowerShellAssemblyGenerator
                     ps.Commands.Clear();
                     ps.AddCommand(commandName);
 
+                    // Get command info for case-insensitive parameter matching
+                    CommandInfo? commandInfo = null;
+                    try
+                    {
+                        ps.AddCommand("Get-Command").AddParameter("Name", commandName).AddParameter("ErrorAction", "SilentlyContinue");
+                        var cmdInfoResults = ps.Invoke<CommandInfo>();
+                        commandInfo = cmdInfoResults.FirstOrDefault();
+                        ps.Commands.Clear();
+                        ps.AddCommand(commandName);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning($"Could not get command info for {commandName}: {ex.Message}");
+                        ps.Commands.Clear();
+                        ps.AddCommand(commandName);
+                    }
+
                     // Add parameters
                     for (int i = 0; i < (parameterInfos?.Length ?? 0) && i < (parameterValues?.Length ?? 0); i++)
                     {
@@ -557,18 +634,21 @@ public class PowerShellAssemblyGenerator
                             var convertedValue = PowerShellParameterUtils.ConvertParameterValue(
                                 paramValue, paramInfo.Type, paramInfo.Name, logger);
 
+                            // Resolve the correct parameter name case-insensitively
+                            var resolvedParameterName = ResolveParameterName(paramInfo.Name, commandInfo, logger);
+
                             if (convertedValue is SwitchParameter switchParam)
                             {
                                 if (switchParam.IsPresent)
                                 {
-                                    ps.AddParameter(paramInfo.Name);
-                                    logger.LogDebug($"Added switch parameter: {paramInfo.Name}");
+                                    ps.AddParameter(resolvedParameterName);
+                                    logger.LogDebug($"Added switch parameter: {resolvedParameterName} (resolved from: {paramInfo.Name})");
                                 }
                             }
                             else
                             {
-                                ps.AddParameter(paramInfo.Name, convertedValue);
-                                logger.LogDebug($"Added parameter {paramInfo.Name} ({convertedValue?.GetType().Name}): {convertedValue}");
+                                ps.AddParameter(resolvedParameterName, convertedValue);
+                                logger.LogDebug($"Added parameter {resolvedParameterName} (resolved from: {paramInfo.Name}) ({convertedValue?.GetType().Name}): {convertedValue}");
                             }
                         }
                         else if (paramInfo.IsMandatory)
