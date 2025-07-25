@@ -28,11 +28,26 @@ public class PowerShellCommandMetadata
 /// <summary>
 /// Factory class for creating MCP tools from PowerShell commands using dynamically generated assemblies
 /// </summary>
-public static class McpToolFactoryV2
+public class McpToolFactoryV2
 {
-    private static Assembly? _generatedAssembly;
-    private static object? _generatedInstance;
-    private static Dictionary<string, MethodInfo>? _generatedMethods;
+    private readonly PowerShellAssemblyGenerator _assemblyGenerator;
+
+    /// <summary>
+    /// Initializes a new instance of McpToolFactoryV2 with default runspace
+    /// </summary>
+    public McpToolFactoryV2()
+    {
+        _assemblyGenerator = new PowerShellAssemblyGenerator(new SingletonPowerShellRunspace());
+    }
+
+    /// <summary>
+    /// Initializes a new instance of McpToolFactoryV2 with specified runspace
+    /// </summary>
+    /// <param name="runspace">PowerShell runspace to use</param>
+    public McpToolFactoryV2(IPowerShellRunspace runspace)
+    {
+        _assemblyGenerator = new PowerShellAssemblyGenerator(runspace);
+    }
 
     /// <summary>
     /// Gets PowerShell command metadata including parameter-set-specific syntax and verb information
@@ -42,7 +57,7 @@ public static class McpToolFactoryV2
     /// <param name="powerShell">PowerShell instance for executing queries</param>
     /// <param name="logger">Logger instance</param>
     /// <returns>Command metadata with parameter-set-specific syntax, verb info, and safety characteristics</returns>
-    private static PowerShellCommandMetadata GetCommandMetadata(CommandInfo commandInfo, CommandParameterSetInfo parameterSet, PSPowerShell powerShell, ILogger logger)
+    private PowerShellCommandMetadata GetCommandMetadata(CommandInfo commandInfo, CommandParameterSetInfo parameterSet, PSPowerShell powerShell, ILogger logger)
     {
         var metadata = new PowerShellCommandMetadata
         {
@@ -200,7 +215,7 @@ public static class McpToolFactoryV2
         }
 
         logger.LogDebug($"Command metadata for {metadata.CommandName} ({parameterSet.Name}): Description='{metadata.Description}', IsDestructive={metadata.IsDestructive}, IsReadOnly={metadata.IsReadOnly}, IsIdempotent={metadata.IsIdempotent}");
-        
+
         return metadata;
     }
 
@@ -210,7 +225,7 @@ public static class McpToolFactoryV2
     /// <param name="config">PowerShell configuration</param>
     /// <param name="logger">Logger instance</param>
     /// <returns>List of MCP server tools</returns>
-    public static List<McpServerTool> GetToolsList(PowerShellConfiguration config, ILogger logger)
+    public List<McpServerTool> GetToolsList(PowerShellConfiguration config, ILogger logger)
     {
         try
         {
@@ -236,15 +251,15 @@ public static class McpToolFactoryV2
 
             // Generate the assembly with all command methods
             logger.LogDebug("Generating dynamic assembly for PowerShell commands...");
-            _generatedAssembly = PowerShellDynamicAssemblyGenerator.GenerateAssembly(commands, logger);
-            _generatedInstance = PowerShellDynamicAssemblyGenerator.GetGeneratedInstance(logger);
-            _generatedMethods = PowerShellDynamicAssemblyGenerator.GetGeneratedMethods();
+            var generatedAssembly = _assemblyGenerator.GenerateAssembly(commands, logger);
+            var generatedInstance = _assemblyGenerator.GetGeneratedInstance(logger);
+            var generatedMethods = _assemblyGenerator.GetGeneratedMethods();
 
-            logger.LogInformation($"Generated assembly with {_generatedMethods.Count} methods");
+            logger.LogInformation($"Generated assembly with {generatedMethods.Count} methods");
             if (logger.IsEnabled(LogLevel.Trace))
             {
                 logger.LogTrace("Generated methods:");
-                foreach (var method in _generatedMethods.OrderBy(m => m.Key))
+                foreach (var method in generatedMethods.OrderBy(m => m.Key))
                 {
                     logger.LogTrace($"  {method.Key} -> {method.Value.ReturnType.Name} with {method.Value.GetParameters().Length} parameters");
                 }
@@ -258,22 +273,22 @@ public static class McpToolFactoryV2
             // Create a mapping from method names to parameter-set-specific metadata
             var methodToCommandMap = new Dictionary<string, PowerShellCommandMetadata>();
             var powerShell = PowerShellRunspaceHolder.Instance;
-            
+
             foreach (var command in commands)
             {
                 // For each parameter set of this command, create parameter-set-specific metadata
                 foreach (var parameterSet in command.ParameterSets)
                 {
-                    var methodName = PowerShellDynamicAssemblyGenerator.SanitizeMethodName(command.Name, parameterSet.Name);
-                    
+                    var methodName = PowerShellAssemblyGenerator.SanitizeMethodName(command.Name, parameterSet.Name);
+
                     // Get parameter-set-specific metadata instead of general command metadata
                     var metadata = GetCommandMetadata(command, parameterSet, powerShell, logger);
                     methodToCommandMap[methodName] = metadata;
                     logger.LogDebug($"Created parameter-set-specific metadata for method '{methodName}' from command '{command.Name}' parameter set '{parameterSet.Name}'");
                 }
             }
-
-            foreach (var kvp in _generatedMethods)
+            // Use previously declared generatedMethods and generatedInstance
+            foreach (var kvp in generatedMethods)
             {
                 var methodName = kvp.Key;
                 var method = kvp.Value;
@@ -284,7 +299,7 @@ public static class McpToolFactoryV2
 
                     // Create a delegate from the method
                     var delegateType = GetDelegateTypeForMethod(method);
-                    var methodDelegate = Delegate.CreateDelegate(delegateType, _generatedInstance, method);
+                    var methodDelegate = Delegate.CreateDelegate(delegateType, generatedInstance, method);
 
                     // Get metadata for this method
                     var metadata = methodToCommandMap.GetValueOrDefault(methodName, new PowerShellCommandMetadata
@@ -351,7 +366,7 @@ public static class McpToolFactoryV2
     /// <summary>
     /// Gets available PowerShell commands to generate methods for based on configuration
     /// </summary>
-    private static (List<CommandInfo> commands, Dictionary<string, PowerShellCommandMetadata> metadata) GetAvailableCommandsWithMetadata(PowerShellConfiguration config, ILogger logger)
+    private (List<CommandInfo> commands, Dictionary<string, PowerShellCommandMetadata> metadata) GetAvailableCommandsWithMetadata(PowerShellConfiguration config, ILogger logger)
     {
         var powerShell = PowerShellRunspaceHolder.Instance;
         var commands = new List<CommandInfo>();
@@ -435,13 +450,13 @@ public static class McpToolFactoryV2
     /// <summary>
     /// Gets available PowerShell commands to generate methods for based on configuration (legacy method)
     /// </summary>
-    private static List<CommandInfo> GetAvailableCommands(PowerShellConfiguration config, ILogger logger)
+    private List<CommandInfo> GetAvailableCommands(PowerShellConfiguration config, ILogger logger)
     {
         var (commands, _) = GetAvailableCommandsWithMetadata(config, logger);
         return commands;
     }
 
-    private static List<CommandInfo> GetCommandsByName(List<string> functionNames, PSPowerShell powerShell, ILogger logger)
+    private List<CommandInfo> GetCommandsByName(List<string> functionNames, PSPowerShell powerShell, ILogger logger)
     {
         var commands = new List<CommandInfo>();
 
@@ -473,7 +488,7 @@ public static class McpToolFactoryV2
         return commands;
     }
 
-    private static List<CommandInfo> GetCommandsByModule(List<string> modules, PSPowerShell powerShell, ILogger logger)
+    private List<CommandInfo> GetCommandsByModule(List<string> modules, PSPowerShell powerShell, ILogger logger)
     {
         var commands = new List<CommandInfo>();
 
@@ -498,7 +513,7 @@ public static class McpToolFactoryV2
         return commands;
     }
 
-    private static List<CommandInfo> GetCommandsByPattern(List<string> includePatterns, List<string> excludePatterns, PSPowerShell powerShell, ILogger logger)
+    private List<CommandInfo> GetCommandsByPattern(List<string> includePatterns, List<string> excludePatterns, PSPowerShell powerShell, ILogger logger)
     {
         var commands = new List<CommandInfo>();
 
@@ -523,7 +538,7 @@ public static class McpToolFactoryV2
         return commands;
     }
 
-    private static List<CommandInfo> ApplyIncludePatterns(List<CommandInfo> commands, List<string> includePatterns, ILogger logger)
+    private List<CommandInfo> ApplyIncludePatterns(List<CommandInfo> commands, List<string> includePatterns, ILogger logger)
     {
         var filteredCommands = new List<CommandInfo>();
 
@@ -550,7 +565,7 @@ public static class McpToolFactoryV2
         return filteredCommands;
     }
 
-    private static List<CommandInfo> ApplyExcludePatterns(List<CommandInfo> commands, List<string> excludePatterns, ILogger logger)
+    private List<CommandInfo> ApplyExcludePatterns(List<CommandInfo> commands, List<string> excludePatterns, ILogger logger)
     {
         var filteredCommands = new List<CommandInfo>();
 
@@ -577,7 +592,7 @@ public static class McpToolFactoryV2
         return filteredCommands;
     }
 
-    private static bool IsWildcardMatch(string input, string pattern)
+    private bool IsWildcardMatch(string input, string pattern)
     {
         // Convert wildcard pattern to regex
         var regexPattern = "^" + Regex.Escape(pattern).Replace(@"\*", ".*").Replace(@"\?", ".") + "$";
@@ -587,7 +602,7 @@ public static class McpToolFactoryV2
     /// <summary>
     /// Gets available PowerShell commands to generate methods for (legacy method for backwards compatibility)
     /// </summary>
-    private static List<CommandInfo> GetAvailableCommands(ILogger logger)
+    private List<CommandInfo> GetAvailableCommands(ILogger logger)
     {
         // Create default configuration for backwards compatibility
         var defaultConfig = new PowerShellConfiguration
@@ -601,7 +616,7 @@ public static class McpToolFactoryV2
     /// <summary>
     /// Gets the appropriate delegate type for a generated method
     /// </summary>
-    private static Type GetDelegateTypeForMethod(MethodInfo method)
+    private Type GetDelegateTypeForMethod(MethodInfo method)
     {
         var parameters = method.GetParameters();
         var parameterTypes = parameters.Select(p => p.ParameterType).ToArray();
@@ -653,7 +668,7 @@ public static class McpToolFactoryV2
     /// <summary>
     /// Converts a normalized method name back to the original command name
     /// </summary>
-    private static string DeNormalizeMethodName(string methodName)
+    private string DeNormalizeMethodName(string methodName)
     {
         // This is a simple reverse of the normalization process
         // Replace underscores with hyphens for PowerShell command names
@@ -663,23 +678,25 @@ public static class McpToolFactoryV2
     /// <summary>
     /// Gets information about the generated assembly for debugging
     /// </summary>
-    public static string GetAssemblyInfo(ILogger logger)
+    public string GetAssemblyInfo(ILogger logger)
     {
         try
         {
-            if (_generatedAssembly == null)
+            var generatedAssembly = _assemblyGenerator.GeneratedAssembly;
+            if (generatedAssembly == null)
             {
                 return "No assembly has been generated yet";
             }
 
-            var info = $"Generated Assembly: {_generatedAssembly.FullName}\n";
-            info += $"Location: {_generatedAssembly.Location}\n";
-            info += $"Dynamic: {_generatedAssembly.IsDynamic}\n";
+            var info = $"Generated Assembly: {generatedAssembly.FullName}\n";
+            info += $"Location: {generatedAssembly.Location}\n";
+            info += $"Dynamic: {generatedAssembly.IsDynamic}\n";
 
-            if (_generatedMethods != null)
+            var generatedMethods = _assemblyGenerator.GetGeneratedMethods();
+            if (generatedMethods != null)
             {
-                info += $"Generated Methods ({_generatedMethods.Count}):\n";
-                foreach (var kvp in _generatedMethods)
+                info += $"Generated Methods ({generatedMethods.Count}):\n";
+                foreach (var kvp in generatedMethods)
                 {
                     var method = kvp.Value;
                     var parameters = method.GetParameters();
@@ -700,16 +717,19 @@ public static class McpToolFactoryV2
     /// <summary>
     /// Tests the generated assembly by invoking a specific method
     /// </summary>
-    public static async Task<string> TestGeneratedMethod(string methodName, object[] parameters, ILogger logger)
+    public async Task<string> TestGeneratedMethod(string methodName, object[] parameters, ILogger logger)
     {
         try
         {
-            if (_generatedMethods == null || _generatedInstance == null)
+
+            var generatedMethods = _assemblyGenerator.GetGeneratedMethods();
+            var generatedInstance = _assemblyGenerator.GetGeneratedInstance(logger);
+            if (generatedMethods == null || generatedInstance == null)
             {
                 return "Assembly has not been generated yet";
             }
 
-            if (!_generatedMethods.TryGetValue(methodName, out var method))
+            if (!generatedMethods.TryGetValue(methodName, out var method))
             {
                 return $"Method '{methodName}' not found in generated assembly";
             }
@@ -726,7 +746,7 @@ public static class McpToolFactoryV2
             }
 
             // Invoke the method
-            var result = method.Invoke(_generatedInstance, allParameters.ToArray());
+            var result = method.Invoke(generatedInstance, allParameters.ToArray());
 
             if (result is Task<string> taskResult)
             {
@@ -749,7 +769,7 @@ public static class McpToolFactoryV2
     /// </summary>
     /// <param name="logger">Logger instance</param>
     /// <returns>List of MCP server tools</returns>
-    public static List<McpServerTool> GetToolsList(ILogger logger)
+    public List<McpServerTool> GetToolsList(ILogger logger)
     {
         // Create default configuration for backwards compatibility
         var defaultConfig = new PowerShellConfiguration

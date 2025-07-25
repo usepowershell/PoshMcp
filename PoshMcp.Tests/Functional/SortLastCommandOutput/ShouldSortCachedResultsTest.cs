@@ -12,17 +12,17 @@ using System.Linq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace PoshMcp.Tests.Functional.PowerShellCommandExecution;
+namespace PoshMcp.Tests.Functional.SortLastCommand;
 
 /// <summary>
 /// Test for sorting cached results
 /// </summary>
-public class SortLastCommandOutput_ShouldSortCachedResultsTest : PowerShellTestBase
+public class Output_Test : PowerShellTestBase
 {
-    public SortLastCommandOutput_ShouldSortCachedResultsTest(ITestOutputHelper output) : base(output) { }
+    public Output_Test(ITestOutputHelper output) : base(output) { }
 
     [Fact]
-    public async Task SortLastCommandOutput_ShouldSortCachedResults()
+    public async Task ShouldSortCachedResults()
     {
         // Arrange - Execute a simpler command that produces known sortable output
         var parameterInfos = new PowerShellParameterInfo[0];

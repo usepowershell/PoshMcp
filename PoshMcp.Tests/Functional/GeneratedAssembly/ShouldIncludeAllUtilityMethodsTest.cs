@@ -17,9 +17,9 @@ namespace PoshMcp.Tests.Functional.GeneratedAssembly;
 /// <summary>
 /// Test for generated assembly including all utility methods
 /// </summary>
-public partial class UtilityMethods : PowerShellTestBase
+public partial class GeneratedInstance : PowerShellTestBase
 {
-    public UtilityMethods(ITestOutputHelper output) : base(output) { }
+    public GeneratedInstance(ITestOutputHelper output) : base(output) { }
 
     [Fact]
     public void ShouldIncludeAllUtilityMethods()

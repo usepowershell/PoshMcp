@@ -12,7 +12,7 @@ namespace PoshMcp.Tests.Functional.GeneratedAssembly;
 /// <summary>
 /// Test for generated methods validation
 /// </summary>
-public partial class UtilityMethods : PowerShellTestBase
+public partial class GeneratedInstance : PowerShellTestBase
 {
     [Fact]
     public void GetGeneratedMethods_ShouldReturnMethodsForCommands()

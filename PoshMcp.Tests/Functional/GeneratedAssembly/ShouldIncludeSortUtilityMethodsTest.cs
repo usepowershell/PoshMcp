@@ -16,7 +16,7 @@ namespace PoshMcp.Tests.Functional.GeneratedAssembly;
 /// <summary>
 /// Test for generated assembly sort utility method
 /// </summary>
-public partial class UtilityMethods : PowerShellTestBase
+public partial class GeneratedInstance : PowerShellTestBase
 {
     [Fact]
     public void ShouldIncludeSortUtilityMethods()

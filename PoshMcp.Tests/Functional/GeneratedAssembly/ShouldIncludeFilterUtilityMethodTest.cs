@@ -17,7 +17,7 @@ namespace PoshMcp.Tests.Functional.GeneratedAssembly;
 /// <summary>
 /// Test for generated assembly filter utility method
 /// </summary>
-public partial class UtilityMethods : PowerShellTestBase
+public partial class GeneratedInstance : PowerShellTestBase
 {
 
     [Fact]

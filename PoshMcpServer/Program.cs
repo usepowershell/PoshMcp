@@ -21,19 +21,19 @@ public class Program
     {
         // Set up command line parsing
         var rootCommand = new RootCommand("PowerShell MCP Server - Provides access to PowerShell commands via Model Context Protocol");
-        
+
         var evaluateToolsOption = new Option<bool>(
             aliases: new[] { "--evaluate-tools", "-e" },
             description: "Evaluate and list discovered PowerShell tools without starting the MCP server");
-        
+
         var verboseOption = new Option<bool>(
             aliases: new[] { "--verbose", "-v" },
             description: "Enable verbose logging");
-            
+
         var debugOption = new Option<bool>(
             aliases: new[] { "--debug", "-d" },
             description: "Enable debug logging");
-            
+
         var traceOption = new Option<bool>(
             aliases: new[] { "--trace", "-t" },
             description: "Enable trace logging");
@@ -118,7 +118,8 @@ public class Program
 
             // Discover tools using the same logic as the main server
             logger.LogInformation("Discovering PowerShell tools...");
-            var tools = McpToolFactoryV2.GetToolsList(config, logger);
+            var toolFactory = new McpToolFactoryV2();
+            var tools = toolFactory.GetToolsList(config, logger);
 
             // Report results
             Console.Error.WriteLine();
@@ -201,7 +202,8 @@ public class Program
         logger.LogInformation($"Using configuration file: {finalConfigPath}");
 
         // Use the new dynamic assembly-based tool factory with configuration
-        var tools = McpToolFactoryV2.GetToolsList(config, logger);
+        var toolFactory = new McpToolFactoryV2();
+        var tools = toolFactory.GetToolsList(config, logger);
 
         // Configure JSON serializer options to handle cycles and deep object graphs
         builder.Services.Configure<JsonSerializerOptions>(options =>

@@ -49,7 +49,7 @@ public partial class SetupTests : PowerShellTestBase
 
             try
             {
-                var tools = McpToolFactoryV2.GetToolsList(powerShellConfig, Logger);
+                var tools = ToolFactory.GetToolsList(powerShellConfig, Logger);
 
                 // Assert
                 Assert.NotNull(tools);

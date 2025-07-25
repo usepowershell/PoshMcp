@@ -22,7 +22,7 @@ public partial class SetupTests : PowerShellTestBase
     public void GetToolsList_WithDefaultParameterlessOverload_ShouldWork()
     {
         // Act
-        var tools = McpToolFactoryV2.GetToolsList(Logger);
+        var tools = ToolFactory.GetToolsList(Logger);
 
         // Assert
         Assert.NotNull(tools);

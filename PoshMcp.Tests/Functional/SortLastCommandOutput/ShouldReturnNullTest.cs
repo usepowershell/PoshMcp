@@ -4,17 +4,17 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Xunit.Abstractions;
 
-namespace PoshMcp.Tests.Functional.PowerShellCommandExecution;
+namespace PoshMcp.Tests.Functional.SortLastCommandOutput;
 
 /// <summary>
 /// Test for sort behavior when no cache exists
 /// </summary>
-public class SortLastCommandOutput_ShouldReturnNullTest : PowerShellTestBase
+public class ShouldReturnNullTest : PowerShellTestBase
 {
-    public SortLastCommandOutput_ShouldReturnNullTest(ITestOutputHelper output) : base(output) { }
+    public ShouldReturnNullTest(ITestOutputHelper output) : base(output) { }
 
     [Fact]
-    public async Task SortLastCommandOutput_ShouldReturnNull_WhenNoCacheExists()
+    public async Task WhenNoCacheExists()
     {
         // Arrange - Clear any existing cache
         await PowerShellRunspace.ExecuteThreadSafeAsync<object?>(ps =>
