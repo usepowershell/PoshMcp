@@ -11,6 +11,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace PoshMcp;
@@ -204,6 +205,62 @@ public class Program
         // Use the new dynamic assembly-based tool factory with configuration
         var toolFactory = new McpToolFactoryV2();
         var tools = toolFactory.GetToolsList(config, logger);
+
+        // Create configuration reload service
+        var reloadServiceLogger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger<PowerShellConfigurationReloadService>();
+        var reloadService = new PowerShellConfigurationReloadService(reloadServiceLogger, toolFactory, config, finalConfigPath);
+
+        // Create configuration reload tools
+        var reloadToolsLogger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger<ConfigurationReloadTools>();
+        var reloadTools = new ConfigurationReloadTools(reloadService, reloadToolsLogger);
+
+        // Create MCP tools for configuration reload functionality
+        var reloadConfigFromFileDelegate = new Func<CancellationToken, Task<string>>(reloadTools.ReloadConfigurationFromFile);
+        var updateConfigDelegate = new Func<string, CancellationToken, Task<string>>(reloadTools.UpdateConfiguration);
+        var getConfigStatusDelegate = new Func<CancellationToken, Task<string>>(reloadTools.GetConfigurationStatus);
+
+        var reloadFromFileTool = McpServerTool.Create(reloadConfigFromFileDelegate, new McpServerToolCreateOptions
+        {
+            Name = "reload-configuration-from-file",
+            Description = "Reloads PowerShell configuration from the configuration file and regenerates available tools",
+            Title = "Reload Configuration from File",
+            ReadOnly = false,
+            Destructive = false,
+            Idempotent = true,
+            OpenWorld = false,
+            UseStructuredContent = true
+        });
+
+        var updateConfigTool = McpServerTool.Create(updateConfigDelegate, new McpServerToolCreateOptions
+        {
+            Name = "update-configuration",
+            Description = "Updates PowerShell configuration with new settings and regenerates available tools",
+            Title = "Update Configuration",
+            ReadOnly = false,
+            Destructive = false,
+            Idempotent = true,
+            OpenWorld = false,
+            UseStructuredContent = true
+        });
+
+        var getConfigStatusTool = McpServerTool.Create(getConfigStatusDelegate, new McpServerToolCreateOptions
+        {
+            Name = "get-configuration-status",
+            Description = "Gets current PowerShell configuration status and tool information",
+            Title = "Get Configuration Status",
+            ReadOnly = true,
+            Destructive = false,
+            Idempotent = true,
+            OpenWorld = false,
+            UseStructuredContent = true
+        });
+
+        // Add reload tools to the main tools list
+        tools.Add(reloadFromFileTool);
+        tools.Add(updateConfigTool);
+        tools.Add(getConfigStatusTool);
+
+        logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools)");
 
         // Configure JSON serializer options to handle cycles and deep object graphs
         builder.Services.Configure<JsonSerializerOptions>(options =>
