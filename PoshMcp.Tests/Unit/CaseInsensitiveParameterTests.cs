@@ -23,7 +23,7 @@ public class CaseInsensitiveParameterTests : PowerShellTestBase
     {
         // Arrange
         SetupTestPowerShellFunction();
-        
+
         // Create parameter infos with different casing than the actual PowerShell parameter names
         var parameterInfos = new[]
         {
@@ -60,7 +60,7 @@ public class CaseInsensitiveParameterTests : PowerShellTestBase
     {
         // Arrange
         SetupTestPowerShellFunction();
-        
+
         // Use partial parameter names (PowerShell allows this if unambiguous)
         var parameterInfos = new[]
         {
@@ -91,7 +91,7 @@ public class CaseInsensitiveParameterTests : PowerShellTestBase
     {
         // Arrange
         SetupTestPowerShellFunction();
-        
+
         // Use exact parameter names (should still work)
         var parameterInfos = new[]
         {
@@ -126,7 +126,7 @@ public class CaseInsensitiveParameterTests : PowerShellTestBase
     {
         // Arrange
         SetupTestPowerShellFunction();
-        
+
         // Use a parameter name that doesn't exist
         var parameterInfos = new[]
         {
@@ -163,14 +163,14 @@ function Get-CaseTestFunction {
     param(
         [Parameter(Mandatory=$false, Position=0)]
         [string]$Name = 'DefaultName',
-        
+
         [Parameter(Mandatory=$false, Position=1)]
         [int]$Count = 1,
-        
+
         [Parameter(Mandatory=$false)]
         [bool]$IncludeTimestamp = $false
     )
-    
+
     $result = @()
     for ($i = 1; $i -le $Count; $i++) {
         $item = ""Item $i for $Name""
@@ -179,7 +179,7 @@ function Get-CaseTestFunction {
         }
         $result += $item
     }
-    
+
     return $result
 }";
 
