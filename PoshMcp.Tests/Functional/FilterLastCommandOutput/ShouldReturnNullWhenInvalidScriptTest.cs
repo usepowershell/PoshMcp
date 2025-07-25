@@ -21,7 +21,7 @@ public partial class FilterCachedResults : PowerShellTestBase
 {
 
     [Fact]
-    public async Task FilterLastCommandOutput_ShouldReturnNull_WhenInvalidScript()
+    public async Task ShouldReturnNull_WhenInvalidScript()
     {
         // Arrange - Execute a command first to have cached data
         var parameterInfos = Array.Empty<PowerShellParameterInfo>();

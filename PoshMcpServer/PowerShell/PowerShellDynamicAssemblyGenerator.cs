@@ -173,57 +173,6 @@ public static class PowerShellDynamicAssemblyGenerator
         return await PowerShellAssemblyGenerator.FilterLastCommandOutput(runspace, logger, filterScript, false, cancellationToken);
     }
 
-    public static string SanitizeMethodName(string commandName, string? parameterSetName = null)
-    {
-        return PowerShellDynamicAssemblyGenerator.SanitizeMethodName_Internal(commandName, parameterSetName);
-    }
-
-    private static string CamelCaseToSnakeCase(string input)
-    {
-        if (string.IsNullOrEmpty(input))
-            return input;
-
-        // Use a regex to insert underscores before uppercase letters
-        var result = System.Text.RegularExpressions.Regex.Replace(input, "([a-z0-9])([A-Z])", "$1_$2");
-        // replace - with _
-        result = result.Replace("-", "_");
-        // remove duplicate underscores
-        result = System.Text.RegularExpressions.Regex.Replace(result, "_+", "_");
-        return result.ToLowerInvariant();
-    }
-
-    /// <summary>
-    /// Sanitizes a command name to make it a valid C# method name
-    /// </summary>
-    private static string SanitizeMethodName_Internal(string commandName, string? parameterSetName = null)
-    {
-        if (string.IsNullOrWhiteSpace(commandName))
-        {
-            return "UnnamedCommand";
-        }
-
-        // Convert CamelCase to snake_case
-        var sanitized = CamelCaseToSnakeCase(commandName);
-
-        // Ensure it doesn't start with a digit
-        if (char.IsDigit(sanitized[0]))
-        {
-            sanitized = "_" + sanitized;
-        }
-
-        if (!(string.IsNullOrWhiteSpace(parameterSetName) || parameterSetName == "__AllParameterSets"))
-        {
-            sanitized += "_" + CamelCaseToSnakeCase(parameterSetName);
-        }
-
-        // Ensure it's not empty after sanitization
-        if (string.IsNullOrWhiteSpace(sanitized))
-        {
-            sanitized = "UnnamedCommand";
-        }
-
-        return sanitized;
-    }
 }
 
 /// <summary>

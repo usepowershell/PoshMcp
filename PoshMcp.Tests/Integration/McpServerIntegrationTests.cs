@@ -20,16 +20,16 @@ namespace PoshMcp.Tests.Integration;
 /// <summary>
 /// Integration tests that run the MCP server in-process and communicate with external clients
 /// </summary>
-public class McpServerIntegrationTests : PowerShellTestBase
+public class ServerWithExternalClient : PowerShellTestBase
 {
-    public McpServerIntegrationTests(ITestOutputHelper output) : base(output)
+    public ServerWithExternalClient(ITestOutputHelper output) : base(output)
     {
     }
 
     [Fact]
-    public async Task ServerWithExternalClient_ShouldInitializeAndListTools()
+    public async Task ShouldInitializeAndListTools()
     {
-        Logger.LogInformation("=== Starting ServerWithExternalClient_ShouldInitializeAndListTools Test ===");
+        Logger.LogInformation("=== Starting ShouldInitializeAndListTools Test ===");
 
         // Start the MCP server in-process
         using var server = await StartInProcessMcpServerAsync();
@@ -64,9 +64,9 @@ public class McpServerIntegrationTests : PowerShellTestBase
     }
 
     [Fact]
-    public async Task ServerWithExternalClient_ShouldExecutePowerShellCommand()
+    public async Task ShouldExecutePowerShellCommand()
     {
-        Logger.LogInformation("=== Starting ServerWithExternalClient_ShouldExecutePowerShellCommand Test ===");
+        Logger.LogInformation("=== Starting ShouldExecutePowerShellCommand Test ===");
 
         // Start the MCP server in-process  
         using var server = await StartInProcessMcpServerAsync();
@@ -83,9 +83,9 @@ public class McpServerIntegrationTests : PowerShellTestBase
         Assert.True(toolsResponse["result"]?["tools"] != null);
 
         // Call the PowerShell function through MCP
-        var callResponse = await client.SendToolCallAsync("get_some_data", new
+        var callResponse = await client.SendToolCallAsync("get_process_name", new
         {
-            test = "ExternalClientTest"
+            name = "dotnet"
         });
 
         // Assert: Verify the response
@@ -106,15 +106,15 @@ public class McpServerIntegrationTests : PowerShellTestBase
         Logger.LogInformation($"Tool call result from external client: {textContent}");
 
         // Verify the output contains expected data
-        Assert.Contains("ExternalClientTest", textContent);
+        Assert.Contains("dotnet", textContent);
 
         Logger.LogInformation("PowerShell command executed successfully via external client");
     }
 
     [Fact]
-    public async Task ServerWithExternalClient_ShouldHandleErrors()
+    public async Task ShouldHandleErrors()
     {
-        Logger.LogInformation("=== Starting ServerWithExternalClient_ShouldHandleErrors Test ===");
+        Logger.LogInformation("=== Starting ShouldHandleErrors Test ===");
 
         // Start the MCP server in-process
         using var server = await StartInProcessMcpServerAsync();

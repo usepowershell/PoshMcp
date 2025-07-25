@@ -12,10 +12,10 @@ namespace PoshMcp.Tests.Functional.GeneratedAssembly;
 /// <summary>
 /// Test for generated instance validation
 /// </summary>
-public partial class UtilityMethods : PowerShellTestBase
+public partial class GeneratedInstance : PowerShellTestBase
 {
-    [Fact]
-    public void GetGeneratedInstance_ShouldReturnValidInstance()
+    [Fact()]
+    public void ShouldReturnValidInstance()
     {
         // Arrange - Setup test PowerShell function
         SetupTestPowerShellFunction();

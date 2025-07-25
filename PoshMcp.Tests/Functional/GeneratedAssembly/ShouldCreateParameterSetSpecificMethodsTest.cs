@@ -12,7 +12,7 @@ namespace PoshMcp.Tests.Functional.GeneratedAssembly;
 /// <summary>
 /// Test for parameter set specific method generation
 /// </summary>
-public partial class UtilityMethods : PowerShellTestBase
+public partial class GeneratedInstance : PowerShellTestBase
 {
     [Fact]
     public async Task GenerateAssembly_ShouldCreateParameterSetSpecificMethods()
@@ -73,7 +73,7 @@ public partial class UtilityMethods : PowerShellTestBase
 
         foreach (var paramSetName in parameterSetNames)
         {
-            var expectedMethodPattern = PowerShellDynamicAssemblyGenerator.SanitizeMethodName("Get-ChildItem", paramSetName);
+            var expectedMethodPattern = PowerShellAssemblyGenerator.SanitizeMethodName("Get-ChildItem", paramSetName);
             var hasExpectedMethod = methodNames.Any(name =>
                 name.Equals(expectedMethodPattern, System.StringComparison.OrdinalIgnoreCase));
 

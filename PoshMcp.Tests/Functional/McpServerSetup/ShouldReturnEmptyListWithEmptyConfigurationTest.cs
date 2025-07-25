@@ -31,7 +31,7 @@ public partial class SetupTests : PowerShellTestBase
         };
 
         // Act
-        var tools = McpToolFactoryV2.GetToolsList(config, Logger);
+        var tools = ToolFactory.GetToolsList(config, Logger);
 
         // Assert
         Assert.NotNull(tools);

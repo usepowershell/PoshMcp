@@ -17,6 +17,7 @@ public abstract class PowerShellTestBase : IDisposable
     protected readonly ITestOutputHelper Output;
     protected readonly IPowerShellRunspace PowerShellRunspace;
     protected readonly PowerShellAssemblyGenerator AssemblyGenerator;
+    protected readonly McpToolFactoryV2 ToolFactory;
 
     protected PowerShellTestBase(ITestOutputHelper output)
     {
@@ -36,6 +37,9 @@ public abstract class PowerShellTestBase : IDisposable
 
         // Create an instance-based assembly generator with the isolated runspace
         AssemblyGenerator = new PowerShellAssemblyGenerator(PowerShellRunspace);
+
+        // Create an instance of the tool factory for this test
+        ToolFactory = new McpToolFactoryV2();
     }    /// <summary>
          /// Helper method to convert JSON string results back to objects for testing.
          /// This allows tests to work with both the old PSObject[] format and new JSON string format.

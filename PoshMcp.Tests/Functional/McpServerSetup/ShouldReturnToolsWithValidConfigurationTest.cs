@@ -34,7 +34,7 @@ public partial class SetupTests : PowerShellTestBase
         List<McpServerTool> tools;
         try
         {
-            tools = McpToolFactoryV2.GetToolsList(config, Logger);
+            tools = ToolFactory.GetToolsList(config, Logger);
         }
         catch (System.Management.Automation.InvalidPowerShellStateException)
         {

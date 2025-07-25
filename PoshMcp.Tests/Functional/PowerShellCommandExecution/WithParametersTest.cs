@@ -17,10 +17,14 @@ namespace PoshMcp.Tests.Functional.PowerShellCommandExecution;
 /// <summary>
 /// Test for parameterized command caching
 /// </summary>
-public partial class ExecutePowerShellCommand : PowerShellTestBase
+public class ExecutePowerShellCommandWithParameters : PowerShellTestBase
 {
+    public ExecutePowerShellCommandWithParameters(ITestOutputHelper output) : base(output)
+    {
+    }
+
     [Fact]
-    public async Task _WithParameters_ShouldCacheParameterizedResults()
+    public async Task ShouldCacheParameterizedResults()
     {
         // Arrange - Test with Get-ChildItem command that takes parameters
         var parameterInfos = new[]

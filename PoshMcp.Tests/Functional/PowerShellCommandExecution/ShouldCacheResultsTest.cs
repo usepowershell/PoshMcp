@@ -17,9 +17,9 @@ namespace PoshMcp.Tests.Functional.PowerShellCommandExecution;
 /// <summary>
 /// Test for caching PowerShell command results and retrieval
 /// </summary>
-public partial class ExecutePowerShellCommand : PowerShellTestBase
+public class CacheResults : PowerShellTestBase
 {
-    public ExecutePowerShellCommand(ITestOutputHelper output) : base(output) { }
+    public CacheResults(ITestOutputHelper output) : base(output) { }
 
     [Fact]
     public async Task ShouldCacheResults_AndAllowRetrieval()
