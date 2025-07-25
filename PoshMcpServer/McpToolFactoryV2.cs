@@ -50,6 +50,14 @@ public class McpToolFactoryV2
     }
 
     /// <summary>
+    /// Clears the cached assembly to force regeneration on next GetToolsList call
+    /// </summary>
+    public void ClearCache()
+    {
+        _assemblyGenerator.ClearCache();
+    }
+
+    /// <summary>
     /// Gets PowerShell command metadata including parameter-set-specific syntax and verb information
     /// </summary>
     /// <param name="commandInfo">CommandInfo to analyze</param>
