@@ -86,7 +86,7 @@ public class PowerShellConfigurationReloadService
             // Read and parse configuration file
             var configJson = await File.ReadAllTextAsync(_configurationFilePath);
             var configRoot = JsonSerializer.Deserialize<JsonElement>(configJson);
-            
+
             // Extract PowerShellConfiguration section
             if (!configRoot.TryGetProperty("PowerShellConfiguration", out var psConfigSection))
             {
@@ -154,7 +154,7 @@ public class PowerShellConfigurationReloadService
 
                 // Generate new tools with updated configuration
                 var newTools = _toolFactory.GetToolsList(newConfiguration, _logger);
-                
+
                 _logger.LogInformation($"Successfully generated {newTools.Count} tools with new configuration");
 
                 // Update current tools list
