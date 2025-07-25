@@ -5,6 +5,11 @@
 
 set -e
 
+
+if [ -z "${TEST_CONFIGURATION}" ]; then
+    TEST_CONFIGURATION="Debug"
+fi
+
 ## Check to see if TEST_VERBOSITY exists, if not default to normal
 if [ -z "${TEST_VERBOSITY}" ]; then
     TEST_VERBOSITY="normal"
@@ -120,4 +125,4 @@ case "${1:-all}" in
 esac
 
 
-dotnet test PoshMcp.Tests/PoshMcp.Tests.csproj ${filter} --logger "console;verbosity=${TEST_VERBOSITY}"
+dotnet test PoshMcp.Tests/PoshMcp.Tests.csproj --configuration ${TEST_CONFIGURATION} ${filter} --logger "console;verbosity=${TEST_VERBOSITY}"
