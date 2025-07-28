@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Management.Automation;
 using System.Reflection;
@@ -67,164 +68,204 @@ public class McpToolFactoryV2
     /// <returns>Command metadata with parameter-set-specific syntax, verb info, and safety characteristics</returns>
     private PowerShellCommandMetadata GetCommandMetadata(CommandInfo commandInfo, CommandParameterSetInfo parameterSet, PSPowerShell powerShell, ILogger logger)
     {
-        var metadata = new PowerShellCommandMetadata
-        {
-            CommandName = commandInfo.Name,
-            Description = commandInfo.Name, // Default fallback
-            IsDestructive = false, // Default to safe
-            IsReadOnly = false,    // Default assumption
-            IsIdempotent = false   // Default assumption
-        };
-
+        var metadata = CreateDefaultCommandMetadata(commandInfo);
         try
         {
-            // Get parameter-set-specific syntax description instead of general help
-            try
-            {
-                var parameterSetSyntax = parameterSet.ToString();
-                if (!string.IsNullOrWhiteSpace(parameterSetSyntax))
-                {
-                    // Create a full command syntax showing command name + parameter set
-                    metadata.Description = $"{commandInfo.Name} {parameterSetSyntax}";
-                    logger.LogDebug($"Generated parameter-set-specific description for {commandInfo.Name} ({parameterSet.Name}): {metadata.Description}");
-                }
-                else
-                {
-                    // Fallback to command name if parameter set syntax is empty
-                    metadata.Description = commandInfo.Name;
-                    logger.LogDebug($"No parameter set syntax available for {commandInfo.Name} ({parameterSet.Name}), using command name as fallback");
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning($"Could not generate parameter-set syntax for command {commandInfo.Name} ({parameterSet.Name}): {ex.Message}");
-                metadata.Description = commandInfo.Name; // Fallback to command name
-            }
-
-            // Analyze the command verb using Get-Verb to determine safety characteristics
-            try
-            {
-                var commandName = commandInfo.Name;
-                var verbPart = commandName.Contains('-') ? commandName.Split('-')[0] : commandName;
-
-                powerShell.Commands.Clear();
-                powerShell.AddCommand("Get-Verb")
-                         .AddParameter("Verb", verbPart)
-                         .AddParameter("ErrorAction", "SilentlyContinue");
-
-                var verbResult = powerShell.Invoke();
-                powerShell.Commands.Clear();
-
-                if (verbResult.Count > 0 && verbResult[0] != null)
-                {
-                    var verbObject = verbResult[0];
-
-                    // Get the verb group to determine characteristics
-                    var groupProperty = verbObject.Properties["Group"];
-                    if (groupProperty?.Value != null)
-                    {
-                        var group = groupProperty.Value.ToString();
-                        logger.LogDebug($"Command {commandInfo.Name} has verb group: {group}");
-
-                        // Based on PowerShell verb groups, determine safety characteristics
-                        switch (group?.ToUpperInvariant())
-                        {
-                            case "COMMON":
-                                // Get, Find, Search, etc. - typically safe, read-only operations
-                                if (verbPart.Equals("Get", StringComparison.OrdinalIgnoreCase) ||
-                                    verbPart.Equals("Find", StringComparison.OrdinalIgnoreCase) ||
-                                    verbPart.Equals("Search", StringComparison.OrdinalIgnoreCase) ||
-                                    verbPart.Equals("Show", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    metadata.IsReadOnly = true;
-                                    metadata.IsIdempotent = true;
-                                }
-                                else if (verbPart.Equals("Set", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    metadata.IsIdempotent = true; // Set operations are often idempotent
-                                }
-                                else if (verbPart.Equals("Remove", StringComparison.OrdinalIgnoreCase) ||
-                                         verbPart.Equals("Clear", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    metadata.IsDestructive = true; // Remove/Clear are destructive even if in Common group
-                                }
-                                break;
-
-                            case "DATA":
-                                // Add, Remove, Set, etc. - potentially destructive
-                                if (verbPart.Equals("Add", StringComparison.OrdinalIgnoreCase) ||
-                                    verbPart.Equals("Remove", StringComparison.OrdinalIgnoreCase) ||
-                                    verbPart.Equals("Clear", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    metadata.IsDestructive = true;
-                                }
-                                else if (verbPart.Equals("Set", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    metadata.IsIdempotent = true; // Set operations are often idempotent
-                                }
-                                break;
-
-                            case "LIFECYCLE":
-                                // Start, Stop, Restart, etc. - can be destructive
-                                metadata.IsDestructive = true;
-                                break;
-
-                            case "SECURITY":
-                                // Operations that affect security - generally destructive
-                                metadata.IsDestructive = true;
-                                break;
-
-                            case "DIAGNOSTIC":
-                                // Test, Measure, etc. - typically read-only
-                                metadata.IsReadOnly = true;
-                                metadata.IsIdempotent = true;
-                                break;
-                        }
-                    }
-                }
-                else
-                {
-                    // If Get-Verb doesn't return info, use basic verb analysis
-                    logger.LogDebug($"No Get-Verb info found for {verbPart}, using basic analysis");
-
-                    if (verbPart.Equals("Get", StringComparison.OrdinalIgnoreCase) ||
-                        verbPart.Equals("Find", StringComparison.OrdinalIgnoreCase) ||
-                        verbPart.Equals("Search", StringComparison.OrdinalIgnoreCase) ||
-                        verbPart.Equals("Show", StringComparison.OrdinalIgnoreCase) ||
-                        verbPart.Equals("Test", StringComparison.OrdinalIgnoreCase) ||
-                        verbPart.Equals("Measure", StringComparison.OrdinalIgnoreCase))
-                    {
-                        metadata.IsReadOnly = true;
-                        metadata.IsIdempotent = true;
-                    }
-                    else if (verbPart.Equals("Remove", StringComparison.OrdinalIgnoreCase) ||
-                             verbPart.Equals("Delete", StringComparison.OrdinalIgnoreCase) ||
-                             verbPart.Equals("Clear", StringComparison.OrdinalIgnoreCase) ||
-                             verbPart.Equals("Stop", StringComparison.OrdinalIgnoreCase) ||
-                             verbPart.Equals("Kill", StringComparison.OrdinalIgnoreCase) ||
-                             verbPart.Equals("Start", StringComparison.OrdinalIgnoreCase))
-                    {
-                        metadata.IsDestructive = true;
-                    }
-                    else if (verbPart.Equals("Set", StringComparison.OrdinalIgnoreCase))
-                    {
-                        metadata.IsIdempotent = true;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning($"Could not analyze verb for command {commandInfo.Name}: {ex.Message}");
-            }
+            SetParameterSetDescription(metadata, commandInfo, parameterSet, logger);
+            AnalyzeCommandVerbSafety(metadata, commandInfo, powerShell, logger);
         }
         catch (Exception ex)
         {
             logger.LogError($"Error getting metadata for command {commandInfo.Name}: {ex.Message}");
         }
 
-        logger.LogDebug($"Command metadata for {metadata.CommandName} ({parameterSet.Name}): Description='{metadata.Description}', IsDestructive={metadata.IsDestructive}, IsReadOnly={metadata.IsReadOnly}, IsIdempotent={metadata.IsIdempotent}");
-
+        LogCommandMetadata(metadata, parameterSet, logger);
         return metadata;
+    }
+
+    private static PowerShellCommandMetadata CreateDefaultCommandMetadata(CommandInfo commandInfo)
+    {
+        return new PowerShellCommandMetadata
+        {
+            CommandName = commandInfo.Name,
+            Description = commandInfo.Name,
+            IsDestructive = false,
+            IsReadOnly = false,
+            IsIdempotent = false
+        };
+    }
+
+    private static void SetParameterSetDescription(PowerShellCommandMetadata metadata, CommandInfo commandInfo, CommandParameterSetInfo parameterSet, ILogger logger)
+    {
+        try
+        {
+            var parameterSetSyntax = parameterSet.ToString();
+            if (!string.IsNullOrWhiteSpace(parameterSetSyntax))
+            {
+                metadata.Description = $"{commandInfo.Name} {parameterSetSyntax}";
+                logger.LogDebug($"Generated parameter-set-specific description for {commandInfo.Name} ({parameterSet.Name}): {metadata.Description}");
+            }
+            else
+            {
+                metadata.Description = commandInfo.Name;
+                logger.LogDebug($"No parameter set syntax available for {commandInfo.Name} ({parameterSet.Name}), using command name as fallback");
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning($"Could not generate parameter-set syntax for command {commandInfo.Name} ({parameterSet.Name}): {ex.Message}");
+            metadata.Description = commandInfo.Name;
+        }
+    }
+
+    private static void AnalyzeCommandVerbSafety(PowerShellCommandMetadata metadata, CommandInfo commandInfo, PSPowerShell powerShell, ILogger logger)
+    {
+        try
+        {
+            var verbPart = ExtractVerbFromCommandName(commandInfo.Name);
+            var verbResult = ExecuteGetVerbCommand(verbPart, powerShell);
+            
+            if (verbResult.Count > 0 && verbResult[0] != null)
+            {
+                AnalyzeVerbGroupSafety(metadata, verbPart, verbResult[0], logger);
+            }
+            else
+            {
+                AnalyzeVerbWithBasicRules(metadata, verbPart, logger);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning($"Could not analyze verb for command {commandInfo.Name}: {ex.Message}");
+        }
+    }
+
+    private static string ExtractVerbFromCommandName(string commandName)
+    {
+        return commandName.Contains('-') ? commandName.Split('-')[0] : commandName;
+    }
+
+    private static Collection<PSObject> ExecuteGetVerbCommand(string verbPart, PSPowerShell powerShell)
+    {
+        powerShell.Commands.Clear();
+        powerShell.AddCommand("Get-Verb")
+                 .AddParameter("Verb", verbPart)
+                 .AddParameter("ErrorAction", "SilentlyContinue");
+
+        var verbResult = powerShell.Invoke();
+        powerShell.Commands.Clear();
+        return verbResult;
+    }
+
+    private static void AnalyzeVerbGroupSafety(PowerShellCommandMetadata metadata, string verbPart, PSObject verbObject, ILogger logger)
+    {
+        var groupProperty = verbObject.Properties["Group"];
+        if (groupProperty?.Value != null)
+        {
+            var group = groupProperty.Value.ToString();
+            if (!string.IsNullOrEmpty(group))
+            {
+                logger.LogDebug($"Command {metadata.CommandName} has verb group: {group}");
+                SetSafetyBasedOnVerbGroup(metadata, verbPart, group);
+            }
+        }
+    }
+
+    private static void SetSafetyBasedOnVerbGroup(PowerShellCommandMetadata metadata, string verbPart, string group)
+    {
+        switch (group?.ToUpperInvariant())
+        {
+            case "COMMON":
+                SetCommonVerbSafety(metadata, verbPart);
+                break;
+            case "DATA":
+                SetDataVerbSafety(metadata, verbPart);
+                break;
+            case "LIFECYCLE":
+                metadata.IsDestructive = true;
+                break;
+            case "SECURITY":
+                metadata.IsDestructive = true;
+                break;
+            case "DIAGNOSTIC":
+                metadata.IsReadOnly = true;
+                metadata.IsIdempotent = true;
+                break;
+        }
+    }
+
+    private static void SetCommonVerbSafety(PowerShellCommandMetadata metadata, string verbPart)
+    {
+        if (IsReadOnlyVerb(verbPart))
+        {
+            metadata.IsReadOnly = true;
+            metadata.IsIdempotent = true;
+        }
+        else if (verbPart.Equals("Set", StringComparison.OrdinalIgnoreCase))
+        {
+            metadata.IsIdempotent = true;
+        }
+        else if (IsDestructiveVerb(verbPart))
+        {
+            metadata.IsDestructive = true;
+        }
+    }
+
+    private static void SetDataVerbSafety(PowerShellCommandMetadata metadata, string verbPart)
+    {
+        if (IsDestructiveVerb(verbPart))
+        {
+            metadata.IsDestructive = true;
+        }
+        else if (verbPart.Equals("Set", StringComparison.OrdinalIgnoreCase))
+        {
+            metadata.IsIdempotent = true;
+        }
+    }
+
+    private static void AnalyzeVerbWithBasicRules(PowerShellCommandMetadata metadata, string verbPart, ILogger logger)
+    {
+        logger.LogDebug($"No Get-Verb info found for {verbPart}, using basic analysis");
+
+        if (IsReadOnlyVerb(verbPart))
+        {
+            metadata.IsReadOnly = true;
+            metadata.IsIdempotent = true;
+        }
+        else if (IsDestructiveVerb(verbPart))
+        {
+            metadata.IsDestructive = true;
+        }
+        else if (verbPart.Equals("Set", StringComparison.OrdinalIgnoreCase))
+        {
+            metadata.IsIdempotent = true;
+        }
+    }
+
+    private static bool IsReadOnlyVerb(string verbPart)
+    {
+        return verbPart.Equals("Get", StringComparison.OrdinalIgnoreCase) ||
+               verbPart.Equals("Find", StringComparison.OrdinalIgnoreCase) ||
+               verbPart.Equals("Search", StringComparison.OrdinalIgnoreCase) ||
+               verbPart.Equals("Show", StringComparison.OrdinalIgnoreCase) ||
+               verbPart.Equals("Test", StringComparison.OrdinalIgnoreCase) ||
+               verbPart.Equals("Measure", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsDestructiveVerb(string verbPart)
+    {
+        return verbPart.Equals("Remove", StringComparison.OrdinalIgnoreCase) ||
+               verbPart.Equals("Delete", StringComparison.OrdinalIgnoreCase) ||
+               verbPart.Equals("Clear", StringComparison.OrdinalIgnoreCase) ||
+               verbPart.Equals("Stop", StringComparison.OrdinalIgnoreCase) ||
+               verbPart.Equals("Kill", StringComparison.OrdinalIgnoreCase) ||
+               verbPart.Equals("Start", StringComparison.OrdinalIgnoreCase) ||
+               verbPart.Equals("Add", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void LogCommandMetadata(PowerShellCommandMetadata metadata, CommandParameterSetInfo parameterSet, ILogger logger)
+    {
+        logger.LogDebug($"Command metadata for {metadata.CommandName} ({parameterSet.Name}): Description='{metadata.Description}', IsDestructive={metadata.IsDestructive}, IsReadOnly={metadata.IsReadOnly}, IsIdempotent={metadata.IsIdempotent}");
     }
 
     /// <summary>
@@ -237,138 +278,208 @@ public class McpToolFactoryV2
     {
         try
         {
-            logger.LogInformation("Starting MCP tools generation using dynamic assembly approach");
-            logger.LogTrace("Tool factory configuration:");
-            logger.LogTrace($"  Config type: {config.GetType().Name}");
+            LogToolGenerationStart(logger, config);
+            var commands = ValidateAndGetCommands(config, logger);
+            if (!commands.Any()) return new List<McpServerTool>();
 
-            // Get all available PowerShell commands with their metadata based on configuration
-            var commands = GetAvailableCommands(config, logger);
-
-            if (!commands.Any())
-            {
-                logger.LogWarning("No PowerShell commands found - check configuration and PowerShell environment");
-                logger.LogDebug("Suggestions:");
-                logger.LogDebug("  - Verify function names exist in PowerShell");
-                logger.LogDebug("  - Check if specified modules are available");
-                logger.LogDebug("  - Review include/exclude patterns");
-                return new List<McpServerTool>();
-            }
-
-            logger.LogInformation($"Found {commands.Count} PowerShell commands");
-            logger.LogTrace($"Commands to process: [{string.Join(", ", commands.Select(c => c.Name))}]");
-
-            // Generate the assembly with all command methods
-            logger.LogDebug("Generating dynamic assembly for PowerShell commands...");
-            var generatedAssembly = _assemblyGenerator.GenerateAssembly(commands, logger);
-            var generatedInstance = _assemblyGenerator.GetGeneratedInstance(logger);
-            var generatedMethods = _assemblyGenerator.GetGeneratedMethods();
-
-            logger.LogInformation($"Generated assembly with {generatedMethods.Count} methods");
-            if (logger.IsEnabled(LogLevel.Trace))
-            {
-                logger.LogTrace("Generated methods:");
-                foreach (var method in generatedMethods.OrderBy(m => m.Key))
-                {
-                    logger.LogTrace($"  {method.Key} -> {method.Value.ReturnType.Name} with {method.Value.GetParameters().Length} parameters");
-                }
-            }
-
-            // Create MCP tools from generated methods
-            var tools = new List<McpServerTool>();
-            var successCount = 0;
-            var failureCount = 0;
-
-            // Create a mapping from method names to parameter-set-specific metadata
-            var methodToCommandMap = new Dictionary<string, PowerShellCommandMetadata>();
-            var powerShell = PowerShellRunspaceHolder.Instance;
-
-            foreach (var command in commands)
-            {
-                // For each parameter set of this command, create parameter-set-specific metadata
-                foreach (var parameterSet in command.ParameterSets)
-                {
-                    var methodName = PowerShellAssemblyGenerator.SanitizeMethodName(command.Name, parameterSet.Name);
-
-                    // Get parameter-set-specific metadata instead of general command metadata
-                    var metadata = GetCommandMetadata(command, parameterSet, powerShell, logger);
-                    methodToCommandMap[methodName] = metadata;
-                    logger.LogDebug($"Created parameter-set-specific metadata for method '{methodName}' from command '{command.Name}' parameter set '{parameterSet.Name}'");
-                }
-            }
-            // Use previously declared generatedMethods and generatedInstance
-            foreach (var kvp in generatedMethods)
-            {
-                var methodName = kvp.Key;
-                var method = kvp.Value;
-
-                try
-                {
-                    logger.LogTrace($"Processing method '{methodName}' for MCP tool creation...");
-
-                    // Create a delegate from the method
-                    var delegateType = GetDelegateTypeForMethod(method);
-                    var methodDelegate = Delegate.CreateDelegate(delegateType, generatedInstance, method);
-
-                    // Get metadata for this method
-                    var metadata = methodToCommandMap.GetValueOrDefault(methodName, new PowerShellCommandMetadata
-                    {
-                        CommandName = methodName.Replace("_", "-"),
-                        Description = methodName.Replace("_", "-"),
-                        IsDestructive = false,
-                        IsReadOnly = false,
-                        IsIdempotent = false
-                    });
-
-                    var options = new McpServerToolCreateOptions
-                    {
-                        Name = methodName.ToLowerInvariant(),
-                        Description = metadata.Description,
-                        Destructive = metadata.IsDestructive,
-                        Idempotent = metadata.IsIdempotent,
-                        OpenWorld = true,
-                        ReadOnly = metadata.IsReadOnly,
-                        Title = metadata.CommandName,
-                        // unless the method's return type is Task<string> or Task<IEnumerable<string>> this should be true
-                        UseStructuredContent = true
-                    };
-
-                    logger.LogDebug($"Creating MCP tool for method '{methodName}' with delegate type: {delegateType.Name}, metadata: Destructive={metadata.IsDestructive}, ReadOnly={metadata.IsReadOnly}, Idempotent={metadata.IsIdempotent}");
-
-                    // Create the MCP server tool
-                    var tool = McpServerTool.Create(methodDelegate, options);
-                    tools.Add(tool);
-                    successCount++;
-
-                    logger.LogInformation($"Successfully created MCP tool '{options.Name}' for command '{metadata.CommandName}' - {metadata.Description}");
-                }
-                catch (Exception ex)
-                {
-                    failureCount++;
-                    logger.LogError(ex, $"Failed to create MCP tool for method '{methodName}': {ex.Message}");
-                    if (logger.IsEnabled(LogLevel.Trace))
-                    {
-                        logger.LogTrace($"Method details - Name: {methodName}, Return Type: {method.ReturnType}, Parameters: {method.GetParameters().Length}");
-                    }
-                }
-            }
-
-            logger.LogInformation($"Successfully created {tools.Count} MCP tools from dynamic assembly");
-            logger.LogDebug($"Tool creation summary: {successCount} succeeded, {failureCount} failed");
-
-            if (failureCount > 0 && logger.IsEnabled(LogLevel.Debug))
-            {
-                logger.LogDebug("Some tools failed to be created. This may be due to unsupported parameter types or complex PowerShell objects.");
-                logger.LogDebug("The MCP server will still work with the successfully created tools.");
-            }
-
+            var (generatedAssembly, generatedInstance, generatedMethods) = GenerateAssemblyAndMethods(commands, logger);
+            var methodToCommandMap = CreateCommandMetadataMapping(commands, logger);
+            var tools = CreateMcpToolsFromMethods(generatedMethods, generatedInstance, methodToCommandMap, logger);
+            LogToolGenerationResults(tools, logger);
             return tools;
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, $"Failed to generate MCP tools using dynamic assembly: {ex.Message}");
-            logger.LogDebug("This error prevented any tools from being created. Check PowerShell configuration and environment.");
-            return new List<McpServerTool>();
+            return HandleToolGenerationError(ex, logger);
         }
+    }
+
+    private static void LogToolGenerationStart(ILogger logger, PowerShellConfiguration config)
+    {
+        logger.LogInformation("Starting MCP tools generation using dynamic assembly approach");
+        logger.LogTrace("Tool factory configuration:");
+        logger.LogTrace($"  Config type: {config.GetType().Name}");
+    }
+
+    private List<CommandInfo> ValidateAndGetCommands(PowerShellConfiguration config, ILogger logger)
+    {
+        var commands = GetAvailableCommands(config, logger);
+        if (!commands.Any())
+        {
+            LogNoCommandsFound(logger);
+        }
+        return commands;
+    }
+
+    private static void LogNoCommandsFound(ILogger logger)
+    {
+        logger.LogWarning("No PowerShell commands found - check configuration and PowerShell environment");
+        logger.LogDebug("Suggestions:");
+        logger.LogDebug("  - Verify function names exist in PowerShell");
+        logger.LogDebug("  - Check if specified modules are available");
+        logger.LogDebug("  - Review include/exclude patterns");
+    }
+
+    private (Assembly assembly, object instance, Dictionary<string, MethodInfo> methods) GenerateAssemblyAndMethods(List<CommandInfo> commands, ILogger logger)
+    {
+        logger.LogInformation($"Found {commands.Count} PowerShell commands");
+        logger.LogTrace($"Commands to process: [{string.Join(", ", commands.Select(c => c.Name))}]");
+
+        logger.LogDebug("Generating dynamic assembly for PowerShell commands...");
+        var generatedAssembly = _assemblyGenerator.GenerateAssembly(commands, logger);
+        var generatedInstance = _assemblyGenerator.GetGeneratedInstance(logger);
+        var generatedMethods = _assemblyGenerator.GetGeneratedMethods();
+
+        LogGeneratedAssemblyDetails(generatedMethods, logger);
+        return (generatedAssembly, generatedInstance, generatedMethods);
+    }
+
+    private static void LogGeneratedAssemblyDetails(Dictionary<string, MethodInfo> generatedMethods, ILogger logger)
+    {
+        logger.LogInformation($"Generated assembly with {generatedMethods.Count} methods");
+        if (logger.IsEnabled(LogLevel.Trace))
+        {
+            LogGeneratedMethodDetails(generatedMethods, logger);
+        }
+    }
+
+    private static void LogGeneratedMethodDetails(Dictionary<string, MethodInfo> generatedMethods, ILogger logger)
+    {
+        logger.LogTrace("Generated methods:");
+        foreach (var method in generatedMethods.OrderBy(m => m.Key))
+        {
+            logger.LogTrace($"  {method.Key} -> {method.Value.ReturnType.Name} with {method.Value.GetParameters().Length} parameters");
+        }
+    }
+
+    private Dictionary<string, PowerShellCommandMetadata> CreateCommandMetadataMapping(List<CommandInfo> commands, ILogger logger)
+    {
+        var methodToCommandMap = new Dictionary<string, PowerShellCommandMetadata>();
+        var powerShell = PowerShellRunspaceHolder.Instance;
+
+        foreach (var command in commands)
+        {
+            MapParameterSetsToMetadata(command, powerShell, methodToCommandMap, logger);
+        }
+        return methodToCommandMap;
+    }
+
+    private void MapParameterSetsToMetadata(CommandInfo command, PSPowerShell powerShell, Dictionary<string, PowerShellCommandMetadata> methodToCommandMap, ILogger logger)
+    {
+        foreach (var parameterSet in command.ParameterSets)
+        {
+            var methodName = PowerShellAssemblyGenerator.SanitizeMethodName(command.Name, parameterSet.Name);
+            var metadata = GetCommandMetadata(command, parameterSet, powerShell, logger);
+            methodToCommandMap[methodName] = metadata;
+            logger.LogDebug($"Created parameter-set-specific metadata for method '{methodName}' from command '{command.Name}' parameter set '{parameterSet.Name}'");
+        }
+    }
+
+    private List<McpServerTool> CreateMcpToolsFromMethods(Dictionary<string, MethodInfo> generatedMethods, object generatedInstance, Dictionary<string, PowerShellCommandMetadata> methodToCommandMap, ILogger logger)
+    {
+        var tools = new List<McpServerTool>();
+        var successCount = 0;
+        var failureCount = 0;
+
+        foreach (var kvp in generatedMethods)
+        {
+            try
+            {
+                var tool = CreateSingleMcpTool(kvp, generatedInstance, methodToCommandMap, logger);
+                tools.Add(tool);
+                successCount++;
+            }
+            catch (Exception ex)
+            {
+                failureCount++;
+                LogToolCreationFailure(kvp.Key, kvp.Value, ex, logger);
+            }
+        }
+
+        LogToolCreationSummary(tools.Count, successCount, failureCount, logger);
+        return tools;
+    }
+
+    private McpServerTool CreateSingleMcpTool(KeyValuePair<string, MethodInfo> methodKvp, object generatedInstance, Dictionary<string, PowerShellCommandMetadata> methodToCommandMap, ILogger logger)
+    {
+        var methodName = methodKvp.Key;
+        var method = methodKvp.Value;
+
+        logger.LogTrace($"Processing method '{methodName}' for MCP tool creation...");
+
+        var delegateType = GetDelegateTypeForMethod(method);
+        var methodDelegate = Delegate.CreateDelegate(delegateType, generatedInstance, method);
+        var metadata = GetOrCreateMethodMetadata(methodName, methodToCommandMap);
+        var options = CreateMcpToolOptions(methodName, metadata);
+
+        LogToolCreationSuccess(methodName, delegateType, metadata, logger);
+        return McpServerTool.Create(methodDelegate, options);
+    }
+
+    private static PowerShellCommandMetadata GetOrCreateMethodMetadata(string methodName, Dictionary<string, PowerShellCommandMetadata> methodToCommandMap)
+    {
+        return methodToCommandMap.GetValueOrDefault(methodName, new PowerShellCommandMetadata
+        {
+            CommandName = methodName.Replace("_", "-"),
+            Description = methodName.Replace("_", "-"),
+            IsDestructive = false,
+            IsReadOnly = false,
+            IsIdempotent = false
+        });
+    }
+
+    private static McpServerToolCreateOptions CreateMcpToolOptions(string methodName, PowerShellCommandMetadata metadata)
+    {
+        return new McpServerToolCreateOptions
+        {
+            Name = methodName.ToLowerInvariant(),
+            Description = metadata.Description,
+            Destructive = metadata.IsDestructive,
+            Idempotent = metadata.IsIdempotent,
+            OpenWorld = true,
+            ReadOnly = metadata.IsReadOnly,
+            Title = metadata.CommandName,
+            UseStructuredContent = true
+        };
+    }
+
+    private static void LogToolCreationSuccess(string methodName, Type delegateType, PowerShellCommandMetadata metadata, ILogger logger)
+    {
+        logger.LogDebug($"Creating MCP tool for method '{methodName}' with delegate type: {delegateType.Name}, metadata: Destructive={metadata.IsDestructive}, ReadOnly={metadata.IsReadOnly}, Idempotent={metadata.IsIdempotent}");
+        logger.LogInformation($"Successfully created MCP tool '{methodName.ToLowerInvariant()}' for command '{metadata.CommandName}' - {metadata.Description}");
+    }
+
+    private static void LogToolCreationFailure(string methodName, MethodInfo method, Exception ex, ILogger logger)
+    {
+        logger.LogError(ex, $"Failed to create MCP tool for method '{methodName}': {ex.Message}");
+        if (logger.IsEnabled(LogLevel.Trace))
+        {
+            logger.LogTrace($"Method details - Name: {methodName}, Return Type: {method.ReturnType}, Parameters: {method.GetParameters().Length}");
+        }
+    }
+
+    private static void LogToolCreationSummary(int toolCount, int successCount, int failureCount, ILogger logger)
+    {
+        logger.LogInformation($"Successfully created {toolCount} MCP tools from dynamic assembly");
+        logger.LogDebug($"Tool creation summary: {successCount} succeeded, {failureCount} failed");
+
+        if (failureCount > 0 && logger.IsEnabled(LogLevel.Debug))
+        {
+            logger.LogDebug("Some tools failed to be created. This may be due to unsupported parameter types or complex PowerShell objects.");
+            logger.LogDebug("The MCP server will still work with the successfully created tools.");
+        }
+    }
+
+    private static void LogToolGenerationResults(List<McpServerTool> tools, ILogger logger)
+    {
+        logger.LogInformation($"Tool generation completed with {tools.Count} tools");
+    }
+
+    private static List<McpServerTool> HandleToolGenerationError(Exception ex, ILogger logger)
+    {
+        logger.LogError(ex, $"Failed to generate MCP tools using dynamic assembly: {ex.Message}");
+        logger.LogDebug("This error prevented any tools from being created. Check PowerShell configuration and environment.");
+        return new List<McpServerTool>();
     }
 
     /// <summary>
