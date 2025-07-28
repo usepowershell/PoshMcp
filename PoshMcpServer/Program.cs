@@ -119,10 +119,10 @@ public class Program
     {
         if (File.Exists(configPath))
             return configPath;
-        
+
         if (File.Exists("appsettings.json"))
             return "appsettings.json";
-        
+
         await CreateDefaultConfigFileAsync(configPath);
         return configPath;
     }
@@ -158,7 +158,7 @@ public class Program
     private static void ReportToolDiscoveryResults(List<McpServerTool> tools, ILogger logger)
     {
         PrintToolDiscoveryResults(tools);
-        
+
         if (tools.Count > 0)
             PrintSuccessMessage();
         else

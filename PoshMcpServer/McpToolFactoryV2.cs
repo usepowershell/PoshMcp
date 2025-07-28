@@ -124,7 +124,7 @@ public class McpToolFactoryV2
         {
             var verbPart = ExtractVerbFromCommandName(commandInfo.Name);
             var verbResult = ExecuteGetVerbCommand(verbPart, powerShell);
-            
+
             if (verbResult.Count > 0 && verbResult[0] != null)
             {
                 AnalyzeVerbGroupSafety(metadata, verbPart, verbResult[0], logger);
@@ -529,7 +529,7 @@ public class McpToolFactoryV2
                 logger.LogDebug("No modules specified in configuration");
             }
 
-            // Apply include patterns if specified to filter configured commands 
+            // Apply include patterns if specified to filter configured commands
             if (config.IncludePatterns.Any())
             {
                 var beforeCount = commands.Count;

@@ -21,11 +21,11 @@ public class McpToolFactoryV2Tests : PowerShellTestBase
         using var powerShell = System.Management.Automation.PowerShell.Create();
         powerShell.AddCommand("Get-Command").AddParameter("Name", "Get-Process");
         var commandInfos = powerShell.Invoke<CommandInfo>();
-        
+
         if (commandInfos.Count > 0)
         {
             var commandInfo = commandInfos.First();
-            
+
             // Act
             var metadata = McpToolFactoryV2.CreateDefaultCommandMetadata(commandInfo);
 
