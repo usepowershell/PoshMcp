@@ -83,7 +83,7 @@ public class McpToolFactoryV2
         return metadata;
     }
 
-    private static PowerShellCommandMetadata CreateDefaultCommandMetadata(CommandInfo commandInfo)
+    internal static PowerShellCommandMetadata CreateDefaultCommandMetadata(CommandInfo commandInfo)
     {
         return new PowerShellCommandMetadata
         {
@@ -140,7 +140,7 @@ public class McpToolFactoryV2
         }
     }
 
-    private static string ExtractVerbFromCommandName(string commandName)
+    internal static string ExtractVerbFromCommandName(string commandName)
     {
         return commandName.Contains('-') ? commandName.Split('-')[0] : commandName;
     }
@@ -242,7 +242,7 @@ public class McpToolFactoryV2
         }
     }
 
-    private static bool IsReadOnlyVerb(string verbPart)
+    internal static bool IsReadOnlyVerb(string verbPart)
     {
         return verbPart.Equals("Get", StringComparison.OrdinalIgnoreCase) ||
                verbPart.Equals("Find", StringComparison.OrdinalIgnoreCase) ||
@@ -252,7 +252,7 @@ public class McpToolFactoryV2
                verbPart.Equals("Measure", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsDestructiveVerb(string verbPart)
+    internal static bool IsDestructiveVerb(string verbPart)
     {
         return verbPart.Equals("Remove", StringComparison.OrdinalIgnoreCase) ||
                verbPart.Equals("Delete", StringComparison.OrdinalIgnoreCase) ||
