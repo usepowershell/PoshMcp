@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using PoshMcp.PowerShell;
 using System;
+using System.Collections.Generic;
 using System.CommandLine;
 using System.IO;
 using System.Linq;
@@ -67,101 +68,153 @@ public class Program
 
     private static async Task RunToolEvaluationAsync(LogLevel logLevel)
     {
-        Console.Error.WriteLine("=== PowerShell MCP Server - Tool Evaluation Mode ===");
-        Console.Error.WriteLine();
-
-        // Create a simple logger factory for evaluation mode
-        using var loggerFactory = LoggerFactory.Create(builder =>
-            builder.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace)
-                   .SetMinimumLevel(logLevel));
-
+        PrintToolEvaluationHeader();
+        using var loggerFactory = CreateLoggerFactory(logLevel);
         var logger = loggerFactory.CreateLogger("ToolEvaluation");
 
         try
         {
-            logger.LogInformation("Starting tool evaluation mode");
-            logger.LogDebug($"Log level set to: {logLevel}");
-
-            // Load configuration similar to main server
-            var appDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? Directory.GetCurrentDirectory();
-            var configPath = Path.Combine(appDirectory, "appsettings.json");
-
-            string finalConfigPath;
-            if (File.Exists(configPath))
-            {
-                finalConfigPath = configPath;
-            }
-            else if (File.Exists("appsettings.json"))
-            {
-                finalConfigPath = "appsettings.json";
-            }
-            else
-            {
-                finalConfigPath = configPath;
-                await CreateDefaultConfigFileAsync(configPath);
-            }
-
-            logger.LogInformation($"Loading configuration from: {finalConfigPath}");
-
-            // Build configuration
-            var configuration = new ConfigurationBuilder()
-                .AddJsonFile(finalConfigPath, optional: false, reloadOnChange: false)
-                .Build();
-
-            var config = new PowerShellConfiguration();
-            configuration.GetSection("PowerShellConfiguration").Bind(config);
-
-            logger.LogDebug("Configuration loaded successfully");
-            logger.LogTrace($"Function names: {string.Join(", ", config.FunctionNames)}");
-            logger.LogTrace($"Modules: {string.Join(", ", config.Modules)}");
-            logger.LogTrace($"Include patterns: {string.Join(", ", config.IncludePatterns)}");
-            logger.LogTrace($"Exclude patterns: {string.Join(", ", config.ExcludePatterns)}");
-
-            // Discover tools using the same logic as the main server
-            logger.LogInformation("Discovering PowerShell tools...");
-            var toolFactory = new McpToolFactoryV2();
-            var tools = toolFactory.GetToolsList(config, logger);
-
-            // Report results
-            Console.Error.WriteLine();
-            Console.Error.WriteLine($"=== Tool Discovery Results ===");
-            Console.Error.WriteLine($"Total tools discovered: {tools.Count}");
-            Console.Error.WriteLine();
-
-            if (tools.Count > 0)
-            {
-                Console.Error.WriteLine("Successfully created MCP tools from discovered PowerShell commands.");
-                Console.Error.WriteLine("Tools are ready to be exposed via the MCP server.");
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("To start the MCP server with these tools, run without the --evaluate-tools flag.");
-            }
-            else
-            {
-                Console.Error.WriteLine("No tools were discovered. Check your configuration and PowerShell environment.");
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("Ensure that:");
-                Console.Error.WriteLine("- PowerShell commands specified in FunctionNames exist");
-                Console.Error.WriteLine("- Modules specified in Modules are available");
-                Console.Error.WriteLine("- Include/exclude patterns are not filtering out all commands");
-            }
-
-            logger.LogInformation("Tool evaluation completed successfully");
+            LogEvaluationStart(logger, logLevel);
+            var finalConfigPath = await DetermineConfigurationPath(logger);
+            var config = LoadPowerShellConfiguration(finalConfigPath, logger);
+            var tools = DiscoverTools(config, logger);
+            ReportToolDiscoveryResults(tools, logger);
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error during tool evaluation: {ErrorMessage}", ex.Message);
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            HandleToolEvaluationError(ex, logger);
         }
+    }
+
+    private static void PrintToolEvaluationHeader()
+    {
+        Console.Error.WriteLine("=== PowerShell MCP Server - Tool Evaluation Mode ===");
+        Console.Error.WriteLine();
+    }
+
+    internal static ILoggerFactory CreateLoggerFactory(LogLevel logLevel)
+    {
+        return LoggerFactory.Create(builder =>
+            builder.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace)
+                   .SetMinimumLevel(logLevel));
+    }
+
+    private static void LogEvaluationStart(ILogger logger, LogLevel logLevel)
+    {
+        logger.LogInformation("Starting tool evaluation mode");
+        logger.LogDebug($"Log level set to: {logLevel}");
+    }
+
+    private static async Task<string> DetermineConfigurationPath(ILogger logger)
+    {
+        var appDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? Directory.GetCurrentDirectory();
+        var configPath = Path.Combine(appDirectory, "appsettings.json");
+
+        string finalConfigPath = await ResolveConfigurationPath(configPath);
+        logger.LogInformation($"Loading configuration from: {finalConfigPath}");
+        return finalConfigPath;
+    }
+
+    internal static async Task<string> ResolveConfigurationPath(string configPath)
+    {
+        if (File.Exists(configPath))
+            return configPath;
+
+        if (File.Exists("appsettings.json"))
+            return "appsettings.json";
+
+        await CreateDefaultConfigFileAsync(configPath);
+        return configPath;
+    }
+
+    internal static PowerShellConfiguration LoadPowerShellConfiguration(string configPath, ILogger logger)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddJsonFile(configPath, optional: false, reloadOnChange: false)
+            .Build();
+
+        var config = new PowerShellConfiguration();
+        configuration.GetSection("PowerShellConfiguration").Bind(config);
+        LogConfigurationDetails(config, logger);
+        return config;
+    }
+
+    private static void LogConfigurationDetails(PowerShellConfiguration config, ILogger logger)
+    {
+        logger.LogDebug("Configuration loaded successfully");
+        logger.LogTrace($"Function names: {string.Join(", ", config.FunctionNames)}");
+        logger.LogTrace($"Modules: {string.Join(", ", config.Modules)}");
+        logger.LogTrace($"Include patterns: {string.Join(", ", config.IncludePatterns)}");
+        logger.LogTrace($"Exclude patterns: {string.Join(", ", config.ExcludePatterns)}");
+    }
+
+    private static List<McpServerTool> DiscoverTools(PowerShellConfiguration config, ILogger logger)
+    {
+        logger.LogInformation("Discovering PowerShell tools...");
+        var toolFactory = new McpToolFactoryV2();
+        return toolFactory.GetToolsList(config, logger);
+    }
+
+    private static void ReportToolDiscoveryResults(List<McpServerTool> tools, ILogger logger)
+    {
+        PrintToolDiscoveryResults(tools);
+
+        if (tools.Count > 0)
+            PrintSuccessMessage();
+        else
+            PrintNoToolsFoundMessage();
+
+        logger.LogInformation("Tool evaluation completed successfully");
+    }
+
+    private static void PrintToolDiscoveryResults(List<McpServerTool> tools)
+    {
+        Console.Error.WriteLine();
+        Console.Error.WriteLine($"=== Tool Discovery Results ===");
+        Console.Error.WriteLine($"Total tools discovered: {tools.Count}");
+        Console.Error.WriteLine();
+    }
+
+    private static void PrintSuccessMessage()
+    {
+        Console.Error.WriteLine("Successfully created MCP tools from discovered PowerShell commands.");
+        Console.Error.WriteLine("Tools are ready to be exposed via the MCP server.");
+        Console.Error.WriteLine();
+        Console.Error.WriteLine("To start the MCP server with these tools, run without the --evaluate-tools flag.");
+    }
+
+    private static void PrintNoToolsFoundMessage()
+    {
+        Console.Error.WriteLine("No tools were discovered. Check your configuration and PowerShell environment.");
+        Console.Error.WriteLine();
+        Console.Error.WriteLine("Ensure that:");
+        Console.Error.WriteLine("- PowerShell commands specified in FunctionNames exist");
+        Console.Error.WriteLine("- Modules specified in Modules are available");
+        Console.Error.WriteLine("- Include/exclude patterns are not filtering out all commands");
+    }
+
+    private static void HandleToolEvaluationError(Exception ex, ILogger logger)
+    {
+        logger.LogError(ex, "Error during tool evaluation: {ErrorMessage}", ex.Message);
+        Console.Error.WriteLine($"Error: {ex.Message}");
     }
 
     private static async Task RunMcpServerAsync(string[] args, LogLevel? overrideLogLevel = null)
     {
         var builder = Host.CreateApplicationBuilder(args);
+        ConfigureServerLogging(builder, overrideLogLevel);
+        var finalConfigPath = await ConfigureServerConfiguration(builder);
+        var serviceProvider = builder.Services.BuildServiceProvider();
+        var (logger, config) = ExtractLoggerAndConfiguration(serviceProvider, finalConfigPath);
+        var tools = SetupMcpTools(serviceProvider, config, logger, finalConfigPath);
+        ConfigureServerServices(builder, tools);
+        await builder.Build().RunAsync();
+    }
 
-        // Configure logging
+    private static void ConfigureServerLogging(HostApplicationBuilder builder, LogLevel? overrideLogLevel)
+    {
         builder.Logging.AddConsole(consoleLogOptions =>
         {
-            // Configure all logs to go to stderr
             consoleLogOptions.LogToStandardErrorThreshold = LogLevel.Trace;
         });
 
@@ -169,57 +222,65 @@ public class Program
         {
             builder.Logging.SetMinimumLevel(overrideLogLevel.Value);
         }
+    }
 
-        // Configure settings - look for appsettings.json in the application directory
-        var appDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? Directory.GetCurrentDirectory();
-        var configPath = Path.Combine(appDirectory, "appsettings.json");
-
-        // Try multiple locations for the config file
-        string finalConfigPath;
-        if (File.Exists(configPath))
-        {
-            finalConfigPath = configPath;
-        }
-        else if (File.Exists("appsettings.json"))
-        {
-            finalConfigPath = "appsettings.json";
-        }
-        else
-        {
-            // Create a default config file in the app directory if none exists
-            finalConfigPath = configPath;
-            await CreateDefaultConfigFileAsync(configPath);
-        }
-
+    private static async Task<string> ConfigureServerConfiguration(HostApplicationBuilder builder)
+    {
+        var finalConfigPath = await DetermineServerConfigurationPath();
         builder.Configuration.AddJsonFile(finalConfigPath, optional: false, reloadOnChange: true);
         builder.Services.Configure<PowerShellConfiguration>(
             builder.Configuration.GetSection("PowerShellConfiguration"));
+        return finalConfigPath;
+    }
 
-        // Build service provider to get logger and configuration
-        var serviceProvider = builder.Services.BuildServiceProvider();
+    private static async Task<string> DetermineServerConfigurationPath()
+    {
+        var appDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? Directory.GetCurrentDirectory();
+        var configPath = Path.Combine(appDirectory, "appsettings.json");
+        return await ResolveConfigurationPath(configPath);
+    }
+
+    private static (ILogger logger, PowerShellConfiguration config) ExtractLoggerAndConfiguration(IServiceProvider serviceProvider, string finalConfigPath)
+    {
         var logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("PoshMcpLogger");
         var config = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<PowerShellConfiguration>>().Value;
-
         logger.LogInformation($"Using configuration file: {finalConfigPath}");
+        return (logger, config);
+    }
 
-        // Use the new dynamic assembly-based tool factory with configuration
+    private static List<McpServerTool> SetupMcpTools(IServiceProvider serviceProvider, PowerShellConfiguration config, ILogger logger, string finalConfigPath)
+    {
         var toolFactory = new McpToolFactoryV2();
         var tools = toolFactory.GetToolsList(config, logger);
+        var reloadTools = CreateConfigurationReloadTools(serviceProvider, toolFactory, config, finalConfigPath);
+        AddConfigurationReloadToolsToList(tools, reloadTools);
+        logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools)");
+        return tools;
+    }
 
-        // Create configuration reload service
+    private static ConfigurationReloadTools CreateConfigurationReloadTools(IServiceProvider serviceProvider, McpToolFactoryV2 toolFactory, PowerShellConfiguration config, string finalConfigPath)
+    {
         var reloadServiceLogger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger<PowerShellConfigurationReloadService>();
         var reloadService = new PowerShellConfigurationReloadService(reloadServiceLogger, toolFactory, config, finalConfigPath);
-
-        // Create configuration reload tools
         var reloadToolsLogger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger<ConfigurationReloadTools>();
-        var reloadTools = new ConfigurationReloadTools(reloadService, reloadToolsLogger);
+        return new ConfigurationReloadTools(reloadService, reloadToolsLogger);
+    }
 
-        // Create MCP tools for configuration reload functionality
+    private static void AddConfigurationReloadToolsToList(List<McpServerTool> tools, ConfigurationReloadTools reloadTools)
+    {
+        var reloadFromFileTool = CreateReloadFromFileToolInstance(reloadTools);
+        var updateConfigTool = CreateUpdateConfigurationToolInstance(reloadTools);
+        var getConfigStatusTool = CreateGetConfigurationStatusToolInstance(reloadTools);
+
+        tools.Add(reloadFromFileTool);
+        tools.Add(updateConfigTool);
+        tools.Add(getConfigStatusTool);
+    }
+
+    private static McpServerTool CreateReloadFromFileToolInstance(ConfigurationReloadTools reloadTools)
+    {
         var reloadConfigFromFileDelegate = new Func<CancellationToken, Task<string>>(reloadTools.ReloadConfigurationFromFile);
-        var updateConfigDelegate = new Func<string, CancellationToken, Task<string>>(reloadTools.UpdateConfiguration);
-        var getConfigStatusDelegate = new Func<CancellationToken, Task<string>>(reloadTools.GetConfigurationStatus);
-
-        var reloadFromFileTool = McpServerTool.Create(reloadConfigFromFileDelegate, new McpServerToolCreateOptions
+        return McpServerTool.Create(reloadConfigFromFileDelegate, new McpServerToolCreateOptions
         {
             Name = "reload-configuration-from-file",
             Description = "Reloads PowerShell configuration from the configuration file and regenerates available tools",
@@ -230,8 +291,12 @@ public class Program
             OpenWorld = false,
             UseStructuredContent = true
         });
+    }
 
-        var updateConfigTool = McpServerTool.Create(updateConfigDelegate, new McpServerToolCreateOptions
+    private static McpServerTool CreateUpdateConfigurationToolInstance(ConfigurationReloadTools reloadTools)
+    {
+        var updateConfigDelegate = new Func<string, CancellationToken, Task<string>>(reloadTools.UpdateConfiguration);
+        return McpServerTool.Create(updateConfigDelegate, new McpServerToolCreateOptions
         {
             Name = "update-configuration",
             Description = "Updates PowerShell configuration with new settings and regenerates available tools",
@@ -242,8 +307,12 @@ public class Program
             OpenWorld = false,
             UseStructuredContent = true
         });
+    }
 
-        var getConfigStatusTool = McpServerTool.Create(getConfigStatusDelegate, new McpServerToolCreateOptions
+    private static McpServerTool CreateGetConfigurationStatusToolInstance(ConfigurationReloadTools reloadTools)
+    {
+        var getConfigStatusDelegate = new Func<CancellationToken, Task<string>>(reloadTools.GetConfigurationStatus);
+        return McpServerTool.Create(getConfigStatusDelegate, new McpServerToolCreateOptions
         {
             Name = "get-configuration-status",
             Description = "Gets current PowerShell configuration status and tool information",
@@ -254,32 +323,37 @@ public class Program
             OpenWorld = false,
             UseStructuredContent = true
         });
+    }
 
-        // Add reload tools to the main tools list
-        tools.Add(reloadFromFileTool);
-        tools.Add(updateConfigTool);
-        tools.Add(getConfigStatusTool);
+    private static void ConfigureServerServices(HostApplicationBuilder builder, List<McpServerTool> tools)
+    {
+        ConfigureJsonSerializerOptions(builder);
+        RegisterMcpServerServices(builder, tools);
+        RegisterCleanupServices(builder);
+    }
 
-        logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools)");
-
-        // Configure JSON serializer options to handle cycles and deep object graphs
+    private static void ConfigureJsonSerializerOptions(HostApplicationBuilder builder)
+    {
         builder.Services.Configure<JsonSerializerOptions>(options =>
         {
             options.ReferenceHandler = ReferenceHandler.IgnoreCycles;
-            options.MaxDepth = 128; // Increase from default 64 to handle deeper PowerShell object graphs
+            options.MaxDepth = 128;
             options.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
-            options.WriteIndented = false; // Compact output for MCP protocol
+            options.WriteIndented = false;
         });
+    }
 
+    private static void RegisterMcpServerServices(HostApplicationBuilder builder, List<McpServerTool> tools)
+    {
         builder.Services
             .AddMcpServer()
             .WithStdioServerTransport()
             .WithTools(tools);
+    }
 
-        // Register cleanup for the PowerShell runspace
+    private static void RegisterCleanupServices(HostApplicationBuilder builder)
+    {
         builder.Services.AddSingleton<IHostedService, PowerShellCleanupService>();
-
-        await builder.Build().RunAsync();
     }
 
     private static async Task CreateDefaultConfigFileAsync(string configPath)
