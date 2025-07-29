@@ -65,7 +65,7 @@ public class DynamicReloadToolsFeatureFlagTests : PowerShellTestBase
         };
 
         var toolFactory = new McpToolFactoryV2();
-        
+
         // Act - Use try-catch to handle PowerShell state issues in parallel tests
         List<McpServerTool> tools;
         try
@@ -82,15 +82,15 @@ public class DynamicReloadToolsFeatureFlagTests : PowerShellTestBase
 
         // Assert
         Assert.NotNull(tools);
-        
+
         // When feature flag is disabled, should only have the regular PowerShell tools
         // The reload tools should not be present (they are added in Program.cs, not by the factory)
         var toolNames = tools.Select(t => t.ProtocolTool.Name).ToList();
-        
+
         Assert.DoesNotContain("reload-configuration-from-file", toolNames);
         Assert.DoesNotContain("update-configuration", toolNames);
         Assert.DoesNotContain("get-configuration-status", toolNames);
-        
+
         Logger.LogInformation($"Test completed with {tools.Count} tools generated, none of which should be reload tools");
     }
 
@@ -111,16 +111,16 @@ public class DynamicReloadToolsFeatureFlagTests : PowerShellTestBase
         Assert.Equal(2, config.FunctionNames.Count);
         Assert.Contains("Get-Process", config.FunctionNames);
         Assert.Contains("Get-Service", config.FunctionNames);
-        
+
         Assert.Single(config.Modules);
         Assert.Contains("Microsoft.PowerShell.Management", config.Modules);
-        
+
         Assert.Single(config.ExcludePatterns);
         Assert.Contains("Remove-*", config.ExcludePatterns);
-        
+
         Assert.Single(config.IncludePatterns);
         Assert.Contains("Get-*", config.IncludePatterns);
-        
+
         Assert.True(config.EnableDynamicReloadTools);
     }
 }

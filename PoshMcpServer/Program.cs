@@ -252,7 +252,7 @@ public class Program
     {
         var toolFactory = new McpToolFactoryV2();
         var tools = toolFactory.GetToolsList(config, logger);
-        
+
         if (config.EnableDynamicReloadTools)
         {
             var reloadTools = CreateConfigurationReloadTools(serviceProvider, toolFactory, config, finalConfigPath);
@@ -263,7 +263,7 @@ public class Program
         {
             logger.LogInformation($"Added {tools.Count} total tools (dynamic reload tools are disabled)");
         }
-        
+
         return tools;
     }
 
