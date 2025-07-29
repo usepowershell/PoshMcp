@@ -71,15 +71,16 @@ public class ServerWithExternalClient : PowerShellTestBase, IAsyncLifetime
 
         var tools = toolsResponse["result"]?["tools"] as JArray;
         Assert.NotNull(tools);
-        Assert.True(tools.Count > 0);
+        Assert.Equal(18, tools.Count);
 
         Logger.LogInformation($"Found {tools.Count} tools via external client");
 
-        foreach (var tool in tools)
+        foreach (var tool in tools.OrderBy(x => x["name"]))
         {
             var toolName = tool["name"]?.ToString();
+            var toolTitle = tool["title"]?.ToString();
             var toolDescription = tool["description"]?.ToString();
-            Logger.LogInformation($"  Tool: {toolName} - {toolDescription}");
+            Logger.LogInformation($"  Tool: {toolName} - {toolTitle}");
         }
     }
 
