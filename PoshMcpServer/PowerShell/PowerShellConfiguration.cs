@@ -26,4 +26,9 @@ public class PowerShellConfiguration
     /// Patterns to include in import (supports wildcards)
     /// </summary>
     public List<string> IncludePatterns { get; set; } = new();
+
+    /// <summary>
+    /// Whether to enable dynamic reload tools (reload-configuration-from-file, update-configuration, get-configuration-status)
+    /// </summary>
+    public bool EnableDynamicReloadTools { get; set; } = false;
 }

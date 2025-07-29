@@ -252,9 +252,18 @@ public class Program
     {
         var toolFactory = new McpToolFactoryV2();
         var tools = toolFactory.GetToolsList(config, logger);
-        var reloadTools = CreateConfigurationReloadTools(serviceProvider, toolFactory, config, finalConfigPath);
-        AddConfigurationReloadToolsToList(tools, reloadTools);
-        logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools)");
+        
+        if (config.EnableDynamicReloadTools)
+        {
+            var reloadTools = CreateConfigurationReloadTools(serviceProvider, toolFactory, config, finalConfigPath);
+            AddConfigurationReloadToolsToList(tools, reloadTools);
+            logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools)");
+        }
+        else
+        {
+            logger.LogInformation($"Added {tools.Count} total tools (dynamic reload tools are disabled)");
+        }
+        
         return tools;
     }
 
@@ -376,7 +385,8 @@ public class Program
     ],
     ""Modules"": [],
     ""ExcludePatterns"": [],
-    ""IncludePatterns"": []
+    ""IncludePatterns"": [],
+    ""EnableDynamicReloadTools"": false
   }
 }";
 
