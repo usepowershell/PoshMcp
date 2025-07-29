@@ -71,7 +71,8 @@ public class ServerWithExternalClient : PowerShellTestBase, IAsyncLifetime
 
         var tools = toolsResponse["result"]?["tools"] as JArray;
         Assert.NotNull(tools);
-        Assert.Equal(18, tools.Count);
+        // There should be 15 built-in tools available when reload configuration is disabled
+        Assert.Equal(15, tools.Count);
 
         Logger.LogInformation($"Found {tools.Count} tools via external client");
 
