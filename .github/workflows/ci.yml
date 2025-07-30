@@ -21,8 +21,11 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore
 
-    - name: Verify formatting
-      run: dotnet format --verify-no-changes
+    - name: Verify whitespace formatting
+      run: dotnet format whitespace --verify-no-changes
+
+    - name: Verify style formatting
+      run: dotnet format style --verify-no-changes
 
     - name: Build
       run: dotnet build --configuration Release --no-restore

@@ -18,12 +18,12 @@ namespace PoshMcp.Tests.Functional.McpServerSetup;
 /// </summary>
 public partial class SetupTests : PowerShellTestBase
 {
-  [Fact]
-  public async Task Configuration_LoadFromJsonFile_ShouldParseCorrectly()
-  {
-    // Arrange
-    var tempConfigFile = Path.GetTempFileName();
-    var configJson = @"{
+    [Fact]
+    public async Task Configuration_LoadFromJsonFile_ShouldParseCorrectly()
+    {
+        // Arrange
+        var tempConfigFile = Path.GetTempFileName();
+        var configJson = @"{
   ""PowerShellConfiguration"": {
     ""FunctionNames"": [
       ""Get-Process"",
@@ -42,44 +42,44 @@ public partial class SetupTests : PowerShellTestBase
   }
 }";
 
-    try
-    {
-      await File.WriteAllTextAsync(tempConfigFile, configJson);
+        try
+        {
+            await File.WriteAllTextAsync(tempConfigFile, configJson);
 
-      // Act
-      var configuration = new ConfigurationBuilder()
-          .AddJsonFile(tempConfigFile, optional: false)
-          .Build();
+            // Act
+            var configuration = new ConfigurationBuilder()
+                .AddJsonFile(tempConfigFile, optional: false)
+                .Build();
 
-      var powerShellConfig = new PowerShellConfiguration();
-      configuration.GetSection("PowerShellConfiguration").Bind(powerShellConfig);
+            var powerShellConfig = new PowerShellConfiguration();
+            configuration.GetSection("PowerShellConfiguration").Bind(powerShellConfig);
 
-      // Assert
-      Assert.NotNull(powerShellConfig);
-      Assert.Equal(3, powerShellConfig.FunctionNames.Count);
-      Assert.Contains("Get-Process", powerShellConfig.FunctionNames);
-      Assert.Contains("Get-Service", powerShellConfig.FunctionNames);
-      Assert.Contains("Get-Date", powerShellConfig.FunctionNames);
+            // Assert
+            Assert.NotNull(powerShellConfig);
+            Assert.Equal(3, powerShellConfig.FunctionNames.Count);
+            Assert.Contains("Get-Process", powerShellConfig.FunctionNames);
+            Assert.Contains("Get-Service", powerShellConfig.FunctionNames);
+            Assert.Contains("Get-Date", powerShellConfig.FunctionNames);
 
-      Assert.Single(powerShellConfig.Modules);
-      Assert.Contains("Microsoft.PowerShell.Management", powerShellConfig.Modules);
+            Assert.Single(powerShellConfig.Modules);
+            Assert.Contains("Microsoft.PowerShell.Management", powerShellConfig.Modules);
 
-      Assert.Single(powerShellConfig.ExcludePatterns);
-      Assert.Contains("*-EventLog", powerShellConfig.ExcludePatterns);
+            Assert.Single(powerShellConfig.ExcludePatterns);
+            Assert.Contains("*-EventLog", powerShellConfig.ExcludePatterns);
 
-      Assert.Single(powerShellConfig.IncludePatterns);
-      Assert.Contains("Get-*", powerShellConfig.IncludePatterns);
+            Assert.Single(powerShellConfig.IncludePatterns);
+            Assert.Contains("Get-*", powerShellConfig.IncludePatterns);
 
-      Logger.LogInformation("Configuration file parsed successfully");
-      Logger.LogInformation($"Function names: {string.Join(", ", powerShellConfig.FunctionNames)}");
-      Logger.LogInformation($"Modules: {string.Join(", ", powerShellConfig.Modules)}");
+            Logger.LogInformation("Configuration file parsed successfully");
+            Logger.LogInformation($"Function names: {string.Join(", ", powerShellConfig.FunctionNames)}");
+            Logger.LogInformation($"Modules: {string.Join(", ", powerShellConfig.Modules)}");
+        }
+        finally
+        {
+            if (File.Exists(tempConfigFile))
+            {
+                File.Delete(tempConfigFile);
+            }
+        }
     }
-    finally
-    {
-      if (File.Exists(tempConfigFile))
-      {
-        File.Delete(tempConfigFile);
-      }
-    }
-  }
 }
