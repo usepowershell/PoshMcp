@@ -1,4 +1,4 @@
-using PoshMcp.PowerShell;
+using PoshMcp.Server.PowerShell;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;

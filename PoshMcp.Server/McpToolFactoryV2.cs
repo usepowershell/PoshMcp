@@ -9,7 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
-using PoshMcp.PowerShell;
+using PoshMcp.Server.PowerShell;
 using PSPowerShell = System.Management.Automation.PowerShell;
 
 namespace PoshMcp;

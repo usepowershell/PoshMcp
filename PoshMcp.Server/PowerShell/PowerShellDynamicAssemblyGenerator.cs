@@ -9,7 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
-namespace PoshMcp.PowerShell;
+namespace PoshMcp.Server.PowerShell;
 
 /// <summary>
 /// Static wrapper for backward compatibility - delegates to instance-based generator

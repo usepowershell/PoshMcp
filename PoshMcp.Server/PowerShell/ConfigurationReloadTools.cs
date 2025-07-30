@@ -5,7 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
-namespace PoshMcp.PowerShell;
+namespace PoshMcp.Server.PowerShell;
 
 /// <summary>
 /// MCP tools for dynamic configuration reload functionality

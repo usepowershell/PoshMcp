@@ -5,7 +5,7 @@ using System.Management.Automation;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace PoshMcp.PowerShell;
+namespace PoshMcp.Server.PowerShell;
 
 /// <summary>
 /// Utility class for safely serializing PowerShell objects to prevent cycles and deep nesting issues

@@ -5,7 +5,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using PoshMcp.PowerShell;
+using PoshMcp.Server.PowerShell;
 using Xunit;
 using Xunit.Abstractions;
 

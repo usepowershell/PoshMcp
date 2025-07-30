@@ -7,7 +7,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 
-namespace PoshMcp.PowerShell;
+namespace PoshMcp.Server.PowerShell;
 
 /// <summary>
 /// Service for dynamically reloading PowerShell configuration and regenerating MCP tools

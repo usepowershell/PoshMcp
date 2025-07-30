@@ -3,7 +3,7 @@ using System.Collections.ObjectModel;
 using System.Management.Automation;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
-using PoshMcp.PowerShell;
+using PoshMcp.Server.PowerShell;
 using Xunit.Abstractions;
 
 namespace PoshMcp.Tests;

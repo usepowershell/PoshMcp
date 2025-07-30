@@ -1,4 +1,4 @@
-using PoshMcp.PowerShell;
+using PoshMcp.Server.PowerShell;
 using Xunit;
 using Xunit.Abstractions;
 

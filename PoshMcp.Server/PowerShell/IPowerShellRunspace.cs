@@ -3,7 +3,7 @@ using System.Management.Automation;
 using System.Threading.Tasks;
 using PSPowerShell = System.Management.Automation.PowerShell;
 
-namespace PoshMcp.PowerShell;
+namespace PoshMcp.Server.PowerShell;
 
 /// <summary>
 /// Interface for PowerShell runspace operations, allowing for different implementations

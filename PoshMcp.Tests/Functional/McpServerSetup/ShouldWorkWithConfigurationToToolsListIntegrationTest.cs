@@ -7,7 +7,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
-using PoshMcp.PowerShell;
+using PoshMcp.Server.PowerShell;
 using Xunit;
 using Xunit.Abstractions;
 

@@ -5,7 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using PSPowerShell = System.Management.Automation.PowerShell;
 
-namespace PoshMcp.PowerShell;
+namespace PoshMcp.Server.PowerShell;
 
 /// <summary>
 /// Production implementation using the singleton pattern for the server

@@ -5,7 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using PSPowerShell = System.Management.Automation.PowerShell;
 
-namespace PoshMcp.PowerShell;
+namespace PoshMcp.Server.PowerShell;
 
 /// <summary>
 /// Holder class to maintain a singleton PowerShell runspace instance with thread-safe access

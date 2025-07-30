@@ -1,4 +1,4 @@
-using PoshMcp.PowerShell;
+using PoshMcp.Server.PowerShell;
 using System.Linq;
 using System.Management.Automation;
 using System.Reflection;

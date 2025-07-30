@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace PoshMcp.PowerShell;
+namespace PoshMcp.Server.PowerShell;
 
 /// <summary>
 /// Configuration options for PowerShell command importing

@@ -1,4 +1,4 @@
-using PoshMcp.PowerShell;
+using PoshMcp.Server.PowerShell;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;

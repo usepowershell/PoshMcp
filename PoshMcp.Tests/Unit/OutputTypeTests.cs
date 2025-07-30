@@ -3,7 +3,7 @@ using System.Linq;
 using System.Management.Automation;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using PoshMcp.PowerShell;
+using PoshMcp.Server.PowerShell;
 using Xunit;
 using Xunit.Abstractions;
 
