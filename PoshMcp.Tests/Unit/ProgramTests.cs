@@ -144,4 +144,108 @@ public class ProgramTests : PowerShellTestBase
                 File.Delete(tempFile);
         }
     }
+
+    [Fact]
+    public void LoadPowerShellConfiguration_WithEnableDynamicReloadToolsTrue_ReturnsConfigurationWithFlagEnabled()
+    {
+        // Arrange
+        var tempFile = Path.GetTempFileName();
+        var configJson = @"{
+  ""PowerShellConfiguration"": {
+    ""FunctionNames"": [""Get-Process""],
+    ""Modules"": [],
+    ""ExcludePatterns"": [],
+    ""IncludePatterns"": [],
+    ""EnableDynamicReloadTools"": true
+  }
+}";
+        File.WriteAllText(tempFile, configJson);
+
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+        var logger = loggerFactory.CreateLogger("Test");
+
+        try
+        {
+            // Act
+            var config = Program.LoadPowerShellConfiguration(tempFile, logger);
+
+            // Assert
+            Assert.NotNull(config);
+            Assert.True(config.EnableDynamicReloadTools);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void LoadPowerShellConfiguration_WithEnableDynamicReloadToolsFalse_ReturnsConfigurationWithFlagDisabled()
+    {
+        // Arrange
+        var tempFile = Path.GetTempFileName();
+        var configJson = @"{
+  ""PowerShellConfiguration"": {
+    ""FunctionNames"": [""Get-Process""],
+    ""Modules"": [],
+    ""ExcludePatterns"": [],
+    ""IncludePatterns"": [],
+    ""EnableDynamicReloadTools"": false
+  }
+}";
+        File.WriteAllText(tempFile, configJson);
+
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+        var logger = loggerFactory.CreateLogger("Test");
+
+        try
+        {
+            // Act
+            var config = Program.LoadPowerShellConfiguration(tempFile, logger);
+
+            // Assert
+            Assert.NotNull(config);
+            Assert.False(config.EnableDynamicReloadTools);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void LoadPowerShellConfiguration_WithoutEnableDynamicReloadToolsProperty_ReturnsConfigurationWithDefaultFalse()
+    {
+        // Arrange
+        var tempFile = Path.GetTempFileName();
+        var configJson = @"{
+  ""PowerShellConfiguration"": {
+    ""FunctionNames"": [""Get-Process""],
+    ""Modules"": [],
+    ""ExcludePatterns"": [],
+    ""IncludePatterns"": []
+  }
+}";
+        File.WriteAllText(tempFile, configJson);
+
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+        var logger = loggerFactory.CreateLogger("Test");
+
+        try
+        {
+            // Act
+            var config = Program.LoadPowerShellConfiguration(tempFile, logger);
+
+            // Assert
+            Assert.NotNull(config);
+            Assert.False(config.EnableDynamicReloadTools); // Should default to false
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
 }
