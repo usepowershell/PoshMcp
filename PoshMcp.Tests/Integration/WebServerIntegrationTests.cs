@@ -165,8 +165,8 @@ public class InProcessWebServer : IDisposable
     {
         _logger = logger;
         _cancellationTokenSource = new CancellationTokenSource();
-        // Use random port to avoid conflicts during testing
-        _port = port == 0 ? Random.Shared.Next(3100, 3200) : port;
+        // Use random port from a wider range to avoid conflicts during testing
+        _port = port == 0 ? Random.Shared.Next(5000, 6000) : port;
     }
 
     public async Task StartAsync()
@@ -204,7 +204,17 @@ public class InProcessWebServer : IDisposable
             WorkingDirectory = currentDirectory
         };
 
+        // Add environment variables for better debugging and configuration
+        startInfo.Environment["ASPNETCORE_ENVIRONMENT"] = "Development";
+        startInfo.Environment["ASPNETCORE_URLS"] = $"http://localhost:{_port}";
+        startInfo.Environment["Logging__LogLevel__Default"] = "Information";
+        startInfo.Environment["Logging__LogLevel__Microsoft"] = "Warning";
+
         _serverProcess = new Process { StartInfo = startInfo };
+
+        // Capture error output for better debugging
+        var errorOutput = new StringBuilder();
+        var outputLock = new object();
 
         // Handle server output and errors
         _serverProcess.OutputDataReceived += (sender, e) =>
@@ -219,6 +229,10 @@ public class InProcessWebServer : IDisposable
         {
             if (!string.IsNullOrEmpty(e.Data))
             {
+                lock (outputLock)
+                {
+                    errorOutput.AppendLine(e.Data);
+                }
                 _logger.LogError($"[WEB SERVER ERROR] {e.Data}");
             }
         };
@@ -227,12 +241,74 @@ public class InProcessWebServer : IDisposable
         _serverProcess.BeginOutputReadLine();
         _serverProcess.BeginErrorReadLine();
 
-        // Give the web server time to start up
-        await Task.Delay(5000);
+        // Wait for the web server to be ready with retry logic
+        var maxRetries = 30; // 30 seconds total
+        var retryDelay = 1000; // 1 second between retries
+        var serverReady = false;
 
-        if (_serverProcess.HasExited)
+        _logger.LogInformation("Testing web server readiness by attempting HTTP requests...");
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
         {
-            throw new InvalidOperationException($"Web server process exited with code {_serverProcess.ExitCode}");
+            try
+            {
+                // Check if the server process is still running
+                if (_serverProcess.HasExited)
+                {
+                    string errorDetails = "";
+                    lock (outputLock)
+                    {
+                        if (errorOutput.Length > 0)
+                        {
+                            errorDetails = $"\nError output:\n{errorOutput}";
+                        }
+                    }
+                    throw new InvalidOperationException($"Web server process exited with code {_serverProcess.ExitCode} on port {_port}{errorDetails}");
+                }
+
+                // Test server readiness with a simple HTTP request
+                using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+                var healthCheckUrl = $"{ServerUrl}/health";
+
+                try
+                {
+                    var response = await httpClient.GetAsync(healthCheckUrl);
+                    // Even if health endpoint doesn't exist, getting any HTTP response means server is running
+                    serverReady = true;
+                    _logger.LogInformation($"Web server ready on {ServerUrl} after {attempt} attempt(s)");
+                    break;
+                }
+                catch (HttpRequestException) when (attempt < maxRetries)
+                {
+                    // Server not ready yet, continue retrying
+                    _logger.LogDebug($"Attempt {attempt}: Web server not responding to HTTP requests yet. Retrying...");
+                    await Task.Delay(retryDelay);
+                    continue;
+                }
+            }
+            catch (Exception ex) when (attempt < maxRetries)
+            {
+                _logger.LogDebug($"Web server startup attempt {attempt} failed: {ex.Message}. Retrying in {retryDelay}ms...");
+                await Task.Delay(retryDelay);
+            }
+        }
+
+        if (!serverReady)
+        {
+            string errorDetails = "";
+            lock (outputLock)
+            {
+                if (errorOutput.Length > 0)
+                {
+                    errorDetails = $"\nError output:\n{errorOutput}";
+                }
+            }
+
+            string processStatus = _serverProcess.HasExited
+                ? $"Process exited with code {_serverProcess.ExitCode}"
+                : "Process still running but not responding";
+
+            throw new TimeoutException($"Web server did not become ready after {maxRetries} attempts on {ServerUrl}. {processStatus}{errorDetails}");
         }
 
         _logger.LogInformation($"In-process MCP web server started successfully on {ServerUrl}");
