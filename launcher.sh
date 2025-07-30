@@ -23,7 +23,7 @@ case $choice in
         echo "Starting MCP Server..."
         echo "Press Ctrl+C to stop the server."
         echo ""
-        dotnet run --project PoshMcpServer/PoshMcp.csproj
+        dotnet run --project PoshMcp.Server/PoshMcp.csproj
         ;;
     2)
         echo "Starting Interactive Test Client..."
@@ -40,7 +40,7 @@ case $choice in
         ;;
     5)
         echo "Launching MCP Inspector..."
-        npx @modelcontextprotocol/inspector dotnet run --project PoshMcpServer/PoshMcp.csproj
+        npx @modelcontextprotocol/inspector dotnet run --project PoshMcp.Server/PoshMcp.csproj
         ;;
     6)
         echo "Goodbye!"

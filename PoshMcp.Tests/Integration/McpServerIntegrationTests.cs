@@ -191,7 +191,7 @@ public class InProcessMcpServer : IDisposable
             workspaceRoot = Path.GetDirectoryName(workspaceRoot)!;
         }
 
-        var serverProjectPath = Path.Combine(workspaceRoot, "PoshMcpServer", "PoshMcp.csproj");
+        var serverProjectPath = Path.Combine(workspaceRoot, "PoshMcp.Server", "PoshMcp.csproj");
 
         if (!File.Exists(serverProjectPath))
         {

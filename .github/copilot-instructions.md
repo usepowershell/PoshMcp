@@ -6,7 +6,7 @@ PoshMcp is a Model Context Protocol (MCP) server implementation that exposes Pow
 ## Architecture
 
 ### Core Components
-- **PoshMcpServer/**: Main MCP server implementation
+- **PoshMcp.Server/**: Main MCP server implementation
   - `Program.cs`: Entry point and MCP server setup
   - `McpToolFactoryV2.cs`: Dynamic tool schema generation from PowerShell functions
   - `appsettings.json`: Configuration for available PowerShell functions

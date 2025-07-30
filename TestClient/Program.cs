@@ -58,7 +58,7 @@ public class McpTestClient
         var startInfo = new ProcessStartInfo
         {
             FileName = "dotnet",
-            Arguments = "run --project PoshMcpServer/PoshMcp.csproj",
+            Arguments = "run --project PoshMcp.Server/PoshMcp.csproj",
             UseShellExecute = false,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
