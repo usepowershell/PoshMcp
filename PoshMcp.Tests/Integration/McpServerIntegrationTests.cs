@@ -293,6 +293,7 @@ public class ExternalMcpClient : IDisposable
     private readonly InProcessMcpServer _server;
     private Process? _serverProcess;
     private int _requestId = 1;
+    private readonly SemaphoreSlim _streamSemaphore = new(1, 1); // Ensure only one request/response at a time
 
     public ExternalMcpClient(ILogger logger, InProcessMcpServer server)
     {
@@ -413,45 +414,55 @@ public class ExternalMcpClient : IDisposable
 
     private async Task<JObject> SendRequestAsync(object request)
     {
-        if (_serverProcess?.StandardInput == null || _serverProcess?.StandardOutput == null)
-            throw new InvalidOperationException("Server process not available");
-
-        if (_serverProcess.HasExited)
-            throw new InvalidOperationException($"Server process has exited with code {_serverProcess.ExitCode}");
-
-        var requestJson = JsonConvert.SerializeObject(request);
-        _logger.LogDebug($"[CLIENT REQUEST] {JObject.Parse(requestJson).ToString(Formatting.Indented)}");
+        // Use semaphore to ensure thread-safe access to streams
+        await _streamSemaphore.WaitAsync();
 
         try
         {
-            // Send request to server
-            await _serverProcess.StandardInput.WriteLineAsync(requestJson);
-            await _serverProcess.StandardInput.FlushAsync();
+            if (_serverProcess?.StandardInput == null || _serverProcess?.StandardOutput == null)
+                throw new InvalidOperationException("Server process not available");
 
-            // Read response from server with timeout
-            var responseTask = _serverProcess.StandardOutput.ReadLineAsync();
-            var timeoutTask = Task.Delay(5000); // 5 second timeout for individual requests
+            if (_serverProcess.HasExited)
+                throw new InvalidOperationException($"Server process has exited with code {_serverProcess.ExitCode}");
 
-            var completedTask = await Task.WhenAny(responseTask, timeoutTask);
+            var requestJson = JsonConvert.SerializeObject(request);
+            _logger.LogDebug($"[CLIENT REQUEST] {JObject.Parse(requestJson).ToString(Formatting.Indented)}");
 
-            if (completedTask == timeoutTask)
+            try
             {
-                throw new TimeoutException("Server did not respond within 5 seconds");
+                // Send request to server (synchronized)
+                await _serverProcess.StandardInput.WriteLineAsync(requestJson);
+                await _serverProcess.StandardInput.FlushAsync();
+
+                // Read response from server with timeout (synchronized)
+                var responseTask = _serverProcess.StandardOutput.ReadLineAsync();
+                var timeoutTask = Task.Delay(5000); // 5 second timeout for individual requests
+
+                var completedTask = await Task.WhenAny(responseTask, timeoutTask);
+
+                if (completedTask == timeoutTask)
+                {
+                    throw new TimeoutException("Server did not respond within 5 seconds");
+                }
+
+                var responseJson = await responseTask;
+                if (string.IsNullOrEmpty(responseJson))
+                    throw new InvalidOperationException("No response from server (empty or null)");
+
+                var response = JObject.Parse(responseJson);
+                _logger.LogDebug($"[SERVER RESPONSE] {response.ToString(Formatting.Indented)}");
+
+                return response;
             }
-
-            var responseJson = await responseTask;
-            if (string.IsNullOrEmpty(responseJson))
-                throw new InvalidOperationException("No response from server (empty or null)");
-
-            var response = JObject.Parse(responseJson);
-            _logger.LogDebug($"[SERVER RESPONSE] {response.ToString(Formatting.Indented)}");
-
-            return response;
+            catch (Exception ex)
+            {
+                _logger.LogDebug($"Request failed: {ex.Message}");
+                throw;
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            _logger.LogDebug($"Request failed: {ex.Message}");
-            throw;
+            _streamSemaphore.Release();
         }
     }
 
