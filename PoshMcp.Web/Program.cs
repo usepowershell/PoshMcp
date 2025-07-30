@@ -55,7 +55,7 @@ public class Program
         // Map MCP endpoints
         app.MapMcp();
 
-        app.Run("http://localhost:3001");
+        app.Run();
     }
 
     private static List<McpServerTool> SetupMcpTools(IServiceProvider serviceProvider, PowerShellConfiguration config, ILogger logger)
