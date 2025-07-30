@@ -275,7 +275,7 @@ public class HttpMcpClient : IDisposable
             BaseAddress = new Uri(baseUrl),
             Timeout = TimeSpan.FromSeconds(30)
         };
-        
+
         // Set Accept headers as required by the MCP server
         _httpClient.DefaultRequestHeaders.Accept.Clear();
         _httpClient.DefaultRequestHeaders.Accept.ParseAdd("application/json");
@@ -378,10 +378,9 @@ public class HttpMcpClient : IDisposable
         try
         {
             var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
-            
+
             // The MCP HTTP endpoint is at the root /
             var response = await _httpClient.PostAsync("/", content);
-            
             if (!response.IsSuccessStatusCode)
             {
                 var errorContent = await response.Content.ReadAsStringAsync();
