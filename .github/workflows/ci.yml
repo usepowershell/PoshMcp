@@ -34,7 +34,7 @@ jobs:
       run: dotnet test --no-build --configuration Release --filter "FullyQualifiedName~Unit" --logger "trx;LogFileName=unit-tests.trx" --results-directory ./TestResults
 
     - name: Test (Functional)
-      run: dotnet test --no-build --configuration Release --filter "FullyQualifiedName~Functional" --logger "trx;LogFileName=functional-tests.trx" --results-directory ./TestResults
+      run: dotnet test --blame --no-build --configuration Release --filter "FullyQualifiedName~Functional" --logger "trx;LogFileName=functional-tests.trx" --results-directory ./TestResults
 
     - name: Upload Test Results
       if: always()
