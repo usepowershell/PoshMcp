@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using PoshMcp.Server.PowerShell;
+using PoshMcp.Web.PowerShell;
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
@@ -33,13 +34,29 @@ public class Program
             options.WriteIndented = false;
         });
 
+        // Enable sessions for session-aware PowerShell runspaces
+        builder.Services.AddDistributedMemoryCache();
+        builder.Services.AddSession(options =>
+        {
+            options.IdleTimeout = TimeSpan.FromMinutes(30);
+            options.Cookie.HttpOnly = true;
+            options.Cookie.IsEssential = true;
+        });
+
+        // Register HTTP context accessor for session access
+        builder.Services.AddHttpContextAccessor();
+
+        // Register session-aware PowerShell runspace as singleton
+        // This proxy will create session-specific runspaces internally
+        builder.Services.AddSingleton<IPowerShellRunspace, SessionAwarePowerShellRunspace>();
+
         // Build service provider to get configuration and logger
         var tempServiceProvider = builder.Services.BuildServiceProvider();
         var logger = tempServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("PoshMcpWebLogger");
         var config = tempServiceProvider.GetRequiredService<IOptions<PowerShellConfiguration>>().Value;
 
-        // Setup MCP tools
-        var tools = SetupMcpTools(tempServiceProvider, config, logger);
+        // Setup MCP tools with session-aware approach
+        var tools = SetupSessionAwareMcpTools(tempServiceProvider, config, logger);
 
         // Configure MCP server with HTTP transport and discovered tools
         builder.Services
@@ -52,26 +69,33 @@ public class Program
 
         var app = builder.Build();
 
+        // Use session middleware
+        app.UseSession();
+
         // Map MCP endpoints
         app.MapMcp();
 
         app.Run();
     }
 
-    private static List<McpServerTool> SetupMcpTools(IServiceProvider serviceProvider, PowerShellConfiguration config, ILogger logger)
+    private static List<McpServerTool> SetupSessionAwareMcpTools(IServiceProvider serviceProvider, PowerShellConfiguration config, ILogger logger)
     {
-        var toolFactory = new McpToolFactoryV2();
+        // Get the session-aware runspace proxy that will be used by all generated tools
+        var sessionAwareRunspace = serviceProvider.GetRequiredService<IPowerShellRunspace>();
+        
+        // Create tool factory with the session-aware runspace proxy
+        var toolFactory = new McpToolFactoryV2(sessionAwareRunspace);
         var tools = toolFactory.GetToolsList(config, logger);
 
         if (config.EnableDynamicReloadTools)
         {
             var reloadTools = CreateConfigurationReloadTools(serviceProvider, toolFactory, config);
             AddConfigurationReloadToolsToList(tools, reloadTools);
-            logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools)");
+            logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools) with session-aware runspaces");
         }
         else
         {
-            logger.LogInformation($"Added {tools.Count} total tools (dynamic reload tools are disabled)");
+            logger.LogInformation($"Added {tools.Count} total tools with session-aware runspaces (dynamic reload tools are disabled)");
         }
 
         return tools;
