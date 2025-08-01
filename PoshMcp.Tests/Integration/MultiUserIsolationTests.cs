@@ -26,18 +26,18 @@ public class MultiUserIsolationTests : IAsyncLifetime
     [Fact]
     public async Task TwoClientsGetSeparatePowerShellRunspaces()
     {
-        // Test that two different HTTP sessions get separate PowerShell runspaces
+        // Test that two different MCP sessions get separate PowerShell runspaces
         // and variables set in one session don't affect the other
 
         // Client 1: Initialize and set a variable using a PowerShell command
-        var client1Cookies = new System.Net.CookieContainer();
-        var client1Http = new HttpClient(new HttpClientHandler() { CookieContainer = client1Cookies });
+        var client1Http = new HttpClient();
+        client1Http.DefaultRequestHeaders.Add("Mcp-Session-Id", "session-1");
 
         await InitializeClient(client1Http, "test-client-1");
 
         // Client 2: Initialize with different session
-        var client2Cookies = new System.Net.CookieContainer();
-        var client2Http = new HttpClient(new HttpClientHandler() { CookieContainer = client2Cookies });
+        var client2Http = new HttpClient();
+        client2Http.DefaultRequestHeaders.Add("Mcp-Session-Id", "session-2");
 
         await InitializeClient(client2Http, "test-client-2");
 

@@ -14,7 +14,7 @@ namespace PoshMcp.Web.PowerShell;
 
 /// <summary>
 /// Proxy PowerShell runspace that delegates to session-specific isolated runspaces
-/// This is registered as a singleton but creates separate runspace instances per HTTP session
+/// This is registered as a singleton but creates separate runspace instances per MCP session (identified by Mcp-Session-Id header)
 /// </summary>
 public class SessionAwarePowerShellRunspace : IPowerShellRunspace, IDisposable
 {
@@ -32,11 +32,11 @@ public class SessionAwarePowerShellRunspace : IPowerShellRunspace, IDisposable
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _sessionRunspaces = new ConcurrentDictionary<string, IsolatedPowerShellRunspace>();
 
-        _logger.LogInformation("SessionAwarePowerShellRunspace created - this will proxy to session-specific runspaces");
+        _logger.LogInformation("SessionAwarePowerShellRunspace created - this will proxy to session-specific runspaces based on Mcp-Session-Id header");
     }
 
     /// <summary>
-    /// Gets the session ID from the HTTP context, creating one if it doesn't exist
+    /// Gets the session ID from the Mcp-Session-Id header, creating a fallback if it doesn't exist
     /// </summary>
     private string GetSessionId()
     {
@@ -48,13 +48,17 @@ public class SessionAwarePowerShellRunspace : IPowerShellRunspace, IDisposable
             return "default";
         }
 
-        // Try to get session ID from session
-        if (httpContext.Session?.Id != null)
+        // Try to get session ID from Mcp-Session-Id header (MCP protocol standard)
+        if (httpContext.Request.Headers.TryGetValue("Mcp-Session-Id", out var sessionHeader))
         {
-            return httpContext.Session.Id;
+            var sessionId = sessionHeader.ToString().Trim();
+            if (!string.IsNullOrEmpty(sessionId))
+            {
+                return sessionId;
+            }
         }
 
-        // Fallback to connection ID if session is not available
+        // Fallback to connection ID if MCP header is not available
         var connectionId = httpContext.Connection?.Id;
         if (!string.IsNullOrEmpty(connectionId))
         {

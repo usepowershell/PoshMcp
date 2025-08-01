@@ -34,20 +34,23 @@ public class Program
             options.WriteIndented = false;
         });
 
-        // Enable sessions for session-aware PowerShell runspaces
-        builder.Services.AddDistributedMemoryCache();
-        builder.Services.AddSession(options =>
+        // Add CORS for MCP session header support
+        builder.Services.AddCors(options =>
         {
-            options.IdleTimeout = TimeSpan.FromMinutes(30);
-            options.Cookie.HttpOnly = true;
-            options.Cookie.IsEssential = true;
+            options.AddDefaultPolicy(policy =>
+            {
+                policy.AllowAnyOrigin()
+                      .AllowAnyMethod()
+                      .AllowAnyHeader()
+                      .WithExposedHeaders("Mcp-Session-Id");
+            });
         });
 
-        // Register HTTP context accessor for session access
+        // Register HTTP context accessor for MCP session header access
         builder.Services.AddHttpContextAccessor();
 
         // Register session-aware PowerShell runspace as singleton
-        // This proxy will create session-specific runspaces internally
+        // This proxy will create session-specific runspaces internally based on Mcp-Session-Id header
         builder.Services.AddSingleton<IPowerShellRunspace, SessionAwarePowerShellRunspace>();
 
         // Build service provider to get configuration and logger
@@ -55,7 +58,7 @@ public class Program
         var logger = tempServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("PoshMcpWebLogger");
         var config = tempServiceProvider.GetRequiredService<IOptions<PowerShellConfiguration>>().Value;
 
-        // Setup MCP tools with session-aware approach
+        // Setup MCP tools with session-aware approach using Mcp-Session-Id header
         var tools = SetupSessionAwareMcpTools(tempServiceProvider, config, logger);
 
         // Configure MCP server with HTTP transport and discovered tools
@@ -69,8 +72,8 @@ public class Program
 
         var app = builder.Build();
 
-        // Use session middleware
-        app.UseSession();
+        // Enable CORS
+        app.UseCors();
 
         // Map MCP endpoints
         app.MapMcp();
@@ -91,11 +94,11 @@ public class Program
         {
             var reloadTools = CreateConfigurationReloadTools(serviceProvider, toolFactory, config);
             AddConfigurationReloadToolsToList(tools, reloadTools);
-            logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools) with session-aware runspaces");
+            logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools) with session-aware runspaces using Mcp-Session-Id header");
         }
         else
         {
-            logger.LogInformation($"Added {tools.Count} total tools with session-aware runspaces (dynamic reload tools are disabled)");
+            logger.LogInformation($"Added {tools.Count} total tools with session-aware runspaces using Mcp-Session-Id header (dynamic reload tools are disabled)");
         }
 
         return tools;
