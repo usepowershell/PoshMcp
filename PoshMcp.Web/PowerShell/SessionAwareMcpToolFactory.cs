@@ -38,7 +38,7 @@ public class SessionAwareMcpToolFactory
 
             // Get the session-aware runspace from the DI container (scoped to current request)
             var sessionRunspace = _serviceProvider.GetRequiredService<IPowerShellRunspace>();
-            
+
             // Create tool factory with the session-specific runspace
             var toolFactory = new McpToolFactoryV2(sessionRunspace);
             var tools = toolFactory.GetToolsList(_config, _logger);

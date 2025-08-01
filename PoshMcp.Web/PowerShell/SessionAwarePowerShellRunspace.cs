@@ -31,7 +31,7 @@ public class SessionAwarePowerShellRunspace : IPowerShellRunspace, IDisposable
         _httpContextAccessor = httpContextAccessor ?? throw new ArgumentNullException(nameof(httpContextAccessor));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _sessionRunspaces = new ConcurrentDictionary<string, IsolatedPowerShellRunspace>();
-        
+
         _logger.LogInformation("SessionAwarePowerShellRunspace created - this will proxy to session-specific runspaces");
     }
 
@@ -74,7 +74,7 @@ public class SessionAwarePowerShellRunspace : IPowerShellRunspace, IDisposable
             throw new ObjectDisposedException(nameof(SessionAwarePowerShellRunspace));
 
         var sessionId = GetSessionId();
-        
+
         return _sessionRunspaces.GetOrAdd(sessionId, id =>
         {
             _logger.LogInformation($"Creating new PowerShell runspace for session: {id}");
@@ -95,7 +95,7 @@ public class SessionAwarePowerShellRunspace : IPowerShellRunspace, IDisposable
     {
         var sessionId = GetSessionId();
         _logger.LogDebug($"Executing PowerShell operation for session: {sessionId}");
-        
+
         var sessionRunspace = GetSessionRunspace();
         return sessionRunspace.ExecuteThreadSafe(operation);
     }
@@ -104,7 +104,7 @@ public class SessionAwarePowerShellRunspace : IPowerShellRunspace, IDisposable
     {
         var sessionId = GetSessionId();
         _logger.LogDebug($"Executing PowerShell operation for session: {sessionId}");
-        
+
         var sessionRunspace = GetSessionRunspace();
         sessionRunspace.ExecuteThreadSafe(operation);
     }
@@ -113,7 +113,7 @@ public class SessionAwarePowerShellRunspace : IPowerShellRunspace, IDisposable
     {
         var sessionId = GetSessionId();
         _logger.LogDebug($"Executing async PowerShell operation for session: {sessionId}");
-        
+
         var sessionRunspace = GetSessionRunspace();
         return sessionRunspace.ExecuteThreadSafeAsync(operation);
     }

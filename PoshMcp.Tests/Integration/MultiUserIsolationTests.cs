@@ -32,13 +32,13 @@ public class MultiUserIsolationTests : IAsyncLifetime
         // Client 1: Initialize and set a variable using a PowerShell command
         var client1Cookies = new System.Net.CookieContainer();
         var client1Http = new HttpClient(new HttpClientHandler() { CookieContainer = client1Cookies });
-        
+
         await InitializeClient(client1Http, "test-client-1");
 
         // Client 2: Initialize with different session
         var client2Cookies = new System.Net.CookieContainer();
         var client2Http = new HttpClient(new HttpClientHandler() { CookieContainer = client2Cookies });
-        
+
         await InitializeClient(client2Http, "test-client-2");
 
         // Both clients should be able to call PowerShell commands successfully
@@ -51,7 +51,7 @@ public class MultiUserIsolationTests : IAsyncLifetime
         Assert.NotNull(client1Response);
         Assert.NotNull(client2Response);
         Assert.True(client1Response.Contains("dotnet") || client1Response.Contains("ProcessName"));
-        
+
         _output.WriteLine($"Client 1 response: {client1Response.Substring(0, Math.Min(200, client1Response.Length))}...");
         _output.WriteLine($"Client 2 response: {client2Response.Substring(0, Math.Min(200, client2Response.Length))}...");
     }
@@ -73,10 +73,10 @@ public class MultiUserIsolationTests : IAsyncLifetime
 
         var content = new StringContent(JsonSerializer.Serialize(initRequest), Encoding.UTF8, "application/json");
         var response = await client.PostAsync(BaseUrl, content);
-        
+
         response.EnsureSuccessStatusCode();
         var responseText = await response.Content.ReadAsStringAsync();
-        
+
         _output.WriteLine($"Initialize response for {clientName}: {responseText}");
         Assert.Contains("protocolVersion", responseText);
     }
@@ -97,10 +97,10 @@ public class MultiUserIsolationTests : IAsyncLifetime
 
         var content = new StringContent(JsonSerializer.Serialize(toolRequest), Encoding.UTF8, "application/json");
         var response = await client.PostAsync(BaseUrl, content);
-        
+
         response.EnsureSuccessStatusCode();
         var responseText = await response.Content.ReadAsStringAsync();
-        
+
         _output.WriteLine($"Tool call response for {toolName}: {responseText.Substring(0, Math.Min(500, responseText.Length))}...");
         return responseText;
     }

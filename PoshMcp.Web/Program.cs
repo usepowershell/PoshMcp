@@ -82,7 +82,7 @@ public class Program
     {
         // Get the session-aware runspace proxy that will be used by all generated tools
         var sessionAwareRunspace = serviceProvider.GetRequiredService<IPowerShellRunspace>();
-        
+
         // Create tool factory with the session-aware runspace proxy
         var toolFactory = new McpToolFactoryV2(sessionAwareRunspace);
         var tools = toolFactory.GetToolsList(config, logger);
