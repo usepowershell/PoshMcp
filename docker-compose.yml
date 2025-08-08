@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  # Web/HTTP server mode (default)
+  poshmcp-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - POSHMCP_MODE=web
+    volumes:
+      # Mount configuration files if needed
+      - ./PoshMcp.Web/appsettings.json:/app/web/appsettings.json:ro
+    restart: unless-stopped
+    profiles: ["web", "http"]
+
+  # stdio server mode  
+  poshmcp-stdio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - POSHMCP_MODE=stdio
+    volumes:
+      # Mount configuration files if needed
+      - ./PoshMcp.Server/appsettings.json:/app/server/appsettings.json:ro
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    profiles: ["stdio", "server"]

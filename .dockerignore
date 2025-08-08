@@ -1,0 +1,58 @@
+# Ignore git files
+.git
+.gitignore
+.gitattributes
+
+# Ignore build outputs
+**/bin/
+**/obj/
+**/out/
+
+# Ignore test results
+**/TestResults/
+
+# Ignore VS Code and Visual Studio files
+.vscode/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Ignore temporary files
+**/.tmp/
+**/temp/
+**/*.tmp
+**/*.log
+
+# Ignore node modules if any
+**/node_modules/
+
+# Ignore documentation
+*.md
+!README.md
+
+# Ignore scripts that aren't needed for build (but keep docker-entrypoint.sh)
+*.ps1
+cleanup.sh
+launcher.sh
+run-tests.sh
+
+# Ignore old directory
+old/
+
+# Ignore any local configuration files
+appsettings.Development.json
+appsettings.Local.json
+
+# Ignore package files
+*.nupkg
+*.snupkg
+
+# Ignore coverage files
+**/*.coverage
+**/*.coveragexml
+
+# Ignore JetBrains Rider
+.idea/
+*.sln.iml
