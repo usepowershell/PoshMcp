@@ -5,8 +5,11 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using PoshMcp.Server.PowerShell;
+using PoshMcp.Server.Metrics;
 using PoshMcp.Web.PowerShell;
 using PoshMcp.Web.Authentication;
+using OpenTelemetry;
+using OpenTelemetry.Metrics;
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
@@ -71,6 +74,23 @@ public class Program
 
         // Setup MCP tools with session-aware approach using Mcp-Session-Id header
         var tools = SetupSessionAwareMcpTools(tempServiceProvider, config, logger);
+
+        // Configure OpenTelemetry metrics
+        builder.Services.AddSingleton<McpMetrics>();
+
+        builder.Services.AddOpenTelemetry()
+            .WithMetrics(metricsBuilder =>
+            {
+                metricsBuilder
+                    .AddMeter(McpMetrics.MeterName)
+                    .AddAspNetCoreInstrumentation()
+                    .AddConsoleExporter();
+            });
+
+        // Configure metrics in the factories
+        var metrics = new McpMetrics();
+        McpToolFactoryV2.SetMetrics(metrics);
+        PowerShellAssemblyGenerator.SetMetrics(metrics);
 
         // Configure MCP server with HTTP transport and discovered tools
         builder.Services

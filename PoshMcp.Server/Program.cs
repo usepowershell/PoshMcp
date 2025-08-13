@@ -4,6 +4,9 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using PoshMcp.Server.PowerShell;
+using PoshMcp.Server.Metrics;
+using OpenTelemetry;
+using OpenTelemetry.Metrics;
 using System;
 using System.Collections.Generic;
 using System.CommandLine;
@@ -417,8 +420,32 @@ public class Program
     private static void ConfigureServerServices(HostApplicationBuilder builder, List<McpServerTool> tools)
     {
         ConfigureJsonSerializerOptions(builder);
+        ConfigureOpenTelemetry(builder);
         RegisterMcpServerServices(builder, tools);
         RegisterCleanupServices(builder);
+    }
+
+    private static void ConfigureOpenTelemetry(HostApplicationBuilder builder)
+    {
+        // Register and configure OpenTelemetry metrics
+        builder.Services.AddSingleton<McpMetrics>();
+
+        builder.Services.AddOpenTelemetry()
+            .WithMetrics(metricsBuilder =>
+            {
+                metricsBuilder
+                    .AddMeter(McpMetrics.MeterName)
+                    .AddConsoleExporter();
+            });
+
+        // Configure metrics in the factories after building the service provider
+        builder.Services.AddSingleton<IHostedService>(serviceProvider =>
+        {
+            var metrics = serviceProvider.GetRequiredService<McpMetrics>();
+            McpToolFactoryV2.SetMetrics(metrics);
+            PowerShellAssemblyGenerator.SetMetrics(metrics);
+            return new MetricsConfigurationService();
+        });
     }
 
     private static void ConfigureJsonSerializerOptions(HostApplicationBuilder builder)
