@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Management.Automation;
 using System.Reflection;
@@ -10,6 +11,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using PoshMcp.Server.PowerShell;
+using PoshMcp.Server.Metrics;
 using PSPowerShell = System.Management.Automation.PowerShell;
 
 namespace PoshMcp;
@@ -32,6 +34,16 @@ public class PowerShellCommandMetadata
 public class McpToolFactoryV2
 {
     private readonly PowerShellAssemblyGenerator _assemblyGenerator;
+    private static McpMetrics? _metrics;
+
+    /// <summary>
+    /// Sets the metrics instance for OpenTelemetry instrumentation
+    /// </summary>
+    /// <param name="metrics">McpMetrics instance</param>
+    public static void SetMetrics(McpMetrics metrics)
+    {
+        _metrics = metrics;
+    }
 
     /// <summary>
     /// Initializes a new instance of McpToolFactoryV2 with default runspace
@@ -473,6 +485,10 @@ public class McpToolFactoryV2
     private static void LogToolGenerationResults(List<McpServerTool> tools, ILogger logger)
     {
         logger.LogInformation($"Tool generation completed with {tools.Count} tools");
+        
+        // Record tool registration metrics
+        _metrics?.ToolRegistrationTotal.Add(tools.Count,
+            new TagList { { "source", "auto-discovered" } });
     }
 
     private static List<McpServerTool> HandleToolGenerationError(Exception ex, ILogger logger)

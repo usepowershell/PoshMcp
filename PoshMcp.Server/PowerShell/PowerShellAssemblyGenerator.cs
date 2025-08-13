@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Management.Automation;
 using System.Reflection;
@@ -9,6 +10,7 @@ using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using PoshMcp.Server.Metrics;
 
 namespace PoshMcp.Server.PowerShell;
 
@@ -23,6 +25,9 @@ public class PowerShellAssemblyGenerator
     private Type? _generatedType;
     private object? _generatedInstance;
     private readonly object _lock = new object();
+    
+    // Static metrics instance for instrumentation
+    private static McpMetrics? _metrics;
 
     public static string SanitizeMethodName(string commandName, string? parameterSetName = null)
     {
@@ -79,6 +84,15 @@ public class PowerShellAssemblyGenerator
     public PowerShellAssemblyGenerator(IPowerShellRunspace powerShellRunspace)
     {
         _powerShellRunspace = powerShellRunspace ?? throw new ArgumentNullException(nameof(powerShellRunspace));
+    }
+
+    /// <summary>
+    /// Sets the metrics instance for OpenTelemetry instrumentation
+    /// </summary>
+    /// <param name="metrics">McpMetrics instance</param>
+    public static void SetMetrics(McpMetrics metrics)
+    {
+        _metrics = metrics;
     }
 
     /// <summary>
@@ -512,9 +526,17 @@ public class PowerShellAssemblyGenerator
         IPowerShellRunspace runspace,
         ILogger logger)
     {
+        var stopwatch = Stopwatch.StartNew();
+        var status = "success";
+        var errorType = "";
+
         try
         {
             logger.LogInformation($"Executing PowerShell command: {commandName} with {parameterValues?.Length ?? 0} parameters");
+
+            // Record tool invocation start
+            _metrics?.ToolInvocationTotal.Add(1, 
+                new TagList { { "tool_name", commandName }, { "status", "started" } });
 
             // Log parameter details
             if (parameterInfos != null && parameterValues != null)
@@ -590,12 +612,16 @@ public class PowerShellAssemblyGenerator
                     }
                     catch (CommandNotFoundException cmdEx)
                     {
+                        status = "error";
+                        errorType = "command_not_found";
                         logger.LogWarning($"PowerShell command {commandName} not found: {cmdEx.Message}");
                         ps.Commands.Clear();
                         return Task.FromResult($"{{\"error\": \"The term '{commandName}' is not recognized as a name of a cmdlet, function, script file, or executable program.\"}}");
                     }
                     catch (Exception ex)
                     {
+                        status = "error";
+                        errorType = "execution_failed";
                         logger.LogWarning($"PowerShell command {commandName} execution failed: {ex.Message}");
                         ps.Commands.Clear();
                         return Task.FromResult($"{{\"error\": \"Command execution failed: {ex.Message}\"}}");
@@ -604,6 +630,8 @@ public class PowerShellAssemblyGenerator
                     // Handle errors
                     if (ps.HadErrors)
                     {
+                        status = "error";
+                        errorType = "powershell_errors";
                         var errors = ps.Streams.Error.ReadAll();
                         var errorMessage = string.Join("; ", errors.Select(e => e.ToString()));
                         logger.LogWarning($"PowerShell command {commandName} had errors: {errorMessage}");
@@ -634,6 +662,8 @@ public class PowerShellAssemblyGenerator
                     }
                     catch (Exception ex)
                     {
+                        status = "error";
+                        errorType = "json_serialization_failed";
                         logger.LogWarning($"Failed to convert PowerShell results to JSON: {ex.Message}");
                         ps.Commands.Clear();
                         return Task.FromResult($"{{\"error\": \"Failed to serialize results to JSON: {ex.Message}\"}}");
@@ -652,6 +682,8 @@ public class PowerShellAssemblyGenerator
                 }
                 catch (Exception ex)
                 {
+                    status = "error";
+                    errorType = "unexpected_error";
                     logger.LogWarning($"Unexpected error in PowerShell operation: {ex.Message}");
                     ps.Commands.Clear();
                     return Task.FromResult($"{{\"error\": \"Unexpected error: {ex.Message}\"}}");
@@ -660,8 +692,31 @@ public class PowerShellAssemblyGenerator
         }
         catch (Exception ex)
         {
+            status = "error";
+            errorType = "critical_error";
             logger.LogError(ex, $"Error executing PowerShell command {commandName}");
             throw new InvalidOperationException($"Error executing {commandName}: {ex.Message}", ex);
+        }
+        finally
+        {
+            // Record metrics for the completed operation
+            stopwatch.Stop();
+            
+            _metrics?.ToolInvocationTotal.Add(1,
+                new TagList { { "tool_name", commandName }, { "status", status } });
+
+            _metrics?.ToolExecutionDurationSeconds.Record(stopwatch.Elapsed.TotalSeconds,
+                new TagList { { "tool_name", commandName } });
+
+            if (status == "error")
+            {
+                _metrics?.ToolExecutionErrorsTotal.Add(1,
+                    new TagList { { "tool_name", commandName }, { "error_type", errorType } });
+            }
+
+            // Record usage metrics
+            _metrics?.ToolUsageTotal.Add(1,
+                new TagList { { "tool_name", commandName } });
         }
     }
 
