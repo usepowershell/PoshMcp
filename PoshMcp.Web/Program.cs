@@ -26,8 +26,15 @@ public class Program
         builder.Services.Configure<PowerShellConfiguration>(
             builder.Configuration.GetSection("PowerShellConfiguration"));
 
-        // Configure Entra ID authentication
+        // Configure Entra ID authentication (always register services for consistency)
+        builder.Services.AddAuthentication();
         builder.Services.AddEntraIdAuthentication(builder.Configuration);
+
+        // Add authorization services (required even when authentication is disabled)
+        builder.Services.AddAuthorization();
+
+        // Configure authorization policies for Entra ID
+        builder.Services.ConfigureEntraIdAuthorizationPolicies(builder.Configuration);
 
         // Configure JSON serializer options
         builder.Services.Configure<JsonSerializerOptions>(options =>

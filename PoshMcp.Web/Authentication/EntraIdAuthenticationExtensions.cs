@@ -26,26 +26,22 @@ public static class EntraIdAuthenticationExtensions
         configuration.GetSection("EntraId").Bind(entraIdConfig);
         services.Configure<EntraIdConfiguration>(configuration.GetSection("EntraId"));
 
-        // Only configure authentication if enabled
-        if (!entraIdConfig.Enabled)
+        // Only configure JWT authentication if enabled
+        if (entraIdConfig.Enabled)
         {
-            return services;
-        }
+            // Validate required configuration
+            if (string.IsNullOrEmpty(entraIdConfig.TenantId) && string.IsNullOrEmpty(entraIdConfig.Authority))
+            {
+                throw new InvalidOperationException("Either TenantId or Authority must be specified when Entra ID authentication is enabled");
+            }
 
-        // Validate required configuration
-        if (string.IsNullOrEmpty(entraIdConfig.TenantId) && string.IsNullOrEmpty(entraIdConfig.Authority))
-        {
-            throw new InvalidOperationException("Either TenantId or Authority must be specified when Entra ID authentication is enabled");
-        }
+            if (string.IsNullOrEmpty(entraIdConfig.ClientId) && string.IsNullOrEmpty(entraIdConfig.Audience))
+            {
+                throw new InvalidOperationException("Either ClientId or Audience must be specified when Entra ID authentication is enabled");
+            }
 
-        if (string.IsNullOrEmpty(entraIdConfig.ClientId) && string.IsNullOrEmpty(entraIdConfig.Audience))
-        {
-            throw new InvalidOperationException("Either ClientId or Audience must be specified when Entra ID authentication is enabled");
-        }
-
-        // Add authentication services
-        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-            .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
+            // Add JWT Bearer authentication
+            services.AddAuthentication().AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
             {
                 options.Authority = entraIdConfig.GetAuthority();
                 options.Audience = entraIdConfig.GetAudience();
@@ -83,16 +79,32 @@ public static class EntraIdAuthenticationExtensions
                     }
                 };
             });
+        }
 
-        // Add authorization services
-        services.AddAuthorization(options =>
+        return services;
+    }
+
+    /// <summary>
+    /// Configures authorization policies for Entra ID authentication
+    /// </summary>
+    /// <param name="services">The service collection</param>
+    /// <param name="configuration">The configuration</param>
+    /// <returns>The service collection for chaining</returns>
+    public static IServiceCollection ConfigureEntraIdAuthorizationPolicies(this IServiceCollection services, IConfiguration configuration)
+    {
+        // Bind configuration
+        var entraIdConfig = new EntraIdConfiguration();
+        configuration.GetSection("EntraId").Bind(entraIdConfig);
+
+        // Only configure policies if authentication is enabled
+        if (!entraIdConfig.Enabled)
         {
-            // Default policy requires authentication when Entra ID is enabled
-            options.DefaultPolicy = options.GetPolicy("EntraIdRequired") ?? 
-                new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder()
-                    .RequireAuthenticatedUser()
-                    .Build();
+            return services;
+        }
 
+        // Configure authorization policies
+        services.Configure<Microsoft.AspNetCore.Authorization.AuthorizationOptions>(options =>
+        {
             // Policy for MCP endpoints
             options.AddPolicy("McpEndpointAccess", policy =>
             {
