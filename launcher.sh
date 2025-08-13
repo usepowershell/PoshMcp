@@ -11,12 +11,14 @@ echo "2. Run Interactive Test Client (for testing/debugging)"
 echo "3. Build both projects"
 echo "4. Run tests"
 echo "5. Launch MCP Inspector"
-echo "6. Exit"
+echo "6. Evaluate PowerShell Tools (--evaluate-tools)"
+echo "7. Check PowerShell Module Path (psmodulepath)"
+echo "8. Exit"
 echo ""
 
 export Logging__LogLevel__Microsoft="Debug"
 
-read -p "Enter your choice (1-6): " choice
+read -p "Enter your choice (1-8): " choice
 
 case $choice in
     1)
@@ -43,11 +45,23 @@ case $choice in
         npx @modelcontextprotocol/inspector dotnet run --project PoshMcp.Server/PoshMcp.csproj
         ;;
     6)
+        echo "Evaluating PowerShell Tools..."
+        echo "This will analyze your PowerShell configuration and list discovered tools."
+        echo ""
+        dotnet run --project PoshMcp.Server/PoshMcp.csproj -- --evaluate-tools
+        ;;
+    7)
+        echo "Checking PowerShell Module Path..."
+        echo "This will show the PSModulePath environment variable values."
+        echo ""
+        dotnet run --project PoshMcp.Server/PoshMcp.csproj -- psmodulepath
+        ;;
+    8)
         echo "Goodbye!"
         exit 0
         ;;
     *)
-        echo "Invalid choice. Please run the script again and choose 1-5."
+        echo "Invalid choice. Please run the script again and choose 1-8."
         exit 1
         ;;
 esac
