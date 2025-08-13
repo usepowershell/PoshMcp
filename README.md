@@ -148,6 +148,77 @@ The server uses standard .NET configuration files:
 - **`IncludePatterns`**: Array of wildcard patterns for functions to include (e.g., `"Get-*"`)
 - **`ExcludePatterns`**: Array of wildcard patterns for functions to exclude from exposure
 
+### Authentication Configuration (PoshMcp.Web)
+
+The web server supports Entra ID (Azure AD) authentication for enterprise security. Authentication is disabled by default for development scenarios.
+
+#### `appsettings.json` Authentication Configuration
+```json
+{
+  "EntraId": {
+    "Enabled": false,
+    "TenantId": "your-tenant-id",
+    "ClientId": "your-client-id",
+    "RequireHttpsMetadata": true,
+    "RequiredScopes": [],
+    "ValidateIssuer": true,
+    "ValidateAudience": true,
+    "ValidateLifetime": true
+  }
+}
+```
+
+#### EntraId Configuration Options
+
+- **`Enabled`**: Whether authentication is enabled (default: `false`)
+- **`TenantId`**: Azure AD tenant ID (required when enabled)
+- **`ClientId`**: Azure AD application client ID (required when enabled)
+- **`Audience`**: Token audience for validation (defaults to ClientId if not specified)
+- **`Authority`**: Custom authority URL (defaults to `https://login.microsoftonline.com/{TenantId}/v2.0`)
+- **`RequireHttpsMetadata`**: Whether to require HTTPS for metadata discovery (default: `true`)
+- **`RequiredScopes`**: Array of required scopes for access (e.g., `["api.read", "api.write"]`)
+- **`ValidateIssuer`**: Whether to validate token issuer (default: `true`)
+- **`ValidateAudience`**: Whether to validate token audience (default: `true`)
+- **`ValidateLifetime`**: Whether to validate token lifetime (default: `true`)
+
+#### Setting up Entra ID Authentication
+
+1. **Register an application in Azure AD**:
+   - Go to Azure Portal → Azure Active Directory → App registrations
+   - Create a new registration with appropriate redirect URIs
+   - Note the Application (client) ID and Directory (tenant) ID
+
+2. **Configure the application**:
+   ```json
+   {
+     "EntraId": {
+       "Enabled": true,
+       "TenantId": "12345678-1234-1234-1234-123456789012",
+       "ClientId": "87654321-4321-4321-4321-210987654321",
+       "RequiredScopes": ["api://your-app-id/access"]
+     }
+   }
+   ```
+
+3. **Obtain access tokens**:
+   - Use Azure CLI: `az account get-access-token --resource api://your-client-id`
+   - Use browser-based flows for interactive scenarios
+   - Use client credentials flow for service-to-service scenarios
+
+4. **Make authenticated requests**:
+   ```bash
+   curl -X POST http://localhost:5001 \
+     -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {...}}'
+   ```
+
+#### Development vs Production
+
+- **Development**: Set `RequireHttpsMetadata: false` for local testing
+- **Production**: Always use `RequireHttpsMetadata: true` and ensure HTTPS endpoints
+- **Testing**: Authentication can be completely disabled by setting `Enabled: false`
+
 
 
 ## Testing and Debugging
