@@ -40,11 +40,19 @@ public class Program
             aliases: new[] { "--trace", "-t" },
             description: "Enable trace logging");
 
+        // Add subcommands
+        var psModulePathCommand = new Command("psmodulepath", "Start a PowerShell runspace and report the value of $env:PSModulePath");
+        psModulePathCommand.AddOption(verboseOption);
+        psModulePathCommand.AddOption(debugOption);
+        psModulePathCommand.AddOption(traceOption);
+
         rootCommand.AddOption(evaluateToolsOption);
         rootCommand.AddOption(verboseOption);
         rootCommand.AddOption(debugOption);
         rootCommand.AddOption(traceOption);
+        rootCommand.AddCommand(psModulePathCommand);
 
+        // Handler for the main command (default MCP server behavior)
         rootCommand.SetHandler(async (evaluateTools, verbose, debug, trace) =>
         {
             // Determine log level based on options
@@ -63,7 +71,79 @@ public class Program
             }
         }, evaluateToolsOption, verboseOption, debugOption, traceOption);
 
+        // Handler for the psmodulepath command
+        psModulePathCommand.SetHandler((verbose, debug, trace) =>
+        {
+            // Determine log level based on options
+            LogLevel logLevel = LogLevel.Information;
+            if (trace) logLevel = LogLevel.Trace;
+            else if (debug) logLevel = LogLevel.Debug;
+            else if (verbose) logLevel = LogLevel.Debug; // Verbose maps to Debug level
+
+            RunPSModulePathCommand(logLevel);
+        }, verboseOption, debugOption, traceOption);
+
         return await rootCommand.InvokeAsync(args);
+    }
+
+    private static void RunPSModulePathCommand(LogLevel logLevel)
+    {
+        Console.Error.WriteLine("=== PowerShell MCP Server - PSModulePath Report ===");
+        Console.Error.WriteLine();
+
+        using var loggerFactory = CreateLoggerFactory(logLevel);
+        var logger = loggerFactory.CreateLogger("PSModulePath");
+
+        try
+        {
+            logger.LogInformation("Starting PowerShell runspace to check PSModulePath");
+
+            using var runspace = new IsolatedPowerShellRunspace();
+
+            var psModulePath = runspace.ExecuteThreadSafe(ps =>
+            {
+                ps.Commands.Clear();
+                ps.AddScript("$env:PSModulePath");
+
+                var results = ps.Invoke();
+
+                if (ps.HadErrors)
+                {
+                    var errors = string.Join(Environment.NewLine, ps.Streams.Error);
+                    throw new InvalidOperationException($"PowerShell execution failed: {errors}");
+                }
+
+                return results.Count > 0 ? results[0]?.ToString() ?? string.Empty : string.Empty;
+            });
+
+            Console.WriteLine("PSModulePath:");
+            Console.WriteLine(new string('=', 50));
+
+            if (!string.IsNullOrEmpty(psModulePath))
+            {
+                // Split the path and display each entry on a separate line for better readability
+                var paths = psModulePath.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+                for (int i = 0; i < paths.Length; i++)
+                {
+                    Console.WriteLine($"{i + 1:D2}. {paths[i]}");
+                }
+
+                Console.WriteLine();
+                Console.WriteLine($"Total module paths: {paths.Length}");
+            }
+            else
+            {
+                Console.WriteLine("(empty or undefined)");
+            }
+
+            Console.WriteLine(new string('=', 50));
+            logger.LogInformation("PSModulePath report completed successfully");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error while checking PSModulePath: {ErrorMessage}", ex.Message);
+            Console.Error.WriteLine($"Error: {ex.Message}");
+        }
     }
 
     private static async Task RunToolEvaluationAsync(LogLevel logLevel)

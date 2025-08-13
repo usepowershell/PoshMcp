@@ -136,5 +136,48 @@ namespace PoshMcp.Tests.Integration
             Assert.True(parseResult.GetValueForOption(evaluateToolsOption));
             Assert.True(parseResult.GetValueForOption(verboseOption));
         }
+
+        [Fact]
+        public void CommandLine_PSModulePathCommand_ShouldBeRecognized()
+        {
+            // Test that the psmodulepath command is properly set up
+            var rootCommand = new RootCommand("PowerShell MCP Server - Provides access to PowerShell commands via Model Context Protocol");
+
+            var verboseOption = new Option<bool>(
+                aliases: new[] { "--verbose", "-v" },
+                description: "Enable verbose logging");
+
+            var debugOption = new Option<bool>(
+                aliases: new[] { "--debug", "-d" },
+                description: "Enable debug logging");
+
+            var traceOption = new Option<bool>(
+                aliases: new[] { "--trace", "-t" },
+                description: "Enable trace logging");
+
+            // Create the psmodulepath subcommand
+            var psModulePathCommand = new Command("psmodulepath", "Start a PowerShell runspace and report the value of $env:PSModulePath");
+            psModulePathCommand.AddOption(verboseOption);
+            psModulePathCommand.AddOption(debugOption);
+            psModulePathCommand.AddOption(traceOption);
+
+            rootCommand.AddCommand(psModulePathCommand);
+
+            // Verify the command structure
+            Assert.NotNull(rootCommand);
+            Assert.Single(rootCommand.Subcommands);
+            Assert.Equal("psmodulepath", rootCommand.Subcommands[0].Name);
+            Assert.Equal("Start a PowerShell runspace and report the value of $env:PSModulePath", rootCommand.Subcommands[0].Description);
+
+            // Test parsing the psmodulepath command
+            var parseResult = rootCommand.Parse(new[] { "psmodulepath" });
+            Assert.NotNull(parseResult);
+            Assert.Empty(parseResult.Errors);
+
+            // Test parsing psmodulepath command with options
+            var parseResultWithVerbose = rootCommand.Parse(new[] { "psmodulepath", "--verbose" });
+            Assert.NotNull(parseResultWithVerbose);
+            Assert.Empty(parseResultWithVerbose.Errors);
+        }
     }
 }
