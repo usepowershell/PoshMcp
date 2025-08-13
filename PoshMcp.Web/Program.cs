@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using PoshMcp.Server.PowerShell;
 using PoshMcp.Web.PowerShell;
+using PoshMcp.Web.Authentication;
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
@@ -24,6 +25,9 @@ public class Program
         // Configure PowerShell configuration binding
         builder.Services.Configure<PowerShellConfiguration>(
             builder.Configuration.GetSection("PowerShellConfiguration"));
+
+        // Configure Entra ID authentication
+        builder.Services.AddEntraIdAuthentication(builder.Configuration);
 
         // Configure JSON serializer options
         builder.Services.Configure<JsonSerializerOptions>(options =>
@@ -75,8 +79,12 @@ public class Program
         // Enable CORS
         app.UseCors();
 
-        // Map MCP endpoints
-        app.MapMcp();
+        // Add authentication and authorization middleware
+        app.UseAuthentication();
+        app.UseAuthorization();
+
+        // Map MCP endpoints with conditional authorization
+        app.MapMcpWithConditionalAuth();
 
         app.Run();
     }
