@@ -429,7 +429,7 @@ public class Program
     {
         // Register and configure OpenTelemetry metrics
         builder.Services.AddSingleton<McpMetrics>();
-        
+
         builder.Services.AddOpenTelemetry()
             .WithMetrics(metricsBuilder =>
             {
@@ -437,7 +437,7 @@ public class Program
                     .AddMeter(McpMetrics.MeterName)
                     .AddConsoleExporter();
             });
-        
+
         // Configure metrics in the factories after building the service provider
         builder.Services.AddSingleton<IHostedService>(serviceProvider =>
         {

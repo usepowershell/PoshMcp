@@ -77,7 +77,7 @@ public class Program
 
         // Configure OpenTelemetry metrics
         builder.Services.AddSingleton<McpMetrics>();
-        
+
         builder.Services.AddOpenTelemetry()
             .WithMetrics(metricsBuilder =>
             {
@@ -86,7 +86,7 @@ public class Program
                     .AddAspNetCoreInstrumentation()
                     .AddConsoleExporter();
             });
-        
+
         // Configure metrics in the factories
         var metrics = new McpMetrics();
         McpToolFactoryV2.SetMetrics(metrics);

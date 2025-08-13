@@ -25,7 +25,7 @@ public class PowerShellAssemblyGenerator
     private Type? _generatedType;
     private object? _generatedInstance;
     private readonly object _lock = new object();
-    
+
     // Static metrics instance for instrumentation
     private static McpMetrics? _metrics;
 
@@ -535,7 +535,7 @@ public class PowerShellAssemblyGenerator
             logger.LogInformation($"Executing PowerShell command: {commandName} with {parameterValues?.Length ?? 0} parameters");
 
             // Record tool invocation start
-            _metrics?.ToolInvocationTotal.Add(1, 
+            _metrics?.ToolInvocationTotal.Add(1,
                 new TagList { { "tool_name", commandName }, { "status", "started" } });
 
             // Log parameter details
@@ -701,7 +701,7 @@ public class PowerShellAssemblyGenerator
         {
             // Record metrics for the completed operation
             stopwatch.Stop();
-            
+
             _metrics?.ToolInvocationTotal.Add(1,
                 new TagList { { "tool_name", commandName }, { "status", status } });
 

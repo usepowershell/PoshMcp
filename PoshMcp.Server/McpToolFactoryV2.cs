@@ -485,7 +485,7 @@ public class McpToolFactoryV2
     private static void LogToolGenerationResults(List<McpServerTool> tools, ILogger logger)
     {
         logger.LogInformation($"Tool generation completed with {tools.Count} tools");
-        
+
         // Record tool registration metrics
         _metrics?.ToolRegistrationTotal.Add(tools.Count,
             new TagList { { "source", "auto-discovered" } });

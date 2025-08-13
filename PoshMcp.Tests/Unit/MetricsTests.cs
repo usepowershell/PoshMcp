@@ -32,7 +32,7 @@ public class MetricsTests
         Assert.NotNull(metrics.ToolExecutionDurationSeconds);
         Assert.NotNull(metrics.ToolExecutionErrorsTotal);
         Assert.NotNull(metrics.ToolRegistrationTotal);
-        
+
         _output.WriteLine("McpMetrics initialized successfully with all counters and histograms");
     }
 
@@ -69,7 +69,7 @@ public class MetricsTests
         var metrics = new McpMetrics();
 
         // Act
-        metrics.ToolInvocationTotal.Add(1, 
+        metrics.ToolInvocationTotal.Add(1,
             new System.Diagnostics.TagList { { "tool_name", "test-tool" }, { "status", "success" } });
 
         metrics.ToolExecutionDurationSeconds.Record(1.5,
@@ -80,7 +80,7 @@ public class MetricsTests
 
         // Assert - no exception should be thrown
         _output.WriteLine("Successfully recorded metrics for tool invocation, execution duration, and registration");
-        
+
         await Task.CompletedTask; // For async pattern consistency
     }
 }
