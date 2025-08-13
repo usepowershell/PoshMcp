@@ -168,7 +168,7 @@ public class EntraIdAuthenticationTests
         // Arrange
         var services = new ServiceCollection();
         services.AddLogging(); // Required for authentication services
-        
+
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
@@ -184,7 +184,7 @@ public class EntraIdAuthenticationTests
 
         // Act
         services.AddEntraIdAuthentication(configuration);
-        
+
         // Assert - should not throw and services should be registered
         var serviceProvider = services.BuildServiceProvider();
         var entraIdConfig = serviceProvider.GetService<Microsoft.Extensions.Options.IOptions<EntraIdConfiguration>>();

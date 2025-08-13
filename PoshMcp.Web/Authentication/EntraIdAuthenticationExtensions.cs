@@ -109,7 +109,7 @@ public static class EntraIdAuthenticationExtensions
             options.AddPolicy("McpEndpointAccess", policy =>
             {
                 policy.RequireAuthenticatedUser();
-                
+
                 // Add scope requirements if specified
                 if (entraIdConfig.RequiredScopes.Count > 0)
                 {

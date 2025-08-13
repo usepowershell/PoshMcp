@@ -29,7 +29,7 @@ public class EntraIdAuthenticationIntegrationTests
     {
         // Arrange
         var builder = WebApplication.CreateBuilder();
-        
+
         // Configure to disable authentication
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
@@ -51,7 +51,7 @@ public class EntraIdAuthenticationIntegrationTests
     {
         // Arrange
         var builder = WebApplication.CreateBuilder();
-        
+
         // Configure to enable authentication with required settings
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
@@ -78,14 +78,14 @@ public class EntraIdAuthenticationIntegrationTests
     {
         // Arrange
         var builder = WebApplication.CreateBuilder();
-        
+
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["EntraId:Enabled"] = "false"
         });
 
         builder.Services.AddEntraIdAuthentication(builder.Configuration);
-        
+
         // Add minimal MCP server services for the extension to work
         builder.Services
             .AddMcpServer()
@@ -104,7 +104,7 @@ public class EntraIdAuthenticationIntegrationTests
     {
         // Arrange
         var builder = WebApplication.CreateBuilder();
-        
+
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["EntraId:Enabled"] = "true",
@@ -114,7 +114,7 @@ public class EntraIdAuthenticationIntegrationTests
         });
 
         builder.Services.AddEntraIdAuthentication(builder.Configuration);
-        
+
         // Add minimal MCP server services for the extension to work
         builder.Services
             .AddMcpServer()
