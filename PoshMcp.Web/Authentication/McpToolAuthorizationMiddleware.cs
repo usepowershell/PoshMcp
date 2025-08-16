@@ -206,11 +206,20 @@ public class McpToolAuthorizationMiddleware
     private static string ConvertToolNameToCommandName(string toolName)
     {
         // Convert tool names like "get_process_name" back to "Get-Process"
+        // Handle multi-word tool names like "get_tenant_user_role" -> "Get-TenantUserRole"
         var parts = toolName.Split('_');
         if (parts.Length >= 2)
         {
             var verb = char.ToUpper(parts[0][0]) + parts[0].Substring(1);
-            var noun = char.ToUpper(parts[1][0]) + parts[1].Substring(1);
+            
+            // Combine all remaining parts as the noun, capitalizing each part
+            var nounParts = new string[parts.Length - 1];
+            for (int i = 1; i < parts.Length; i++)
+            {
+                nounParts[i - 1] = char.ToUpper(parts[i][0]) + parts[i].Substring(1);
+            }
+            var noun = string.Join("", nounParts);
+            
             return $"{verb}-{noun}";
         }
 
