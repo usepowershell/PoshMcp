@@ -56,7 +56,7 @@ public class CommandAuthenticationIntegrationTests
 
         var configDict = JsonSerializer.Deserialize<Dictionary<string, object>>(configJson);
         var inMemoryConfig = new Dictionary<string, string?>();
-        
+
         // Flatten the JSON for in-memory configuration
         inMemoryConfig["PowerShellConfiguration:FunctionNames:0"] = "Get-Process";
         inMemoryConfig["PowerShellConfiguration:FunctionNames:1"] = "Get-Service";
@@ -86,7 +86,7 @@ public class CommandAuthenticationIntegrationTests
 
         // Assert
         Assert.NotNull(config);
-        
+
         // Verify legacy function names still work
         Assert.Equal(2, config.FunctionNames.Count);
         Assert.Contains("Get-Process", config.FunctionNames);
@@ -131,7 +131,7 @@ public class CommandAuthenticationIntegrationTests
         _output.WriteLine($"Authentication groups: {config.Commands.CommandGroups.Count}");
     }
 
-    [Fact]  
+    [Fact]
     public void Configuration_ShouldWorkWithOnlyLegacyFormat()
     {
         // Arrange - Configuration with only legacy FunctionNames

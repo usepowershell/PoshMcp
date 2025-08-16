@@ -133,7 +133,7 @@ public class AuthorizedMcpToolWrapper
         }
 
         // Check for the required role in user claims
-        var hasRole = user.IsInRole(_authRequirements.Role) || 
+        var hasRole = user.IsInRole(_authRequirements.Role) ||
                      user.HasClaim(ClaimTypes.Role, _authRequirements.Role) ||
                      user.HasClaim("roles", _authRequirements.Role);
 
@@ -196,7 +196,7 @@ public static class AuthorizedMcpToolFactory
             {
                 // Extract command name from tool 
                 var commandName = ExtractCommandNameFromTool(tool);
-                
+
                 // Get authentication requirements for this command
                 var authRequirements = config.GetAuthenticationRequirements(commandName);
 
@@ -213,7 +213,7 @@ public static class AuthorizedMcpToolFactory
                 // details are not accessible. For now, we'll add the original tool but log the requirement.
                 authorizedTools.Add(tool);
                 logger.LogInformation($"Tool '{GetToolName(tool)}' for command '{commandName}' requires {authRequirements.Type} authentication: {GetAuthRequirementDescription(authRequirements)}");
-                
+
                 // TODO: In a future iteration, we could implement tool-level authorization by:
                 // 1. Using middleware to intercept tool calls
                 // 2. Creating custom tool handlers with authorization logic
@@ -236,16 +236,16 @@ public static class AuthorizedMcpToolFactory
         // Use reflection to get tool properties since the API is not directly accessible
         var nameProperty = tool.GetType().GetProperty("Name");
         var titleProperty = tool.GetType().GetProperty("Title");
-        
+
         var toolName = nameProperty?.GetValue(tool)?.ToString() ?? "unknown";
         var toolTitle = titleProperty?.GetValue(tool)?.ToString() ?? "";
-        
+
         // If the title looks like a PowerShell command (contains hyphens), use it
         if (toolTitle.Contains('-'))
         {
             return toolTitle.Split(' ')[0]; // Take first word if there's a description
         }
-        
+
         // Otherwise, try to extract from the tool name
         // Convert "get_process_name" to "Get-Process"
         var parts = toolName.Split('_');
@@ -255,7 +255,7 @@ public static class AuthorizedMcpToolFactory
             var noun = char.ToUpper(parts[1][0]) + parts[1].Substring(1);
             return $"{verb}-{noun}";
         }
-        
+
         return toolName;
     }
 

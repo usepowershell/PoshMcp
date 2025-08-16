@@ -510,7 +510,7 @@ public class McpToolFactoryV2
         try
         {
             logger.LogInformation("Processing PowerShell configuration...");
-            
+
             var allFunctionNames = config.GetAllFunctionNames();
             logger.LogTrace("Configuration details:");
             logger.LogTrace($"  Function Names (legacy): [{string.Join(", ", config.FunctionNames)}]");

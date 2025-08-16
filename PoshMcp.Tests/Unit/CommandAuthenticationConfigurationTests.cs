@@ -40,7 +40,7 @@ public class CommandAuthenticationConfigurationTests
         Assert.Equal(2, deserialized.Commands.Count);
         Assert.Contains("Update-TenantUser", deserialized.Commands);
         Assert.Contains("Remove-TenantUser", deserialized.Commands);
-        
+
         _output.WriteLine($"Serialized JSON: {json}");
     }
 
@@ -113,11 +113,11 @@ public class CommandAuthenticationConfigurationTests
         // Assert
         Assert.NotNull(noneGroup);
         Assert.Equal(AuthenticationType.None, noneGroup.Type);
-        
+
         Assert.NotNull(roleGroup);
         Assert.Equal(AuthenticationType.Role, roleGroup.Type);
         Assert.Equal("Global Administrator", roleGroup.Role);
-        
+
         Assert.Null(notFound);
     }
 
@@ -181,11 +181,11 @@ public class CommandAuthenticationConfigurationTests
         // Assert
         Assert.NotNull(legacyCommandAuth);
         Assert.Equal(AuthenticationType.None, legacyCommandAuth.Type);
-        
+
         Assert.NotNull(newCommandAuth);
         Assert.Equal(AuthenticationType.Role, newCommandAuth.Type);
         Assert.Equal("Admin", newCommandAuth.Role);
-        
+
         Assert.Null(notFoundAuth);
     }
 }

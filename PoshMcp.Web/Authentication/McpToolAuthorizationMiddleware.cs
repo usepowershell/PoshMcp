@@ -67,10 +67,10 @@ public class McpToolAuthorizationMiddleware
         {
             // Enable buffering so we can read the body multiple times
             context.Request.EnableBuffering();
-            
+
             using var reader = new StreamReader(context.Request.Body, leaveOpen: true);
             var body = await reader.ReadToEndAsync();
-            
+
             // Reset the stream position for downstream middleware
             context.Request.Body.Position = 0;
 
@@ -137,7 +137,7 @@ public class McpToolAuthorizationMiddleware
         {
             // Convert tool name back to PowerShell command name
             var commandName = ConvertToolNameToCommandName(toolName);
-            
+
             // Get authentication requirements for this command
             var authRequirements = _config.GetAuthenticationRequirements(commandName);
 
@@ -211,7 +211,7 @@ public class McpToolAuthorizationMiddleware
         if (parts.Length >= 2)
         {
             var verb = char.ToUpper(parts[0][0]) + parts[0].Substring(1);
-            
+
             // Combine all remaining parts as the noun, capitalizing each part
             var nounParts = new string[parts.Length - 1];
             for (int i = 1; i < parts.Length; i++)
@@ -219,7 +219,7 @@ public class McpToolAuthorizationMiddleware
                 nounParts[i - 1] = char.ToUpper(parts[i][0]) + parts[i].Substring(1);
             }
             var noun = string.Join("", nounParts);
-            
+
             return $"{verb}-{noun}";
         }
 

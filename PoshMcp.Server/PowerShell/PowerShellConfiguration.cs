@@ -67,12 +67,12 @@ public class PowerShellConfiguration
     public List<string> GetAllFunctionNames()
     {
         var allNames = new List<string>(FunctionNames);
-        
+
         if (Commands != null)
         {
             allNames.AddRange(Commands.GetAllCommands());
         }
-        
+
         return allNames.Distinct().ToList();
     }
 
@@ -108,7 +108,7 @@ public class PowerShellConfiguration
     {
         // Bind simple properties
         configuration.Bind(this);
-        
+
         // Handle the commands section manually if present
         var commandsSection = configuration.GetSection("commands");
         if (commandsSection.Exists())

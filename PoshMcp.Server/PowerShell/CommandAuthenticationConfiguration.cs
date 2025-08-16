@@ -14,12 +14,12 @@ public enum AuthenticationType
     /// No authentication required
     /// </summary>
     None,
-    
+
     /// <summary>
     /// Requires a specific Entra ID role
     /// </summary>
     Role,
-    
+
     /// <summary>
     /// Requires a specific permission/scope
     /// </summary>
@@ -36,19 +36,19 @@ public class CommandAuthenticationGroup
     /// </summary>
     [JsonPropertyName("type")]
     public AuthenticationType Type { get; set; } = AuthenticationType.None;
-    
+
     /// <summary>
     /// Required Entra ID role (when Type is Role)
     /// </summary>
     [JsonPropertyName("role")]
     public string? Role { get; set; }
-    
+
     /// <summary>
     /// Required permission/scope (when Type is Permission)
     /// </summary>
     [JsonPropertyName("permission")]
     public string? Permission { get; set; }
-    
+
     /// <summary>
     /// List of commands that require this authentication
     /// </summary>
@@ -66,7 +66,7 @@ public class AuthenticationAwareConfiguration
     /// </summary>
     [JsonPropertyName("commandGroups")]
     public List<CommandAuthenticationGroup> CommandGroups { get; set; } = new();
-    
+
     /// <summary>
     /// Gets all command names from all groups
     /// </summary>
@@ -79,7 +79,7 @@ public class AuthenticationAwareConfiguration
         }
         return allCommands;
     }
-    
+
     /// <summary>
     /// Gets the authentication requirements for a specific command
     /// </summary>
@@ -114,7 +114,7 @@ public static class CommandConfigurationParser
     public static AuthenticationAwareConfiguration ParseCommandsConfiguration(JsonElement commandsElement)
     {
         var config = new AuthenticationAwareConfiguration();
-        
+
         if (commandsElement.ValueKind == JsonValueKind.Array)
         {
             // Handle array format similar to the YAML structure
@@ -128,14 +128,14 @@ public static class CommandConfigurationParser
                 config.CommandGroups = ParseCommandsArray(commandGroupsElement);
             }
         }
-        
+
         return config;
     }
-    
+
     private static List<CommandAuthenticationGroup> ParseCommandsArray(JsonElement arrayElement)
     {
         var groups = new List<CommandAuthenticationGroup>();
-        
+
         foreach (var item in arrayElement.EnumerateArray())
         {
             if (item.ValueKind == JsonValueKind.String)
@@ -157,14 +157,14 @@ public static class CommandConfigurationParser
                 }
             }
         }
-        
+
         return groups;
     }
-    
+
     private static CommandAuthenticationGroup? ParseAuthenticationGroup(JsonElement groupElement)
     {
         var group = new CommandAuthenticationGroup();
-        
+
         // Check for role-based authentication
         if (groupElement.TryGetProperty("role", out var roleElement))
         {
@@ -185,7 +185,7 @@ public static class CommandConfigurationParser
                 group.Type = (AuthenticationType)typeElement.GetInt32();
             }
         }
-        
+
         // Get the commands for this group
         if (groupElement.TryGetProperty("commands", out var commandsElement))
         {
@@ -214,7 +214,7 @@ public static class CommandConfigurationParser
                 }
             }
         }
-        
+
         return group.Commands.Count > 0 ? group : null;
     }
 }

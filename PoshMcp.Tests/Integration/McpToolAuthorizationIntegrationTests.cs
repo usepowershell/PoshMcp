@@ -46,7 +46,7 @@ public class McpToolAuthorizationIntegrationTests
         var toolCallRequest = CreateToolCallRequest("get_process_name");
 
         // Act
-        var response = await client.PostAsync("/tools/call", 
+        var response = await client.PostAsync("/tools/call",
             new StringContent(toolCallRequest, Encoding.UTF8, "application/json"));
 
         // Assert - Should not be forbidden (tool doesn't exist but authorization should pass)
@@ -97,10 +97,10 @@ public class McpToolAuthorizationIntegrationTests
 
         // Assert
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        
+
         var responseContent = await response.Content.ReadAsStringAsync();
         _output.WriteLine($"Forbidden response: {responseContent}");
-        
+
         Assert.Contains("Global Administrator", responseContent);
     }
 
@@ -147,10 +147,10 @@ public class McpToolAuthorizationIntegrationTests
 
         // Assert
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        
+
         var responseContent = await response.Content.ReadAsStringAsync();
         _output.WriteLine($"Forbidden response: {responseContent}");
-        
+
         Assert.Contains("poshmcp.read", responseContent);
     }
 
@@ -170,10 +170,10 @@ public class McpToolAuthorizationIntegrationTests
 
         // Assert
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        
+
         var responseContent = await response.Content.ReadAsStringAsync();
         _output.WriteLine($"Unauthenticated response: {responseContent}");
-        
+
         Assert.Contains("Authentication required", responseContent);
     }
 
@@ -251,7 +251,7 @@ public class McpToolAuthorizationIntegrationTests
                     services.AddSingleton(config);
                     services.AddLogging();
                     services.AddRouting();
-                    
+
                     // Add authentication for testing
                     services.AddAuthentication("Test")
                         .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>(
@@ -272,11 +272,11 @@ public class McpToolAuthorizationIntegrationTests
                                 new Claim(ClaimTypes.Name, "Test User"),
                                 new Claim(ClaimTypes.NameIdentifier, "123")
                             };
-                            
+
                             var identity = new ClaimsIdentity(testClaims, "Test");
                             context.User = new ClaimsPrincipal(identity);
                         }
-                        
+
                         await next();
                     });
 
