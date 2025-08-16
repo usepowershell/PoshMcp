@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -110,6 +111,9 @@ public class Program
         app.UseAuthentication();
         app.UseAuthorization();
 
+        // Add per-command authorization middleware for MCP tools
+        app.UseMiddleware<McpToolAuthorizationMiddleware>();
+
         // Map MCP endpoints with conditional authorization
         app.MapMcpWithConditionalAuth();
 
@@ -129,11 +133,11 @@ public class Program
         {
             var reloadTools = CreateConfigurationReloadTools(serviceProvider, toolFactory, config);
             AddConfigurationReloadToolsToList(tools, reloadTools);
-            logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools) with session-aware runspaces using Mcp-Session-Id header");
+            logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools) with session-aware runspaces and per-command authorization using Mcp-Session-Id header");
         }
         else
         {
-            logger.LogInformation($"Added {tools.Count} total tools with session-aware runspaces using Mcp-Session-Id header (dynamic reload tools are disabled)");
+            logger.LogInformation($"Added {tools.Count} total tools with session-aware runspaces and per-command authorization using Mcp-Session-Id header (dynamic reload tools are disabled)");
         }
 
         return tools;
