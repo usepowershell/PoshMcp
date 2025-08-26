@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using PoshMcp.Server.PowerShell;
 using PoshMcp.Server.Metrics;
+using PoshMcp.Server.Configuration;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using System;
@@ -311,8 +312,11 @@ public class Program
     {
         var finalConfigPath = await DetermineServerConfigurationPath();
         builder.Configuration.AddJsonFile(finalConfigPath, optional: false, reloadOnChange: true);
-        builder.Services.Configure<PowerShellConfiguration>(
+        
+        // Add PowerShell configuration with validation
+        builder.Services.AddPowerShellConfiguration(
             builder.Configuration.GetSection("PowerShellConfiguration"));
+        
         return finalConfigPath;
     }
 
@@ -491,7 +495,12 @@ public class Program
       ""Get-Date""
     ],
     ""Modules"": [],
-    ""ExcludePatterns"": [],
+    ""ExcludePatterns"": [
+      ""Remove-*"",
+      ""Stop-*"",
+      ""Clear-*"",
+      ""Delete-*""
+    ],
     ""IncludePatterns"": [],
     ""EnableDynamicReloadTools"": false
   }
