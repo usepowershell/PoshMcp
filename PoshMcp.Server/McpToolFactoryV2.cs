@@ -510,17 +510,20 @@ public class McpToolFactoryV2
         try
         {
             logger.LogInformation("Processing PowerShell configuration...");
+
+            var allFunctionNames = config.GetAllFunctionNames();
             logger.LogTrace("Configuration details:");
-            logger.LogTrace($"  Function Names: [{string.Join(", ", config.FunctionNames)}]");
+            logger.LogTrace($"  Function Names (legacy): [{string.Join(", ", config.FunctionNames)}]");
+            logger.LogTrace($"  All Function Names: [{string.Join(", ", allFunctionNames)}]");
             logger.LogTrace($"  Modules: [{string.Join(", ", config.Modules)}]");
             logger.LogTrace($"  Include Patterns: [{string.Join(", ", config.IncludePatterns)}]");
             logger.LogTrace($"  Exclude Patterns: [{string.Join(", ", config.ExcludePatterns)}]");
 
             // Always process function names if specified
-            if (config.FunctionNames.Any())
+            if (allFunctionNames.Any())
             {
-                logger.LogDebug($"Processing {config.FunctionNames.Count} function names...");
-                var namedCommands = GetCommandsByName(config.FunctionNames, powerShell, logger);
+                logger.LogDebug($"Processing {allFunctionNames.Count} function names...");
+                var namedCommands = GetCommandsByName(allFunctionNames, powerShell, logger);
                 commands.AddRange(namedCommands);
                 logger.LogInformation($"Added {namedCommands.Count} commands by name");
 
