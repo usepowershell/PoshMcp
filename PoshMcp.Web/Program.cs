@@ -22,6 +22,10 @@ namespace PoshMcp.Web;
 
 public class Program
 {
+    // disable the warning for a second calling of BuildServiceProvider
+    // which is needed to pass logging in to the dynamically generated 
+    // assembly with the wrappers for the powershell commands.
+#pragma warning disable ASP0000
     public static void Main(string[] args)
     {
         var builder = WebApplication.CreateBuilder(args);
@@ -119,6 +123,7 @@ public class Program
 
         app.Run();
     }
+#pragma warning restore ASP0000
 
     private static List<McpServerTool> SetupSessionAwareMcpTools(IServiceProvider serviceProvider, PowerShellConfiguration config, ILogger logger)
     {
