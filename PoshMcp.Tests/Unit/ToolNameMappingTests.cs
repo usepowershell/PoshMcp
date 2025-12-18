@@ -34,53 +34,6 @@ public class ToolNameMappingTests
         _output.WriteLine($"Tool '{toolName}' -> Command '{commandName}'");
     }
 
-    [Fact]
-    public void TestConfiguration_ShouldFindAuthRequirements()
-    {
-        // Arrange
-        var config = new PowerShellConfiguration
-        {
-            Commands = new AuthenticationAwareConfiguration
-            {
-                CommandGroups = new List<CommandAuthenticationGroup>
-                {
-                    new()
-                    {
-                        Type = AuthenticationType.Role,
-                        Role = "Global Administrator",
-                        Commands = new List<string> { "Update-TenantUser" }
-                    },
-                    new()
-                    {
-                        Type = AuthenticationType.Permission,
-                        Permission = "poshmcp.read",
-                        Commands = new List<string> { "Get-TenantUserRole" }
-                    }
-                }
-            }
-        };
-
-        // Act
-        var updateUserAuth = config.GetAuthenticationRequirements("Update-TenantUser");
-        var getUserRoleAuth = config.GetAuthenticationRequirements("Get-TenantUserRole");
-        var noRequirementsAuth = config.GetAuthenticationRequirements("Get-Process");
-
-        // Assert
-        Assert.NotNull(updateUserAuth);
-        Assert.Equal(AuthenticationType.Role, updateUserAuth.Type);
-        Assert.Equal("Global Administrator", updateUserAuth.Role);
-
-        Assert.NotNull(getUserRoleAuth);
-        Assert.Equal(AuthenticationType.Permission, getUserRoleAuth.Type);
-        Assert.Equal("poshmcp.read", getUserRoleAuth.Permission);
-
-        Assert.Null(noRequirementsAuth);
-
-        _output.WriteLine($"Update-TenantUser requires: {updateUserAuth.Type} '{updateUserAuth.Role}'");
-        _output.WriteLine($"Get-TenantUserRole requires: {getUserRoleAuth.Type} '{getUserRoleAuth.Permission}'");
-        _output.WriteLine($"Get-Process requires: None");
-    }
-
     private static string ConvertToolNameToCommandName(string toolName)
     {
         // Convert tool names like "get_process_name" back to "Get-Process"

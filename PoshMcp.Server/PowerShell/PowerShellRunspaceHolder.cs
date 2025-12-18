@@ -14,7 +14,19 @@ public static class PowerShellRunspaceHolder
 {
     private static readonly Lazy<PSPowerShell> _instance = new(() =>
     {
-        var productionScript = @"
+        return PowerShellRunspaceInitializer.CreateInitializedRunspace(GetProductionInitializationScript());
+    });
+
+    private static readonly object _lock = new object();
+    private static readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
+
+    /// <summary>
+    /// Gets the production initialization script used for the singleton runspace
+    /// This script can be reused for session-aware runspaces to ensure consistency
+    /// </summary>
+    public static string GetProductionInitializationScript()
+    {
+        return @"
             # Set up some useful variables
             $McpServerStartTime = Get-Date
             $McpServerVersion = '1.0.0'
@@ -37,12 +49,7 @@ public static class PowerShellRunspaceHolder
                 # Example function to demonstrate state persistence
                 return $test
             }";
-
-        return PowerShellRunspaceInitializer.CreateInitializedRunspace(productionScript);
-    });
-
-    private static readonly object _lock = new object();
-    private static readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
+    }
 
     public static PSPowerShell Instance
     {

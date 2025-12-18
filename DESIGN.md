@@ -11,7 +11,7 @@ This project bridges traditional scripting with modern AI interfaces—extending
 ## 🚀 Goals
 
 - **Empower PowerShell Experts**: Publish scripts as AI-consumable tools with minimal friction.
-- **Secure Endpoint Exposure**: Create Entra ID-protected endpoints with support for Azure Managed Identities.
+- **Secure Endpoint Exposure**: Create endpoints with support for Azure Managed Identities.
 - **AI Integration**: Enable natural language invocation of PowerShell tools via AI agents.
 - **Operational Reach**: Democratize access to automation across teams and platforms.
 
@@ -35,7 +35,6 @@ This project bridges traditional scripting with modern AI interfaces—extending
 - Azure Managed Identity support for secure resource access
 
 ### Endpoint Exposure
-- Entra ID integration for authentication and RBAC
 - Audit logging for traceability
 
 ### Feedback & Learning
@@ -52,16 +51,14 @@ This project bridges traditional scripting with modern AI interfaces—extending
 +------------------+     +------------------+     +------------------+
         ^                        ^                        ^
         |                        |                        |
-+------------------+     +------------------+     +------------------+
-| Tool Catalog     | <-- | Tool Metadata    | <-- | Toolmaker Portal |
-| & Documentation  |     | & Registration   |     | (Auto Discovery) |
-+------------------+     +------------------+     +------------------+
++------------------+     +------------------+     +-------------------+
+| Tool Catalog     | <-- | Tool Metadata    | <-- | PowerShell Modules|
+| & Documentation  |     | & Registration   |     | (Auto Discovery)  |
++------------------+     +------------------+     +-------------------+
 
 ## 🔐 Security & Governance
 
 - Sandboxed execution environments
-- Declarative permission model
-- Entra ID-based access control
 - Full audit logging
 
 
@@ -79,7 +76,6 @@ This project bridges traditional scripting with modern AI interfaces—extending
 - Democratized Automation: Non-scripters can use advanced tools.
 - Amplified Reach: Toolmakers reach broader audiences.
 - Operational Efficiency: AI agents streamline repetitive tasks.
-- Enterprise-Grade Security: Identity and access controls built-in.
 
 
 ## 📍 Next Steps

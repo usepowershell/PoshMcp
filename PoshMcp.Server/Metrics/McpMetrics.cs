@@ -24,15 +24,9 @@ public class McpMetrics
     public Counter<long> IntentResolutionFailureTotal { get; }
     public Histogram<double> IntentResolutionLatencySeconds { get; }
 
-    // Security & Identity Metrics
-    public Counter<long> AuthenticationAttemptsTotal { get; }
-    public Counter<long> AuthorizationFailuresTotal { get; }
-    public Counter<long> IdentityContextUsageTotal { get; }
-
     // Usage & Adoption Metrics
     public Counter<long> ToolUsageTotal { get; }
     public Counter<long> ToolUsageByAgentTotal { get; }
-    public Counter<long> ToolUsageByRoleTotal { get; }
 
     // Tool Registration & Lifecycle
     public Counter<long> ToolRegistrationTotal { get; }
@@ -78,19 +72,6 @@ public class McpMetrics
             "mcp_intent_resolution_latency_seconds",
             description: "Time taken to resolve user intent to a tool");
 
-        // Security & Identity Metrics
-        AuthenticationAttemptsTotal = _meter.CreateCounter<long>(
-            "mcp_authentication_attempts_total",
-            description: "Count of authentication attempts, labeled by method");
-
-        AuthorizationFailuresTotal = _meter.CreateCounter<long>(
-            "mcp_authorization_failures_total",
-            description: "Count of denied access attempts");
-
-        IdentityContextUsageTotal = _meter.CreateCounter<long>(
-            "mcp_identity_context_usage_total",
-            description: "Number of executions using managed identity vs. user identity");
-
         // Usage & Adoption Metrics
         ToolUsageTotal = _meter.CreateCounter<long>(
             "mcp_tool_usage_total",
@@ -99,10 +80,6 @@ public class McpMetrics
         ToolUsageByAgentTotal = _meter.CreateCounter<long>(
             "mcp_tool_usage_by_agent_total",
             description: "Count of invocations by AI agent vs. human user");
-
-        ToolUsageByRoleTotal = _meter.CreateCounter<long>(
-            "mcp_tool_usage_by_role_total",
-            description: "Usage breakdown by user role");
 
         // Tool Registration & Lifecycle
         ToolRegistrationTotal = _meter.CreateCounter<long>(

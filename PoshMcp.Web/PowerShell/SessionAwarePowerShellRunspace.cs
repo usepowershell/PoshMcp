@@ -82,7 +82,9 @@ public class SessionAwarePowerShellRunspace : IPowerShellRunspace, IDisposable
         return _sessionRunspaces.GetOrAdd(sessionId, id =>
         {
             _logger.LogInformation($"Creating new PowerShell runspace for session: {id}");
-            return new IsolatedPowerShellRunspace();
+            // Use the production initialization script to ensure all sessions have the same functions/state
+            var initScript = PowerShellRunspaceHolder.GetProductionInitializationScript();
+            return new IsolatedPowerShellRunspace(initScript);
         });
     }
 

@@ -45,17 +45,32 @@ public class IsolatedPowerShellRunspace : IPowerShellRunspace, IDisposable
     private readonly object _lock = new object();
     private bool _disposed = false;
 
+    /// <summary>
+    /// Creates an isolated PowerShell runspace with default test initialization
+    /// </summary>
     public IsolatedPowerShellRunspace()
+        : this(GetDefaultInitializationScript())
     {
-        var testScript = @"
+    }
+
+    /// <summary>
+    /// Creates an isolated PowerShell runspace with custom initialization script
+    /// </summary>
+    /// <param name="initializationScript">Custom PowerShell script to run during initialization</param>
+    public IsolatedPowerShellRunspace(string initializationScript)
+    {
+        _powerShell = PowerShellRunspaceInitializer.CreateInitializedRunspace(initializationScript);
+        _runspace = _powerShell.Runspace;
+    }
+
+    private static string GetDefaultInitializationScript()
+    {
+        return @"
             # Set up some useful variables for testing
             $McpTestSessionStartTime = Get-Date
             $McpTestSessionId = [System.Guid]::NewGuid().ToString()
             
             Write-Host ""MCP Test PowerShell session initialized: $McpTestSessionId"" -ForegroundColor Yellow";
-
-        _powerShell = PowerShellRunspaceInitializer.CreateInitializedRunspace(testScript);
-        _runspace = _powerShell.Runspace;
     }
 
     public PSPowerShell Instance

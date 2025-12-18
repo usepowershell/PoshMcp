@@ -8,7 +8,6 @@ using ModelContextProtocol.Server;
 using PoshMcp.Server.PowerShell;
 using PoshMcp.Server.Metrics;
 using PoshMcp.Web.PowerShell;
-using PoshMcp.Web.Authentication;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using System;
@@ -33,16 +32,6 @@ public class Program
         // Configure PowerShell configuration binding
         builder.Services.Configure<PowerShellConfiguration>(
             builder.Configuration.GetSection("PowerShellConfiguration"));
-
-        // Configure Entra ID authentication (always register services for consistency)
-        builder.Services.AddAuthentication();
-        builder.Services.AddEntraIdAuthentication(builder.Configuration);
-
-        // Add authorization services (required even when authentication is disabled)
-        builder.Services.AddAuthorization();
-
-        // Configure authorization policies for Entra ID
-        builder.Services.ConfigureEntraIdAuthorizationPolicies(builder.Configuration);
 
         // Configure JSON serializer options
         builder.Services.Configure<JsonSerializerOptions>(options =>
@@ -111,15 +100,8 @@ public class Program
         // Enable CORS
         app.UseCors();
 
-        // Add authentication and authorization middleware
-        app.UseAuthentication();
-        app.UseAuthorization();
-
-        // Add per-command authorization middleware for MCP tools
-        app.UseMiddleware<McpToolAuthorizationMiddleware>();
-
-        // Map MCP endpoints with conditional authorization
-        app.MapMcpWithConditionalAuth();
+        // Map MCP endpoints
+        app.MapMcp();
 
         app.Run();
     }
@@ -138,11 +120,11 @@ public class Program
         {
             var reloadTools = CreateConfigurationReloadTools(serviceProvider, toolFactory, config);
             AddConfigurationReloadToolsToList(tools, reloadTools);
-            logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools) with session-aware runspaces and per-command authorization using Mcp-Session-Id header");
+            logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools) with session-aware runspaces using Mcp-Session-Id header");
         }
         else
         {
-            logger.LogInformation($"Added {tools.Count} total tools with session-aware runspaces and per-command authorization using Mcp-Session-Id header (dynamic reload tools are disabled)");
+            logger.LogInformation($"Added {tools.Count} total tools with session-aware runspaces using Mcp-Session-Id header (dynamic reload tools are disabled)");
         }
 
         return tools;
