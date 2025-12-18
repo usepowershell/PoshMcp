@@ -76,7 +76,6 @@ public class MultiUserIsolationTests : PowerShellTestBase, IAsyncLifetime
         }
     }
 
-
     public async Task InitializeAsync()
     {
         Logger.LogInformation("=== Initializing MultiUserIsolationTests - starting web server ===");
