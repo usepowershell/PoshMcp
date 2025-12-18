@@ -30,16 +30,18 @@ This project bridges traditional scripting with modern AI interfaces—extending
 - Parameter extraction and prompting for missing values
 
 ### Execution Engine
-- Sandboxed PowerShell runner with resource isolation
+- Isolated PowerShell runspace per session for resource isolation
 - Input/output translation for AI consumption
-- Azure Managed Identity support for secure resource access
+- Azure Managed Identity support when deployed as a container in Azure (no code changes required)
 
 ### Endpoint Exposure
-- Audit logging for traceability
+- Comprehensive logging for traceability and debugging
 
-### Feedback & Learning
-- User feedback loop for tool effectiveness
-- AI refinement based on usage and ratings
+### Observability & Metrics (Implemented)
+- OpenTelemetry integration for monitoring
+- Tool execution metrics and performance tracking
+- Session-level metrics in web mode
+
 ---
 
 ## 🧱 Architecture
@@ -58,8 +60,10 @@ This project bridges traditional scripting with modern AI interfaces—extending
 
 ## 🔐 Security & Governance
 
-- Sandboxed execution environments
-- Full audit logging
+- Isolated PowerShell runspaces per session (multi-user isolation in web mode)
+- Comprehensive logging for audit trails
+- Azure Managed Identity support when running as containers in Azure
+- Configurable command filtering via include/exclude patterns
 
 
 ## 🧪 Example Workflow
