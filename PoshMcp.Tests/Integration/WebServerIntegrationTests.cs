@@ -69,8 +69,8 @@ public class WebServerWithHttpClient : PowerShellTestBase, IAsyncLifetime
 
         var tools = toolsResponse["result"]?["tools"] as JArray;
         Assert.NotNull(tools);
-        // There should be 18 tools available when reload configuration is enabled (15 + 3 configuration reload tools)
-        Assert.Equal(18, tools.Count);
+        // There should be 8 tools available when reload configuration is enabled (1 command + 4 utility methods + 3 configuration reload tools)
+        Assert.Equal(8, tools.Count);
 
         Logger.LogInformation($"Found {tools.Count} tools via HTTP client");
 

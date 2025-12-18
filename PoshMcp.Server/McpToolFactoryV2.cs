@@ -367,7 +367,8 @@ public class McpToolFactoryV2
     private Dictionary<string, PowerShellCommandMetadata> CreateCommandMetadataMapping(List<CommandInfo> commands, ILogger logger)
     {
         var methodToCommandMap = new Dictionary<string, PowerShellCommandMetadata>();
-        var powerShell = PowerShellRunspaceHolder.Instance;
+        // Use the injected runspace instance instead of the singleton to support session-aware runspaces
+        var powerShell = _assemblyGenerator.PowerShellRunspace.Instance;
 
         foreach (var command in commands)
         {
@@ -503,7 +504,8 @@ public class McpToolFactoryV2
     /// </summary>
     private (List<CommandInfo> commands, Dictionary<string, PowerShellCommandMetadata> metadata) GetAvailableCommandsWithMetadata(PowerShellConfiguration config, ILogger logger)
     {
-        var powerShell = PowerShellRunspaceHolder.Instance;
+        // Use the injected runspace instance instead of the singleton to support session-aware runspaces
+        var powerShell = _assemblyGenerator.PowerShellRunspace.Instance;
         var commands = new List<CommandInfo>();
         var metadata = new Dictionary<string, PowerShellCommandMetadata>();
 

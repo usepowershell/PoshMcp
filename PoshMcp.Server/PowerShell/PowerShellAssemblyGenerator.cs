@@ -20,6 +20,7 @@ namespace PoshMcp.Server.PowerShell;
 public class PowerShellAssemblyGenerator
 {
     public Assembly? GeneratedAssembly => _generatedAssembly;
+    internal IPowerShellRunspace PowerShellRunspace => _powerShellRunspace;
     private readonly IPowerShellRunspace _powerShellRunspace;
     private Assembly? _generatedAssembly;
     private Type? _generatedType;
