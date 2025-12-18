@@ -54,7 +54,7 @@ public class MultiUserIsolationTests : PowerShellTestBase, IAsyncLifetime
             Assert.NotNull(client1Response);
             var client1Text = client1Response.ToString();
             Assert.Contains("session-1-data", client1Text);
-            
+
             // Verify that client2 does not see the output from client1's command execution
             // get_last_command_output should return null
             Logger.LogInformation("Calling get_last_command_output from client 2...");
@@ -62,7 +62,7 @@ public class MultiUserIsolationTests : PowerShellTestBase, IAsyncLifetime
             var client2Text = client2Response.ToString();
             Assert.NotNull(client2Response);
             Assert.Contains("null", client2Text);
-   
+
             Logger.LogInformation($"Client 1 response: {client1Text.Substring(0, Math.Min(200, client1Text.Length))}...");
             Logger.LogInformation($"Client 2 response: {client2Text.Substring(0, Math.Min(200, client2Text.Length))}...");
 
