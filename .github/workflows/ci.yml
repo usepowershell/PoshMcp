@@ -44,6 +44,9 @@ jobs:
     - name: Test (Functional)
       run: dotnet test --blame --no-build --configuration Release --filter "FullyQualifiedName~Functional" --logger "trx;LogFileName=functional-tests.trx" --results-directory ./TestResults
 
+    - name: Test (Integration)
+      run: dotnet test --blame --no-build --configuration Release --filter "FullyQualifiedName~Integration" --logger "trx;LogFileName=integration-tests.trx" --results-directory ./TestResults
+
     - name: Upload Test Results
       if: always()
       uses: actions/upload-artifact@v4
