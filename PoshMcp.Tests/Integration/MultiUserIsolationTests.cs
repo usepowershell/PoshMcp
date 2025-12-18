@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -11,105 +12,85 @@ namespace PoshMcp.Tests.Integration;
 /// <summary>
 /// Tests to verify that multiple users get isolated PowerShell runspaces in the web server
 /// </summary>
-public class MultiUserIsolationTests : IAsyncLifetime
+public class MultiUserIsolationTests : PowerShellTestBase, IAsyncLifetime
 {
     private readonly ITestOutputHelper _output;
-    private readonly HttpClient _httpClient;
-    private const string BaseUrl = "http://localhost:3001";
+    private InProcessWebServer? _server;
+    private string _baseUrl = string.Empty;
 
-    public MultiUserIsolationTests(ITestOutputHelper output)
+    public MultiUserIsolationTests(ITestOutputHelper output) : base(output)
     {
         _output = output;
-        _httpClient = new HttpClient();
     }
 
     [Fact]
     public async Task TwoClientsGetSeparatePowerShellRunspaces()
     {
-        // Test that two different MCP sessions get separate PowerShell runspaces
-        // and variables set in one session don't affect the other
+        // Test that two different MCP clients get separate PowerShell runspaces
+        // The MCP HTTP transport manages sessions automatically - each client gets its own session
+        // Our SessionAwarePowerShellRunspace should create separate runspaces for each session
 
-        // Client 1: Initialize and set a variable using a PowerShell command
-        var client1Http = new HttpClient();
-        client1Http.DefaultRequestHeaders.Add("Mcp-Session-Id", "session-1");
+        Logger.LogInformation("=== Starting MultiUser TwoClientsGetSeparatePowerShellRunspaces Test ===");
 
-        await InitializeClient(client1Http, "test-client-1");
+        // Create two separate MCP clients - each will get its own MCP session automatically
+        var client1 = new HttpMcpClient(Logger, _baseUrl);
+        var client2 = new HttpMcpClient(Logger, _baseUrl);
 
-        // Client 2: Initialize with different session
-        var client2Http = new HttpClient();
-        client2Http.DefaultRequestHeaders.Add("Mcp-Session-Id", "session-2");
-
-        await InitializeClient(client2Http, "test-client-2");
-
-        // Both clients should be able to call PowerShell commands successfully
-        // Since the commands will run in separate runspace instances, they should not interfere
-
-        var client1Response = await CallTool(client1Http, "get_process_name", new { name = new[] { "dotnet" } });
-        var client2Response = await CallTool(client2Http, "get_process_name", new { name = new[] { "powershell" } });
-
-        // Both should succeed
-        Assert.NotNull(client1Response);
-        Assert.NotNull(client2Response);
-        Assert.True(client1Response.Contains("dotnet") || client1Response.Contains("ProcessName"));
-
-        _output.WriteLine($"Client 1 response: {client1Response.Substring(0, Math.Min(200, client1Response.Length))}...");
-        _output.WriteLine($"Client 2 response: {client2Response.Substring(0, Math.Min(200, client2Response.Length))}...");
-    }
-
-    private async Task InitializeClient(HttpClient client, string clientName)
-    {
-        var initRequest = new
+        try
         {
-            jsonrpc = "2.0",
-            id = 1,
-            method = "initialize",
-            @params = new
-            {
-                protocolVersion = "2024-11-05",
-                capabilities = new { },
-                clientInfo = new { name = clientName, version = "1.0" }
-            }
-        };
+            // Initialize both clients - this establishes separate MCP sessions
+            Logger.LogInformation("Initializing client 1...");
+            await client1.StartAsync();
 
-        var content = new StringContent(JsonSerializer.Serialize(initRequest), Encoding.UTF8, "application/json");
-        var response = await client.PostAsync(BaseUrl, content);
+            Logger.LogInformation("Initializing client 2...");
+            await client2.StartAsync();
 
-        response.EnsureSuccessStatusCode();
-        var responseText = await response.Content.ReadAsStringAsync();
+            // Both clients should be able to call PowerShell commands successfully
+            // Since each client has its own MCP session, the SessionAwarePowerShellRunspace
+            // will create separate PowerShell runspaces for each one
 
-        _output.WriteLine($"Initialize response for {clientName}: {responseText}");
-        Assert.Contains("protocolVersion", responseText);
-    }
+            Logger.LogInformation("Calling get_some_data from client 1...");
+            var client1Response = await client1.SendToolCallAsync("get_some_data", new { test = "session-1-data" });
+            Assert.NotNull(client1Response);
+            var client1Text = client1Response.ToString();
+            Assert.Contains("session-1-data", client1Text);
+            
+            // Verify that client2 does not see the output from client1's command execution
+            // get_last_command_output should return null
+            Logger.LogInformation("Calling get_last_command_output from client 2...");
+            var client2Response = await client2.SendToolCallAsync("get_last_command_output", new { });
+            var client2Text = client2Response.ToString();
+            Assert.NotNull(client2Response);
+            Assert.Contains("null", client2Text);
+   
+            Logger.LogInformation($"Client 1 response: {client1Text.Substring(0, Math.Min(200, client1Text.Length))}...");
+            Logger.LogInformation($"Client 2 response: {client2Text.Substring(0, Math.Min(200, client2Text.Length))}...");
 
-    private async Task<string> CallTool(HttpClient client, string toolName, object arguments)
-    {
-        var toolRequest = new
+            Logger.LogInformation("=== MultiUser test completed successfully - both clients executed in separate runspaces ===");
+        }
+        finally
         {
-            jsonrpc = "2.0",
-            id = 2,
-            method = "tools/call",
-            @params = new
-            {
-                name = toolName,
-                arguments = arguments
-            }
-        };
-
-        var content = new StringContent(JsonSerializer.Serialize(toolRequest), Encoding.UTF8, "application/json");
-        var response = await client.PostAsync(BaseUrl, content);
-
-        response.EnsureSuccessStatusCode();
-        var responseText = await response.Content.ReadAsStringAsync();
-
-        _output.WriteLine($"Tool call response for {toolName}: {responseText.Substring(0, Math.Min(500, responseText.Length))}...");
-        return responseText;
+            // Cleanup
+            client1.Dispose();
+            client2.Dispose();
+        }
     }
 
-    public Task InitializeAsync() => Task.CompletedTask;
+
+    public async Task InitializeAsync()
+    {
+        Logger.LogInformation("=== Initializing MultiUserIsolationTests - starting web server ===");
+        _server = new InProcessWebServer(Logger);
+        await _server.StartAsync();
+        _baseUrl = _server.ServerUrl;
+        Logger.LogInformation($"=== Web server started at {_baseUrl} ===");
+    }
 
     public Task DisposeAsync()
     {
-        _httpClient?.Dispose();
+        Logger.LogInformation("=== Disposing MultiUserIsolationTests - stopping web server ===");
+        _server?.Dispose();
+        Logger.LogInformation("=== Web server disposed ===");
         return Task.CompletedTask;
     }
 }
