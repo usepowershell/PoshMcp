@@ -20,6 +20,13 @@ namespace PoshMcp.Server.PowerShell;
 public class PowerShellAssemblyGenerator
 {
     public Assembly? GeneratedAssembly => _generatedAssembly;
+
+    /// <summary>
+    /// Gets the PowerShell runspace associated with this assembly generator.
+    /// Internal visibility allows McpToolFactoryV2 to access the runspace for session-aware scenarios,
+    /// where different runspace implementations (SingletonPowerShellRunspace vs SessionAwarePowerShellRunspace)
+    /// need to be inspected to ensure proper tool generation and execution isolation.
+    /// </summary>
     internal IPowerShellRunspace PowerShellRunspace => _powerShellRunspace;
     private readonly IPowerShellRunspace _powerShellRunspace;
     private Assembly? _generatedAssembly;

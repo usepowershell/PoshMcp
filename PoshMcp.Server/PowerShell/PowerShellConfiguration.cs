@@ -46,10 +46,7 @@ public class PowerShellConfiguration
     {
         var allNames = new List<string>(FunctionNames);
 
-        if (Commands != null)
-        {
-            allNames.AddRange(Commands);
-        }
+        allNames.AddRange(Commands);
 
         return allNames.Distinct().ToList();
     }
