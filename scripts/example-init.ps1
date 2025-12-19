@@ -44,19 +44,19 @@ function Write-McpLog {
     param(
         [Parameter(Mandatory = $true)]
         [string]$Message,
-        
+
         [Parameter(Mandatory = $false)]
         [ValidateSet('Info', 'Warning', 'Error')]
         [string]$Level = 'Info'
     )
-    
+
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $color = switch ($Level) {
         'Info' { 'Green' }
         'Warning' { 'Yellow' }
         'Error' { 'Red' }
     }
-    
+
     Write-Host "[$timestamp] [$Level] $Message" -ForegroundColor $color
 }
 
@@ -100,11 +100,11 @@ function Set-McpSessionData {
     param(
         [Parameter(Mandatory = $true)]
         [string]$Key,
-        
+
         [Parameter(Mandatory = $true)]
         $Value
     )
-    
+
     $global:McpSessionData.CustomData[$Key] = $Value
 }
 

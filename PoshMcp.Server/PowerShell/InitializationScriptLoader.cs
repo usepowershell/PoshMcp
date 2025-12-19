@@ -117,7 +117,7 @@ public static class InitializationScriptLoader
             # Set up some useful variables
             $McpServerStartTime = Get-Date
             $McpServerVersion = '1.0.0'
-            
+
             # Create a function to get session info
             function Get-McpSessionInfo {
                 return @{
@@ -129,7 +129,7 @@ public static class InitializationScriptLoader
                     Modules = (Get-Module | Measure-Object).Count
                 }
             }
-            
+
             Write-Host 'MCP PowerShell session initialized' -ForegroundColor Green
         ";
     }
