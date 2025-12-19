@@ -49,6 +49,20 @@ public static class PowerShellRunspaceHolder
     }
 
     /// <summary>
+    /// Checks if the PowerShellRunspaceHolder has been initialized
+    /// </summary>
+    public static bool IsInitialized
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _isInitialized;
+            }
+        }
+    }
+
+    /// <summary>
     /// Resets the initialization state for testing purposes only
     /// WARNING: This method should only be called from test code
     /// </summary>

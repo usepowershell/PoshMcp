@@ -109,8 +109,11 @@ public class Program
 
     private static List<McpServerTool> SetupSessionAwareMcpTools(IServiceProvider serviceProvider, PowerShellConfiguration config, ILogger logger)
     {
-        // Initialize PowerShellRunspaceHolder with configuration for consistency
-        PowerShellRunspaceHolder.Initialize(config, logger);
+        // Initialize PowerShellRunspaceHolder with configuration for consistency if not already initialized
+        if (!PowerShellRunspaceHolder.IsInitialized)
+        {
+            PowerShellRunspaceHolder.Initialize(config, logger);
+        }
 
         // Get the session-aware runspace proxy that will be used by all generated tools
         var sessionAwareRunspace = serviceProvider.GetRequiredService<IPowerShellRunspace>();

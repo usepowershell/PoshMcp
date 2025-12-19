@@ -235,8 +235,11 @@ public class Program
     {
         logger.LogInformation("Discovering PowerShell tools...");
 
-        // Initialize PowerShellRunspaceHolder with configuration
-        PowerShellRunspaceHolder.Initialize(config, logger);
+        // Initialize PowerShellRunspaceHolder with configuration if not already initialized
+        if (!PowerShellRunspaceHolder.IsInitialized)
+        {
+            PowerShellRunspaceHolder.Initialize(config, logger);
+        }
 
         var toolFactory = new McpToolFactoryV2();
         return toolFactory.GetToolsList(config, logger);
@@ -337,8 +340,11 @@ public class Program
 
     private static List<McpServerTool> SetupMcpTools(IServiceProvider serviceProvider, PowerShellConfiguration config, ILogger logger, string finalConfigPath)
     {
-        // Initialize PowerShellRunspaceHolder with configuration before creating tools
-        PowerShellRunspaceHolder.Initialize(config, logger);
+        // Initialize PowerShellRunspaceHolder with configuration before creating tools if not already initialized
+        if (!PowerShellRunspaceHolder.IsInitialized)
+        {
+            PowerShellRunspaceHolder.Initialize(config, logger);
+        }
 
         var toolFactory = new McpToolFactoryV2();
         var tools = toolFactory.GetToolsList(config, logger);
