@@ -11,6 +11,7 @@ namespace PoshMcp.Tests.Integration;
 /// <summary>
 /// Integration tests for PowerShell initialization script functionality
 /// </summary>
+[Collection("PowerShellRunspaceHolder")]
 public class InitializationScriptIntegrationTests : PowerShellTestBase
 {
     public InitializationScriptIntegrationTests(ITestOutputHelper output) : base(output) { }
@@ -200,21 +201,29 @@ public class InitializationScriptIntegrationTests : PowerShellTestBase
         // Reset state to allow re-initialization in tests
         PowerShellRunspaceHolder.ResetForTesting();
         
-        // Arrange
-        var config = new PowerShellConfiguration
+        try
         {
-            InitializationScriptPath = null // Use default
-        };
+            // Arrange
+            var config = new PowerShellConfiguration
+            {
+                InitializationScriptPath = null // Use default
+            };
 
-        using var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
-        var logger = loggerFactory.CreateLogger("Test");
+            using var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+            var logger = loggerFactory.CreateLogger("Test");
 
-        // Act
-        PowerShellRunspaceHolder.Initialize(config, logger);
-        var script = PowerShellRunspaceHolder.GetProductionInitializationScript();
+            // Act
+            PowerShellRunspaceHolder.Initialize(config, logger);
+            var script = PowerShellRunspaceHolder.GetProductionInitializationScript();
 
-        // Assert
-        Assert.NotNull(script);
-        Assert.Contains("McpServerStartTime", script);
+            // Assert
+            Assert.NotNull(script);
+            Assert.Contains("McpServerStartTime", script);
+        }
+        finally
+        {
+            // Clean up static state after test
+            PowerShellRunspaceHolder.ResetForTesting();
+        }
     }
 }

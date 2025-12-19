@@ -7,6 +7,7 @@ namespace PoshMcp.Tests.Unit;
 /// <summary>
 /// Simple tests for PowerShell dynamic assembly generation
 /// </summary>
+[Collection("PowerShellRunspaceHolder")]
 public class SimpleAssemblyTests : PowerShellTestBase
 {
     public SimpleAssemblyTests(ITestOutputHelper output) : base(output) { }
@@ -23,13 +24,21 @@ public class SimpleAssemblyTests : PowerShellTestBase
     {
         // Reset state to allow re-initialization in tests
         PowerShellRunspaceHolder.ResetForTesting();
-        
-        // Initialize the PowerShellRunspaceHolder before accessing it
-        var config = new PowerShellConfiguration();
-        PowerShellRunspaceHolder.Initialize(config, Logger);
 
-        // Test that we can access the PowerShell runspace
-        var powerShell = PowerShellRunspaceHolder.Instance;
-        Assert.NotNull(powerShell);
+        try
+        {
+            // Initialize the PowerShellRunspaceHolder before accessing it
+            var config = new PowerShellConfiguration();
+            PowerShellRunspaceHolder.Initialize(config, Logger);
+
+            // Test that we can access the PowerShell runspace
+            var powerShell = PowerShellRunspaceHolder.Instance;
+            Assert.NotNull(powerShell);
+        }
+        finally
+        {
+            // Clean up static state after test
+            PowerShellRunspaceHolder.ResetForTesting();
+        }
     }
 }

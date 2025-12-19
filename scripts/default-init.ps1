@@ -36,7 +36,7 @@ function Get-SomeData {
         [Parameter(Mandatory = $false)]
         [string]$test = 'This is some persistent data from the MCP server.'
     )
-    
+
     return $test
 }
 
