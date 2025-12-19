@@ -1,8 +1,10 @@
 using System;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
 using Moq;
+using PoshMcp.Server.PowerShell;
 using PoshMcp.Web.PowerShell;
 using Xunit;
 using System.Reflection;
@@ -16,13 +18,19 @@ public class SessionAwarePowerShellRunspaceTests : IDisposable
 {
     private readonly Mock<IHttpContextAccessor> _mockHttpContextAccessor;
     private readonly Mock<ILogger<SessionAwarePowerShellRunspace>> _mockLogger;
+    private readonly Mock<IOptions<PowerShellConfiguration>> _mockConfigOptions;
     private readonly SessionAwarePowerShellRunspace _runspace;
 
     public SessionAwarePowerShellRunspaceTests()
     {
         _mockHttpContextAccessor = new Mock<IHttpContextAccessor>();
         _mockLogger = new Mock<ILogger<SessionAwarePowerShellRunspace>>();
-        _runspace = new SessionAwarePowerShellRunspace(_mockHttpContextAccessor.Object, _mockLogger.Object);
+        _mockConfigOptions = new Mock<IOptions<PowerShellConfiguration>>();
+        _mockConfigOptions.Setup(x => x.Value).Returns(new PowerShellConfiguration());
+        _runspace = new SessionAwarePowerShellRunspace(
+            _mockHttpContextAccessor.Object,
+            _mockLogger.Object,
+            _mockConfigOptions.Object);
     }
 
     [Fact]

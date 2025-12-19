@@ -156,6 +156,75 @@ The server uses standard .NET configuration files:
 - **`Modules`**: Array of PowerShell modules to import (e.g., `"Microsoft.PowerShell.Management"`)
 - **`IncludePatterns`**: Array of wildcard patterns for functions to include (e.g., `"Get-*"`)
 - **`ExcludePatterns`**: Array of wildcard patterns for functions to exclude from exposure
+- **`EnableDynamicReloadTools`**: Boolean to enable/disable configuration reload tools (default: `false`)
+- **`InitializationScriptPath`**: Path to a PowerShell script (.ps1) to run when initializing runspaces (optional)
+
+### Custom Initialization Scripts
+
+You can specify a custom PowerShell initialization script that runs when PowerShell runspaces are created. This allows you to set up your environment, define custom functions, import modules, and configure session state.
+
+#### Configuration
+
+Add the `InitializationScriptPath` property to your `appsettings.json`:
+
+```json
+{
+    "PowerShellConfiguration": {
+        "FunctionNames": ["Get-Process", "Get-Service"],
+        "InitializationScriptPath": "scripts/my-init.ps1"
+    }
+}
+```
+
+The path can be:
+- **Absolute**: `/full/path/to/script.ps1`
+- **Relative**: `scripts/init.ps1` (relative to the application directory)
+
+If the script file doesn't exist or is not specified, the server will use the default initialization script.
+
+#### Example Initialization Script
+
+See [scripts/example-init.ps1](scripts/example-init.ps1) for a comprehensive example. Here's a simple example:
+
+```powershell
+# my-init.ps1 - Custom initialization script
+
+# Import required modules
+Import-Module Az.Accounts -ErrorAction SilentlyContinue
+
+# Set up global variables
+$global:MyApiUrl = "https://api.example.com"
+$global:SessionStartTime = Get-Date
+
+# Define custom helper functions
+function Get-MyEnvironmentInfo {
+    return @{
+        ApiUrl = $global:MyApiUrl
+        StartTime = $global:SessionStartTime
+        WorkingDirectory = (Get-Location).Path
+    }
+}
+
+# Configure preferences
+$ErrorActionPreference = 'Stop'
+
+Write-Host "Custom environment initialized" -ForegroundColor Green
+```
+
+#### How It Works
+
+1. **Startup**: The script is loaded once at application startup and cached for performance
+2. **Stdio Server**: Uses a single shared runspace with the initialization script
+3. **Web Server**: Each HTTP session gets its own isolated runspace, all using the same initialization script
+4. **State Persistence**: Variables and functions defined in the script persist for the lifetime of each runspace
+
+#### Use Cases
+
+- **Module Loading**: Pre-import frequently used PowerShell modules
+- **Environment Setup**: Configure API endpoints, connection strings, or credentials
+- **Custom Functions**: Define utility functions available to all MCP tools
+- **Default Settings**: Set error preferences, output formatting, or working directories
+- **Authentication**: Initialize authentication contexts (e.g., Azure, AWS credentials)
 
 ### Azure Deployment and Managed Identity
 

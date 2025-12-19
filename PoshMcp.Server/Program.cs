@@ -234,6 +234,10 @@ public class Program
     private static List<McpServerTool> DiscoverTools(PowerShellConfiguration config, ILogger logger)
     {
         logger.LogInformation("Discovering PowerShell tools...");
+
+        // Initialize PowerShellRunspaceHolder with configuration
+        PowerShellRunspaceHolder.Initialize(config, logger);
+
         var toolFactory = new McpToolFactoryV2();
         return toolFactory.GetToolsList(config, logger);
     }
@@ -333,6 +337,9 @@ public class Program
 
     private static List<McpServerTool> SetupMcpTools(IServiceProvider serviceProvider, PowerShellConfiguration config, ILogger logger, string finalConfigPath)
     {
+        // Initialize PowerShellRunspaceHolder with configuration before creating tools
+        PowerShellRunspaceHolder.Initialize(config, logger);
+
         var toolFactory = new McpToolFactoryV2();
         var tools = toolFactory.GetToolsList(config, logger);
 
@@ -493,7 +500,8 @@ public class Program
     ""Modules"": [],
     ""ExcludePatterns"": [],
     ""IncludePatterns"": [],
-    ""EnableDynamicReloadTools"": false
+    ""EnableDynamicReloadTools"": false,
+    ""InitializationScriptPath"": null
   }
 }";
 

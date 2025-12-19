@@ -20,16 +20,19 @@ public class SessionAwarePowerShellRunspace : IPowerShellRunspace, IDisposable
 {
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<SessionAwarePowerShellRunspace> _logger;
+    private readonly PowerShellConfiguration _configuration;
     private readonly ConcurrentDictionary<string, IsolatedPowerShellRunspace> _sessionRunspaces;
     private readonly object _lock = new object();
     private bool _disposed = false;
 
     public SessionAwarePowerShellRunspace(
         IHttpContextAccessor httpContextAccessor,
-        ILogger<SessionAwarePowerShellRunspace> logger)
+        ILogger<SessionAwarePowerShellRunspace> logger,
+        Microsoft.Extensions.Options.IOptions<PowerShellConfiguration> configurationOptions)
     {
         _httpContextAccessor = httpContextAccessor ?? throw new ArgumentNullException(nameof(httpContextAccessor));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _configuration = configurationOptions?.Value ?? throw new ArgumentNullException(nameof(configurationOptions));
         _sessionRunspaces = new ConcurrentDictionary<string, IsolatedPowerShellRunspace>();
 
         _logger.LogInformation("SessionAwarePowerShellRunspace created - this will proxy to session-specific runspaces based on Mcp-Session-Id header");
@@ -82,8 +85,8 @@ public class SessionAwarePowerShellRunspace : IPowerShellRunspace, IDisposable
         return _sessionRunspaces.GetOrAdd(sessionId, id =>
         {
             _logger.LogInformation($"Creating new PowerShell runspace for session: {id}");
-            // Use the production initialization script to ensure all sessions have the same functions/state
-            var initScript = PowerShellRunspaceHolder.GetProductionInitializationScript();
+            // Load the initialization script from configuration
+            var initScript = InitializationScriptLoader.LoadInitializationScript(_configuration, _logger);
             return new IsolatedPowerShellRunspace(initScript);
         });
     }

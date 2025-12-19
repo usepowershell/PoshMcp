@@ -248,4 +248,73 @@ public class ProgramTests : PowerShellTestBase
                 File.Delete(tempFile);
         }
     }
+
+    [Fact]
+    public void LoadPowerShellConfiguration_WithInitializationScriptPath_ReturnsConfigurationWithPath()
+    {
+        // Arrange
+        var tempFile = Path.GetTempFileName();
+        var configJson = @"{
+  ""PowerShellConfiguration"": {
+    ""FunctionNames"": [""Get-Process""],
+    ""Modules"": [],
+    ""ExcludePatterns"": [],
+    ""IncludePatterns"": [],
+    ""InitializationScriptPath"": ""scripts/init.ps1""
+  }
+}";
+        File.WriteAllText(tempFile, configJson);
+
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+        var logger = loggerFactory.CreateLogger("Test");
+
+        try
+        {
+            // Act
+            var config = Program.LoadPowerShellConfiguration(tempFile, logger);
+
+            // Assert
+            Assert.NotNull(config);
+            Assert.Equal("scripts/init.ps1", config.InitializationScriptPath);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void LoadPowerShellConfiguration_WithoutInitializationScriptPath_ReturnsConfigurationWithNull()
+    {
+        // Arrange
+        var tempFile = Path.GetTempFileName();
+        var configJson = @"{
+  ""PowerShellConfiguration"": {
+    ""FunctionNames"": [""Get-Process""],
+    ""Modules"": [],
+    ""ExcludePatterns"": [],
+    ""IncludePatterns"": []
+  }
+}";
+        File.WriteAllText(tempFile, configJson);
+
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+        var logger = loggerFactory.CreateLogger("Test");
+
+        try
+        {
+            // Act
+            var config = Program.LoadPowerShellConfiguration(tempFile, logger);
+
+            // Assert
+            Assert.NotNull(config);
+            Assert.Null(config.InitializationScriptPath);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
 }

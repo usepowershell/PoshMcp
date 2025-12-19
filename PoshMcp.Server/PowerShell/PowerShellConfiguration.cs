@@ -40,6 +40,14 @@ public class PowerShellConfiguration
     public bool EnableDynamicReloadTools { get; set; } = false;
 
     /// <summary>
+    /// Path to a PowerShell initialization script file (.ps1) to run when PowerShell runspaces are created.
+    /// Can be an absolute path or relative to the application directory.
+    /// If not specified or file doesn't exist, uses the default initialization script.
+    /// The script is loaded once at startup and cached for performance.
+    /// </summary>
+    public string? InitializationScriptPath { get; set; }
+
+    /// <summary>
     /// Gets all function names from all configuration sources
     /// </summary>
     public List<string> GetAllFunctionNames()
