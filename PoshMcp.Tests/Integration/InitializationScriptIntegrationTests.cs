@@ -197,6 +197,9 @@ public class InitializationScriptIntegrationTests : PowerShellTestBase
     [Fact]
     public void PowerShellRunspaceHolder_UsesConfigurationScript()
     {
+        // Reset state to allow re-initialization in tests
+        PowerShellRunspaceHolder.ResetForTesting();
+        
         // Arrange
         var config = new PowerShellConfiguration
         {

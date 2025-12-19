@@ -21,6 +21,9 @@ public class SimpleAssemblyTests : PowerShellTestBase
     [Fact]
     public void PowerShellRunspaceIsAvailable()
     {
+        // Reset state to allow re-initialization in tests
+        PowerShellRunspaceHolder.ResetForTesting();
+        
         // Initialize the PowerShellRunspaceHolder before accessing it
         var config = new PowerShellConfiguration();
         PowerShellRunspaceHolder.Initialize(config, Logger);

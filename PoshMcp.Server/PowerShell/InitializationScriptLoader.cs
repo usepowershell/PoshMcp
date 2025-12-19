@@ -10,6 +10,7 @@ namespace PoshMcp.Server.PowerShell;
 /// </summary>
 public static class InitializationScriptLoader
 {
+    private static readonly object _cacheLock = new object();
     private static string? _cachedScript;
     private static string? _cachedScriptPath;
 
@@ -34,11 +35,14 @@ public static class InitializationScriptLoader
             return GetDefaultInitializationScript();
         }
 
-        // Check cache
-        if (_cachedScriptPath == config.InitializationScriptPath && _cachedScript != null)
+        // Check cache with thread-safety
+        lock (_cacheLock)
         {
-            logger.LogTrace($"Using cached initialization script from: {config.InitializationScriptPath}");
-            return _cachedScript;
+            if (_cachedScriptPath == config.InitializationScriptPath && _cachedScript != null)
+            {
+                logger.LogTrace($"Using cached initialization script from: {config.InitializationScriptPath}");
+                return _cachedScript;
+            }
         }
 
         try
@@ -60,9 +64,12 @@ public static class InitializationScriptLoader
                 return GetDefaultInitializationScript();
             }
 
-            // Cache the script
-            _cachedScript = scriptContent;
-            _cachedScriptPath = config.InitializationScriptPath;
+            // Cache the script with thread-safety
+            lock (_cacheLock)
+            {
+                _cachedScript = scriptContent;
+                _cachedScriptPath = config.InitializationScriptPath;
+            }
 
             logger.LogInformation($"Successfully loaded initialization script ({scriptContent.Length} characters) from: {resolvedPath}");
             return scriptContent;
@@ -132,7 +139,10 @@ public static class InitializationScriptLoader
     /// </summary>
     public static void ClearCache()
     {
-        _cachedScript = null;
-        _cachedScriptPath = null;
+        lock (_cacheLock)
+        {
+            _cachedScript = null;
+            _cachedScriptPath = null;
+        }
     }
 }
