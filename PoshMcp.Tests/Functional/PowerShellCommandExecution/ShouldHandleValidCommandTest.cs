@@ -37,12 +37,13 @@ public class ValidCommand : PowerShellTestBase
 
         var parameterValues = new object[] { "TestUser", 3 };
 
-        // Act
-        var result = await PowerShellDynamicAssemblyGenerator.ExecutePowerShellCommandTyped(
+        // Act - Use instance-based execution with isolated runspace
+        var result = await PowerShellAssemblyGenerator.ExecutePowerShellCommandTyped(
             "Get-SomeOtherData",
             parameterInfos,
             parameterValues,
             CancellationToken.None,
+            PowerShellRunspace,
             Logger);
 
         // Assert

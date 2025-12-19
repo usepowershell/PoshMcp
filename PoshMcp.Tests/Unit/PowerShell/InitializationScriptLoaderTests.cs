@@ -226,7 +226,6 @@ public class InitializationScriptLoaderTests : PowerShellTestBase
         Assert.NotEmpty(result);
         Assert.Contains("McpServerStartTime", result);
         Assert.Contains("Get-McpSessionInfo", result);
-        Assert.Contains("Get-SomeData", result);
     }
 
     [Fact]

@@ -21,6 +21,10 @@ public class SimpleAssemblyTests : PowerShellTestBase
     [Fact]
     public void PowerShellRunspaceIsAvailable()
     {
+        // Initialize the PowerShellRunspaceHolder before accessing it
+        var config = new PowerShellConfiguration();
+        PowerShellRunspaceHolder.Initialize(config, Logger);
+
         // Test that we can access the PowerShell runspace
         var powerShell = PowerShellRunspaceHolder.Instance;
         Assert.NotNull(powerShell);

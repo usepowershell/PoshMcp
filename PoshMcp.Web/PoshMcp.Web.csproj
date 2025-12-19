@@ -25,4 +25,12 @@
     <ProjectReference Include="..\PoshMcp.Server\PoshMcp.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="../scripts/**/*.ps1" LinkBase="scripts">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

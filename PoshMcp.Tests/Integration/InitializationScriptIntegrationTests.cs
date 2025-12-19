@@ -120,24 +120,8 @@ public class InitializationScriptIntegrationTests : PowerShellTestBase
             return results.Count > 0;
         });
 
-        // Verify Get-SomeData exists
-        var someData = runspace.ExecuteThreadSafe(ps =>
-        {
-            ps.Commands.Clear();
-            ps.AddScript("Get-SomeData");
-            var results = ps.Invoke();
-
-            if (ps.HadErrors)
-            {
-                throw new InvalidOperationException($"PowerShell errors: {string.Join(", ", ps.Streams.Error)}");
-            }
-
-            return results.Count > 0 ? results[0]?.ToString() : null;
-        });
-
         // Assert
         Assert.True(sessionInfo, "Get-McpSessionInfo should be available");
-        Assert.Contains("persistent data", someData);
     }
 
     [Fact]

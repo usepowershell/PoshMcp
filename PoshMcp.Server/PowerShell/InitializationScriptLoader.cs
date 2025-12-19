@@ -124,11 +124,7 @@ public static class InitializationScriptLoader
             }
             
             Write-Host 'MCP PowerShell session initialized' -ForegroundColor Green
-
-            function Get-SomeData ([string]$test = 'This is some persistent data from the MCP server.') {
-                # Example function to demonstrate state persistence
-                return $test
-            }";
+        ";
     }
 
     /// <summary>

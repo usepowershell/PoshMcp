@@ -30,12 +30,13 @@ public class InvalidCommand : PowerShellTestBase
         var commandName = "NonExistentCommand-12345";
         var parameters = new PowerShellParameterInfo[0];
 
-        // Act
-        var result = await PowerShellDynamicAssemblyGenerator.ExecutePowerShellCommandTyped(
+        // Act - Use instance-based execution with isolated runspace
+        var result = await PowerShellAssemblyGenerator.ExecutePowerShellCommandTyped(
             commandName,
             parameters,
             new object[0],
             CancellationToken.None,
+            PowerShellRunspace,
             Logger);
 
         // Assert
