@@ -231,6 +231,104 @@ Authoritative record of scope, architecture, and process decisions.
 
 ---
 
+## 2026-03-27: Azure Container Apps Deployment Strategy
+
+**Context:** PoshMcp needs production-ready Azure deployment infrastructure that:
+- Supports both development and production environments
+- Integrates with existing health checks and observability (Phase 1)
+- Follows Azure best practices for security and scalability
+- Provides reproducible, automated deployment workflows
+
+**Decision:** Implement Azure Container Apps deployment using Bicep IaC templates.
+
+**Primary Choices:**
+
+1. **Azure Container Apps over alternatives:**
+   - **Why not AKS?** Too complex, higher operational overhead for single-app deployment
+   - **Why not App Service for Containers?** Less granular scaling, no built-in Dapr support
+   - **Why not Container Instances?** Limited scaling, no built-in ingress management
+   - **Container Apps chosen for:** Managed K8s-like features, autoscaling, built-in ingress, lower operational complexity
+
+2. **Bicep over ARM JSON:** More readable, maintainable, native Azure tooling support
+
+3. **User-Assigned Managed Identity:** Independent lifecycle, pre-deployment RBAC setup
+
+4. **Dual scripting (bash + PowerShell):** Cross-platform team support with feature parity
+
+**Health Check Strategy:**
+- Startup: `/health` with 30 failures (150s tolerance for PowerShell initialization)
+- Liveness: `/health/ready` every 30s (detect hung processes)
+- Readiness: `/health/ready` every 10s (control traffic routing)
+
+**Autoscaling:** HTTP-based with 1-10 replicas, 50 concurrent requests per replica threshold
+
+**Resource Sizing:** 0.5 vCPU, 1.0 GB memory (sufficient for PowerShell workloads)
+
+**Implementation:** Amy Wong
+
+**Status:** Active
+
+---
+
+## 2026-03-27: Multi-Tenant Azure Deployment Support
+
+**Context:** Azure deployment scripts did not account for scenarios where users work with multiple Azure tenants, creating risks when deploying across customer environments or switching between organizational tenants.
+
+**Decision:** Implement explicit multi-tenant support in both deployment scripts (deploy.ps1 and deploy.sh):
+- Optional tenant parameter (PowerShell: `-TenantId`, Bash: `AZURE_TENANT_ID` env var)
+- Falls back to current tenant if not specified (backward compatible)
+- Tenant validation workflow: detect current tenant, switch if needed, validate subscription belongs to active tenant
+- Enhanced error handling with clear tenant mismatch messages
+
+**Implementation Details:**
+- Added `Set-AzureTenant` function in deploy.ps1 to handle tenant switching
+- Updated `Set-AzureSubscription` to validate subscription belongs to current tenant
+- Added tenant validation after login to verify successful switch
+- Comprehensive README documentation with 4 concrete usage scenarios
+
+**Rationale:**
+- Maintains backward compatibility (parameter optional)
+- Prevents wrong-tenant deployments (critical security issue)
+- Follows Azure PowerShell naming conventions (`-TenantId`)
+- Provides clear error messages with both expected and actual tenant IDs
+
+**Consequences:**
+- ✅ Safe multi-tenant deployments
+- ✅ Backward compatible with existing workflows
+- ✅ CI/CD with managed identity works without tenant parameter
+- ✅ Follows PowerShell and Azure CLI best practices
+
+**Implementation:** Amy Wong
+**Code Review:** Hermes (9/10 - production-ready)
+
+**Status:** Active
+
+---
+
+## 2026-03-27: Hermes Review - Multi-Tenant Deployment Implementation
+
+**Context:** Hermes reviewed Amy's multi-tenant PowerShell implementation in deploy.ps1 for code quality, PowerShell best practices, and production readiness.
+
+**Decision:** APPROVED (9/10 from PowerShell perspective) - Production-ready implementation.
+
+**Strengths Identified:**
+1. **Parameter naming:** Correct usage of `-TenantId` following Azure PowerShell conventions
+2. **Error handling:** Semantic error categories, defensive LASTEXITCODE checking, proper stderr redirection
+3. **Stream usage:** Perfect alignment with recent PowerShell streams refactoring (Write-Information, Write-Verbose)
+4. **Edge case handling:** Tenant mismatch validation, subscription-to-tenant validation
+5. **Script state management:** Correct use of script-scoped variables
+
+**Minor Optional Improvements:**
+- Could split tenant switching into separate function for reusability
+- Could add `-WhatIf` support for dry-run scenarios
+
+**Reviewer:** Hermes
+**Reviewee:** Amy Wong
+
+**Status:** Active
+
+---
+
 ## Decision Template
 
 ```markdown
