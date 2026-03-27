@@ -27,6 +27,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# Enable information stream by default for user-facing messages
+$InformationPreference = 'Continue'
 
 # Get script directory
 $ScriptDir = $PSScriptRoot
@@ -34,92 +36,75 @@ $ProjectRoot = Join-Path $ScriptDir '..' '..' | Resolve-Path
 $BicepFile = Join-Path $ScriptDir 'main.bicep'
 $ParametersFile = Join-Path $ScriptDir 'parameters.json'
 
-# Helper functions
-function Write-Info {
-    param([string]$Message)
-    Write-Host "[INFO] $Message" -ForegroundColor Blue
-}
-
-function Write-Success {
-    param([string]$Message)
-    Write-Host "[SUCCESS] $Message" -ForegroundColor Green
-}
-
-function Write-Warning {
-    param([string]$Message)
-    Write-Host "[WARNING] $Message" -ForegroundColor Yellow
-}
-
-function Write-ErrorMessage {
-    param([string]$Message)
-    Write-Host "[ERROR] $Message" -ForegroundColor Red
-}
-
 # Check prerequisites
 function Test-Prerequisites {
-    Write-Info "Checking prerequisites..."
+    Write-Information "Checking prerequisites..." -Tags 'Status'
+    Write-Verbose "Validating Azure CLI, Docker, and Azure authentication"
     
     # Check Azure CLI
     if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
-        Write-ErrorMessage "Azure CLI not found. Please install: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli"
-        exit 1
+        Write-Error "Azure CLI not found. Please install: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli" -Category NotInstalled -ErrorAction Stop
     }
     
     # Check Docker
     if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-        Write-ErrorMessage "Docker not found. Please install: https://docs.docker.com/get-docker/"
-        exit 1
+        Write-Error "Docker not found. Please install: https://docs.docker.com/get-docker/" -Category NotInstalled -ErrorAction Stop
     }
     
     # Check if logged in to Azure
-    $accountCheck = az account show 2>&1
+    Write-Verbose "Verifying Azure authentication status"
+    $null = az account show 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Write-ErrorMessage "Not logged in to Azure. Please run: az login"
-        exit 1
+        Write-Error "Not logged in to Azure. Please run: az login" -Category AuthenticationError -ErrorAction Stop
     }
     
-    Write-Success "All prerequisites met"
+    Write-Information "✓ All prerequisites met" -Tags 'Success'
 }
 
 # Set Azure subscription
 function Set-AzureSubscription {
     if ($Subscription) {
-        Write-Info "Setting subscription to: $Subscription"
+        Write-Information "Setting subscription to: $Subscription" -Tags 'Status'
+        Write-Verbose "Executing: az account set --subscription $Subscription"
         az account set --subscription $Subscription
         if ($LASTEXITCODE -ne 0) {
-            throw "Failed to set subscription"
+            Write-Error "Failed to set subscription" -Category InvalidOperation -ErrorAction Stop
         }
     }
     
     $currentSub = (az account show --query name -o tsv)
-    Write-Info "Using subscription: $currentSub"
+    Write-Information "Using subscription: $currentSub" -Tags 'Status'
 }
 
 # Create resource group if it doesn't exist
 function New-ResourceGroupIfNeeded {
-    Write-Info "Checking resource group: $ResourceGroup"
+    Write-Information "Checking resource group: $ResourceGroup" -Tags 'Status'
+    Write-Verbose "Executing: az group show --name $ResourceGroup"
     
-    $rgExists = az group show --name $ResourceGroup 2>&1
+    $null = az group show --name $ResourceGroup 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Write-Info "Creating resource group: $ResourceGroup in $Location"
+        Write-Information "Creating resource group: $ResourceGroup in $Location" -Tags 'Status'
+        Write-Verbose "Executing: az group create --name $ResourceGroup --location $Location"
         az group create --name $ResourceGroup --location $Location
         if ($LASTEXITCODE -ne 0) {
-            throw "Failed to create resource group"
+            Write-Error "Failed to create resource group" -Category InvalidOperation -ErrorAction Stop
         }
-        Write-Success "Resource group created"
+        Write-Information "✓ Resource group created" -Tags 'Success'
     }
     else {
-        Write-Info "Resource group already exists"
+        Write-Information "Resource group already exists" -Tags 'Status'
     }
 }
 
 # Create or get Azure Container Registry
 function Initialize-ContainerRegistry {
-    Write-Info "Checking Azure Container Registry: $RegistryName"
+    Write-Information "Checking Azure Container Registry: $RegistryName" -Tags 'Status'
+    Write-Verbose "Executing: az acr show --name $RegistryName --resource-group $ResourceGroup"
     
-    $registryExists = az acr show --name $RegistryName --resource-group $ResourceGroup 2>&1
+    $null = az acr show --name $RegistryName --resource-group $ResourceGroup 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Write-Info "Creating Azure Container Registry: $RegistryName"
+        Write-Information "Creating Azure Container Registry: $RegistryName" -Tags 'Status'
+        Write-Verbose "Executing: az acr create with Standard SKU and admin enabled"
         az acr create `
             --name $RegistryName `
             --resource-group $ResourceGroup `
@@ -128,22 +113,22 @@ function Initialize-ContainerRegistry {
             --admin-enabled true
         
         if ($LASTEXITCODE -ne 0) {
-            throw "Failed to create container registry"
+            Write-Error "Failed to create container registry" -Category InvalidOperation -ErrorAction Stop
         }
-        Write-Success "Container registry created"
+        Write-Information "✓ Container registry created" -Tags 'Success'
     }
     else {
-        Write-Info "Container registry already exists"
+        Write-Information "Container registry already exists" -Tags 'Status'
     }
     
     # Set registry server
     $script:RegistryServer = "$RegistryName.azurecr.io"
-    Write-Info "Registry server: $RegistryServer"
+    Write-Information "Registry server: $RegistryServer" -Tags 'Status'
 }
 
 # Build and push container image
 function Build-AndPushImage {
-    Write-Info "Building container image..."
+    Write-Information "Building container image..." -Tags 'Status'
     
     Push-Location $ProjectRoot
     try {
@@ -151,29 +136,34 @@ function Build-AndPushImage {
         $script:FullImageName = "${RegistryServer}/poshmcp:${ImageTag}"
         $latestImage = "${RegistryServer}/poshmcp:latest"
         
+        Write-Verbose "Building Docker image: $FullImageName"
+        Write-Verbose "Tagging as latest: $latestImage"
         docker build -t $FullImageName -t $latestImage -f Dockerfile .
         if ($LASTEXITCODE -ne 0) {
-            throw "Docker build failed"
+            Write-Error "Docker build failed" -Category InvalidOperation -ErrorAction Stop
         }
         
-        Write-Success "Image built: $FullImageName"
+        Write-Information "✓ Image built: $FullImageName" -Tags 'Success'
         
         # Login to ACR
-        Write-Info "Logging in to Azure Container Registry..."
+        Write-Information "Logging in to Azure Container Registry..." -Tags 'Status'
+        Write-Verbose "Executing: az acr login --name $RegistryName"
         az acr login --name $RegistryName
         if ($LASTEXITCODE -ne 0) {
-            throw "Failed to login to container registry"
+            Write-Error "Failed to login to container registry" -Category AuthenticationError -ErrorAction Stop
         }
         
         # Push image
-        Write-Info "Pushing image to registry..."
+        Write-Information "Pushing image to registry..." -Tags 'Status'
+        Write-Verbose "Pushing: $FullImageName"
+        Write-Verbose "Pushing: $latestImage"
         docker push $FullImageName
         docker push $latestImage
         if ($LASTEXITCODE -ne 0) {
-            throw "Failed to push image"
+            Write-Error "Failed to push image" -Category InvalidOperation -ErrorAction Stop
         }
         
-        Write-Success "Image pushed to: $RegistryServer"
+        Write-Information "✓ Image pushed to: $RegistryServer" -Tags 'Success'
     }
     finally {
         Pop-Location
@@ -182,9 +172,10 @@ function Build-AndPushImage {
 
 # Deploy infrastructure using Bicep
 function Deploy-Infrastructure {
-    Write-Info "Deploying infrastructure with Bicep..."
+    Write-Information "Deploying infrastructure with Bicep..." -Tags 'Status'
     
     # Read and update parameters
+    Write-Verbose "Reading parameters from: $ParametersFile"
     $params = Get-Content $ParametersFile | ConvertFrom-Json
     $params.parameters.containerImage.value = $FullImageName
     $params.parameters.containerRegistryServer.value = $RegistryServer
@@ -192,12 +183,15 @@ function Deploy-Infrastructure {
     
     # Save temporary parameters file
     $tempParams = New-TemporaryFile
+    Write-Verbose "Writing temporary parameters to: $tempParams"
     $params | ConvertTo-Json -Depth 10 | Set-Content $tempParams
     
     try {
         # Deploy using Bicep
         $deploymentName = "poshmcp-deployment-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        Write-Verbose "Deployment name: $deploymentName"
         
+        Write-Verbose "Executing: az deployment group create"
         az deployment group create `
             --name $deploymentName `
             --resource-group $ResourceGroup `
@@ -206,10 +200,10 @@ function Deploy-Infrastructure {
             --verbose
         
         if ($LASTEXITCODE -ne 0) {
-            throw "Deployment failed"
+            Write-Error "Deployment failed" -Category InvalidOperation -ErrorAction Stop
         }
         
-        Write-Success "Infrastructure deployed"
+        Write-Information "✓ Infrastructure deployed" -Tags 'Success'
     }
     finally {
         Remove-Item $tempParams -ErrorAction SilentlyContinue
@@ -218,8 +212,9 @@ function Deploy-Infrastructure {
 
 # Get deployment outputs
 function Get-DeploymentInfo {
-    Write-Info "Retrieving deployment information..."
+    Write-Information "Retrieving deployment information..." -Tags 'Status'
     
+    Write-Verbose "Executing: az containerapp show --name $ContainerAppName --resource-group $ResourceGroup"
     $appUrl = az containerapp show `
         --name $ContainerAppName `
         --resource-group $ResourceGroup `
@@ -227,40 +222,42 @@ function Get-DeploymentInfo {
         -o tsv
     
     if ($appUrl) {
-        Write-Success "Application URL: https://$appUrl"
+        Write-Information "✓ Application URL: https://$appUrl" -Tags 'Success'
         
         # Test health endpoint
-        Write-Info "Testing health endpoint..."
+        Write-Information "Testing health endpoint..." -Tags 'Status'
+        Write-Verbose "Waiting 10 seconds for application to start"
         Start-Sleep -Seconds 10  # Wait for app to start
         
         try {
+            Write-Verbose "Testing: https://$appUrl/health/ready"
             $response = Invoke-WebRequest -Uri "https://$appUrl/health/ready" -UseBasicParsing -ErrorAction SilentlyContinue
             if ($response.StatusCode -eq 200) {
-                Write-Success "Health check passed"
+                Write-Information "✓ Health check passed" -Tags 'Success'
             }
             else {
                 Write-Warning "Health check returned status: $($response.StatusCode)"
             }
         }
         catch {
-            Write-Warning "Health check failed - application may still be starting"
+            Write-Warning "Health check failed - application may still be starting: $_"
         }
         
         Write-Host ""
-        Write-Info "Deployment Summary:"
+        Write-Information "Deployment Summary:" -Tags 'Status'
         Write-Host "  Application URL: https://$appUrl" -ForegroundColor Cyan
         Write-Host "  Health Check: https://$appUrl/health" -ForegroundColor Cyan
         Write-Host "  Resource Group: $ResourceGroup" -ForegroundColor Cyan
         Write-Host "  Container App: $ContainerAppName" -ForegroundColor Cyan
     }
     else {
-        Write-ErrorMessage "Could not retrieve application URL"
+        Write-Error "Could not retrieve application URL" -Category ObjectNotFound -ErrorAction Stop
     }
 }
 
 # Main deployment workflow
 function Invoke-Deployment {
-    Write-Info "Starting PoshMcp deployment to Azure Container Apps"
+    Write-Information "Starting PoshMcp deployment to Azure Container Apps" -Tags 'Status'
     Write-Host ""
     
     Test-Prerequisites
@@ -272,7 +269,7 @@ function Invoke-Deployment {
     Get-DeploymentInfo
     
     Write-Host ""
-    Write-Success "Deployment completed successfully!"
+    Write-Information "✓ Deployment completed successfully!" -Tags 'Success'
 }
 
 # Run main deployment
@@ -280,6 +277,6 @@ try {
     Invoke-Deployment
 }
 catch {
-    Write-ErrorMessage "Deployment failed: $_"
+    Write-Error "Deployment failed: $_" -Category InvalidOperation
     exit 1
 }
