@@ -1,0 +1,102 @@
+# Docker Compose example for PoshMcp with environment customization
+version: '3.8'
+
+services:
+  # Scenario 1: Basic setup with module installation at runtime
+  poshmcp-basic:
+    build: ..
+    container_name: poshmcp-basic
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - COMPANY_NAME=Acme Corp
+      - ENVIRONMENT=Development
+    volumes:
+      # Mount custom appsettings
+      - ./appsettings.basic.json:/app/appsettings.json:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Scenario 2: Advanced setup with custom modules and startup script
+  poshmcp-advanced:
+    build: ..
+    container_name: poshmcp-advanced
+    ports:
+      - "8081:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - COMPANY_NAME=Acme Corp
+      - ENVIRONMENT=Production
+      - AZURE_CLIENT_ID=${AZURE_CLIENT_ID}
+      - AZURE_TENANT_ID=${AZURE_TENANT_ID}
+      - AZURE_SUBSCRIPTION_ID=${AZURE_SUBSCRIPTION_ID}
+      - CUSTOM_MODULE_PATH=/mnt/modules
+    volumes:
+      # Mount custom configuration
+      - ./appsettings.advanced.json:/app/appsettings.json:ro
+      # Mount startup script
+      - ./startup.ps1:/config/startup.ps1:ro
+      # Mount custom modules directory
+      - ./custom-modules:/mnt/modules:ro
+      # Mount additional config files
+      - ./config:/config:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Scenario 3: Multi-tenant setup
+  poshmcp-tenant-a:
+    build: ..
+    container_name: poshmcp-tenant-a
+    ports:
+      - "8082:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - TENANT_ID=tenant-a
+      - COMPANY_NAME=Tenant A Corp
+      - ENVIRONMENT=Production
+    volumes:
+      - ./appsettings.tenant.json:/app/appsettings.json:ro
+      - ./tenants/tenant-a/modules:/mnt/tenant-modules:ro
+      - ./tenants/tenant-a/startup.ps1:/config/startup.ps1:ro
+      - tenant-a-data:/data/tenant-a
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  poshmcp-tenant-b:
+    build: ..
+    container_name: poshmcp-tenant-b
+    ports:
+      - "8083:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - TENANT_ID=tenant-b
+      - COMPANY_NAME=Tenant B Corp
+      - ENVIRONMENT=Production
+    volumes:
+      - ./appsettings.tenant.json:/app/appsettings.json:ro
+      - ./tenants/tenant-b/modules:/mnt/tenant-modules:ro
+      - ./tenants/tenant-b/startup.ps1:/config/startup.ps1:ro
+      - tenant-b-data:/data/tenant-b
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  tenant-a-data:
+  tenant-b-data:
+
+networks:
+  default:
+    name: poshmcp-network

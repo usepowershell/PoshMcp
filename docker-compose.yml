@@ -6,6 +6,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        INSTALL_PS_MODULES: ${INSTALL_PS_MODULES:-}
+        MODULE_INSTALL_SCOPE: ${MODULE_INSTALL_SCOPE:-AllUsers}
+        SKIP_PUBLISHER_CHECK: ${SKIP_PUBLISHER_CHECK:-true}
+    image: ${IMAGE_NAME:-poshmcp}:latest
     ports:
       - "8080:8080"
     environment:
@@ -23,6 +28,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        INSTALL_PS_MODULES: ${INSTALL_PS_MODULES:-}
+        MODULE_INSTALL_SCOPE: ${MODULE_INSTALL_SCOPE:-AllUsers}
+        SKIP_PUBLISHER_CHECK: ${SKIP_PUBLISHER_CHECK:-true}
+    image: ${IMAGE_NAME:-poshmcp}:latest
     environment:
       - POSHMCP_MODE=stdio
     volumes:

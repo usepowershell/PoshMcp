@@ -1,0 +1,38 @@
+# Example: User-customized PoshMcp Image with Pre-Installed Modules
+#
+# This Dockerfile demonstrates how to extend the base PoshMcp image with your own customizations:
+# - Install PowerShell modules at build time
+# - Include custom appsettings.json configuration
+# - Add startup scripts or other customizations
+#
+# Build: docker build -f examples/Dockerfile.user -t my-poshmcp .
+# Run:   docker run -d -p 8080:8080 my-poshmcp
+
+# Start from the PoshMcp base image
+FROM poshmcp:latest
+
+# Switch to root for installation (base image runs as non-root user)
+USER root
+
+# Copy the module installation script
+COPY install-modules.ps1 /tmp/
+
+# Install your required PowerShell modules
+# Modify this line to include the modules your organization needs
+ENV INSTALL_PS_MODULES="Pester PSScriptAnalyzer"
+RUN pwsh /tmp/install-modules.ps1 && rm /tmp/install-modules.ps1
+
+# Copy your custom appsettings.json for web mode
+COPY examples/appsettings.basic.json /app/web/appsettings.json
+
+# Copy your custom appsettings.json for stdio mode
+COPY examples/appsettings.basic.json /app/server/appsettings.json
+
+# (Optional) Copy custom startup scripts
+# COPY examples/startup.ps1 /app/startup.ps1
+
+# Switch back to non-root user for runtime security
+USER appuser
+
+# The base image already sets ENTRYPOINT and CMD
+# No need to redefine them unless you want to override startup behavior

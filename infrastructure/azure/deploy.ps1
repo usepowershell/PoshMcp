@@ -23,7 +23,10 @@ param(
     [string]$ImageTag = (Get-Date -Format 'yyyyMMdd-HHmmss'),
     
     [Parameter()]
-    [string]$Subscription = $env:SUBSCRIPTION
+    [string]$Subscription = $env:AZURE_SUBSCRIPTION,
+    
+    [Parameter()]
+    [string]$TenantId = $env:AZURE_TENANT_ID
 )
 
 $ErrorActionPreference = 'Stop'
@@ -61,6 +64,50 @@ function Test-Prerequisites {
     Write-Information "✓ All prerequisites met" -Tags 'Success'
 }
 
+# Validate and set Azure tenant
+function Set-AzureTenant {
+    Write-Verbose "Validating Azure tenant access"
+    
+    # Get current tenant
+    $currentTenantId = az account show --query tenantId -o tsv
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to get current tenant" -Category InvalidOperation -ErrorAction Stop
+    }
+    
+    Write-Information "Current tenant: $currentTenantId" -Tags 'Status'
+    
+    # If TenantId specified, validate and switch if needed
+    if ($TenantId) {
+        Write-Information "Target tenant: $TenantId" -Tags 'Status'
+        
+        if ($currentTenantId -ne $TenantId) {
+            Write-Information "Switching to tenant: $TenantId" -Tags 'Status'
+            Write-Verbose "Executing: az login --tenant $TenantId"
+            
+            # Attempt login to specified tenant
+            $null = az login --tenant $TenantId 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                Write-Error "Failed to login to tenant $TenantId. Verify you have access to this tenant." -Category AuthenticationError -ErrorAction Stop
+            }
+            
+            # Verify we're now in the correct tenant
+            $newTenantId = az account show --query tenantId -o tsv
+            if ($newTenantId -ne $TenantId) {
+                Write-Error "Failed to switch to tenant $TenantId (current: $newTenantId)" -Category InvalidOperation -ErrorAction Stop
+            }
+            
+            Write-Information "✓ Successfully switched to tenant: $TenantId" -Tags 'Success'
+        }
+        else {
+            Write-Information "Already in target tenant" -Tags 'Status'
+        }
+    }
+    
+    # Store the active tenant ID for use in commands
+    $script:ActiveTenantId = az account show --query tenantId -o tsv
+    Write-Information "Using tenant: $script:ActiveTenantId" -Tags 'Status'
+}
+
 # Set Azure subscription
 function Set-AzureSubscription {
     if ($Subscription) {
@@ -70,10 +117,17 @@ function Set-AzureSubscription {
         if ($LASTEXITCODE -ne 0) {
             Write-Error "Failed to set subscription" -Category InvalidOperation -ErrorAction Stop
         }
+        
+        # Validate subscription belongs to current tenant
+        $subTenantId = az account show --query tenantId -o tsv
+        if ($subTenantId -ne $script:ActiveTenantId) {
+            Write-Error "Subscription '$Subscription' belongs to tenant $subTenantId, but currently logged into tenant $script:ActiveTenantId. Tenant mismatch detected." -Category InvalidOperation -ErrorAction Stop
+        }
     }
     
     $currentSub = (az account show --query name -o tsv)
-    Write-Information "Using subscription: $currentSub" -Tags 'Status'
+    $currentSubId = (az account show --query id -o tsv)
+    Write-Information "Using subscription: $currentSub ($currentSubId)" -Tags 'Status'
 }
 
 # Create resource group if it doesn't exist
@@ -261,6 +315,7 @@ function Invoke-Deployment {
     Write-Host ""
     
     Test-Prerequisites
+    Set-AzureTenant
     Set-AzureSubscription
     New-ResourceGroupIfNeeded
     Initialize-ContainerRegistry
