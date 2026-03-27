@@ -1,0 +1,52 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "containerAppName": {
+      "value": "poshmcp"
+    },
+    "environmentName": {
+      "value": "poshmcp-env"
+    },
+    "location": {
+      "value": "eastus"
+    },
+    "containerImage": {
+      "value": "YOUR_REGISTRY.azurecr.io/poshmcp:latest"
+    },
+    "containerRegistryServer": {
+      "value": "YOUR_REGISTRY.azurecr.io"
+    },
+    "containerRegistryUsername": {
+      "value": ""
+    },
+    "containerRegistryPassword": {
+      "value": ""
+    },
+    "minReplicas": {
+      "value": 1
+    },
+    "maxReplicas": {
+      "value": 10
+    },
+    "cpuCores": {
+      "value": "0.5"
+    },
+    "memoryGi": {
+      "value": "1.0"
+    },
+    "powerShellFunctions": {
+      "value": "Get-SomeData"
+    },
+    "enableDynamicReloadTools": {
+      "value": true
+    },
+    "tags": {
+      "value": {
+        "application": "PoshMcp",
+        "environment": "production",
+        "department": "platform-engineering"
+      }
+    }
+  }
+}
