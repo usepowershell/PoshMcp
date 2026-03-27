@@ -11,6 +11,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using PoshMcp.Server.Metrics;
+using PoshMcp.Server.Observability;
 
 namespace PoshMcp.Server.PowerShell;
 
@@ -115,11 +116,13 @@ public class PowerShellAssemblyGenerator
         {
             if (_generatedAssembly != null)
             {
-                logger.LogInformation("Returning cached generated assembly");
+                logger.LogInformationWithCorrelation("Returning cached generated assembly");
                 return _generatedAssembly;
             }
 
-            logger.LogInformation("Generating new in-memory assembly for PowerShell commands");
+            using (OperationContext.BeginOperation("GenerateAssembly"))
+            {
+                logger.LogInformationWithCorrelation("Generating new in-memory assembly for PowerShell commands");
 
             // Create a dynamic assembly
             var assemblyName = new AssemblyName($"PowerShellCommandsAssembly_{Guid.NewGuid():N}");
@@ -185,8 +188,9 @@ public class PowerShellAssemblyGenerator
             _generatedType = typeBuilder.CreateType();
             _generatedAssembly = _generatedType.Assembly;
 
-            logger.LogInformation($"Successfully generated assembly with {commandList.Count} command methods");
+            logger.LogInformationWithCorrelation($"Successfully generated assembly with {commandList.Count} command methods");
             return _generatedAssembly;
+            }
         }
     }
 
@@ -540,11 +544,17 @@ public class PowerShellAssemblyGenerator
 
         try
         {
-            logger.LogInformation($"Executing PowerShell command: {commandName} with {parameterValues?.Length ?? 0} parameters");
+            using (OperationContext.BeginOperation(commandName))
+            {
+                logger.LogInformationWithCorrelation($"Executing PowerShell command: {commandName} with {parameterValues?.Length ?? 0} parameters");
 
-            // Record tool invocation start
-            _metrics?.ToolInvocationTotal.Add(1,
-                new TagList { { "tool_name", commandName }, { "status", "started" } });
+                // Record tool invocation start
+                _metrics?.ToolInvocationTotal.Add(1,
+                    new TagList {
+                        { "tool_name", commandName },
+                        { "status", "started" },
+                        { "correlation_id", OperationContext.CorrelationId }
+                    });
 
             // Log parameter details
             if (parameterInfos != null && parameterValues != null)
@@ -697,12 +707,13 @@ public class PowerShellAssemblyGenerator
                     return Task.FromResult($"{{\"error\": \"Unexpected error: {ex.Message}\"}}");
                 }
             });
+            }
         }
         catch (Exception ex)
         {
             status = "error";
             errorType = "critical_error";
-            logger.LogError(ex, $"Error executing PowerShell command {commandName}");
+            logger.LogErrorWithCorrelation(ex, $"Error executing PowerShell command {commandName}");
             throw new InvalidOperationException($"Error executing {commandName}: {ex.Message}", ex);
         }
         finally
@@ -711,20 +722,34 @@ public class PowerShellAssemblyGenerator
             stopwatch.Stop();
 
             _metrics?.ToolInvocationTotal.Add(1,
-                new TagList { { "tool_name", commandName }, { "status", status } });
+                new TagList {
+                    { "tool_name", commandName },
+                    { "status", status },
+                    { "correlation_id", OperationContext.CorrelationId }
+                });
 
             _metrics?.ToolExecutionDurationSeconds.Record(stopwatch.Elapsed.TotalSeconds,
-                new TagList { { "tool_name", commandName } });
+                new TagList {
+                    { "tool_name", commandName },
+                    { "correlation_id", OperationContext.CorrelationId }
+                });
 
             if (status == "error")
             {
                 _metrics?.ToolExecutionErrorsTotal.Add(1,
-                    new TagList { { "tool_name", commandName }, { "error_type", errorType } });
+                    new TagList {
+                        { "tool_name", commandName },
+                        { "error_type", errorType },
+                        { "correlation_id", OperationContext.CorrelationId }
+                    });
             }
 
             // Record usage metrics
             _metrics?.ToolUsageTotal.Add(1,
-                new TagList { { "tool_name", commandName } });
+                new TagList {
+                    { "tool_name", commandName },
+                    { "correlation_id", OperationContext.CorrelationId }
+                });
         }
     }
 
