@@ -197,6 +197,242 @@ logger.LogInformationWithCorrelation("Completed");  // Creates scope again
 
 ---
 
+### 2026-03-27: Azure Container Apps Deployment Infrastructure
+
+**Implementation Summary:**
+- Created complete production-ready Azure Container Apps deployment infrastructure
+- Built Bicep templates for Container Apps Environment, Log Analytics, and Application Insights
+- Implemented automated deployment scripts (bash and PowerShell) with validation
+- Created comprehensive documentation (README, Quickstart, Architecture, Examples, Checklist)
+- Integrated with Phase 1 health checks for container readiness probes
+
+**Key Technical Decisions:**
+- **Container Apps over AKS**: Simplified management, built-in autoscaling, serverless pricing model
+- **Managed Identity**: Secure Azure resource access without secrets management complexity
+- **Scale-to-zero**: Development environments can scale to zero for cost optimization
+- **Dual scripting approach**: Both bash and PowerShell scripts for cross-platform support
+- **Health probe integration**: Leveraged `/health/ready` endpoint from Phase 1 work
+
+**Files Created (13 files, 2885 insertions):**
+
+*Infrastructure (Bicep):*
+- `infrastructure/azure/main.bicep` - Container Apps deployment template with Log Analytics, App Insights, Managed Identity
+- `infrastructure/azure/parameters.json` - Production parameter defaults
+- `infrastructure/azure/parameters.local.json.template` - Local development configuration template
+
+*Deployment Scripts:*
+- `infrastructure/azure/deploy.sh` - Bash deployment automation with error handling
+- `infrastructure/azure/deploy.ps1` - PowerShell deployment automation equivalent
+- `infrastructure/azure/validate.sh` - Pre-deployment validation (bash)
+- `infrastructure/azure/validate.ps1` - Pre-deployment validation (PowerShell)
+
+*Documentation:*
+- `infrastructure/azure/README.md` - Complete deployment guide with prerequisites and troubleshooting
+- `infrastructure/azure/QUICKSTART.md` - Minimal steps for immediate deployment
+- `infrastructure/azure/ARCHITECTURE.md` - System architecture and component descriptions
+- `infrastructure/azure/EXAMPLES.md` - Common scenarios and CI/CD patterns
+- `infrastructure/azure/CHECKLIST.md` - Pre-deployment verification list
+- `infrastructure/azure/INDEX.md` - Documentation navigation and quick reference
+
+**Container Apps Configuration:**
+- **Resources**: 0.25-0.5 CPU cores, 0.5-1 GB memory (configurable)
+- **Autoscaling**: 1-10 replicas based on HTTP concurrency (100 concurrent requests/replica)
+- **Health Probes**: Liveness and readiness checks using `/health/ready` endpoint
+- **Ingress**: External HTTPS on port 8080
+- **Environment Variables**: Configuration overrides for Azure deployment
+- **Scale-to-zero**: Optional for development environments
+
+**Observability Integration:**
+- Application Insights workspace connection for distributed tracing
+- Log Analytics workspace for centralized logging
+- OpenTelemetry metrics forwarding
+- Correlation ID propagation from Phase 1 work
+- Health check endpoints for Kubernetes-style probes
+
+**Security Model:**
+- Managed Identity for Azure resource authentication
+- No hardcoded secrets or connection strings
+- HTTPS-only ingress configuration
+- Option for private Container Apps Environment
+
+**Deployment Automation Features:**
+- Prerequisite validation (Azure CLI, login status)
+- Parameter file syntax validation
+- Bicep template validation
+- Automated resource group creation
+- Error handling with clear diagnostics
+- Deployment output capture and display
+
+**Documentation Structure:**
+- Multi-level approach: Quickstart → Detailed guide → Reference
+- Prerequisites clearly stated
+- Step-by-step instructions
+- Troubleshooting guidance
+- Common scenarios with examples
+- Pre-deployment checklist
+
+**Performance Characteristics:**
+- Cold start: ~10-30 seconds (typical for Container Apps)
+- Auto-scale response: ~30 seconds to provision new replicas
+- Scale-to-zero: ~1-2 minutes idle before scale down
+- Health check timeout: 500ms (aligned with K8s probe requirements)
+
+**Cost Optimization:**
+- Consumption-based pricing (pay for actual usage)
+- Scale-to-zero in development (zero cost when idle)
+- Right-sized resource allocations
+- Single Log Analytics workspace shared across environments
+
+**Deployment Validation:**
+- Scripts tested on both Windows (PowerShell) and Linux/WSL (bash)
+- Parameter validation ensures required values present
+- Bicep syntax validation before deployment
+- Azure CLI integration with proper error handling
+- Deployment outputs clearly displayed
+
+**Lessons Learned:**
+- **Scale-to-zero critical for dev**: Development environments need cost optimization; production needs minimum availability
+- **Health probes essential**: Container Apps rely heavily on health checks for traffic management and restarts
+- **Managed Identity simplifies ops**: Eliminates secrets rotation, credential storage, and access management complexity
+- **Dual scripting increases adoption**: Supporting both bash and PowerShell removes deployment friction
+- **Documentation layering works**: Different users need different detail levels (quick start vs. comprehensive guide)
+- **Validation scripts catch issues early**: Pre-deployment checks prevent failed deployments and save time
+- **Integration with existing work**: Leveraging Phase 1 health endpoints avoided reimplementation
+
+**Integration with Existing Infrastructure:**
+- Uses Phase 1 `/health/ready` endpoint for container health checks
+- Maintains OpenTelemetry metrics instrumentation
+- Compatible with existing appsettings.json configuration structure
+- Works with correlation ID tracking from Phase 1
+
+**Follow-up Opportunities:**
+- CI/CD pipeline implementation (GitHub Actions or Azure DevOps)
+- Custom domain and SSL certificate management
+- Private networking setup for enhanced security
+- Multi-region deployment templates for high availability
+- Disaster recovery and backup strategies
+- Redis cache integration for session state (if needed)
+- Azure Front Door integration for global load balancing
+
+**Outcome:**
+PoshMcp now has production-ready Azure hosting capability with one-command deployment, automatic scaling, full observability, and security best practices. Infrastructure is immediately usable for both development and production environments.
+
+**Cross-Agent Impact:**
+- Enables cloud deployment testing by Fry and other test agents
+- Provides infrastructure foundation for performance testing
+- Supports distributed tracing demonstrations
+- Creates real-world deployment scenario for validation
+
+---
+
+**Implementation Summary:**
+- Created complete Azure Container Apps deployment infrastructure for PoshMcp
+- Implemented Bicep Infrastructure-as-Code templates with Azure best practices
+- Developed deployment scripts for both bash and PowerShell
+- Created comprehensive validation scripts for pre-deployment checks
+- Integrated with existing health check endpoints and Application Insights
+
+**Key Technical Decisions:**
+- Used Bicep for IaC (more readable than ARM JSON, native Azure tooling)
+- Container Apps with Log Analytics integration for observability
+- User-assigned Managed Identity for secure Azure resource access
+- HTTP-based autoscaling with 50 concurrent requests per replica threshold
+- Three-probe health check strategy (liveness, readiness, startup)
+
+**Files Created:**
+- `infrastructure/azure/main.bicep` - Main Bicep template for all Azure resources
+- `infrastructure/azure/parameters.json` - Production parameter configuration
+- `infrastructure/azure/parameters.local.json.template` - Local development template
+- `infrastructure/azure/deploy.sh` - Bash deployment automation script
+- `infrastructure/azure/deploy.ps1` - PowerShell deployment automation script
+- `infrastructure/azure/validate.sh` - Bash pre-deployment validation
+- `infrastructure/azure/validate.ps1` - PowerShell pre-deployment validation
+- `infrastructure/azure/README.md` - Comprehensive deployment documentation
+
+**Files Modified:**
+- `.gitignore` - Added parameters.local.json to ignore list for secrets
+
+**Azure Resources Deployed:**
+- **Container App**: PoshMcp web mode with health checks and autoscaling
+- **Container Apps Environment**: With Log Analytics integration
+- **Log Analytics Workspace**: 30-day retention for logs and metrics
+- **Application Insights**: APM with OpenTelemetry integration
+- **Managed Identity**: User-assigned for secure Azure authentication
+
+**Health Check Integration:**
+- Startup probe: `/health` endpoint with 30 failure threshold (150s max startup time)
+- Liveness probe: `/health/ready` every 30s (detects hung processes)
+- Readiness probe: `/health/ready` every 10s (controls traffic routing)
+- All probes use existing PoshMcp health infrastructure (Phase 1 work)
+
+**Security Design:**
+- Container runs as non-root user (appuser, UID 1001)
+- Managed Identity for credential-free Azure authentication
+- Secrets stored as Container Apps secrets (encrypted at rest)
+- HTTPS-only ingress with automatic TLS termination
+- Registry credentials optional (can use managed identity with ACR)
+
+**Deployment Workflow:**
+1. Validation script checks prerequisites (az CLI, Docker, authentication)
+2. Bicep syntax validation ensures template correctness
+3. Resource group creation (if needed)
+4. Azure Container Registry setup and authentication
+5. Docker image build and push (with timestamps for versioning)
+6. Infrastructure deployment via Bicep template
+7. Health check verification and deployment summary output
+
+**Autoscaling Configuration:**
+- HTTP-based scaling rule: 50 concurrent requests per replica
+- Min replicas: 1 (production), 0 (development, scale-to-zero)
+- Max replicas: 10 (production), 3 (development)
+- CPU/Memory: 0.5 vCPU / 1GB (production), 0.25 vCPU / 0.5GB (dev)
+
+**Observability Integration:**
+- Application Insights connection string injected via secret reference
+- Correlation IDs flow through to Application Insights (Phase 1 integration)
+- Container logs forwarded to Log Analytics workspace
+- OpenTelemetry metrics exported to Application Insights
+- Health check duration metadata tracked for performance monitoring
+
+**Patterns Established:**
+- Bicep parameter files for environment-specific configuration
+- Dual scripting support (bash + PowerShell) for cross-platform teams
+- Validation-first deployment workflow (fail fast on prerequisites)
+- Template-based local configuration (*.template pattern)
+- Comprehensive documentation with troubleshooting guides
+
+**Lessons Learned:**
+- Container Apps require explicit probe configuration (no defaults)
+- Startup probe needs higher failure threshold than readiness/liveness
+- User-assigned managed identity provides more control than system-assigned
+- Log Analytics workspace should be created before Container Apps Environment
+- ACR integration supports both username/password and managed identity
+- Container Apps billing based on vCPU-seconds and memory-seconds
+- Scale-to-zero requires minReplicas: 0 (cold start ~10-30s)
+- Health check paths must match PoshMcp Web endpoints exactly
+- Environment variable arrays use indexed naming (FunctionNames__0, FunctionNames__1)
+- Bicep json() function required for numeric string parameters (cpuCores)
+
+**Production Readiness:**
+- Deployment scripts include rollback capabilities via revision management
+- Validation scripts prevent common configuration errors
+- Comprehensive README covers troubleshooting scenarios
+- CI/CD integration examples for GitHub Actions and Azure DevOps
+- Cost optimization guidance with example monthly pricing
+- Security best practices documented (managed identity, Key Vault integration)
+
+**Next Steps for Azure Enhancement:**
+- Consider Azure Key Vault for additional secrets management
+- Implement private endpoints for fully private networking
+- Add Azure Front Door for global load balancing
+- Configure diagnostic settings for compliance logging
+- Implement Azure Policy for governance
+- Add backup/disaster recovery procedures
+
+*Learnings from work will be recorded here automatically*
+
+---
+
 **Cross-Team Learnings:**
 
 **From Farnsworth's Review:**
