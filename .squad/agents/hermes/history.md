@@ -119,3 +119,57 @@ Team now has two reference implementations of PowerShell best practices. New Pow
 **Session:** 2026-03-27T16:51:02Z tenant review
 
 ---
+
+### 2026-03-27: Environment Variable Naming Consistency Review
+
+**Task:** Reviewed environment variable naming changes for consistency with Azure conventions.
+
+**Changes Reviewed:**
+- Environment variable renamed: `SUBSCRIPTION` → `AZURE_SUBSCRIPTION`
+- Aligns with existing `AZURE_TENANT_ID` prefix pattern
+- Updated in deploy.ps1, deploy.sh, EXAMPLES.md, CHECKLIST.md
+
+**Key Validation Points:**
+1. **PowerShell Parameter Names - CORRECT**: `-Subscription` parameter name correctly unchanged (follows Azure PowerShell SDK convention like `Set-AzContext -Subscription`)
+2. **Environment Variable References - COMPLETE**: All references updated from `$env:SUBSCRIPTION` → `$env:AZURE_SUBSCRIPTION` (PowerShell) and `$SUBSCRIPTION` → `$AZURE_SUBSCRIPTION` (bash)
+3. **Variable Scoping - VERIFIED**: Local variables in validate.sh correctly independent from environment variables (e.g., `SUBSCRIPTION=$(az account show ...)`)
+4. **Error Messages - UPDATED**: All log statements and error messages properly reference new variable name
+
+**PowerShell Best Practices Validated:**
+- ✅ Parameter names follow Azure PowerShell SDK conventions
+- ✅ Environment variable prefix pattern (`AZURE_`) matches ecosystem standards
+- ✅ Parameter default binding (`$env:AZURE_SUBSCRIPTION`) works correctly
+- ✅ No confusion between parameter names vs environment variable names
+- ✅ Function-scope variables (`$Subscription`) correctly unchanged
+
+**Consistency Assessment:**
+- ✅ Bash and PowerShell scripts updated uniformly
+- ✅ Documentation reflects new naming across all files
+- ✅ Pattern extends existing `AZURE_TENANT_ID` convention
+- ✅ Aligns with Azure CLI environment variable patterns
+
+**Edge Cases Checked:**
+- validate.sh local variable capture: ✅ CORRECT (independent of env var)
+- PowerShell parameter binding: ✅ WORKS (env var → parameter default)
+- Tenant validation logic: ✅ UPDATED (uses `$AZURE_SUBSCRIPTION`)
+- Azure CLI command usage: ✅ UNAFFECTED (uses parameter, not env var)
+
+**Review Outcome:**
+- **Verdict:** APPROVED - Changes are complete, correct, and consistent
+- **Confidence:** Very High - All references verified, no edge cases found
+- **PowerShell Quality:** 10/10 - Follows conventions perfectly
+
+**Files Verified:**
+- [infrastructure/azure/deploy.ps1](infrastructure/azure/deploy.ps1) - Environment variable reference updated
+- [infrastructure/azure/deploy.sh](infrastructure/azure/deploy.sh) - Environment variable reference updated
+- [infrastructure/azure/EXAMPLES.md](infrastructure/azure/EXAMPLES.md) - Documentation updated
+- [infrastructure/azure/CHECKLIST.md](infrastructure/azure/CHECKLIST.md) - Documentation updated
+- [infrastructure/azure/README.md](infrastructure/azure/README.md) - Consistent with new pattern
+- [infrastructure/azure/validate.ps1](infrastructure/azure/validate.ps1) - No env var usage (correct)
+- [infrastructure/azure/validate.sh](infrastructure/azure/validate.sh) - Local var only (correct)
+
+**Impact:** Environment variable naming now follows consistent `AZURE_` prefix pattern across all Azure-related variables. Reduces confusion and aligns with Azure ecosystem standards.
+
+**Session:** 2026-03-27T environment variable review
+
+---

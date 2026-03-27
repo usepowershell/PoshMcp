@@ -12,6 +12,7 @@ How to decide who handles what.
 | Observability & monitoring | Amy | OpenTelemetry metrics, health checks, diagnostics, logging |
 | Azure cloud & deployment | Amy | Azure resources, Container Apps, App Service, Application Insights, Key Vault |
 | Testing & quality | Fry | Unit tests, integration tests, performance baselines |
+| Documentation & guides | Leela | Technical writing, tutorials, examples, developer experience |
 | Code review | Farnsworth | Review PRs, check quality, architectural alignment |
 | Testing & validation | Fry | Verify implementations, edge cases, test coverage |
 | Scope & priorities | Farnsworth | What to build next, trade-offs, roadmap decisions |
@@ -25,6 +26,7 @@ When work crosses domains, spawn relevant agents in parallel:
 - **Metrics + Health checks** → Amy (primary)
 - **New API + Tests** → Bender (implement) + Fry (test cases)
 - **Architecture + Implementation** → Farnsworth (design) → Bender (code)
+- **New feature + Documentation** → Implementation agent + Leela (docs/examples)
 
 ## Issue Routing
 
@@ -35,7 +37,8 @@ When work crosses domains, spawn relevant agents in parallel:
 | `squad:bender` | C# implementation, backend logic | Bender |
 | `squad:hermes` | PowerShell-specific work | Hermes |
 | `squad:amy` | Metrics, monitoring, health | Amy |
-| `squad:fry` | Testing, quality checks | Fry |**Farnsworth
+| `squad:fry` | Testing, quality checks | Fry |
+| `squad:leela` | Documentation, tutorials, examples | Leela |
 
 ### How Issue Assignment Works
 
