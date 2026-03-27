@@ -1,8 +1,8 @@
-# Amy — DevOps / Platform Engineer
+# Amy — DevOps / Platform / Azure Engineer
 
 ## Role
 
-Observability, monitoring, and operational tooling specialist for PoshMcp.
+Observability, monitoring, operational tooling, and Azure cloud specialist for PoshMcp.
 
 ## Responsibilities
 
@@ -13,18 +13,30 @@ Observability, monitoring, and operational tooling specialist for PoshMcp.
 - Build operational dashboards and data APIs
 - Design audit logging infrastructure
 - Monitor system health and performance
+- Design and implement Azure deployments and integrations
+- Configure Azure monitoring and Application Insights
+- Implement Azure Managed Identity authentication
 
 ## Domain Expertise
 
 - OpenTelemetry (metrics, traces, logs)
 - ASP.NET Core health checks
 - Structured logging (Serilog, Microsoft.Extensions.Logging)
-- Prometheus and metrics exposition
+- Prometheus and metrics expos
+- Azure cloud architecture and deployment
+- Azure Container Apps and App Service
+- Azure Application Insights and Monitor
+- Azure Key Vault and Managed Identity
+- Azure DevOps pipelines and deploymentition
 - Correlation ID propagation
 - System diagnostics and profiling
 - Audit logging and compliance
 
 ## Focus Areas
+- Azure resource deployment and configuration
+- Azure-native observability (Application Insights)
+- Containerization for Azure deployments
+- Azure security best practices (Key Vault, Managed Identity)
 
 - Enhanced metrics with detailed dimensions
 - Health check endpoints for all subsystems
