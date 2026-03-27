@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
+using PoshMcp.Server.Observability;
 using PoshMcp.Server.PowerShell;
 using PoshMcp.Server.Metrics;
 using PSPowerShell = System.Management.Automation.PowerShell;
@@ -290,15 +291,19 @@ public class McpToolFactoryV2
     {
         try
         {
-            LogToolGenerationStart(logger, config);
-            var commands = ValidateAndGetCommands(config, logger);
-            if (!commands.Any()) return new List<McpServerTool>();
+            using (OperationContext.BeginOperation("GetToolsList"))
+            {
+                logger.LogInformationWithCorrelation("Starting MCP tools generation using dynamic assembly approach");
+                LogToolGenerationStart(logger, config);
+                var commands = ValidateAndGetCommands(config, logger);
+                if (!commands.Any()) return new List<McpServerTool>();
 
-            var (generatedAssembly, generatedInstance, generatedMethods) = GenerateAssemblyAndMethods(commands, logger);
-            var methodToCommandMap = CreateCommandMetadataMapping(commands, logger);
-            var tools = CreateMcpToolsFromMethods(generatedMethods, generatedInstance, methodToCommandMap, logger);
-            LogToolGenerationResults(tools, logger);
-            return tools;
+                var (generatedAssembly, generatedInstance, generatedMethods) = GenerateAssemblyAndMethods(commands, logger);
+                var methodToCommandMap = CreateCommandMetadataMapping(commands, logger);
+                var tools = CreateMcpToolsFromMethods(generatedMethods, generatedInstance, methodToCommandMap, logger);
+                LogToolGenerationResults(tools, logger);
+                return tools;
+            }
         }
         catch (Exception ex)
         {
@@ -494,7 +499,7 @@ public class McpToolFactoryV2
 
     private static List<McpServerTool> HandleToolGenerationError(Exception ex, ILogger logger)
     {
-        logger.LogError(ex, $"Failed to generate MCP tools using dynamic assembly: {ex.Message}");
+        logger.LogErrorWithCorrelation(ex, $"Failed to generate MCP tools using dynamic assembly: {ex.Message}");
         logger.LogDebug("This error prevented any tools from being created. Check PowerShell configuration and environment.");
         return new List<McpServerTool>();
     }

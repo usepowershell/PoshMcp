@@ -1,10 +1,13 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
+using PoshMcp.Server.Health;
+using PoshMcp.Server.Observability;
 using PoshMcp.Server.PowerShell;
 using PoshMcp.Server.Metrics;
 using PoshMcp.Web.PowerShell;
@@ -12,6 +15,7 @@ using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -61,6 +65,12 @@ public class Program
         // This proxy will create session-specific runspaces internally based on Mcp-Session-Id header
         builder.Services.AddSingleton<IPowerShellRunspace, SessionAwarePowerShellRunspace>();
 
+        // Register health checks
+        builder.Services.AddHealthChecks()
+            .AddCheck<PowerShellRunspaceHealthCheck>("powershell_runspace")
+            .AddCheck<AssemblyGenerationHealthCheck>("assembly_generation")
+            .AddCheck<ConfigurationHealthCheck>("configuration");
+
         // Build service provider to get configuration and logger
         var tempServiceProvider = builder.Services.BuildServiceProvider();
         var logger = tempServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("PoshMcpWebLogger");
@@ -97,8 +107,47 @@ public class Program
 
         var app = builder.Build();
 
+        // Add correlation ID middleware
+        app.Use(async (context, next) =>
+        {
+            var correlationId = context.Request.Headers["X-Correlation-ID"].FirstOrDefault()
+                ?? OperationContext.GenerateCorrelationId();
+            OperationContext.CorrelationId = correlationId;
+            context.Response.Headers["X-Correlation-ID"] = correlationId;
+
+            await next();
+        });
+
         // Enable CORS
         app.UseCors();
+
+        // Map health check endpoints
+        app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+        {
+            ResponseWriter = async (context, report) =>
+            {
+                context.Response.ContentType = "application/json";
+                var result = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    status = report.Status.ToString(),
+                    checks = report.Entries.Select(e => new
+                    {
+                        name = e.Key,
+                        status = e.Value.Status.ToString(),
+                        description = e.Value.Description,
+                        duration = e.Value.Duration.TotalMilliseconds,
+                        data = e.Value.Data
+                    }),
+                    totalDuration = report.TotalDuration.TotalMilliseconds
+                });
+                await context.Response.WriteAsync(result);
+            }
+        });
+
+        app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+        {
+            Predicate = _ => true
+        });
 
         // Map MCP endpoints
         app.MapMcp();
