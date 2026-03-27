@@ -1,5 +1,12 @@
 .vscode/
 
+# Local environment files (may contain secrets)
+.env
+.env.local
+.env.test
+# Keep .env.example for reference
+!.env.example
+
 # Azure deployment - local parameters with secrets
 infrastructure/azure/parameters.local.json
 

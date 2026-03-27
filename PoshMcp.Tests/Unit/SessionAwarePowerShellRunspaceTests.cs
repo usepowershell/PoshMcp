@@ -66,7 +66,7 @@ public class SessionAwarePowerShellRunspaceTests : IDisposable
     public void NoHttpContext_ReturnsDefaultRunspace()
     {
         // Arrange
-        _mockHttpContextAccessor.Setup(a => a.HttpContext).Returns((HttpContext)null);
+        _mockHttpContextAccessor.Setup(a => a.HttpContext).Returns((HttpContext?)null);
 
         // Act
         var runspace1 = GetSessionRunspaceViaReflection();
@@ -131,7 +131,7 @@ public class SessionAwarePowerShellRunspaceTests : IDisposable
         _mockHttpContextAccessor.Setup(a => a.HttpContext).Returns(mockHttpContext.Object);
     }
 
-    private object GetSessionRunspaceViaReflection()
+    private object? GetSessionRunspaceViaReflection()
     {
         var method = typeof(SessionAwarePowerShellRunspace).GetMethod("GetSessionRunspace",
             BindingFlags.NonPublic | BindingFlags.Instance);

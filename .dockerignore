@@ -32,8 +32,11 @@
 *.md
 !README.md
 
-# Ignore scripts that aren't needed for build (but keep docker-entrypoint.sh)
+# Ignore scripts that aren't needed for build
+# But keep install-modules.ps1 and example startup scripts which ARE needed
 *.ps1
+!install-modules.ps1
+!examples/*.ps1
 cleanup.sh
 launcher.sh
 run-tests.sh

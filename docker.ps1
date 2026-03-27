@@ -1,118 +1,125 @@
-# Build and run PoshMcp Server in Docker (Web or stdio mode)
-# PowerShell version for Windows users
+<#
+.SYNOPSIS
+    Build and run PoshMcp Server in Docker using two-tier architecture.
+
+.DESCRIPTION
+    This script manages Docker images for PoshMcp following a two-tier architecture:
+    
+    1. Base image (poshmcp:latest) - Core MCP server without customizations
+    2. Custom images - User-specific layers with modules, config, startup scripts
+    
+    Commands:
+    - build / build-base: Build the base PoshMcp image
+    - build-custom: Build a custom image from the base using templates
+    - run: Run containers using docker-compose
+    - stop: Stop running containers
+    - logs: Show container logs
+    - clean: Remove containers and images
+
+.PARAMETER Command
+    The Docker operation to perform.
+    Valid values: build, build-base, build-custom, run, stop, logs, clean
+
+.PARAMETER Mode
+    Run mode for containers (used with 'run' command).
+    Valid values: web, http (HTTP server), stdio (stdio MCP server)
+    Default: web
+
+.PARAMETER Template
+    Template to use when building custom images (used with 'build-custom' command).
+    Valid values:
+    - user: Basic customization with Pester and PSScriptAnalyzer
+    - azure: Azure-enabled with Az modules and Managed Identity
+    - custom: Advanced multi-stage build pattern
+    Default: user
+
+.PARAMETER Tag
+    Custom tag for the Docker image. If not specified, uses 'latest' for base
+    images or the template name for custom images.
+
+.EXAMPLE
+    .\docker.ps1 build
+    Build the base PoshMcp image (poshmcp:latest)
+
+.EXAMPLE
+    .\docker.ps1 build-custom -Template azure
+    Build an Azure-enabled custom image with Az modules pre-installed
+
+.EXAMPLE
+    .\docker.ps1 run web
+    Run the base image as an HTTP web server on port 8080
+
+.EXAMPLE
+    .\docker.ps1 build-custom -Template user -Tag dev
+    Build a custom image using the 'user' template with tag 'poshmcp-dev:latest'
+
+.EXAMPLE
+    Get-Help .\docker.ps1 -Detailed
+    Show detailed help with examples
+
+.NOTES
+    Two-Tier Architecture Flow:
+    1. Build base:    .\docker.ps1 build-base
+    2. Build custom:  .\docker.ps1 build-custom -Template azure
+    3. Result:        poshmcp:latest → poshmcp-azure:latest
+    
+    For more information:
+    - Base Dockerfile:      ./Dockerfile
+    - Example Dockerfiles:  ./examples/Dockerfile.*
+    - Module installation:  ./install-modules.ps1
+    - Integration tests:    ./docs/QUICKSTART-AZURE-INTEGRATION-TEST.md
+
+.LINK
+    https://github.com/yourusername/poshmcp
+#>
 
 [CmdletBinding()]
 param(
     [Parameter(Position = 0, Mandatory = $true)]
-    [ValidateSet('build', 'run', 'stop', 'logs', 'clean')]
+    [ValidateSet('build', 'build-base', 'build-custom', 'run', 'stop', 'logs', 'clean')]
     [string]$Command,
     
     [Parameter(Position = 1)]
     [string]$Mode = 'web',
     
     [Parameter()]
-    [string]$Modules = $env:INSTALL_PS_MODULES,
+    [ValidateSet('user', 'azure', 'custom')]
+    [string]$Template = 'user',
     
     [Parameter()]
-    [ValidateSet('AllUsers', 'CurrentUser')]
-    [string]$Scope = $env:MODULE_INSTALL_SCOPE ?? 'AllUsers',
-    
-    [Parameter()]
-    [switch]$Help
+    [string]$Tag
 )
 
 # Enable Information stream for interactive use
 $InformationPreference = 'Continue'
 
-function Show-Usage {
-    Write-Host @"
-Usage: .\docker.ps1 [build|run|stop|logs|clean] [mode|options]
-
-Commands:
-  build [options]        - Build the Docker image
-  run [mode]             - Run the container using docker-compose
-  stop                   - Stop the running container
-  logs                   - Show container logs
-  clean                  - Remove container and image
-
-Build Options:
-  -Modules "module1 module2"     - Pre-install PowerShell modules at build time
-  -Scope [AllUsers|CurrentUser]  - Module installation scope (default: AllUsers)
-
-Modes (for run command):
-  web|http    - Run as HTTP web server (default)
-  stdio       - Run as stdio MCP server
-
-Examples:
-  .\docker.ps1 build
-  .\docker.ps1 build -Modules "Pester PSScriptAnalyzer"
-  .\docker.ps1 build -Modules "Az.Accounts@2.0.0 Pester@>=5.0.0"
-  .\docker.ps1 run web       # Start web server
-  .\docker.ps1 run stdio     # Start stdio server
-
-Environment Variables:
-  `$env:INSTALL_PS_MODULES     - Space or comma-separated list of modules
-  `$env:MODULE_INSTALL_SCOPE   - Installation scope (AllUsers or CurrentUser)
-  `$env:SKIP_PUBLISHER_CHECK   - Skip publisher validation (true or false)
-
-Module Version Syntax:
-  ModuleName             - Install latest version
-  ModuleName@1.2.3       - Install specific version
-  ModuleName@>=1.0.0     - Install minimum version
-  ModuleName@<=2.0.0     - Install maximum version
-"@
-    exit 0
-}
-
-if ($Help) {
-    Show-Usage
-}
-
-$ImageName = "poshmcp"
-$SkipCheck = $env:SKIP_PUBLISHER_CHECK ?? "true"
+$BaseImageName = "poshmcp"
+$BaseImageTag = $Tag ?? "latest"
 
 switch ($Command) {
-    'build' {
-        Write-Information "Building Docker image..." -Tags 'Status'
+    { $_ -in 'build', 'build-base' } {
+        Write-Information "Building base Docker image..." -Tags 'Status'
+        Write-Information "This image contains the core PoshMcp server without customizations" -Tags 'Status'
         
-        $buildArgs = @()
+        $imageTag = "${BaseImageName}:${BaseImageTag}"
         
-        if ($Modules) {
-            Write-Information "📦 Pre-installing PowerShell modules: $Modules" -Tags 'Status'
-            $buildArgs += "--build-arg"
-            $buildArgs += "INSTALL_PS_MODULES=$Modules"
-        }
-        
-        if ($Scope) {
-            $buildArgs += "--build-arg"
-            $buildArgs += "MODULE_INSTALL_SCOPE=$Scope"
-        }
-        
-        if ($SkipCheck) {
-            $buildArgs += "--build-arg"
-            $buildArgs += "SKIP_PUBLISHER_CHECK=$SkipCheck"
-        }
-        
-        $buildArgs += "-t"
-        $buildArgs += $ImageName
-        $buildArgs += "."
-        
-        Write-Verbose "Build arguments: $($buildArgs -join ' ')"
-        Write-Verbose "Image name: $ImageName"
-        Write-Verbose "Module scope: $Scope"
-        Write-Information "Running: docker build $($buildArgs -join ' ')" -Tags 'Status'
-        & docker build @buildArgs
+        Write-Information "Running: docker build -t $imageTag ." -Tags 'Status'
+        docker build -t $imageTag .
         
         if ($LASTEXITCODE -eq 0) {
             Write-Host ""
-            Write-Host "✅ Docker image built successfully: $ImageName" -ForegroundColor Green
-            
-            if ($Modules) {
-                Write-Host "📦 Pre-installed modules: $Modules" -ForegroundColor Green
-                Write-Host ""
-                Write-Host "💡 These modules are now available and don't need runtime installation" -ForegroundColor Cyan
-                Write-Host "💡 Update appsettings.json to use 'ImportModules' instead of 'InstallModules'" -ForegroundColor Cyan
-            }
+            Write-Host "✅ Base Docker image built successfully: $imageTag" -ForegroundColor Green
+            Write-Host ""
+            Write-Host "📦 Next Steps:" -ForegroundColor Cyan
+            Write-Host "   1. Build a custom image:" -ForegroundColor White
+            Write-Host "      .\docker.ps1 build-custom -Template user    # Basic customization" -ForegroundColor Gray
+            Write-Host "      .\docker.ps1 build-custom -Template azure   # Azure-enabled" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "   2. Or run the base image directly:" -ForegroundColor White
+            Write-Host "      .\docker.ps1 run web" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "   3. See examples:" -ForegroundColor White
+            Write-Host "      ls examples\Dockerfile.*" -ForegroundColor Gray
         } else {
             Write-Host ""
             Write-Host "❌ Docker build failed" -ForegroundColor Red
@@ -120,7 +127,66 @@ switch ($Command) {
         }
     }
     
+    'build-custom' {
+        # Ensure base image exists
+        $baseImageCheck = docker images "${BaseImageName}:latest" --format "{{.Repository}}"
+        if (-not $baseImageCheck) {
+            Write-Warning "Base image '${BaseImageName}:latest' not found. Building it first..."
+            docker build -t "${BaseImageName}:latest" .
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "❌ Failed to build base image" -ForegroundColor Red
+                exit 1
+            }
+        }
+        
+        Write-Information "Building custom Docker image from template: $Template" -Tags 'Status'
+        
+        $dockerfilePath = "examples\Dockerfile.$Template"
+        if (-not (Test-Path $dockerfilePath)) {
+            Write-Host "❌ Dockerfile not found: $dockerfilePath" -ForegroundColor Red
+            Write-Host "   Available templates: user, azure, custom" -ForegroundColor Yellow
+            exit 1
+        }
+        
+        $customTag = $Tag ?? $Template
+        $customImageTag = "${BaseImageName}-${customTag}:latest"
+        
+        Write-Information "Using Dockerfile: $dockerfilePath" -Tags 'Status'
+        Write-Information "Running: docker build -f $dockerfilePath -t $customImageTag ." -Tags 'Status'
+        docker build -f $dockerfilePath -t $customImageTag .
+        
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host ""
+            Write-Host "✅ Custom Docker image built successfully: $customImageTag" -ForegroundColor Green
+            Write-Host ""
+            Write-Host "📋 Image Details:" -ForegroundColor Cyan
+            Write-Host "   Base image:   ${BaseImageName}:latest" -ForegroundColor Gray
+            Write-Host "   Custom image: $customImageTag" -ForegroundColor Gray
+            Write-Host "   Template:     $Template" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "🚀 Run the custom image:" -ForegroundColor Cyan
+            Write-Host "   docker run -d -p 8080:8080 -e POSHMCP_MODE=web $customImageTag" -ForegroundColor White
+            Write-Host ""
+            Write-Host "🔍 Inspect modules installed:" -ForegroundColor Cyan
+            Write-Host "   docker run --rm $customImageTag pwsh -Command 'Get-Module -ListAvailable'" -ForegroundColor White
+            
+            if ($Template -eq 'azure') {
+                Write-Host ""
+                Write-Host "☁️  Azure Template Notes:" -ForegroundColor Cyan
+                Write-Host "   - Az modules are pre-installed" -ForegroundColor Gray
+                Write-Host "   - Managed Identity startup script included" -ForegroundColor Gray
+                Write-Host "   - Set env vars: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID" -ForegroundColor Gray
+            }
+        } else {
+            Write-Host ""
+            Write-Host "❌ Custom Docker build failed" -ForegroundColor Red
+            exit 1
+        }
+    }
+    
     'run' {
+        Write-Information "Note: Running base image. To run a custom image, use docker run directly." -Tags 'Status'
+        
         switch ($Mode) {
             { $_ -in 'web', 'http' } {
                 Write-Information "Starting PoshMcp Web Server..." -Tags 'Status'
@@ -149,7 +215,9 @@ switch ($Command) {
             
             default {
                 Write-Host "❌ Unknown mode: $Mode" -ForegroundColor Red
-                Show-Usage
+                Write-Host "Valid modes: web, http, stdio, server" -ForegroundColor Yellow
+                Write-Host "Use 'Get-Help .\docker.ps1 -Examples' for usage examples" -ForegroundColor Cyan
+                exit 1
             }
         }
     }
@@ -180,6 +248,8 @@ switch ($Command) {
     
     default {
         Write-Host "❌ Unknown command: $Command" -ForegroundColor Red
-        Show-Usage
+        Write-Host "Valid commands: build, build-base, build-custom, run, stop, logs, clean" -ForegroundColor Yellow
+        Write-Host "Use 'Get-Help .\docker.ps1 -Examples' for usage examples" -ForegroundColor Cyan
+        exit 1
     }
 }

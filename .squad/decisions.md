@@ -423,6 +423,181 @@ Authoritative record of scope, architecture, and process decisions.
 
 ---
 
+## 2026-03-27: Azure Bicep Modularization for Subscription-Scoped Deployment
+
+**Decision Maker:** Amy Wong (DevOps/Platform/Azure)  
+**Status:** ✅ Implemented  
+
+**Decision:** Refactor Azure Bicep deployment to use **module-based architecture** for proper cross-scope resource deployment, separating subscription-scoped resources (resource group, role assignments) from resource group-scoped resources (Container Apps, monitoring, identity).
+
+**Context:** The original `main.bicep` file attempted to deploy all resources at subscription scope while setting `scope: resourceGroup(name)` on individual resources. This violates Bicep's fundamental scope rule and caused 10 compilation errors (BCP139, BCP265, BCP037, BCP120). Requirement was to enable **subscription-scoped RBAC role assignments** for Managed Identity while properly deploying Container Apps resources at resource group scope.
+
+**Solution Architecture:**
+```
+main.bicep (targetScope = 'subscription')
+├── Creates Resource Group
+├── Invokes Module: resources.bicep (scope: az.resourceGroup(rg.name))
+│   └── Deploys all RG-scoped resources
+└── Assigns RBAC role at subscription level
+```
+
+**Key Changes:**
+1. **main.bicep** (subscription scope): Create resource group, invoke `resources.bicep` module with RG scope, deploy role assignment at subscription scope, aggregate outputs from module
+2. **resources.bicep** (resource group scope): No structural changes (already correct), contains Log Analytics, App Insights, Container Apps Environment, Managed Identity, Container App
+3. **Role Assignment Fix:** Changed from `guid(subscription().id, resources.outputs.principalId, ...)` (runtime value) to `guid(subscription().id, resourceGroupName, containerAppName, roleId)` (deterministic)
+
+**Alternatives Considered:**
+- Single Resource Group-Scoped Template: Rejected - Cannot assign subscription-level RBAC roles from resource group scope
+- Two Separate Templates (Manual Orchestration): Rejected - Adds complexity and requires manual two-step deployment
+- Module-Based (Selected): Enables single-command deployment with proper scope separation
+
+**Consequences:**
+- ✅ Compilation errors eliminated, subscription-scoped role assignments enabled
+- ✅ Clean separation of concerns, reusable module pattern, follows Bicep best practices
+- ✅ Zero breaking changes to deployment process, in-place updates (no downtime)
+- Adds one level of indirection (module call), developers must understand scope hierarchy
+
+**Best Practices Applied:** Modules for cross-scope deployment, no `name` on module (modern convention), symbolic references using `resources.outputs.*`, `az.*` namespace for functions, deterministic GUIDs
+
+**Documentation:** [MODULARIZATION.md](infrastructure/azure/MODULARIZATION.md), [BICEP-REFACTOR-SUMMARY.md](infrastructure/azure/BICEP-REFACTOR-SUMMARY.md)
+
+**Validation:** Both `main.bicep` and `resources.bicep` compile with 0 errors, `az deployment sub what-if` successful
+
+**Rationale:** Enables production Azure deployment with proper RBAC while maintaining clean architecture and zero breaking changes. Follows established Bicep patterns for cross-scope resource deployment.
+
+---
+
+## 2026-03-27: Docker Base Image Architecture - Module-Based Separation
+
+**Decision Maker:** Farnsworth (Lead Architect)  
+**Status:** ✅ Implemented  
+
+**Decision:** Redesigned Docker architecture to use **base image + derived image pattern**, separating MCP server runtime from user customizations.
+
+**Context:** Original Docker architecture embedded PowerShell module installation directly into base Dockerfile via build arguments. This created coupling (base runtime mixed with user customization), maintainability issues (every customization required rebuilding entire base image), and violated Docker layering best practices.
+
+**Solution:**
+1. **Base Image (`Dockerfile`)**: Contains only MCP server runtime, no module installation code, clean minimal reusable foundation (~500MB)
+2. **Module Installation Script (`install-modules.ps1`)**: Standalone PowerShell script with proper error handling, supports version constraints, reusable in any context
+3. **User Dockerfiles (Examples)**: `examples/Dockerfile.user` (basic), `examples/Dockerfile.azure` (Azure automation), `examples/Dockerfile.custom` (multi-stage build)
+
+**Key Implementation:**
+- Refactored base `Dockerfile` to ~100 lines (from 150), removed all module installation code
+- Created `install-modules.ps1` (400+ lines) with comprehensive error handling, parameter validation, environment variable support
+- Created 3 example Dockerfiles covering 90% of use cases
+- Updated documentation: `DOCKER.md` (~500 lines rewrite), `examples/README.md` (~400 lines)
+
+**Alternatives Considered:**
+- Keep Build Arguments: Rejected - Violates separation of concerns
+- Only Runtime Module Installation: Rejected - Poor performance (2-10s per module vs 50-200ms)
+- Monolithic Multi-Purpose Images: Rejected - Multiple large images harder to maintain
+- Script-Only Approach: Rejected - Users would handle .NET build, PowerShell installation
+
+**Consequences:**
+- ✅ Clearer responsibility boundaries, easier to maintain base image, faster base builds
+- ✅ Users can version control their Dockerfile + configs, reusable module installation script
+- ✅ Better layer caching, multi-stage build support, reusable tooling
+- ⚠️ Increased complexity: Users need to write a Dockerfile (mitigated with 3 copy-paste templates)
+- ⚠️ Broken backward compatibility: Old `docker.sh build --modules` approach deprecated (still works, migration guide provided)
+- ⚠️ Learning curve: Users must understand Dockerfile basics (mitigated with comprehensive documentation)
+
+**PowerShell Best Practices (Hermes-Reviewed):** `$ErrorActionPreference = 'Stop'`, `-ErrorAction Stop` for critical operations, proper stream-based output, exit codes for integration, version constraint mapping
+
+**Performance Impact:**
+- Build time comparable (5-7 min total, with caching custom rebuilds ~1-2 min)
+- Runtime performance unchanged (modules pre-installed)
+- Base image ~500MB, user images 550-800MB depending on modules
+
+**Rationale:** Separates concerns between PoshMcp team (runtime) and users (customization), follows Docker best practices, provides reusable tooling, maintains flexibility while improving maintainability.
+
+---
+
+## 2026-03-27: Docker PowerShell Scripts - Critical Error Handling Fixes
+
+**Implementer:** Hermes (PowerShell Expert)  
+**Status:** ✅ Complete  
+
+**Decision:** Fix critical error handling and stream usage issues in Docker module pre-installation feature (`Dockerfile` embedded PowerShell and `docker.ps1` script).
+
+**Context:** Initial implementation of Docker module pre-installation had critical PowerShell issues that violated 2026-03-27 stream refactoring patterns. The Dockerfile embedded PowerShell had error handling bugs causing silent failures, and `docker.ps1` used `Write-Host` instead of native PowerShell streams.
+
+**Critical Fixes Applied:**
+
+**Priority 1 (Dockerfile):**
+1. **Missing $LASTEXITCODE Checking**: Added `if ($LASTEXITCODE -ne 0) { throw }` after every `Install-Module` call to catch failures that don't propagate through `-ErrorAction Stop`
+2. **Boolean Parameter Bug**: Fixed `-SkipPublisherCheck:\$$SKIP_PUBLISHER_CHECK` which expanded to string `"$true"` instead of boolean. Now converts environment variable to boolean first: `$skipCheck = [System.Convert]::ToBoolean('$SKIP_PUBLISHER_CHECK')`
+3. **Silent Failure Handling**: Changed `catch { Write-Warning }` to `catch { Write-Error -ErrorAction Stop; exit 1 }` to fail build on module installation errors
+
+**Priority 2 (docker.ps1):**
+1. **Added [CmdletBinding()]**: Enables `-Verbose`, `-InformationAction`, `-ErrorAction` common parameters
+2. **Stream Refactoring**: Converted status messages from `Write-Host` to `Write-Information -Tags 'Status'`, set `$InformationPreference = 'Continue'`, kept final success messages as `Write-Host` (presentation layer only)
+3. **Verbose Diagnostics**: Added `Write-Verbose` for build arguments, image name, module scope, container operations
+
+**Verification:**
+- ✅ Invalid module name → Build FAILS (exit 1)
+- ✅ Install-Module error → Build FAILS (caught by try/catch)
+- ✅ Boolean parameter correctly interpreted (not string)
+- ✅ Status messages use Write-Information with -Tags 'Status'
+- ✅ [CmdletBinding()] present, common parameters enabled
+- ✅ Follows 2026-03-27 stream refactoring patterns
+
+**Consequences:**
+- ✅ No silent failures - module installation errors immediately fail Docker build
+- ✅ PowerShell pipeline integration - scripts work with logging frameworks and automation
+- ✅ Diagnostic support - `-Verbose` switch provides troubleshooting information
+- ✅ Pattern consistency - matches established PowerShell best practices from deploy.ps1
+
+**PowerShell Quality Score:** Dockerfile improved from 4/10 → 9/10, docker.ps1 improved from 6/10 → 9/10
+
+**Rationale:** Prevents production incidents from silently failing module installations, ensures PowerShell code follows established team patterns, enables proper observability and troubleshooting.
+
+---
+
+## 2026-03-27: Hermes PowerShell Review Policy
+
+**Requested by:** Steven Murawski (via Squad Coordinator)  
+**Status:** Active  
+
+**Decision:** Establish **mandatory Hermes review** for all new or updated PowerShell scripts before merge.
+
+**Context:** Docker module pre-installation feature introduced new PowerShell scripts (`docker.ps1`, embedded PowerShell in `Dockerfile`) that initially had critical issues violating established patterns from 2026-03-27 stream refactoring. User policy requires Hermes expert review for any PowerShell changes to maintain quality and consistency.
+
+**Scope of Review:**
+- Parameter handling and validation
+- PowerShell stream usage (Write-Information/Verbose/Error vs Write-Host)
+- Error handling patterns (`$ErrorActionPreference`, `-ErrorAction`, `$LASTEXITCODE` checking)
+- CmdletBinding and parameter attributes
+- Exit code handling
+- PowerShell anti-patterns and best practices compliance
+
+**Process:**
+1. Create review request in `.squad/decisions/inbox/` when PowerShell changes made
+2. Hermes performs review within 1 business day (when available)
+3. Hermes provides APPROVED or CHANGES REQUESTED with specific feedback
+4. Implementation team addresses feedback, iteration continues until approval
+5. Merge only after Hermes approval
+
+**Key Review Criteria:**
+- Follows PowerShell best practices from established patterns
+- Proper PowerShell streams used (Information/Verbose/Error vs Write-Host)
+- Error handling is semantic and appropriate
+- Parameter names follow conventions
+- No PowerShell anti-patterns
+- Edge cases handled (empty inputs, version constraints, timeouts)
+
+**Consequences:**
+- ✅ All PowerShell code follows established best practices
+- ✅ Team learns PowerShell patterns through review feedback
+- ✅ Prevents PowerShell anti-patterns from entering codebase
+- ⚠️ Adds review step to PowerShell changes (worth the quality improvement)
+- 📋 Hermes availability becomes critical path for PowerShell work
+
+**Example Success:** Hermes review of Docker scripts identified 3 critical Dockerfile bugs (silent failures, boolean interpolation, missing exit code checks) and 3 important docker.ps1 issues (missing CmdletBinding, Write-Host usage, no verbose diagnostics), preventing production incidents.
+
+**Rationale:** PowerShell has established patterns requiring domain expertise. Hermes already successfully reviewed Amy's multi-tenant implementation (9/10) and caught critical issues in Docker scripts. Consistent expert review prevents technical debt and maintains high code quality bar.
+
+---
+
 ## Decision Template
 
 ```markdown

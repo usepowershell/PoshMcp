@@ -130,7 +130,10 @@ function Set-AzureSubscription {
     Write-Information "Using subscription: $currentSub ($currentSubId)" -Tags 'Status'
 }
 
-# Create resource group if it doesn't exist
+# NOTE: Resource group creation is now handled by the Bicep template at subscription scope
+# The template will create the resource group if it doesn't exist
+# See main.bicep: resource resourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01'
+<#
 function New-ResourceGroupIfNeeded {
     Write-Information "Checking resource group: $ResourceGroup" -Tags 'Status'
     Write-Verbose "Executing: az group show --name $ResourceGroup"
@@ -149,6 +152,7 @@ function New-ResourceGroupIfNeeded {
         Write-Information "Resource group already exists" -Tags 'Status'
     }
 }
+#>
 
 # Create or get Azure Container Registry
 function Initialize-ContainerRegistry {
@@ -241,14 +245,14 @@ function Deploy-Infrastructure {
     $params | ConvertTo-Json -Depth 10 | Set-Content $tempParams
     
     try {
-        # Deploy using Bicep
+        # Deploy using Bicep at subscription scope
         $deploymentName = "poshmcp-deployment-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
         Write-Verbose "Deployment name: $deploymentName"
         
-        Write-Verbose "Executing: az deployment group create"
-        az deployment group create `
+        Write-Verbose "Executing: az deployment sub create"
+        az deployment sub create `
             --name $deploymentName `
-            --resource-group $ResourceGroup `
+            --location $Location `
             --template-file $BicepFile `
             --parameters "@$tempParams" `
             --verbose
@@ -317,7 +321,8 @@ function Invoke-Deployment {
     Test-Prerequisites
     Set-AzureTenant
     Set-AzureSubscription
-    New-ResourceGroupIfNeeded
+    # Resource group creation is now handled by the Bicep template at subscription scope
+    # New-ResourceGroupIfNeeded
     Initialize-ContainerRegistry
     Build-AndPushImage
     Deploy-Infrastructure

@@ -98,6 +98,91 @@
 - Backward compatible (optional parameter uses current tenant if not specified)
 
 **Functions Added:**
+
+---
+
+### 2026-03-27: Bicep Modularization - Subscription-Scoped Deployment
+
+**Implementation:** Refactored Azure Bicep infrastructure to use proper modularization for cross-scope deployment.
+
+**Problem:** Original `main.bicep` attempted to deploy resource group-scoped resources directly from subscription scope using invalid `scope:` property, causing 10 compilation errors (BCP139, BCP265, BCP037, BCP120).
+
+**Root Cause:**
+- **Bicep Rule Violation:** Resources must match file's `targetScope`; cross-scope requires modules
+- Invalid syntax: `scope: resourceGroup(name)` on individual resources
+- Outdated function: `resourceGroup()` instead of `az.resourceGroup()`
+- Non-deterministic GUID: Role assignment used runtime module output
+
+**Solution - Module-Based Architecture:**
+
+```
+main.bicep (subscription)
+├── Resource Group ✅
+├── Module → resources.bicep (resourceGroup) ✅
+│   ├── Log Analytics
+│   ├── Application Insights
+│   ├── Container Apps Environment
+│   ├── Managed Identity
+│   └── Container App
+└── Role Assignment (subscription-scoped) ✅
+```
+
+**Key Architectural Decisions:**
+
+1. **Subscription Scope Entry Point:**
+   - `main.bicep` at subscription scope creates RG and role assignments
+   - Uses `az.resourceGroup(rg.name)` for module scope declaration
+   - Aggregates outputs from module
+
+2. **Resource Group Module:**
+   - `resources.bicep` contains all RG-scoped resources (already existed, now properly used)
+   - No changes required to resource definitions
+   - Outputs consumed by parent for role assignment
+
+3. **Role Assignment Fix:**
+   - Changed from runtime GUID: `guid(subscription().id, resources.outputs.principalId, ...)`
+   - To deterministic GUID: `guid(subscription().id, resourceGroupName, containerAppName, roleId)`
+   - Ensures name calculable at deployment start (BCP120 requirement)
+
+**Files Modified:**
+- `infrastructure/azure/main.bicep` - Refactored to use module pattern
+- `infrastructure/azure/resources.bicep` - Minor formatting only (already correct)
+
+**Files Created:**
+- `infrastructure/azure/MODULARIZATION.md` - Comprehensive architecture documentation
+- `infrastructure/azure/BICEP-REFACTOR-SUMMARY.md` - Executive summary
+
+**Validation Results:**
+- ✅ main.bicep: 0 errors, 0 warnings
+- ✅ resources.bicep: 0 errors, 0 warnings
+- ✅ Deployment scripts already correct (`az deployment sub create`)
+
+**Zero Breaking Changes:**
+- Same parameters
+- Same resources
+- Same outputs
+- Same deployment command
+- In-place update (no downtime)
+
+**Best Practices Applied:**
+- No `name` property on module (modern Bicep)
+- Symbolic references (`resources.outputs.X`) instead of `resourceId()`
+- `az.resourceGroup()` namespace function
+- Deterministic role assignment names
+- Proper multi-line formatting for ternary operators
+
+**Lessons:**
+- Bicep **requires modules** for cross-scope deployment - cannot use `scope:` property on resources
+- Always use `az.*` namespace functions in modern Bicep
+- Role assignment names must be deterministic (calculable at deployment start)
+- Module pattern enables clean separation of concerns while maintaining single source of parameters
+- Existing deployment scripts using `az deployment sub create` were already correct
+
+**Migration Path:**
+- Existing deployments: Run standard deployment → Bicep updates in place → Zero downtime
+- New deployments: No special steps required
+
+---
 - `Set-AzureTenant` (PowerShell): Handles tenant switching and validation
 - `set_tenant` (Bash): Equivalent tenant management
 
