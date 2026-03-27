@@ -1,4 +1,27 @@
 {
-  "universe_usage_history": [],
-  "assignment_cast_snapshots": {}
+  "universe_usage_history": [
+    {
+      "universe": "futurama",
+      "first_used": "2026-03-27T00:00:00.000Z",
+      "last_used": "2026-03-27T17:00:00.000Z",
+      "total_assignments": 8
+    }
+  ],
+  "assignment_cast_snapshots": {
+    "assignment_1": {
+      "assignment_id": "assignment_1",
+      "created_at": "2026-03-27T00:00:00.000Z",
+      "universe": "futurama",
+      "agents": [
+        { "role": "Lead / Architect", "name": "farnsworth" },
+        { "role": "Backend Developer", "name": "bender" },
+        { "role": "PowerShell Expert", "name": "hermes" },
+        { "role": "DevOps / Platform / Azure", "name": "amy" },
+        { "role": "Tester", "name": "fry" },
+        { "role": "Developer Advocate", "name": "leela" },
+        { "role": "Session Logger", "name": "scribe" },
+        { "role": "Work Monitor", "name": "ralph" }
+      ]
+    }
+  }
 }
