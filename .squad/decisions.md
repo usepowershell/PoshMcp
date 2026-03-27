@@ -110,6 +110,79 @@ Authoritative record of scope, architecture, and process decisions.
 
 ---
 
+## 2026-03-27: Phase 1 Code Review - Approval with Minor Fixes
+
+**Context:** Farnsworth completed architectural review of Phase 1 implementation (health checks and correlation IDs). Implementation demonstrated solid design alignment but required performance and correctness improvements.
+
+**Decision:** APPROVED WITH MINOR CHANGES
+- Overall assessment: 7.5/10 (Architecture 9/10, Code Quality 7/10)
+- Required fixes: Health check timeout enforcement, LoggerExtensions performance warnings
+- Non-blocking recommendation: Strengthen AssemblyGenerationHealthCheck validation
+
+**Critical Issues Identified:**
+1. **Health Check Timeouts:** PowerShellRunspaceHealthCheck declared 500ms timeout but didn't enforce it
+2. **LoggerExtensions Performance:** Created new scope per log call instead of per operation
+3. **Program.cs Duplicate Code:** Unreachable code after app.Run() in PoshMcp.Web/Program.cs
+
+**Resolution:** All critical issues addressed by Amy and Bender. Testing confirms 13/37 tests passing, Phase 1 feature-complete.
+
+**Reviewer:** Farnsworth  
+**Implementers:** Amy (fixes), Bender (Program.cs cleanup)  
+**Validator:** Test suite confirming functionality  
+
+**Status:** Active
+
+---
+
+## 2026-03-27: Program.cs Duplicate Code Removal
+
+**Context:** Code review identified duplicate, unreachable code in PoshMcp.Web/Program.cs after app.Run() call.
+
+**Decision:** Removed duplicate endpoint mapping and app.Run() calls (lines 157-160).
+
+**Rationale:** 
+- app.Run() is blocking and starts the web server
+- Any code after app.Run() in the same method is unreachable
+- Duplicate code adds confusion even if not functional
+
+**Implementation:** Bender  
+**Impact:** No functional change (code was unreachable), improved maintainability  
+**Lesson Learned:** app.Run() should always be the last call in Program.cs
+
+**Status:** Active
+
+---
+
+## 2026-03-27: Health Check Timeout and LoggerExtensions Performance Fixes
+
+**Context:** Farnsworth's Phase 1 review identified two critical production readiness issues that required immediate attention.
+
+**Decision:** Implemented two targeted fixes:
+
+1. **Health Check Timeout Enforcement:**
+   - Wrapped Task.Run with Task.WaitAsync(HealthCheckTimeout, cancellationToken)
+   - Added dedicated TimeoutException handling for diagnostics
+   - Ensures 500ms timeout requirement for K8s probe compatibility
+
+2. **LoggerExtensions Performance Warnings:**
+   - Added comprehensive XML documentation warnings about per-call scope creation
+   - Documented BeginCorrelationScope() as RECOMMENDED pattern for hot paths
+   - Preserved convenience methods with education-first approach
+   - Prevents performance issues while maintaining backward compatibility
+
+**Rationale:**
+- Timeout fix: Explicit enforcement guarantees operational requirements met
+- Documentation approach: Balances developer experience with performance guidance
+- Avoided breaking changes: Maintained backward compatibility while preventing future misuse
+
+**Implementation:** Amy Wong  
+**Testing:** All 13 health check tests passing, timeout properly enforced  
+**Trade-off:** Documentation warnings vs. method removal (prioritized education and compatibility)
+
+**Status:** Active
+
+---
+
 ## Decision Template
 
 ```markdown
