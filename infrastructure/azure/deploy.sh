@@ -28,7 +28,8 @@ LOCATION="${LOCATION:-eastus}"
 CONTAINER_APP_NAME="${CONTAINER_APP_NAME:-poshmcp}"
 REGISTRY_NAME="${REGISTRY_NAME:-}"
 IMAGE_TAG="${IMAGE_TAG:-$(date +%Y%m%d-%H%M%S)}"
-SUBSCRIPTION="${SUBSCRIPTION:-}"
+AZURE_SUBSCRIPTION="${AZURE_SUBSCRIPTION:-}"
+TENANT_ID="${AZURE_TENANT_ID:-}"
 
 # Helper functions
 log_info() {
@@ -72,15 +73,71 @@ check_prerequisites() {
     log_success "All prerequisites met"
 }
 
+# Validate and set Azure tenant
+set_tenant() {
+    log_info "Validating Azure tenant access"
+    
+    # Get current tenant
+    CURRENT_TENANT_ID=$(az account show --query tenantId -o tsv)
+    if [ $? -ne 0 ]; then
+        log_error "Failed to get current tenant"
+        exit 1
+    fi
+    
+    log_info "Current tenant: $CURRENT_TENANT_ID"
+    
+    # If TENANT_ID specified, validate and switch if needed
+    if [ -n "$TENANT_ID" ]; then
+        log_info "Target tenant: $TENANT_ID"
+        
+        if [ "$CURRENT_TENANT_ID" != "$TENANT_ID" ]; then
+            log_info "Switching to tenant: $TENANT_ID"
+            
+            # Attempt login to specified tenant
+            if ! az login --tenant "$TENANT_ID" &> /dev/null; then
+                log_error "Failed to login to tenant $TENANT_ID. Verify you have access to this tenant."
+                exit 1
+            fi
+            
+            # Verify we're now in the correct tenant
+            NEW_TENANT_ID=$(az account show --query tenantId -o tsv)
+            if [ "$NEW_TENANT_ID" != "$TENANT_ID" ]; then
+                log_error "Failed to switch to tenant $TENANT_ID (current: $NEW_TENANT_ID)"
+                exit 1
+            fi
+            
+            log_success "Successfully switched to tenant: $TENANT_ID"
+        else
+            log_info "Already in target tenant"
+        fi
+    fi
+    
+    # Store the active tenant ID for use in commands
+    ACTIVE_TENANT_ID=$(az account show --query tenantId -o tsv)
+    log_info "Using tenant: $ACTIVE_TENANT_ID"
+}
+
 # Set Azure subscription
 set_subscription() {
-    if [ -n "$SUBSCRIPTION" ]; then
-        log_info "Setting subscription to: $SUBSCRIPTION"
-        az account set --subscription "$SUBSCRIPTION"
+    if [ -n "$AZURE_SUBSCRIPTION" ]; then
+        log_info "Setting subscription to: $AZURE_SUBSCRIPTION"
+        az account set --subscription "$AZURE_SUBSCRIPTION"
+        if [ $? -ne 0 ]; then
+            log_error "Failed to set subscription"
+            exit 1
+        fi
+        
+        # Validate subscription belongs to current tenant
+        SUB_TENANT_ID=$(az account show --query tenantId -o tsv)
+        if [ "$SUB_TENANT_ID" != "$ACTIVE_TENANT_ID" ]; then
+            log_error "Subscription '$AZURE_SUBSCRIPTION' belongs to tenant $SUB_TENANT_ID, but currently logged into tenant $ACTIVE_TENANT_ID. Tenant mismatch detected."
+            exit 1
+        fi
     fi
     
     CURRENT_SUB=$(az account show --query name -o tsv)
-    log_info "Using subscription: $CURRENT_SUB"
+    CURRENT_SUB_ID=$(az account show --query id -o tsv)
+    log_info "Using subscription: $CURRENT_SUB ($CURRENT_SUB_ID)"
 }
 
 # Create resource group if it doesn't exist
@@ -217,6 +274,7 @@ main() {
     echo ""
     
     check_prerequisites
+    set_tenant
     set_subscription
     create_resource_group
     setup_container_registry

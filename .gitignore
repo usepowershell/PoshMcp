@@ -1,5 +1,8 @@
 .vscode/
 
+# Azure deployment - local parameters with secrets
+infrastructure/azure/parameters.local.json
+
 # Build results
 [Dd]ebug/
 [Dd]ebugPublic/

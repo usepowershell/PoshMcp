@@ -1,0 +1,41 @@
+# Example: Azure-Enabled PoshMcp Image
+#
+# This Dockerfile creates a PoshMcp image with Azure PowerShell modules pre-installed.
+# Suitable for Azure automation, resource management, and managed identity scenarios.
+#
+# Build: docker build -f examples/Dockerfile.azure -t poshmcp-azure .
+# Run:   docker run -d -p 8080:8080 \
+#          -e AZURE_CLIENT_ID=your-client-id \
+#          -e AZURE_TENANT_ID=your-tenant-id \
+#          -e AZURE_SUBSCRIPTION_ID=your-subscription-id \
+#          poshmcp-azure
+
+# Start from the PoshMcp base image
+FROM poshmcp:latest
+
+# Switch to root for installation
+USER root
+
+# Copy the module installation script
+COPY install-modules.ps1 /tmp/
+
+# Install Azure PowerShell modules with specific versions
+# Using >= constraints to ensure minimum required versions
+ENV INSTALL_PS_MODULES="Az.Accounts@>=2.12.0 Az.Resources Az.Storage Az.KeyVault"
+RUN pwsh /tmp/install-modules.ps1 && rm /tmp/install-modules.ps1
+
+# Copy Azure-specific configuration
+COPY examples/appsettings.advanced.json /app/web/appsettings.json
+COPY examples/appsettings.advanced.json /app/server/appsettings.json
+
+# Copy Azure startup script (connects to Azure with Managed Identity)
+COPY examples/startup.ps1 /app/startup.ps1
+
+# Switch back to non-root user
+USER appuser
+
+# Environment variables for Azure integration (overrideable at runtime)
+ENV AZURE_ENVIRONMENT="AzurePublic"
+ENV ENABLE_MANAGED_IDENTITY="true"
+
+# The base image already defines ENTRYPOINT

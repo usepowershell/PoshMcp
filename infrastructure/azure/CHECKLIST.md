@@ -31,7 +31,7 @@ Use this checklist to ensure a smooth deployment of PoshMcp to Azure Container A
 - [ ] Set `REGISTRY_NAME` (required)
 - [ ] Set `RESOURCE_GROUP` (optional, defaults to poshmcp-rg)
 - [ ] Set `LOCATION` (optional, defaults to eastus)
-- [ ] Set `SUBSCRIPTION` (optional, uses current subscription)
+- [ ] Set `AZURE_SUBSCRIPTION` (optional, uses current subscription)
 
 ## Deployment
 

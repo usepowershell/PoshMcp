@@ -40,6 +40,11 @@ public class PowerShellConfiguration
     public bool EnableDynamicReloadTools { get; set; } = false;
 
     /// <summary>
+    /// Environment customization settings (startup scripts, module installation, etc.)
+    /// </summary>
+    public EnvironmentConfiguration Environment { get; set; } = new();
+
+    /// <summary>
     /// Gets all function names from all configuration sources
     /// </summary>
     public List<string> GetAllFunctionNames()

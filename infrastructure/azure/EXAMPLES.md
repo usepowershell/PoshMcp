@@ -9,7 +9,7 @@
 export REGISTRY_NAME="mycontainerreg"           # Your ACR name (without .azurecr.io)
 export RESOURCE_GROUP="poshmcp-production"      # Resource group name
 export LOCATION="eastus"                        # Azure region
-export SUBSCRIPTION="My Azure Subscription"     # Subscription name (optional)
+export AZURE_SUBSCRIPTION="My Azure Subscription"     # Subscription name (optional)
 
 # Change to infrastructure directory
 cd infrastructure/azure
@@ -29,7 +29,7 @@ chmod +x validate.sh deploy.sh
 $env:REGISTRY_NAME = "mycontainerreg"
 $env:RESOURCE_GROUP = "poshmcp-production"
 $env:LOCATION = "eastus"
-$env:SUBSCRIPTION = "My Azure Subscription"
+$env:AZURE_SUBSCRIPTION = "My Azure Subscription"
 
 # Change to infrastructure directory
 Set-Location infrastructure/azure

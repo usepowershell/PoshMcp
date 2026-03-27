@@ -173,3 +173,162 @@ Team now has two reference implementations of PowerShell best practices. New Pow
 **Session:** 2026-03-27T environment variable review
 
 ---
+
+### 2026-03-27: Docker PowerShell Scripts Review
+
+**Task:** Reviewed three files implementing Docker module pre-installation feature for PowerShell best practices compliance.
+
+**Files Reviewed:**
+1. [docker.ps1](docker.ps1) - NEW PowerShell build script for Windows users
+2. [docker.sh](docker.sh) - UPDATED bash script (PowerShell-related logic)
+3. [Dockerfile](Dockerfile) - UPDATED with embedded PowerShell for module installation
+
+**Key Findings:**
+
+**docker.ps1 (6/10) - CHANGES REQUESTED:**
+- ❌ Missing [CmdletBinding()] attribute - Disables -Verbose, -InformationAction
+- ❌ Uses Write-Host throughout instead of Write-Information
+- ❌ No Write-Verbose for diagnostics
+- ✅ Correct $LASTEXITCODE checking after docker commands
+- ✅ Good parameter validation with [ValidateSet]
+- ✅ Modern syntax (null-coalescing operator ??)
+
+**Dockerfile (4/10) - CRITICAL BUGS:**
+- ❌ **CRITICAL:** No $LASTEXITCODE checking after Install-Module
+- ❌ **CRITICAL:** Boolean parameter bug: `-SkipPublisherCheck:\$$SKIP_PUBLISHER_CHECK` interpolates to string, not boolean
+- ❌ **CRITICAL:** try/catch with Write-Warning swallows errors - build succeeds even if ALL modules fail
+- ⚠️ Missing -ErrorAction Stop on Set-PSRepository
+- ✅ Excellent version parsing logic (supports @, >=, <=)
+- ✅ Robust module list parsing (handles commas, semicolons, spaces)
+
+**docker.sh (8/10) - APPROVED:**
+- ✅ Good bash practices (set -e, proper error handling)
+- ✅ Consistent functionality with docker.ps1
+- ✅ PowerShell-related parameter logic is correct
+- ✅ No PowerShell-specific issues
+
+**Pattern Violations Identified:**
+- **Stream Usage:** docker.ps1 violates 2026-03-27 stream refactoring patterns (Write-Host instead of Write-Information)
+- **Error Handling:** Dockerfile embedded PowerShell doesn't check $LASTEXITCODE after critical Install-Module operations
+- **Silent Failures:** Dockerfile error handling allows build to succeed despite module installation failures
+
+**Critical Issues Requiring Immediate Fix:**
+1. Dockerfile: Add $LASTEXITCODE checking after every Install-Module call
+2. Dockerfile: Fix SkipPublisherCheck boolean interpolation (convert string to boolean)
+3. Dockerfile: Change error handling from Write-Warning to fail-fast (throw/exit 1)
+4. docker.ps1: Add [CmdletBinding()] attribute
+5. docker.ps1: Refactor to use Write-Information with -Tags 'Status' instead of Write-Host for status messages
+
+**PowerShell Best Practices Reinforced:**
+- Always check $LASTEXITCODE after external commands and Install-Module
+- Boolean parameters in string interpolation contexts require explicit conversion
+- Error handling should fail fast for build-time operations
+- Use PowerShell native streams (Information/Verbose/Error) for proper pipeline integration
+- [CmdletBinding()] is essential for advanced function features
+
+**Testing Recommendations:**
+- Test with invalid module names (should FAIL build, not warn)
+- Test with version constraints (@>=5.0.0)
+- Test with mixed valid/invalid modules
+- Verify -Verbose output after adding [CmdletBinding()]
+
+**Files Modified:**
+- [.squad/decisions/inbox/hermes-docker-scripts-review.md](.squad/decisions/inbox/hermes-docker-scripts-review.md) - Comprehensive review document
+
+**Decision Document:**
+- [.squad/decisions/inbox/hermes-docker-scripts-review.md](.squad/decisions/inbox/hermes-docker-scripts-review.md)
+
+**Impact:** Identified critical error handling bugs in Dockerfile that would cause silent failures during module installation. Recommended pattern alignment with established 2026-03-27 stream refactoring standards. Feature requires fixes before production deployment.
+
+**Verdict:** ⚠️ **CHANGES REQUESTED** - Priority 1 (Critical) issues must be fixed before merge.
+
+**Session:** 2026-03-27T docker scripts review
+
+---
+
+### 2026-03-27: Docker PowerShell Scripts Critical Fixes
+
+**Task:** Fixed critical issues identified in docker scripts review (Priority 1 and Priority 2 issues).
+
+**Files Fixed:**
+1. [Dockerfile](Dockerfile) - Fixed critical error handling and boolean interpolation bugs
+2. [docker.ps1](docker.ps1) - Refactored to use PowerShell native streams
+
+**Priority 1 Fixes (Dockerfile - Critical):**
+
+1. **Added $LASTEXITCODE checking** - Every Install-Module call now checks exit code:
+   ```powershell
+   Install-Module ... -ErrorAction Stop;
+   if ($LASTEXITCODE -ne 0) { throw "Failed to install module $moduleName" };
+   ```
+
+2. **Fixed SkipPublisherCheck boolean interpolation bug**:
+   - **Before:** `-SkipPublisherCheck:\$$SKIP_PUBLISHER_CHECK` (expanded to string "$true", not boolean)
+   - **After:** Convert environment variable to PowerShell boolean first:
+     ```powershell
+     $skipCheck = [System.Convert]::ToBoolean('$SKIP_PUBLISHER_CHECK');
+     Install-Module ... -SkipPublisherCheck:$skipCheck ...
+     ```
+
+3. **Changed error handling to fail fast**:
+   - **Before:** `catch { Write-Warning "Failed..." }` (swallowed errors, build continued)
+   - **After:** `catch { Write-Error "Failed..." -ErrorAction Stop; exit 1; }` (fails build immediately)
+
+**Priority 2 Fixes (docker.ps1 - Important):**
+
+1. **Added [CmdletBinding()] attribute** - Enables -Verbose, -InformationAction, -ErrorAction common parameters
+
+2. **Set $InformationPreference = 'Continue'** - Makes Information stream visible by default for interactive use
+
+3. **Converted status messages to Write-Information with -Tags 'Status'**:
+   - "Building Docker image..." → `Write-Information ... -Tags 'Status'`
+   - "Starting PoshMcp Web Server..." → `Write-Information ... -Tags 'Status'`
+   - "Stopping PoshMcp Servers..." → `Write-Information ... -Tags 'Status'`
+   - "Cleaning up containers..." → `Write-Information ... -Tags 'Status'`
+
+4. **Added Write-Verbose for diagnostics**:
+   - Build arguments logging: `Write-Verbose "Build arguments: $($buildArgs -join ' ')"`
+   - Image name logging: `Write-Verbose "Image name: $ImageName"`
+   - Module scope logging: `Write-Verbose "Module scope: $Scope"`
+   - Mode logging in run command: `Write-Verbose "Mode: $Mode"`
+   - Cleanup operation details: `Write-Verbose "Removing all containers, images, volumes and orphans"`
+
+5. **Kept final success/error messages as Write-Host** - Presentation layer only (✅ checkmarks with color)
+
+**PowerShell Best Practices Applied:**
+- ✅ Fail-fast error handling for build-time operations
+- ✅ Proper $LASTEXITCODE checking after critical operations
+- ✅ Boolean type conversion for string interpolation contexts
+- ✅ Native PowerShell streams (Information/Verbose) for status and diagnostics
+- ✅ CmdletBinding for advanced function capabilities
+- ✅ Semantic tagging (`-Tags 'Status'`) for filterable logging
+
+**Testing Logic Verification:**
+- Invalid module names → Build FAILS (exit 1)
+- Install-Module errors → Build FAILS (caught and propagated)
+- Boolean parameter → Correctly interpreted (not string)
+- Verbose output → Available via `-Verbose` switch
+- Information output → Visible by default, suppressible via `-InformationAction`
+
+**Impact:**
+- **Dockerfile:** Module installation failures now fail the Docker build (prevents silent failures)
+- **docker.ps1:** Script now integrates with PowerShell pipeline and logging frameworks
+- **Error Handling:** Failed module installations are caught immediately, not at runtime
+- **Debugging:** Verbose diagnostics available for troubleshooting
+- **Automation:** Proper stream usage enables automated tooling integration
+
+**Pattern Compliance:**
+Both files now comply with 2026-03-27 PowerShell stream refactoring patterns established in infrastructure/azure/deploy.ps1.
+
+**Files Modified:**
+- [Dockerfile](Dockerfile) - Lines 50-95 (PowerShell module installation section)
+- [docker.ps1](docker.ps1) - Added CmdletBinding, refactored all status messages to Information stream, added Verbose diagnostics
+
+**Decision Document:**
+- [.squad/decisions/inbox/hermes-docker-fixes-complete.md](.squad/decisions/inbox/hermes-docker-fixes-complete.md)
+
+**Verdict:** ✅ **ALL CRITICAL ISSUES FIXED** - Ready for testing and merge.
+
+**Session:** 2026-03-27T docker fixes implementation
+
+---

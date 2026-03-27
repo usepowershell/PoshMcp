@@ -1,54 +1,331 @@
-# PowerShell MCP Server
+# PoshMcp
 
-This is a Model Context Protocol (MCP) server that provides access to a persistent PowerShell runspace, allowing commands to maintain state across multiple invocations.
+**Transform PowerShell into AI-consumable tools with zero code changes.**
 
-## Features
+PoshMcp is a [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that dynamically exposes PowerShell scripts, cmdlets, and modules as secure, discoverable tools for AI agents and automation platforms. Built for PowerShell experts who want to extend their automation capabilities to AI-powered workflows.
 
-- **Persistent PowerShell Runspace**: Variables, functions, and modules persist across command executions
-- **Dynamic Tool Discovery**: Automatically discovers PowerShell commands and exposes them as MCP tools
-- **State Management**: Maintains session state including variables and custom functions
-- **Proper Cleanup**: Automatically disposes resources on application shutdown
+---
+
+## What is PoshMcp?
+
+PoshMcp bridges the gap between traditional PowerShell automation and modern AI interfaces. It provides:
+
+- **Automatic Tool Discovery**: PowerShell commands become AI tools without manual registration
+- **Persistent State**: Variables, functions, and modules persist across command executions
+- **Flexible Deployment**: Run as stdio server (for MCP clients) or HTTP server (for web integration)
+- **Enterprise Ready**: Built on .NET 8 with OpenTelemetry, health checks, and Azure Managed Identity support
+
+**Perfect for:** DevOps engineers, system administrators, and PowerShell toolmakers who want to democratize access to their automation scripts.
+
+---
+
+## Quick Example
+
+Expose a PowerShell command to an AI agent:
+
+```powershell
+# Your PowerShell command - no changes needed
+Get-Service -Name "wuauserv"
+```
+
+PoshMcp automatically:
+1. Discovers `Get-Service` and its parameters
+2. Generates JSON schema for AI consumption
+3. Exposes it as an MCP tool named `Get-Service`
+4. Handles parameter validation and execution
+5. Returns structured results to the AI agent
+
+**Result**: AI agents can now check Windows service status using natural language.
+
+---
+
+## Key Features
+
+### For PowerShell Experts
+- **Zero Boilerplate**: Existing scripts work without modification
+- **State Preservation**: Variables and custom functions persist between calls
+- **Pattern-Based Filtering**: Include/exclude commands via configuration
+- **Rich Metadata**: Automatic extraction from `Get-Help` and `Get-Command`
+
+### For Operations Teams
+- **Multi-User Isolation**: Separate PowerShell runspaces in web mode
+- **Health Monitoring**: `/health` and `/health/ready` endpoints for Kubernetes
+- **Correlation IDs**: Request tracing across distributed systems
+- **OpenTelemetry**: Built-in metrics and observability
+
+### For Developers
+- **Dual Transport**: stdio (MCP clients) or HTTP (web integration)
+- **Dynamic Assembly Generation**: Efficient caching of command metadata
+- **Thread-Safe Execution**: Async/await throughout with proper synchronization
+- **VS Code Integration**: Debug configurations and tasks included
+
+---
 
 ## Getting Started
 
 ### Prerequisites
 
-- .NET 8.0 SDK
-- PowerShell 7.x (included via Microsoft.PowerShell.SDK package)
+- [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+- PowerShell 7.x (included via Microsoft.PowerShell.SDK)
 
-### Building the Project
+### Installation
 
 ```bash
+# Clone the repository
+git clone https://github.com/yourusername/poshmcp.git
+cd poshmcp
+
+# Build the project
 dotnet build
+
+# Run stdio server (for MCP clients)
+dotnet run --project PoshMcp.Server
+
+# OR run web server (for HTTP access)
+dotnet run --project PoshMcp.Web
 ```
 
-### Running the MCP Server
+### Docker Deployment
 
 ```bash
-dotnet run
+# Build and run web server
+./docker.sh build
+./docker.sh run web
+
+# Build with pre-installed PowerShell modules (faster startup)
+./docker.sh build --modules "Pester PSScriptAnalyzer"
+./docker.sh run web
+
+# Access at http://localhost:8080
+curl http://localhost:8080/health | jq
 ```
 
-The server will start and listen for MCP protocol messages via stdio.
+**Performance Tip:** Pre-install PowerShell modules at build time to reduce container startup time from ~30s to <1s. See [DOCKER.md](DOCKER.md) for details.
 
+See [DOCKER.md](DOCKER.md) for detailed Docker configuration and [docs/DOCKER-BUILD-MODULES.md](docs/DOCKER-BUILD-MODULES.md) for module pre-installation guide.
 
-### Running the MCP Server (Web)
+### Azure Container Apps
+
+Deploy to Azure with one command:
 
 ```bash
-dotnet run --project PoshMCP.Web
+cd infrastructure/azure
+./deploy.sh
 ```
 
-The server will start and listen for MCP protocol messages via HTTP.
+See [infrastructure/azure/README.md](infrastructure/azure/README.md) for deployment guide.
 
-### Development in VS Code
+---
 
-This project includes VS Code configuration files:
+## Usage
 
-- `.vscode/launch.json` - Debug configurations
-- `.vscode/tasks.json` - Build and run tasks
-- `.vscode/settings.json` - Project-specific settings
-- `.vscode/mcp.json` - MCP server configuration
+### Basic Configuration
 
-#### Available VS Code Tasks
+Configure which PowerShell commands to expose in `appsettings.json`:
+
+```json
+{
+  "PowerShellConfiguration": {
+    "FunctionNames": [
+      "Get-Process",
+      "Get-Service"
+    ],
+    "IncludePatterns": [
+      "Get-*"
+    ]
+  }
+}
+```
+
+### Built-in Utility Tools
+
+PoshMcp includes commands for working with PowerShell output:
+
+- **`get-last-command-output`**: Retrieve cached output from the last command
+- **`sort-last-command-output`**: Sort results by property
+- **`filter-last-command-output`**: Filter using PowerShell expressions
+- **`group-last-command-output`**: Group results by property
+
+### Persistent State Example
+
+Variables persist across multiple calls:
+
+```powershell
+# Call 1: Set a variable
+$MyVariable = "Hello from PoshMcp"
+
+# Call 2: Access the variable
+Write-Output $MyVariable
+# Output: Hello from PoshMcp
+```
+
+---
+
+## Environment Customization
+
+PoshMcp supports rich environment customization to tailor the PowerShell session to your needs:
+
+### Startup Scripts
+
+Execute custom PowerShell code during initialization:
+
+```json
+{
+  "PowerShellConfiguration": {
+    "Environment": {
+      "StartupScript": "$Global:CompanyName = 'Acme'; Write-Host 'Ready!'",
+      "StartupScriptPath": "/config/startup.ps1"
+    }
+  }
+}
+```
+
+### Module Installation
+
+Install modules from PowerShell Gallery at startup:
+
+```json
+{
+  "PowerShellConfiguration": {
+    "Environment": {
+      "InstallModules": [
+        {
+          "Name": "Az.Accounts",
+          "MinimumVersion": "2.0.0",
+          "Repository": "PSGallery"
+        }
+      ]
+    }
+  }
+}
+```
+
+### Custom Module Paths
+
+Load modules from local directories or mounted volumes:
+
+```json
+{
+  "PowerShellConfiguration": {
+    "Environment": {
+      "ModulePaths": ["/mnt/shared-modules", "./custom-modules"],
+      "ImportModules": ["MyCustomModule"]
+    }
+  }
+}
+```
+
+**For complete documentation and examples, see:**
+- [Environment Customization Guide](docs/ENVIRONMENT-CUSTOMIZATION.md) - Comprehensive guide with use cases
+- [examples/](examples/) - Docker Compose examples and sample configurations
+
+---
+
+## Architecture
+
+PoshMcp is organized into three main projects:
+
+- **PoshMcp.Server**: stdio-based MCP server for direct client integration
+- **PoshMcp.Web**: HTTP-based server with multi-user isolation
+- **PoshMcp.Tests**: Comprehensive test suite (unit, functional, integration)
+
+### Core Components
+
+- **McpToolFactoryV2**: Dynamic tool schema generation from PowerShell commands
+- **PowerShellRunspaceHolder**: Thread-safe, persistent PowerShell runspace management
+- **PowerShellAssemblyGenerator**: Cached dynamic assembly generation for performance
+- **OperationContext**: Correlation ID tracking for distributed tracing
+- **Health Checks**: PowerShell runspace, assembly generation, and configuration validation
+
+For architectural details, see [DESIGN.md](DESIGN.md).
+
+---
+
+## Documentation
+
+- **[DESIGN.md](DESIGN.md)** - Architecture and design philosophy
+- **[DOCKER.md](DOCKER.md)** - Docker deployment guide
+- **[docs/ENVIRONMENT-CUSTOMIZATION.md](docs/ENVIRONMENT-CUSTOMIZATION.md)** - Environment customization guide
+- **[docs/IMPLEMENTATION-GUIDE.md](docs/IMPLEMENTATION-GUIDE.md)** - Implementation guide for developers
+- **[infrastructure/azure/](infrastructure/azure/README.md)** - Azure deployment documentation
+- **[PoshMcp.Tests/README.md](PoshMcp.Tests/README.md)** - Test organization and guidelines
+- **[examples/](examples/)** - Configuration examples and Docker Compose files
+
+---
+
+## Configuration
+
+### Stdio Mode (MCP Clients)
+
+Configure in your MCP client settings:
+
+```json
+{
+  "mcpServers": {
+    "poshmcp": {
+      "command": "dotnet",
+      "args": ["run", "--project", "/path/to/PoshMcp.Server"]
+    }
+  }
+}
+```
+
+### Web Mode (HTTP)
+
+Runs on port 8080 by default. Configure via `appsettings.json`:
+
+```json
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information"
+    }
+  },
+  "PowerShellConfiguration": {
+    "FunctionNames": ["Get-Process", "Get-Service"],
+    "IncludePatterns": ["Get-*"],
+    "ExcludePatterns": ["*-Dangerous*"]
+  }
+}
+```
+
+### Environment-Specific Configuration
+
+- **`appsettings.json`**: Default configuration
+- **`appsettings.azure.json`**: Azure-specific settings with exclude patterns
+- **`appsettings.modules.json`**: Module-specific configuration for importing PowerShell modules
+
+#### PowerShellConfiguration Options
+
+- **`FunctionNames`**: Array of specific PowerShell function names to expose
+- **`Modules`**: Array of PowerShell modules to import (e.g., `Microsoft.PowerShell.Management`)
+- **`IncludePatterns`**: Wildcard patterns for functions to include (e.g., `Get-*`)
+- **`ExcludePatterns`**: Wildcard patterns for functions to exclude
+
+### Azure Managed Identity Support
+
+When deployed to Azure (Container Apps, Container Instances, AKS), PoshMcp automatically supports Azure Managed Identity for secure resource access with zero code changes:
+
+```powershell
+# PowerShell commands automatically use the managed identity
+Connect-AzAccount -Identity
+Get-AzResource
+```
+
+---
+
+## Development
+
+### VS Code Integration
+
+This project includes complete VS Code configuration:
+
+- **`.vscode/launch.json`** - Debug configurations for both servers
+- **`.vscode/tasks.json`** - Build, run, and watch tasks
+- **`.vscode/settings.json`** - Project-specific settings
+- **`.vscode/mcp.json`** - MCP server configuration
+
+#### Available Tasks
 
 - **Build**: `Ctrl+Shift+P` → "Tasks: Run Task" → "build"
 - **Run MCP Server**: `Ctrl+Shift+P` → "Tasks: Run Task" → "run-mcp-server"
@@ -59,162 +336,99 @@ This project includes VS Code configuration files:
 1. Set breakpoints in your code
 2. Press `F5` or use "Run and Debug" → "Launch PowerShell MCP Server"
 
-## Usage
+### Testing
 
-Once the MCP server is running, it exposes PowerShell commands as tools that can be called by MCP clients. The server automatically discovers available PowerShell commands and includes several built-in utility tools.
+Run the comprehensive test suite:
 
-### Core Utility Tools
+```bash
+# Run all tests
+dotnet test
 
-- `get-last-command-output` - Retrieves cached output from the last executed PowerShell command
-- `sort-last-command-output` - Sorts cached command output using Sort-Object with optional property and descending parameters
-- `filter-last-command-output` - Filters cached command output using Where-Object with PowerShell filter scripts
-- `group-last-command-output` - Groups cached command output using Group-Object with property-based grouping
-
-### Persistent State
-
-The PowerShell runspace maintains state between calls:
-
-```powershell
-# Set a variable in one call
-$MyVariable = "Hello World"
-
-# Access it in another call
-Write-Output $MyVariable  # Outputs: Hello World
+# Run specific test categories
+dotnet test --filter "FullyQualifiedName~Unit"
+dotnet test --filter "FullyQualifiedName~Integration"
 ```
 
-## Architecture
-
-The project is organized into several key components:
-
-### Core Components
-
-- **Program.cs**: Main entry point and MCP server setup
-- **McpToolFactoryV2.cs**: Factory for creating MCP tools from PowerShell commands
-- **PowerShell/** directory contains the PowerShell integration layer:
-
-### PowerShell Integration Layer
-
-- **PowerShellRunspaceHolder**: Singleton pattern for persistent PowerShell runspace management
-- **PowerShellAssemblyGenerator**: Dynamic assembly generation for PowerShell commands with caching, sorting, and filtering capabilities
-- **PowerShellCleanupService**: Hosted service for proper resource cleanup and state management
-- **PowerShellConfiguration**: Configuration and setup for PowerShell runspace
-- **IPowerShellRunspace & PowerShellRunspaceImplementations**: Thread-safe PowerShell execution interfaces
-- **PowerShellSchemaGenerator**: JSON schema generation for PowerShell command parameters
-- **PowerShellParameterUtils & PowerShellObjectSerializer**: Parameter processing and object serialization utilities
-
-### Key Features
-
-- **Thread-Safe Execution**: Proper async synchronization for concurrent PowerShell operations
-- **State Persistence**: Variables, functions, and modules persist across command executions
-- **Dynamic Tool Discovery**: Automatically discovers PowerShell commands and exposes them as MCP tools
-- **Caching & Utilities**: Built-in sort and filter operations on cached command output
-
-## Configuration
-
-The server can be configured through:
-
-- **Configuration files**: `appsettings.json` and environment-specific variants
-- **Environment variables** (e.g., `DOTNET_ENVIRONMENT`)
-- **PowerShell execution policy** (set to Bypass in the runspace)
-- **Custom initialization scripts** in the PowerShell runspace
-
-### Configuration Files
-
-The server uses standard .NET configuration files:
-
-#### `appsettings.json` (Default Configuration)
-```json
-{
-    "Logging": {
-        "LogLevel": {
-            "Default": "Information",
-            "Microsoft.Hosting.Lifetime": "Information"
-        }
-    },
-    "PowerShellConfiguration": {
-        "FunctionNames": [
-            "Get-SomeData",
-            "Get-Process",
-            "Get-Service",
-            "Get-ChildItem"
-        ],
-        "IncludePatterns": [
-            "Get-*"
-        ]
-    }
-}
-```
-
-#### Environment-Specific Configuration Files
-
-- **`appsettings.azure.json`**: Azure-specific configuration with exclude patterns for sensitive Azure commands
-- **`appsettings.modules.json`**: Module-based configuration that imports specific PowerShell modules
-
-#### PowerShellConfiguration Options
-
-- **`FunctionNames`**: Array of specific PowerShell function names to expose as MCP tools
-- **`Modules`**: Array of PowerShell modules to import (e.g., `"Microsoft.PowerShell.Management"`)
-- **`IncludePatterns`**: Array of wildcard patterns for functions to include (e.g., `"Get-*"`)
-- **`ExcludePatterns`**: Array of wildcard patterns for functions to exclude from exposure
-
-### Azure Deployment and Managed Identity
-
-When running the server in Azure (e.g., Azure Container Instances, Azure Container Apps, or Azure Kubernetes Service), the container automatically supports Azure Managed Identity for secure access to Azure resources. No additional code configuration is required - the PowerShell commands executed within the container can leverage the managed identity assigned to the Azure resource.
-
-For example:
-```powershell
-# PowerShell commands automatically use the container's managed identity
-Connect-AzAccount -Identity
-Get-AzResource
-```
-
-See [DOCKER.md](DOCKER.md) for container deployment instructions.
-
-## Testing and Debugging
+See [PoshMcp.Tests/README.md](PoshMcp.Tests/README.md) for test organization details.
 
 ### Interactive Test Client
 
-The project includes an interactive CLI test client that allows you to test and debug the MCP server:
+Test MCP server functionality with the included CLI client:
 
 ```bash
-# Run the test client (builds and starts automatically)
-./run-test-client.sh
+dotnet run --project TestClient
 
-# Or manually
-cd TestClient
-dotnet run
+# Interactive commands:
+# init - Initialize connection
+# list-tools - View available tools
+# call <tool-name> - Execute a tool
+# call-with-params <tool> <params> - Execute with parameters
 ```
 
-#### Test Client Commands
+---
 
-The test client provides an interactive shell with the following commands:
+## Contributing
 
-- `help` - Show available commands
-- `init` - Send initialize request to server
-- `list-tools` - List all available tools from the server
-- `ping` - Send a ping request
-- `call <tool-name>` - Call a tool without parameters
-- `call-with-params <tool> <params>` - Call a tool with parameters
-- `raw <json>` - Send raw JSON message
-- `quit`/`exit` - Exit the client
+Contributions are welcome! This project uses a squad-based development approach with specialized team roles.
 
-#### Example Test Session
+**Before contributing:**
+1. Check existing issues or create a new one
+2. Follow the coding conventions in [.github/copilot-instructions.md](.github/copilot-instructions.md)
+3. Add tests for new functionality (see test organization in `PoshMcp.Tests/`)
+4. Ensure all tests pass: `dotnet test`
 
-```
-MCP> init
-MCP> list-tools
-MCP> call get-child-item-items
-MCP> call get-last-command-output
-MCP> call sort-last-command-output
-MCP> call-with-params filter-last-command-output '{"filterScript": "$_.Name -like \'dotnet\'"}'
-MCP> call-with-params group-last-command-output '{"property": "Extension"}'
-MCP> quit
-```
+**Development workflow:**
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/my-feature`
+3. Make your changes with tests
+4. Run tests and ensure they pass
+5. Commit with clear messages
+6. Push and create a Pull Request
 
-The test client automatically:
-- Starts the MCP server as a subprocess
-- Formats and displays JSON requests/responses
-- Handles MCP protocol communication
-- Provides error handling and logging
+---
 
-## Development
+## Roadmap
+
+Current focus areas:
+
+- ✅ **Phase 1 Complete**: Health checks and correlation IDs
+- 🔄 **Phase 2 In Progress**: Structured error codes and configuration validation
+- 📋 **Planned**: Command timeouts, circuit breakers, enhanced metrics
+
+See [.squad/decisions.md](.squad/decisions.md) for architectural decisions and [.squad/quick-wins-summary.md](.squad/quick-wins-summary.md) for implementation details.
+
+---
+
+## Resources
+
+- **[Model Context Protocol](https://modelcontextprotocol.io)** - MCP specification and documentation
+- **[PowerShell Documentation](https://docs.microsoft.com/powershell/)** - PowerShell reference
+- **[.NET 8 Documentation](https://docs.microsoft.com/dotnet/)** - .NET platform documentation
+- **[Azure Container Apps](https://learn.microsoft.com/azure/container-apps/)** - Azure deployment guide
+
+---
+
+## Support
+
+- **Issues**: [GitHub Issues](../../issues) - Report bugs or request features
+- **Discussions**: [GitHub Discussions](../../discussions) - Ask questions and share ideas
+- **Documentation**: See the `infrastructure/azure/` directory for deployment guides
+
+---
+
+## License
+
+This project is under active development. License information will be added soon.
+
+---
+
+## Acknowledgements
+
+Built with:
+- [Model Context Protocol](https://modelcontextprotocol.io) - AI-to-tool communication standard
+- [Microsoft.PowerShell.SDK](https://www.nuget.org/packages/Microsoft.PowerShell.SDK/) - PowerShell automation
+- [OpenTelemetry](https://opentelemetry.io/) - Observability infrastructure
+
+---
+
+**Transform your PowerShell expertise into AI-powered tools. Get started today!**

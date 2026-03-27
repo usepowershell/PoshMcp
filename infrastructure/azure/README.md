@@ -45,6 +45,9 @@ export REGISTRY_NAME="myregistry"  # Your Azure Container Registry name (without
 export RESOURCE_GROUP="poshmcp-rg"
 export LOCATION="eastus"
 
+# Optional: Specify Azure tenant (for multi-tenant scenarios)
+export AZURE_TENANT_ID="00000000-0000-0000-0000-000000000000"
+
 # Run deployment
 cd infrastructure/azure
 chmod +x deploy.sh
@@ -57,7 +60,86 @@ chmod +x deploy.sh
 # Set required parameters and run deployment
 cd infrastructure/azure
 ./deploy.ps1 -RegistryName "myregistry" -ResourceGroup "poshmcp-rg" -Location "eastus"
+
+# Optional: Specify Azure tenant (for multi-tenant scenarios)
+./deploy.ps1 -RegistryName "myregistry" -TenantId "00000000-0000-0000-0000-000000000000"
 ```
+
+## Multi-Tenant Support
+
+The deployment scripts support working with multiple Azure tenants, which is useful when:
+- You have subscriptions in different Azure Active Directory tenants
+- You need to deploy to a specific tenant in a multi-tenant organization
+- You work across customer environments
+
+### Specifying a Tenant
+
+Use the `-TenantId` parameter (PowerShell) or `AZURE_TENANT_ID` environment variable (Bash):
+
+**PowerShell:**
+```powershell
+./deploy.ps1 -RegistryName "myregistry" -TenantId "11111111-2222-3333-4444-555555555555"
+```
+
+**Bash:**
+```bash
+export AZURE_TENANT_ID="11111111-2222-3333-4444-555555555555"
+./deploy.sh
+```
+
+### Tenant Validation
+
+The deployment script automatically:
+1. **Validates tenant access**: Checks if you're logged into the specified tenant
+2. **Switches tenants**: Performs `az login --tenant` if needed
+3. **Validates subscription**: Ensures the target subscription belongs to the correct tenant
+4. **Shows tenant info**: Displays current tenant ID in deployment output
+
+### Multi-Tenant Scenarios
+
+#### Scenario 1: Explicit Tenant Selection
+
+When you know the tenant ID:
+```powershell
+./deploy.ps1 -RegistryName "myregistry" `
+             -TenantId "contoso-tenant-id" `
+             -Subscription "contoso-subscription"
+```
+
+#### Scenario 2: Using Current Tenant
+
+If you don't specify a tenant, the deployment uses your currently logged-in tenant:
+```powershell
+az login
+./deploy.ps1 -RegistryName "myregistry"
+```
+
+#### Scenario 3: CI/CD with Managed Identity
+
+In Azure DevOps or GitHub Actions, the tenant is typically implicit through the service connection:
+```bash
+# Service principal automatically authenticated to correct tenant
+./deploy.sh
+```
+
+#### Scenario 4: Cross-Tenant Deployment
+
+If you need to switch between tenants:
+```powershell
+# Deploy to customer A
+./deploy.ps1 -RegistryName "customerA-registry" -TenantId "customer-a-tenant-id"
+
+# Deploy to customer B
+./deploy.ps1 -RegistryName "customerB-registry" -TenantId "customer-b-tenant-id"
+```
+
+### Error Handling
+
+The scripts provide clear error messages for tenant-related issues:
+
+- **Tenant access denied**: "Failed to login to tenant {id}. Verify you have access to this tenant."
+- **Tenant mismatch**: "Subscription belongs to tenant {X}, but currently logged into tenant {Y}."
+- **Invalid tenant**: Azure CLI will return a detailed error if the tenant ID is invalid or inaccessible
 
 ## Configuration
 

@@ -1,0 +1,70 @@
+# Example: Fully Customized PoshMcp Image
+#
+# This Dockerfile demonstrates advanced customization patterns:
+# - Multiple module sets (testing, Azure, custom modules)
+# - Custom appsettings per mode (web vs stdio)
+# - Multi-stage build to keep final image smaller
+# - Custom startup scripts and helper functions
+# - Additional tools or dependencies
+#
+# Build: docker build -f examples/Dockerfile.custom -t poshmcp-custom .
+# Run:   docker run -d -p 8080:8080 -v /path/to/logs:/app/logs poshmcp-custom
+
+# Build stage: Install modules in a separate layer
+FROM poshmcp:latest AS module-installer
+
+# Switch to root for installation
+USER root
+
+# Copy the module installation script
+COPY install-modules.ps1 /tmp/
+
+# Install comprehensive module set
+# This includes testing, Azure, and quality tooling
+ENV INSTALL_PS_MODULES="Pester@>=5.5.0 PSScriptAnalyzer Az.Accounts@>=2.12.0 Az.Resources Az.Storage Plaster"
+RUN pwsh /tmp/install-modules.ps1
+
+# Final stage: Copy modules from installer stage
+FROM poshmcp:latest
+
+# Switch to root for setup
+USER root
+
+# Copy installed modules from build stage
+# This keeps the final image smaller by not including installation artifacts
+COPY --from=module-installer /usr/local/share/powershell/Modules /usr/local/share/powershell/Modules
+
+# Install additional system dependencies (example: git for version control operations)
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create directories for custom scripts and logs
+RUN mkdir -p /app/scripts /app/logs && chown -R appuser:appuser /app/scripts /app/logs
+
+# Copy custom configuration files
+COPY examples/appsettings.advanced.json /app/web/appsettings.json
+COPY examples/appsettings.advanced.json /app/server/appsettings.json
+
+# Copy custom startup and helper scripts
+COPY examples/startup.ps1 /app/startup.ps1
+# COPY scripts/* /app/scripts/
+
+# Set PowerShell module path to include custom module locations
+ENV PSModulePath="/usr/local/share/powershell/Modules:/app/scripts/modules:$PSModulePath"
+
+# Custom environment variables for your organization
+ENV COMPANY_NAME="YourCompany"
+ENV ENVIRONMENT="Production"
+ENV LOG_LEVEL="Information"
+
+# Switch back to non-root user
+USER appuser
+
+# Volume mount points for logs and custom scripts
+VOLUME ["/app/logs", "/app/scripts"]
+
+# The base image already defines ENTRYPOINT
+# Optionally override with custom entrypoint:
+# ENTRYPOINT ["./custom-entrypoint.sh"]

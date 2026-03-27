@@ -376,6 +376,53 @@ Authoritative record of scope, architecture, and process decisions.
 
 ---
 
+## 2026-03-27: PowerShell Review Policy - Hermes Mandatory Review
+
+**Context:** PoshMcp is built on PowerShell SDK and includes PowerShell automation scripts. PowerShell has specific idioms, stream patterns, and best practices that differ from general scripting. Recent work (stream refactoring, multi-tenant deployment) established strong patterns that new PowerShell code should follow.
+
+**Decision:** Hermes MUST review all new or updated PowerShell scripts before merge.
+
+**Scope:**
+- ✅ All `.ps1` files (scripts)
+- ✅ PowerShell code embedded in other files (Dockerfiles, CI/CD, documentation)
+- ✅ PowerShell configuration patterns in C# code (if they affect PowerShell execution semantics)
+- ❌ Trivial typo fixes in PowerShell comments
+
+**Review Criteria:**
+1. **Stream usage:** Proper use of Write-Information/Verbose/Warning/Error (not Write-Host)
+2. **Error handling:** Semantic error categories, proper $ErrorActionPreference
+3. **Parameter naming:** Following PowerShell and Azure conventions
+4. **CmdletBinding:** Proper use of [CmdletBinding()] and parameter attributes
+5. **Pipeline compatibility:** Script works in automation/pipeline scenarios
+6. **State management:** Correct variable scoping (script/global/local)
+7. **Performance:** No common anti-patterns (like creating scopes per log call)
+
+**Process:**
+1. Create review request in `.squad/decisions/inbox/` when PowerShell changes are made
+2. Hermes performs review within 1 business day (when available)
+3. Hermes provides APPROVED or CHANGES REQUESTED with specific feedback
+4. Implementation team addresses feedback, iteration continues until approval
+5. Merge only after Hermes approval
+
+**Rationale:**
+- PowerShell has established patterns from stream refactoring (2026-03-27)
+- Hermes already successfully reviewed Amy's multi-tenant implementation (9/10)
+- Consistent application of patterns prevents technical debt
+- Expert review catches PowerShell-specific issues other reviewers might miss
+- Maintains high code quality bar for PowerShell automation
+
+**Consequences:**
+- ✅ All PowerShell code follows established best practices
+- ✅ Team learns PowerShell patterns through review feedback
+- ✅ Prevents PowerShell anti-patterns from entering codebase
+- ⚠️ Adds review step to PowerShell changes (worth the quality improvement)
+- 📋 Hermes availability becomes critical path for PowerShell work
+
+**Requested by:** Steven Murawski  
+**Status:** Active
+
+---
+
 ## Decision Template
 
 ```markdown
