@@ -10,6 +10,7 @@ How to decide who handles what.
 | C# / .NET implementation | Bender | Error handling, circuit breakers, retry logic, APIs |
 | PowerShell integration | Hermes | Runspace management, command execution, PowerShell-specific patterns |
 | Observability & monitoring | Amy | OpenTelemetry metrics, health checks, diagnostics, logging |
+| Azure cloud & deployment | Amy | Azure resources, Container Apps, App Service, Application Insights, Key Vault |
 | Testing & quality | Fry | Unit tests, integration tests, performance baselines |
 | Code review | Farnsworth | Review PRs, check quality, architectural alignment |
 | Testing & validation | Fry | Verify implementations, edge cases, test coverage |

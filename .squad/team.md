@@ -15,7 +15,7 @@
 | Farnsworth | Lead / Architect | [charter](agents/farnsworth/charter.md) | 🟢 Active |
 | Bender | Backend Developer | [charter](agents/bender/charter.md) | 🟢 Active |
 | Hermes | PowerShell Expert | [charter](agents/hermes/charter.md) | 🟢 Active |
-| Amy | DevOps / Platform | [charter](agents/amy/charter.md) | 🟢 Active |
+| Amy | DevOps / Platform / Azure | [charter](agents/amy/charter.md) | 🟢 Active |
 | Fry | Tester | [charter](agents/fry/charter.md) | 🟢 Active |
 | Scribe | Session Logger | [charter](agents/scribe/charter.md) | 🟢 Active |
 | Ralph | Work Monitor | [charter](agents/ralph/charter.md) | 🟢 Active |
