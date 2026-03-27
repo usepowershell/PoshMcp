@@ -183,6 +183,54 @@ Authoritative record of scope, architecture, and process decisions.
 
 ---
 
+## 2026-03-27: PowerShell Native Streams for Deploy Scripts
+
+**Context:** Azure deployment script (`infrastructure/azure/deploy.ps1`) was using custom helper functions (`Write-Info`, `Write-Success`, `Write-ErrorMessage`) that wrapped `Write-Host` calls with different colors. This violated PowerShell best practices by bypassing the pipeline and prevented integration with PowerShell's built-in stream infrastructure.
+
+**Decision:** Refactored deploy.ps1 to use native PowerShell streams:
+- **Write-Information** (with `-Tags`) for status messages and successes
+- **Write-Verbose** for diagnostic details (command execution info)
+- **Write-Warning** for warnings (already correct, kept native)
+- **Write-Error** for errors with proper categories (`NotInstalled`, `AuthenticationError`, `InvalidOperation`)
+- **Write-Host** only for formatted summary output requiring color
+
+**Alternatives Considered:**
+1. Keep custom functions and add comment-based help → Rejected: Still bypasses pipeline
+2. Switch everything to Write-Host → Rejected: Worse than current state
+3. Use Write-Output for all messages → Rejected: Pollutes return values
+4. Native streams with proper categorization → **Selected**
+
+**Rationale:**
+- Pipeline compatibility: Output can be captured/redirected using standard mechanisms
+- User control: Respects `-Verbose`, `-InformationAction`, `-ErrorAction` parameters
+- Better automation: Integrates with logging frameworks and automation tools
+- Standards compliance: Follows approved verb naming and stream conventions
+- Enhanced diagnostics: Verbose stream provides detailed execution information
+- Reduced code: Eliminated ~40 lines of custom wrapper functions
+
+**Implementation Details:**
+- Set `$InformationPreference = 'Continue'` for interactive visibility
+- Added error categories for semantic error handling
+- Tagged Information messages (`-Tags 'Status'`, `-Tags 'Success'`) for filtering
+- Enhanced verbose logging for diagnostic traces
+- Leveraged existing `[CmdletBinding()]` for automatic parameters
+
+**Consequences:**
+- ✅ Script now pipeline-compatible for automation scenarios
+- ✅ Users can control output verbosity with standard PowerShell parameters
+- ✅ Proper integration with PowerShell logging infrastructure
+- ✅ Improved error handling with categories and structured error records
+- ⚠️ Requires PowerShell 5.0+ (for Write-Information cmdlet)
+- 📋 Pattern should be applied to other automation scripts in codebase
+
+**Implementation:** Hermes  
+**Code Reduction:** ~40 lines removed  
+**Files Modified:** [infrastructure/azure/deploy.ps1](infrastructure/azure/deploy.ps1)
+
+**Status:** Active
+
+---
+
 ## Decision Template
 
 ```markdown
