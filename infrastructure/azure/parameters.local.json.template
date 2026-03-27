@@ -1,0 +1,56 @@
+# Parameters override template for local development
+# Copy this file to parameters.local.json and fill in your values
+# parameters.local.json is gitignored and safe for secrets
+
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "containerAppName": {
+      "value": "poshmcp-dev"
+    },
+    "environmentName": {
+      "value": "poshmcp-dev-env"
+    },
+    "location": {
+      "value": "eastus"
+    },
+    "containerImage": {
+      "value": "YOUR_REGISTRY.azurecr.io/poshmcp:latest"
+    },
+    "containerRegistryServer": {
+      "value": "YOUR_REGISTRY.azurecr.io"
+    },
+    "containerRegistryUsername": {
+      "value": ""
+    },
+    "containerRegistryPassword": {
+      "value": ""
+    },
+    "minReplicas": {
+      "value": 0
+    },
+    "maxReplicas": {
+      "value": 3
+    },
+    "cpuCores": {
+      "value": "0.25"
+    },
+    "memoryGi": {
+      "value": "0.5"
+    },
+    "powerShellFunctions": {
+      "value": "Get-Process,Get-Service"
+    },
+    "enableDynamicReloadTools": {
+      "value": true
+    },
+    "tags": {
+      "value": {
+        "application": "PoshMcp",
+        "environment": "development",
+        "owner": "your-name"
+      }
+    }
+  }
+}
