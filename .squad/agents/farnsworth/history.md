@@ -254,3 +254,35 @@ PoshMcp dynamically transforms PowerShell scripts, cmdlets, and modules into sec
 
 **Decision Record:** Created detailed review at `.squad/decisions/inbox/farnsworth-phase1-review.md`
 
+---
+
+### 2026-03-27: Documentation Standards Established
+
+**Cross-Team Learning from Leela (Developer Advocate):**
+
+**Context:** Leela completed comprehensive documentation audit (162 markdown files) and revised README.md to match GitHub best practices.
+
+**Documentation Standards Formalized:**
+- README structure: Title → Tagline → What/Why → Example → Features → Getting Started → Links → Contributing → License
+- Emoji policy: Minimal/none for technical documentation (internal team docs excepted)
+- Heading conventions: Title Case for H1, sentence case for H2+
+- Code blocks: Always specify language (bash, powershell, json, csharp, text)
+- Links: Relative paths for internal, descriptive text for external
+- Quality requirements: Verify code examples, validate links, confirm technical accuracy
+
+**Migration Strategy:**
+- Phase 1: All new content follows standards (README.md as reference)
+- Phase 2: Critical docs (DESIGN.md, Azure docs, tests)
+- Phase 3: Comprehensive cleanup
+
+**Architectural Impact:**
+- DESIGN.md may need emoji reduction and formatting updates
+- Technical specifications should follow consistent structure
+- Architecture Decision Records (ADRs) if created should use deployment guide template pattern
+
+**Templates Planned:**
+- Feature documentation template
+- API documentation template
+- Tutorial template
+- Deployment guide template
+

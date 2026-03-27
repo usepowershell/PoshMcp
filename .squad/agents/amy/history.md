@@ -143,4 +143,13 @@
 
 **Session:** 2026-03-27T16:51:02Z tenant review
 
+**From Leela (Developer Advocate):**
+- Documentation standards established for consistent technical documentation
+- Azure deployment docs already follow many best practices (professional tone, clear structure)
+- All new documentation should follow standards: Title Case H1, sentence case H2+, language-tagged code blocks
+- Deployment guide template planned (use existing Azure docs as foundation)
+- Phase 2 may include minor Azure docs formatting updates for consistency
+
+**Session:** 2026-03-27T17:07:35Z documentation standards
+
 ---

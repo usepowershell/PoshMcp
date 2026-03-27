@@ -329,6 +329,53 @@ Authoritative record of scope, architecture, and process decisions.
 
 ---
 
+## 2026-03-27: Documentation Standards Baseline
+
+**Context:** During initial documentation audit, Leela (Developer Advocate) identified significant inconsistencies across 162 markdown files. Mix of emoji usage patterns, heading case styles, code block formatting, and document structure made it unclear what standards contributors should follow.
+
+**Decision:** Established comprehensive documentation standards for PoshMcp project:
+
+**README Standards:**
+- Required sections: Title → Tagline → What/Why → Example → Features → Getting Started → Links → Contributing → License
+- Professional developer-focused voice with concrete examples
+- Benefits before details approach
+
+**Style Guidelines:**
+- **Emojis:** Minimal/none in technical documentation (exception: internal team docs)
+- **Headings:** Title Case for H1, sentence case for H2+
+- **Code blocks:** Always specify language (bash, powershell, json, csharp, text)
+- **Links:** Relative paths for internal, descriptive text for external
+
+**Quality Requirements:**
+- Verify code examples work before publishing
+- Validate all links
+- Confirm technical accuracy
+- Test copy-paste commands
+
+**Migration Strategy:**
+- Phase 1: All new content follows standards immediately (README.md updated as reference)
+- Phase 2: Critical docs (DESIGN.md, Azure docs, tests) - weeks 2-3
+- Phase 3: Comprehensive cleanup as time allows
+
+**Templates to Create:**
+- Feature documentation template
+- API documentation template  
+- Tutorial template
+- Deployment guide template
+
+**Rationale:** Consistent documentation improves contributor experience, project professionalism, and reduces friction for new users. Standards based on industry best practices for technical developer tools.
+
+**Consequences:**
+- ✅ Clear guidance for all documentation work
+- ✅ README.md revised as reference implementation
+- ⚠️ Requires progressive migration of existing docs (non-blocking)
+- 📋 May add markdown linters in future for automated enforcement
+
+**Proposed by:** Leela  
+**Status:** Active
+
+---
+
 ## Decision Template
 
 ```markdown
