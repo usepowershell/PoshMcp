@@ -1,0 +1,55 @@
+# Test Dockerfile: Azure + Managed Identity Integration
+#
+# This Dockerfile is used by integration tests to validate:
+# - Building custom images from the PoshMcp base
+# - Installing Azure PowerShell modules
+# - Configuring managed identity authentication
+#
+# Build: docker build -f tests/integration/Dockerfile.azure-test -t poshmcp-azure-test --build-arg BASE_IMAGE=poshmcp:latest .
+
+ARG BASE_IMAGE=poshmcp:latest
+FROM ${BASE_IMAGE}
+
+# Switch to root for installation
+USER root
+
+# Copy the module installation script
+COPY install-modules.ps1 /tmp/
+
+# Install Azure PowerShell modules
+# Using specific versions for test reproducibility
+ENV INSTALL_PS_MODULES="Az.Accounts@2.12.0 Az.Resources@6.7.0 Az.Storage@5.5.0"
+RUN pwsh /tmp/install-modules.ps1 && rm /tmp/install-modules.ps1
+
+# Copy managed identity startup script
+COPY examples/azure-managed-identity-startup.ps1 /app/startup.ps1
+
+# Copy test configuration
+COPY examples/appsettings.advanced.json /app/web/appsettings.json
+COPY examples/appsettings.advanced.json /app/server/appsettings.json
+
+# Verify modules are installed (fail fast if something went wrong)
+RUN pwsh -NoProfile -Command " \
+    \$modules = @('Az.Accounts', 'Az.Resources', 'Az.Storage'); \
+    foreach (\$module in \$modules) { \
+        if (-not (Get-Module -ListAvailable -Name \$module)) { \
+            Write-Error \"Module \$module not found\"; \
+            exit 1; \
+        } \
+    }; \
+    Write-Host '✅ All Azure modules verified' -ForegroundColor Green \
+"
+
+# Switch back to non-root user
+USER appuser
+
+# Environment variables for Azure integration
+ENV ENABLE_MANAGED_IDENTITY="true"
+ENV AZURE_ENVIRONMENT="AzurePublic"
+
+# Label the image for identification in tests
+LABEL test.type="azure-integration"
+LABEL test.modules="Az.Accounts,Az.Resources,Az.Storage"
+LABEL test.identity="managed"
+
+# The base image already defines ENTRYPOINT and CMD

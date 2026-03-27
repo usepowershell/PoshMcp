@@ -1,0 +1,13 @@
+feat(azure): modularize Bicep deployment for subscription-scoped RBAC
+
+- Refactor to module-based architecture (main.bicep + resources.bicep)
+- Fix 10 Bicep compilation errors (BCP139, BCP265, BCP037, BCP120)
+- Enable subscription-level role assignments for Managed Identity
+- Add comprehensive documentation (MODULARIZATION.md, BICEP-REFACTOR-SUMMARY.md)
+- Zero breaking changes, supports in-place updates
+
+Closes: squad decisions inbox (5 items merged)
+
+Co-authored-by: Amy Wong <devops-platform>
+Co-authored-by: Farnsworth <lead-architect>
+Co-authored-by: Hermes <powershell-expert>

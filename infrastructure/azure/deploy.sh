@@ -140,7 +140,10 @@ set_subscription() {
     log_info "Using subscription: $CURRENT_SUB ($CURRENT_SUB_ID)"
 }
 
-# Create resource group if it doesn't exist
+# NOTE: Resource group creation is now handled by the Bicep template at subscription scope
+# The template will create the resource group if it doesn't exist
+# See main.bicep: resource resourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01'
+: '
 create_resource_group() {
     log_info "Checking resource group: $RESOURCE_GROUP"
     
@@ -152,6 +155,7 @@ create_resource_group() {
         log_info "Resource group already exists"
     fi
 }
+'
 
 # Create or get Azure Container Registry
 setup_container_registry() {
@@ -219,12 +223,12 @@ deploy_infrastructure() {
         .parameters.location.value = $location' \
        "$PARAMETERS_FILE" > "$TEMP_PARAMS"
     
-    # Deploy using Bicep
+    # Deploy using Bicep at subscription scope
     DEPLOYMENT_NAME="poshmcp-deployment-$(date +%Y%m%d-%H%M%S)"
     
-    az deployment group create \
+    az deployment sub create \
         --name "$DEPLOYMENT_NAME" \
-        --resource-group "$RESOURCE_GROUP" \
+        --location "$LOCATION" \
         --template-file "$BICEP_FILE" \
         --parameters "@$TEMP_PARAMS" \
         --verbose
@@ -276,7 +280,8 @@ main() {
     check_prerequisites
     set_tenant
     set_subscription
-    create_resource_group
+    # Resource group creation is now handled by the Bicep template at subscription scope
+    # create_resource_group
     setup_container_registry
     build_and_push_image
     deploy_infrastructure

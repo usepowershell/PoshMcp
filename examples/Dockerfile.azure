@@ -28,8 +28,8 @@ RUN pwsh /tmp/install-modules.ps1 && rm /tmp/install-modules.ps1
 COPY examples/appsettings.advanced.json /app/web/appsettings.json
 COPY examples/appsettings.advanced.json /app/server/appsettings.json
 
-# Copy Azure startup script (connects to Azure with Managed Identity)
-COPY examples/startup.ps1 /app/startup.ps1
+# Copy Azure Managed Identity startup script (authenticates to Azure)
+COPY examples/azure-managed-identity-startup.ps1 /app/startup.ps1
 
 # Switch back to non-root user
 USER appuser
