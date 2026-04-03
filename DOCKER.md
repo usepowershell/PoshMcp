@@ -1,9 +1,8 @@
-# Docker Deployment for PoshMcp Server
+# Docker deployment for PoshMcp server
 
 This directory contains Docker configuration files to containerize and deploy both the PoshMcp Web Server (HTTP) and stdio Server.
 
 ## Architecture Overview
-
 PoshMcp uses a **base image + derived image** pattern:
 
 1. **Base Image (`poshmcp:latest`)** - Contains the MCP server runtime only, no customizations
@@ -26,7 +25,6 @@ This separation provides:
 - `examples/` - Example user Dockerfiles showing customization patterns
 
 ## Quick Start
-
 ### Method 1: Using the Base Image (No Modules)
 
 ```bash
@@ -283,7 +281,17 @@ Runs the console application that communicates over stdin/stdout:
 # Run stdio server
 ./docker.sh run stdio
 
-# # Manual Docker Commands
+# View logs
+./docker.sh logs
+
+# Stop containers
+./docker.sh stop
+
+# Clean up
+./docker.sh clean
+```
+
+### Manual Docker Commands
 
 ```bash
 # Build base image
@@ -307,16 +315,6 @@ docker rm my-poshmcp-web
 ```
 
 ---
-./docker.sh logs
-
-# Stop containers
-./docker.sh stop
-
-# Clean up
-./docker.sh clean
-```
-
-## Docker Compose Profiles
 
 ## Docker Compose
 
@@ -579,13 +577,12 @@ docker build --build-arg INSTALL_PS_MODULES="Pester PSScriptAnalyzer" -t poshmcp
 
 ---
 
-## Additional Resources
+## Additional resources
 
-- [Environment Customization Guide](docs/ENVIRONMENT-CUSTOMIZATION.md) - Comprehensive guide to PowerShell environment setup
-- [Docker Build Modules Documentation](docs/DOCKER-BUILD-MODULES.md) - Legacy documentation (deprecated)
-- [Examples README](examples/README.md) - More examples and use cases
-- [Base Dockerfile](Dockerfile) - Base image source
-- [install-modules.ps1](install-modules.ps1) - Module installation script source
+- [Environment customization guide](docs/ENVIRONMENT-CUSTOMIZATION.md) — comprehensive guide to PowerShell environment setup
+- [Examples README](examples/README.md) — Dockerfile templates and Docker Compose examples
+- [Base Dockerfile](Dockerfile) — base image source
+- [install-modules.ps1](install-modules.ps1) — module installation script source
 
 ## Production Deployment
 

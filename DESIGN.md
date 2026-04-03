@@ -1,4 +1,4 @@
-# 🧠 MCP Server for PowerShell Tool Transformation
+# MCP server for PowerShell tool transformation
 
 ## Overview
 
@@ -8,7 +8,7 @@ This project bridges traditional scripting with modern AI interfaces—extending
 
 ---
 
-## 🚀 Goals
+## Goals
 
 - **Empower PowerShell Experts**: Publish scripts as AI-consumable tools with minimal friction.
 - **Secure Endpoint Exposure**: Create endpoints with support for Azure Managed Identities.
@@ -17,34 +17,34 @@ This project bridges traditional scripting with modern AI interfaces—extending
 
 ---
 
-## 🔧 Key Features
+## Key features
 
-### Tool Registration & Metadata
+### Tool registration and metadata
 - Auto-discovery of PowerShell commands via introspection (`Get-Command`, `Get-Help`)
 - Metadata extraction: name, synopsis, parameters, output types, examples
 - Programatic manifest generation for tool registration
 
-### AI Intent Mapping (provided by the MCP client)
+### AI intent mapping (provided by the MCP client)
 - Natural language interface for users
 - AI parses intent and maps to registered tools
 - Parameter extraction and prompting for missing values
 
-### Execution Engine
+### Execution engine
 - Isolated PowerShell runspace per session for resource isolation
 - Input/output translation for AI consumption
 - Azure Managed Identity support when deployed as a container in Azure (no code changes required)
 
-### Endpoint Exposure
+### Endpoint exposure
 - Comprehensive logging for traceability and debugging
 
-### Observability & Metrics (Implemented)
+### Observability and metrics (implemented)
 - OpenTelemetry integration for monitoring
 - Tool execution metrics and performance tracking
 - Session-level metrics in web mode
 
 ---
 
-## 🧱 Architecture
+## Architecture
 
 ```text
 +------------------+     +------------------+     +------------------+
@@ -57,8 +57,9 @@ This project bridges traditional scripting with modern AI interfaces—extending
 | Tool Catalog     | <-- | Tool Metadata    | <-- | PowerShell Modules|
 | & Documentation  |     | & Registration   |     | (Auto Discovery)  |
 +------------------+     +------------------+     +-------------------+
+```
 
-## 🔐 Security & Governance
+## Security and governance
 
 - Isolated PowerShell runspaces per session (multi-user isolation in web mode)
 - Comprehensive logging for audit trails
@@ -66,7 +67,7 @@ This project bridges traditional scripting with modern AI interfaces—extending
 - Configurable command filtering via include/exclude patterns
 
 
-## 🧪 Example Workflow
+## Example workflow
 
 - Toolmaker writes a PowerShell script to reset user passwords.
 - MCP server auto-discovers and registers the tool.
@@ -75,16 +76,25 @@ This project bridges traditional scripting with modern AI interfaces—extending
 - Execution result is returned; user provides feedback.
 
 
-## 🎯 Benefits
+## Benefits
 
 - Democratized Automation: Non-scripters can use advanced tools.
 - Amplified Reach: Toolmakers reach broader audiences.
 - Operational Efficiency: AI agents streamline repetitive tasks.
 
 
-## 📍 Next Steps
+## Next steps
 
 - Finalize manifest schema and auto-registration logic
 - Build MVP with AI intent mapping and secure execution
 - Pilot with PowerShell experts and AI agent consumers
 - Integrate with Azure Copilot and GitHub Copilot for enhanced DevOps workflows
+
+---
+
+## See also
+
+- [README.md](README.md) — project overview, getting started, and configuration
+- [DOCKER.md](DOCKER.md) — Docker deployment guide
+- [Environment customization guide](docs/ENVIRONMENT-CUSTOMIZATION.md) — runtime environment setup
+- [Azure deployment](infrastructure/azure/README.md) — Azure Container Apps deployment

@@ -1,8 +1,8 @@
-# Azure Container Apps Deployment Checklist
+# Azure Container Apps deployment checklist
 
 Use this checklist to ensure a smooth deployment of PoshMcp to Azure Container Apps.
 
-## Pre-Deployment
+## Pre-deployment
 
 ### Prerequisites
 - [ ] Azure CLI installed (`az version` shows v2.50.0+)
@@ -49,15 +49,15 @@ Use this checklist to ensure a smooth deployment of PoshMcp to Azure Container A
 - [ ] Health check passes
 - [ ] Application URL displayed
 
-## Post-Deployment Verification
+## Post-deployment verification
 
-### Health Checks
+### Health checks
 - [ ] Navigate to application URL (https://[app-name].[region].azurecontainerapps.io)
 - [ ] Test `/health` endpoint (detailed JSON response)
 - [ ] Test `/health/ready` endpoint (returns 200 OK)
 - [ ] Verify all checks show "Healthy" status
 
-### Logging & Monitoring
+### Logging and monitoring
 - [ ] Open Azure Portal
 - [ ] Navigate to resource group
 - [ ] Open Log Analytics workspace
@@ -71,19 +71,19 @@ Use this checklist to ensure a smooth deployment of PoshMcp to Azure Container A
 - [ ] Open Application Insights
 - [ ] Verify data is being received (Live Metrics)
 
-### Container App Verification
+### Container App verification
 - [ ] Check replica status: `az containerapp replica list --name poshmcp --resource-group [rg] -o table`
 - [ ] Verify replicas are running
 - [ ] Check revision status: `az containerapp revision list --name poshmcp --resource-group [rg] -o table`
 - [ ] Verify latest revision is active
 
-### Security Verification
+### Security verification
 - [ ] Managed identity created and assigned
 - [ ] Ingress configured (HTTPS only)
 - [ ] Secrets stored securely (not in plaintext)
 - [ ] Container running as non-root user
 
-## Configuration Verification
+## Configuration verification
 
 ### Scaling
 - [ ] Verify autoscaling rule configured (HTTP, 50 concurrent requests)
@@ -96,7 +96,7 @@ Use this checklist to ensure a smooth deployment of PoshMcp to Azure Container A
 - [ ] Verify memory allocation matches parameters
 - [ ] Check resource usage in metrics
 
-### Environment Variables
+### Environment variables
 - [ ] Verify PowerShell functions configured correctly
 - [ ] Check dynamic reload tools enabled/disabled as configured
 - [ ] Confirm Application Insights connection string injected
@@ -145,10 +145,7 @@ Use this checklist to ensure a smooth deployment of PoshMcp to Azure Container A
 
 ## Troubleshooting
 
-If any step fails, refer to:
-- [README.md - Troubleshooting](README.md#troubleshooting)
-- [QUICKSTART.md - Troubleshooting Commands](QUICKSTART.md#troubleshooting-commands)
-- [EXAMPLES.md - Troubleshooting Commands](EXAMPLES.md#troubleshooting-commands)
+If any step fails, see [README.md — Troubleshooting](README.md#troubleshooting) or [QUICKSTART.md — Troubleshooting commands](QUICKSTART.md#troubleshooting-commands).
 
 Common issues:
 - **Image pull failure:** Check ACR credentials, verify registry name
@@ -167,16 +164,8 @@ Common issues:
 
 ---
 
-**Deployment Date:** _____________  
-**Deployed By:** _____________  
-**Application URL:** _____________  
-**Resource Group:** _____________  
+**Deployment Date:** _____________
+**Deployed By:** _____________
+**Application URL:** _____________
+**Resource Group:** _____________
 **Notes:** _____________
-
----
-
-**For questions or issues:**
-- Review documentation in this directory
-- Check Azure Container Apps documentation
-- Consult with DevOps/Platform team
-- Open issue in PoshMcp repository

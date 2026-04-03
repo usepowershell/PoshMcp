@@ -1,4 +1,4 @@
-# Azure Container Apps Deployment for PoshMcp
+# Azure Container Apps deployment for PoshMcp
 
 This directory contains the infrastructure-as-code templates and deployment scripts for running PoshMcp on Azure Container Apps.
 
@@ -65,14 +65,14 @@ cd infrastructure/azure
 ./deploy.ps1 -RegistryName "myregistry" -TenantId "00000000-0000-0000-0000-000000000000"
 ```
 
-## Multi-Tenant Support
+## Multi-tenant support
 
 The deployment scripts support working with multiple Azure tenants, which is useful when:
 - You have subscriptions in different Azure Active Directory tenants
 - You need to deploy to a specific tenant in a multi-tenant organization
 - You work across customer environments
 
-### Specifying a Tenant
+### Specifying a tenant
 
 Use the `-TenantId` parameter (PowerShell) or `AZURE_TENANT_ID` environment variable (Bash):
 
@@ -95,9 +95,9 @@ The deployment script automatically:
 3. **Validates subscription**: Ensures the target subscription belongs to the correct tenant
 4. **Shows tenant info**: Displays current tenant ID in deployment output
 
-### Multi-Tenant Scenarios
+### Multi-tenant scenarios
 
-#### Scenario 1: Explicit Tenant Selection
+#### Scenario 1: Explicit tenant selection
 
 When you know the tenant ID:
 ```powershell
@@ -106,7 +106,7 @@ When you know the tenant ID:
              -Subscription "contoso-subscription"
 ```
 
-#### Scenario 2: Using Current Tenant
+#### Scenario 2: Using current tenant
 
 If you don't specify a tenant, the deployment uses your currently logged-in tenant:
 ```powershell
@@ -114,7 +114,7 @@ az login
 ./deploy.ps1 -RegistryName "myregistry"
 ```
 
-#### Scenario 3: CI/CD with Managed Identity
+#### Scenario 3: CI/CD with managed identity
 
 In Azure DevOps or GitHub Actions, the tenant is typically implicit through the service connection:
 ```bash
@@ -122,7 +122,7 @@ In Azure DevOps or GitHub Actions, the tenant is typically implicit through the 
 ./deploy.sh
 ```
 
-#### Scenario 4: Cross-Tenant Deployment
+#### Scenario 4: Cross-tenant deployment
 
 If you need to switch between tenants:
 ```powershell
@@ -133,7 +133,7 @@ If you need to switch between tenants:
 ./deploy.ps1 -RegistryName "customerB-registry" -TenantId "customer-b-tenant-id"
 ```
 
-### Error Handling
+### Error handling
 
 The scripts provide clear error messages for tenant-related issues:
 
@@ -183,7 +183,7 @@ The deployment automatically configures these environment variables:
 - `APPLICATIONINSIGHTS_CONNECTION_STRING`: Auto-configured
 - `AZURE_CLIENT_ID`: Managed Identity client ID
 
-## Deployment Architecture
+## Deployment architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -203,7 +203,7 @@ The deployment automatically configures these environment variables:
          └──> Azure Container Registry (poshmcp:tag)
 ```
 
-## Health Checks
+## Health checks
 
 PoshMcp exposes health check endpoints used by Azure Container Apps:
 
@@ -219,7 +219,7 @@ PoshMcp exposes health check endpoints used by Azure Container Apps:
   - Used for Kubernetes-style health probes
   - Fast response time (<500ms typical)
 
-### Probe Configuration
+### Probe configuration
 
 ```bicep
 probes: [
@@ -247,7 +247,7 @@ probes: [
 ]
 ```
 
-## Monitoring and Observability
+## Monitoring and observability
 
 ### Application Insights
 
@@ -320,13 +320,13 @@ az keyvault set-policy \
   --secret-permissions get list
 ```
 
-### Network Security
+### Network security
 
 - **Ingress**: HTTPS only (automatic TLS termination)
 - **Internal Communication**: Secured within Container Apps Environment
 - **No Public IPs**: Fully managed platform security
 
-### Secrets Management
+### Secrets management
 
 Container registry credentials and Application Insights connection strings are stored as Container Apps secrets (encrypted at rest).
 
@@ -341,7 +341,7 @@ var client = new SecretClient(
 
 ## Scaling
 
-### Autoscaling Configuration
+### Autoscaling configuration
 
 The deployment configures HTTP-based autoscaling:
 
@@ -362,7 +362,7 @@ scale: {
 }
 ```
 
-### Scale to Zero
+### Scale to zero
 
 For non-production environments, you can enable scale-to-zero:
 
@@ -417,7 +417,7 @@ curl https://$APP_URL/health | jq
 curl https://$APP_URL/health/ready
 ```
 
-### Common Issues
+### Common issues
 
 #### Container fails to start
 
@@ -467,16 +467,16 @@ timeoutSeconds: 10  # Increase from 3 to 10
 }
 ```
 
-## Cost Optimization
+## Cost optimization
 
-### Pricing Factors
+### Pricing factors
 
 Container Apps billing is based on:
 - **vCPU seconds**: CPU cores × running time
 - **Memory GB-seconds**: Memory × running time
 - **Requests**: Number of HTTP requests (free tier available)
 
-### Optimization Tips
+### Optimization tips
 
 1. **Right-size resources**: Start with 0.5 vCPU / 1GB and monitor
 2. **Enable scale-to-zero**: For non-prod environments
@@ -488,9 +488,9 @@ Example monthly costs (approximate):
 - Prod (0.5 vCPU, 1GB, 1 min replica): $30-50/month
 - High availability (1 vCPU, 2GB, 2 min replicas): $120-180/month
 
-## Updates and Rollbacks
+## Updates and rollbacks
 
-### Deploy New Version
+### Deploy new version
 
 ```bash
 # Build and push new image
@@ -504,7 +504,7 @@ az containerapp update \
   --image myregistry.azurecr.io/poshmcp:v2.0
 ```
 
-### Rollback to Previous Revision
+### Rollback to previous revision
 
 ```bash
 # List revisions
@@ -520,9 +520,9 @@ az containerapp revision activate \
   --revision poshmcp--<previous-revision-name>
 ```
 
-## CI/CD Integration
+## CI/CD integration
 
-### GitHub Actions Example
+### GitHub Actions example
 
 ```yaml
 name: Deploy to Azure Container Apps
@@ -549,7 +549,7 @@ jobs:
           ./infrastructure/azure/deploy.sh
 ```
 
-### Azure DevOps Example
+### Azure DevOps example
 
 ```yaml
 trigger:
@@ -576,19 +576,16 @@ steps:
       RESOURCE_GROUP: $(resourceGroup)
 ```
 
-## Additional Resources
+## See also
 
-- [Azure Container Apps Documentation](https://learn.microsoft.com/en-us/azure/container-apps/)
-- [Bicep Documentation](https://learn.microsoft.com/en-us/azure/azure-resource-manager/bicep/)
-- [PoshMcp Documentation](../../README.md)
+- [INDEX.md](INDEX.md) — File navigation guide for this directory
+- [QUICKSTART.md](QUICKSTART.md) — Quick-reference commands for common operations
+- [ARCHITECTURE.md](ARCHITECTURE.md) — Infrastructure design and component details
+- [CHECKLIST.md](CHECKLIST.md) — Step-by-step deployment verification checklist
+- [MODULARIZATION.md](MODULARIZATION.md) — Bicep module architecture and scope handling
+- [PoshMcp main README](../../README.md) — Project overview
+- [Azure Container Apps documentation](https://learn.microsoft.com/en-us/azure/container-apps/)
+- [Bicep documentation](https://learn.microsoft.com/en-us/azure/azure-resource-manager/bicep/)
 - [Application Insights for ASP.NET Core](https://learn.microsoft.com/en-us/azure/azure-monitor/app/asp-net-core)
-
-## Support
-
-For issues specific to this deployment:
-1. Check the troubleshooting section above
-2. Review container logs using Azure CLI
-3. Verify health checks are passing
-4. Open an issue in the PoshMcp repository
 
 For Azure-specific issues, consult [Azure Support](https://azure.microsoft.com/support/).

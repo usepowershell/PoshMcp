@@ -1,10 +1,10 @@
-# Azure Container Apps Infrastructure Summary
+# Azure Container Apps infrastructure summary
 
 ## Overview
 
 This directory contains production-ready Infrastructure-as-Code (IaC) templates for deploying PoshMcp to Azure Container Apps. The deployment creates a fully managed, scalable, and observable container hosting environment.
 
-## Architecture Diagram
+## Architecture diagram
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -73,7 +73,7 @@ This directory contains production-ready Infrastructure-as-Code (IaC) templates 
 - **Scaling:** HTTP-based, 1-10 replicas (configurable)
 - **Resources:** 0.5 vCPU, 1GB memory (configurable)
 
-### Log Analytics Workspace
+### Log Analytics workspace
 - **Purpose:** Centralized logging and monitoring
 - **Retention:** 30 days (configurable)
 - **Log Types:**
@@ -100,7 +100,7 @@ This directory contains production-ready Infrastructure-as-Code (IaC) templates 
   - Can authenticate to other Azure resources
 - **Security:** No credentials stored in container
 
-### Container Apps Environment
+### Container Apps environment
 - **Purpose:** Hosting environment for Container Apps
 - **Features:**
   - Integrated Log Analytics
@@ -108,75 +108,9 @@ This directory contains production-ready Infrastructure-as-Code (IaC) templates 
   - Dapr integration ready (future)
 - **Zone Redundancy:** Disabled (configurable)
 
-## Files
+For a full list of files and navigation guidance, see [INDEX.md](INDEX.md).
 
-### Infrastructure Templates
-- **main.bicep** (270 lines): Main deployment template
-  - All Azure resources defined
-  - Parameters for customization
-  - Outputs for automation
-  - Comments for clarity
-
-- **parameters.json**: Production configuration
-  - Default values for prod deployment
-  - Customizable per environment
-
-- **parameters.local.json.template**: Local development template
-  - Scale-to-zero settings
-  - Lower resource allocations
-  - Copy to `parameters.local.json` and customize
-
-### Deployment Scripts
-- **deploy.sh**: Bash deployment automation
-  - Prerequisites checking
-  - Image build and push
-  - Bicep deployment
-  - Post-deployment verification
-
-- **deploy.ps1**: PowerShell deployment (Windows)
-  - Feature parity with bash script
-  - Cross-platform PowerShell support
-  - Color-coded console output
-
-### Validation Scripts
-- **validate.sh**: Bash pre-deployment validation
-  - Azure CLI check
-  - Docker check
-  - Authentication verification
-  - Bicep syntax validation
-  - Parameters validation
-
-- **validate.ps1**: PowerShell validation
-  - Same checks as bash version
-  - Windows-friendly
-  - Detailed error reporting
-
-### Documentation
-- **README.md** (600+ lines): Comprehensive deployment guide
-  - Prerequisites
-  - Quick start
-  - Configuration reference
-  - Health checks details
-  - Monitoring and observability
-  - Security best practices
-  - Troubleshooting guide
-  - Cost optimization
-
-- **QUICKSTART.md** (300+ lines): Quick reference
-  - Common commands
-  - Quick deploy steps
-  - Post-deployment checks
-  - Troubleshooting commands
-  - CI/CD variables
-
-- **EXAMPLES.md** (250+ lines): Real-world examples
-  - Development settings
-  - Production settings
-  - Update procedures
-  - Rollback procedures
-  - CI/CD pipeline examples
-
-## Deployment Workflow
+## Deployment workflow
 
 ```
 ┌─────────────────┐
@@ -213,7 +147,7 @@ This directory contains production-ready Infrastructure-as-Code (IaC) templates 
              └─> Display summary
 ```
 
-## Default Configuration
+## Default configuration
 
 ### Production (parameters.json)
 ```
@@ -235,7 +169,7 @@ Scaling: 50 concurrent requests/replica
 Estimated Cost: $5-15/month
 ```
 
-## Integration with PoshMcp Features
+## Integration with PoshMcp features
 
 ### Phase 1 Health Checks (2026-03-27)
 - ✅ Container Apps probes use `/health` and `/health/ready` endpoints
@@ -252,7 +186,7 @@ Estimated Cost: $5-15/month
 - ✅ Container logs forwarded to Log Analytics
 - ✅ Correlation IDs appear in all logs and metrics
 
-## Security Features
+## Security features
 
 ✅ **HTTPS-only ingress** - Automatic TLS termination  
 ✅ **Managed Identity** - No stored credentials  
@@ -261,37 +195,37 @@ Estimated Cost: $5-15/month
 ✅ **Network isolation** - Internal Container Apps Environment networking  
 ✅ **RBAC-ready** - Managed identity for fine-grained permissions  
 
-## Monitoring Strategy
+## Monitoring strategy
 
-### Real-time Monitoring
+### Real-time monitoring
 - **Container Logs:** `az containerapp logs show --follow`
 - **Health Checks:** `curl https://[app-url]/health`
 - **Metrics:** Azure Portal > Container App > Metrics
 
-### Historical Analysis
+### Historical analysis
 - **Log Analytics:** Kusto Query Language (KQL) queries
 - **Application Insights:** Request/dependency maps
 - **Cost Analysis:** Azure Cost Management + Billing
 
-### Alerting (Future Enhancement)
+### Alerting (future enhancement)
 - Failed health checks
 - High error rate
 - Excessive scaling
 - Cost thresholds
 
-## CI/CD Integration
+## CI/CD integration
 
 ### GitHub Actions
-- Workflow example provided in EXAMPLES.md
+- Workflow example provided in [README.md](README.md#cicd-integration)
 - Requires: AZURE_CREDENTIALS, REGISTRY_NAME, RESOURCE_GROUP secrets
 - Automated deployment on push to main branch
 
 ### Azure DevOps
-- Pipeline example provided in README.md
+- Pipeline example provided in [README.md](README.md#cicd-integration)
 - Uses azure/login@v1 task
 - Supports multi-stage deployments
 
-## Next Steps
+## Next steps
 
 After deployment:
 1. ✅ Test health endpoints
@@ -305,31 +239,24 @@ After deployment:
 
 ## Maintenance
 
-### Regular Tasks
+### Regular tasks
 - Monitor costs and adjust scaling parameters
 - Review health check success rate
 - Update container images regularly
 - Review and rotate secrets
 - Analyze performance metrics
 
-### Upgrade Path
+### Upgrade path
 - Update image: `az containerapp update --image new-image:tag`
 - Update infrastructure: Re-run deployment scripts with new parameters
 - Rollback: Use revision activation
 
-## Support
+## See also
 
-- **Documentation:** README.md (comprehensive guide)
-- **Quick Reference:** QUICKSTART.md
-- **Examples:** EXAMPLES.md
-- **Azure Docs:** https://learn.microsoft.com/azure/container-apps/
-- **PoshMcp Docs:** ../../README.md
-
-## Team Knowledge
-
-Created by: Amy Wong (DevOps/Platform/Azure Engineer)  
-Date: 2026-03-27  
-Status: Production-ready  
-Tested: ✅ Validation scripts, ✅ Deployment workflow, ✅ Health checks  
-
-This infrastructure represents Azure best practices for containerized .NET applications with PowerShell workloads, integrating observability from day one.
+- [README.md](README.md) — Full deployment guide with prerequisites, configuration, and troubleshooting
+- [QUICKSTART.md](QUICKSTART.md) — Quick-reference commands for common operations
+- [MODULARIZATION.md](MODULARIZATION.md) — Bicep module architecture and scope handling
+- [CHECKLIST.md](CHECKLIST.md) — Step-by-step deployment verification checklist
+- [INDEX.md](INDEX.md) — File navigation guide
+- [PoshMcp main README](../../README.md) — Project overview
+- [Azure Container Apps documentation](https://learn.microsoft.com/azure/container-apps/)
