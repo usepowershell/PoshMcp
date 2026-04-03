@@ -1,3 +1,4 @@
+- **20260403T135630Z**: ✓ Infrastructure docs audit (8 files, 850 lines deduplicated). EXAMPLES.md & BICEP-REFACTOR-SUMMARY.md converted to stubs. Decisions merged.
 # Farnsworth Work History
 
 ## Project Context
@@ -455,4 +456,52 @@ Write-Host "✓ Successfully installed: $moduleName" -ForegroundColor Green
 - API documentation template
 - Tutorial template
 - Deployment guide template
+
+---
+
+### 2026-07-15: Infrastructure Azure documentation consolidation
+
+**Task:** Review 8 files in `infrastructure/azure/` for duplication, consistency, and structural clarity. Edit files to remove duplication and add cross-references.
+
+**Duplication found and resolved:**
+
+1. **EXAMPLES.md → redirect:** Content was 100% duplicated across QUICKSTART.md and README.md (deploy commands, update/rollback, CI/CD pipelines, troubleshooting commands, dev/prod parameters). Replaced with a redirect notice pointing to canonical locations.
+
+2. **BICEP-REFACTOR-SUMMARY.md → historical redirect:** 317-line detailed changelog was fully covered by MODULARIZATION.md (architecture, migration, troubleshooting) and ARCHITECTURE.md (design overview). Reduced to a ~30-line historical record with summary table and redirect links.
+
+3. **INDEX.md — removed duplicate deployment commands:** "Quick Actions" section duplicated README.md's Quick Start. Removed code blocks, kept pure navigation purpose. Also removed emoji from headings and line-count table (stale data).
+
+4. **QUICKSTART.md — removed duplicate sections:**
+   - Prerequisites checklist duplicated CHECKLIST.md → removed, added link
+   - Region selection section duplicated README.md → removed
+   - CI/CD variables section duplicated README.md → removed
+   - Support resources section duplicated README.md → removed
+   - Added "See also" cross-reference section
+
+5. **ARCHITECTURE.md — removed duplicate file listings:** 50+ line "Files" section duplicated INDEX.md verbatim. Replaced with one-liner linking to INDEX.md. Removed "Support" and "Team Knowledge" sections (duplicated across multiple files).
+
+**Consistency fixes applied (docs-standards skill):**
+
+- Converted all H1 and H2+ headings to sentence case across all 8 files (e.g., "Deployment Architecture" → "Deployment architecture")
+- Removed emoji from headings in INDEX.md (📋, 🚀, 📚, 🎯, 📁, 🔗, 📝)
+- Added consistent "See also" cross-reference sections to README.md, ARCHITECTURE.md, MODULARIZATION.md, QUICKSTART.md, CHECKLIST.md, BICEP-REFACTOR-SUMMARY.md
+- Standardized link text style (descriptive, sentence case)
+- Removed stale EXAMPLES.md links from CHECKLIST.md troubleshooting section
+
+**Resulting document roles (now clearly distinct):**
+
+| Document | Canonical purpose |
+|----------|------------------|
+| README.md | Comprehensive deployment guide (source of truth) |
+| INDEX.md | Navigation-only file index |
+| QUICKSTART.md | Copy-paste command reference |
+| CHECKLIST.md | Verification checklist with checkboxes |
+| ARCHITECTURE.md | Infrastructure design and components |
+| MODULARIZATION.md | Bicep module architecture deep-dive |
+| BICEP-REFACTOR-SUMMARY.md | Historical redirect (minimal) |
+| EXAMPLES.md | Redirect to QUICKSTART.md and README.md |
+
+**Net reduction:** ~850 lines of duplicated content removed while preserving all unique information.
+
+**Key architectural insight:** When docs proliferate (8 files for one subsystem), duplication is inevitable unless each file has a strict single-purpose charter. INDEX.md = navigation, QUICKSTART.md = commands, CHECKLIST.md = verification, README.md = everything else. Cross-references replace content copying.
 

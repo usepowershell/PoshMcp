@@ -1,3 +1,4 @@
+- **20260403T135630Z**: ✓ Docker fixes & scripts reviews compiled and merged into decision ledger.
 # Hermes Work History
 
 ## Project Context
@@ -332,3 +333,4 @@ Both files now comply with 2026-03-27 PowerShell stream refactoring patterns est
 **Session:** 2026-03-27T docker fixes implementation
 
 ---
+
