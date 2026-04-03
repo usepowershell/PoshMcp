@@ -102,7 +102,7 @@ curl http://localhost:8080/health | jq
 
 **Performance Tip:** Pre-install PowerShell modules at build time to reduce container startup time from ~30s to <1s. See [DOCKER.md](DOCKER.md) for details.
 
-See [DOCKER.md](DOCKER.md) for detailed Docker configuration and [docs/DOCKER-BUILD-MODULES.md](docs/DOCKER-BUILD-MODULES.md) for module pre-installation guide.
+See [DOCKER.md](DOCKER.md) for detailed Docker configuration, including custom image patterns and module pre-installation.
 
 ### Azure Container Apps
 
@@ -243,13 +243,13 @@ For architectural details, see [DESIGN.md](DESIGN.md).
 
 ## Documentation
 
-- **[DESIGN.md](DESIGN.md)** - Architecture and design philosophy
-- **[DOCKER.md](DOCKER.md)** - Docker deployment guide
-- **[docs/ENVIRONMENT-CUSTOMIZATION.md](docs/ENVIRONMENT-CUSTOMIZATION.md)** - Environment customization guide
-- **[docs/IMPLEMENTATION-GUIDE.md](docs/IMPLEMENTATION-GUIDE.md)** - Implementation guide for developers
-- **[infrastructure/azure/](infrastructure/azure/README.md)** - Azure deployment documentation
-- **[PoshMcp.Tests/README.md](PoshMcp.Tests/README.md)** - Test organization and guidelines
-- **[examples/](examples/)** - Configuration examples and Docker Compose files
+- **[DESIGN.md](DESIGN.md)** — Architecture and design philosophy
+- **[DOCKER.md](DOCKER.md)** — Docker deployment guide
+- **[docs/ENVIRONMENT-CUSTOMIZATION.md](docs/ENVIRONMENT-CUSTOMIZATION.md)** — Environment customization guide
+- **[docs/IMPLEMENTATION-GUIDE.md](docs/IMPLEMENTATION-GUIDE.md)** — Implementation guide for developers
+- **[infrastructure/azure/](infrastructure/azure/README.md)** — Azure deployment documentation
+- **[PoshMcp.Tests/README.md](PoshMcp.Tests/README.md)** — Test organization and guidelines
+- **[examples/](examples/)** — Configuration examples and Docker Compose files
 
 ---
 

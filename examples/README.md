@@ -1,4 +1,4 @@
-# PoshMcp Environment Customization Examples
+# PoshMcp environment customization examples
 
 This directory contains examples demonstrating how to customize the PowerShell environment in PoshMcp, including Dockerfile templates for creating custom images.
 
@@ -205,8 +205,8 @@ dotnet run --project PoshMcp.Server -- \
 4. **Enable publisher checks** - In production, validate module publishers
 5. **Secrets management** - Never store credentials in configuration files
 
-## Next Steps
+## Next steps
 
-- Read the [full documentation](../docs/ENVIRONMENT-CUSTOMIZATION.md)
-- Check the [Docker guide](../DOCKER.md)
+- Read the [environment customization guide](../docs/ENVIRONMENT-CUSTOMIZATION.md)
+- Check the [Docker deployment guide](../DOCKER.md)
 - Review the [main README](../README.md)

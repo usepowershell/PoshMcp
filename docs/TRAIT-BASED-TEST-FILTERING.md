@@ -1,4 +1,4 @@
-# Trait-Based Test Filtering
+# Trait-based test filtering
 
 The Azure integration tests use xUnit traits for fine-grained control over test execution. This allows you to run specific subsets of tests based on categories, speed, cost, or requirements.
 
@@ -256,8 +256,9 @@ public async Task MyNewTest_ShouldSucceed()
 **Requires:**
 - List explicit dependencies: `Docker`, `AzureCLI`, `Kubernetes`, etc.
 
-## See Also
+## See also
 
 - [xUnit Trait Documentation](https://xunit.net/docs/running-tests-in-parallel#traits)
-- [Azure Integration Test README](../PoshMcp.Tests/Integration/README.azure-integration.md)
-- [Quick Start Guide](QUICKSTART-AZURE-INTEGRATION-TEST.md)
+- [Azure integration test README](../PoshMcp.Tests/Integration/README.azure-integration.md) — full test documentation
+- [Quick start guide](QUICKSTART-AZURE-INTEGRATION-TEST.md) — quick command reference
+- [Test organization](../PoshMcp.Tests/README.md) — overall test structure

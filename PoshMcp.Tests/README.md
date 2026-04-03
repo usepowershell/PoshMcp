@@ -1,4 +1,4 @@
-# PoshMcp Test Organization
+# PoshMcp test organization
 
 This document describes the organization of tests in the PoshMcp project.
 
@@ -106,3 +106,11 @@ dotnet test --filter "FullyQualifiedName~AssemblyGenerationTests"
 3. **Better CI/CD Pipeline Support** - Different test categories can have different execution strategies
 4. **Improved Maintainability** - Easier to locate and update tests
 5. **Clearer Dependencies** - Understand which tests require external systems
+
+---
+
+## See also
+
+- [Azure integration test documentation](Integration/README.azure-integration.md) — Azure deployment test details
+- [Trait-based test filtering](../docs/TRAIT-BASED-TEST-FILTERING.md) — filter integration tests by category, speed, or cost
+- [Main README](../README.md) — project overview and getting started

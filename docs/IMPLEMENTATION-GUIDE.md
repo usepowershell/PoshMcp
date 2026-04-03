@@ -1,4 +1,4 @@
-# Environment Customization Implementation Guide
+# Environment customization implementation guide
 
 This document explains how the environment customization feature is implemented and how to integrate it into the PoshMcp server.
 
@@ -448,9 +448,10 @@ Result object contains:
 5. Add health check for environment setup status
 6. Consider adding metrics for setup duration
 
-## Related Files
+## Related files
 
-- `/docs/ENVIRONMENT-CUSTOMIZATION.md` - User documentation
-- `/examples/startup.ps1` - Sample startup script
-- `/examples/docker-compose.environment.yml` - Docker examples
-- `/examples/appsettings.*.json` - Configuration examples
+- [Environment customization guide](ENVIRONMENT-CUSTOMIZATION.md) — user documentation
+- [Integration checklist](INTEGRATION-CHECKLIST.md) — step-by-step checklist for this integration
+- [examples/startup.ps1](../examples/startup.ps1) — sample startup script
+- [examples/docker-compose.environment.yml](../examples/docker-compose.environment.yml) — Docker examples
+- [examples/appsettings.*.json](../examples/) — configuration examples

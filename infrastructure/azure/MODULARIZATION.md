@@ -1,4 +1,4 @@
-# Azure Bicep Modularization Architecture
+# Azure Bicep modularization architecture
 
 ## Overview
 
@@ -21,21 +21,21 @@ Deployment Scope Hierarchy:
     └── Container App (PoshMcp)
 ```
 
-## Why Modularization?
+## Why modularization?
 
-### The Problem We Solved
+### The problem we solved
 
 Previously, `main.bicep` attempted to deploy resource group-scoped resources directly from subscription scope using the `scope:` property on individual resources. This violates Bicep's scope rules:
 
 **Bicep Rule:** A resource's scope must match the Bicep file's `targetScope`. To deploy to a different scope, you **must use modules**.
 
-### Errors Fixed
+### Errors fixed
 
 1. **BCP139**: "A resource's scope must match the scope of the Bicep file"
 2. **BCP265**: "`resourceGroup` is not a function. Did you mean `az.resourceGroup`?"
 3. **BCP037**: "The property 'scope' is not allowed on objects of type..."
 
-### Benefits of This Design
+### Benefits of this design
 
 ✅ **Subscription-Scoped Role Assignments**: Managed Identity can receive permissions across the entire subscription  
 ✅ **Clean Separation**: Each Bicep file operates at a single, consistent scope  
@@ -43,9 +43,9 @@ Previously, `main.bicep` attempted to deploy resource group-scoped resources dir
 ✅ **Best Practices**: Follows official Bicep modularization patterns  
 ✅ **Maintainable**: Clear boundaries between subscription and resource group resources
 
-## File Responsibilities
+## File responsibilities
 
-### main.bicep (Subscription Scope)
+### main.bicep (subscription scope)
 
 **Location:** `infrastructure/azure/main.bicep`  
 **Target Scope:** `subscription`
@@ -72,7 +72,7 @@ az deployment sub create \
   --parameters @parameters.json
 ```
 
-### resources.bicep (Resource Group Scope)
+### resources.bicep (resource group scope)
 
 **Location:** `infrastructure/azure/resources.bicep`  
 **Target Scope:** `resourceGroup`
@@ -96,9 +96,9 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01'
 
 **Note:** This module is **invoked by main.bicep** - do not deploy it directly unless you're testing in isolation.
 
-## Parameter Flow
+## Parameter flow
 
-### Deployment Command
+### Deployment command
 
 ```bash
 az deployment sub create \
@@ -107,7 +107,7 @@ az deployment sub create \
   --parameters @infrastructure/azure/parameters.json
 ```
 
-### Flow Diagram
+### Flow diagram
 
 ```
 parameters.json
@@ -124,7 +124,7 @@ main.bicep receives module outputs
      └── Uses: managedIdentityPrincipalId for role assignment
 ```
 
-### Parameter Breakdown
+### Parameter breakdown
 
 **Consumed by main.bicep only:**
 - `resourceGroupName` - Name of the resource group to create
@@ -148,7 +148,7 @@ main.bicep receives module outputs
 
 ## Outputs
 
-### From main.bicep (Aggregated)
+### From main.bicep (aggregated)
 
 All outputs from `resources.bicep` are surfaced at the subscription level:
 
@@ -165,7 +165,7 @@ output roleAssignmentId string
 output managedIdentityRoleAssigned string
 ```
 
-### From resources.bicep (Module)
+### From resources.bicep (module)
 
 ```bicep
 output containerAppFQDN string
@@ -177,9 +177,9 @@ output managedIdentityClientId string
 output managedIdentityPrincipalId string
 ```
 
-## Migration Path
+## Migration path
 
-### From Old Architecture
+### From old architecture
 
 **Before (Broken):**
 ```bicep
@@ -211,7 +211,7 @@ resource logAnalytics '...' = {
 }
 ```
 
-### Migration Steps
+### Migration steps
 
 If you have an **existing deployment** using the old broken structure:
 
@@ -240,14 +240,14 @@ If you have an **existing deployment** using the old broken structure:
      --query properties.outputs
    ```
 
-### No Breaking Changes
+### No breaking changes
 
 ✅ **Same parameters** - `parameters.json` format unchanged  
 ✅ **Same resources** - All resources remain identical  
 ✅ **Same outputs** - Output names preserved for automation  
 ✅ **Zero downtime** - Bicep updates resources in place
 
-## Best Practices Applied
+## Best practices applied
 
 Based on official [Bicep best practices](https://learn.microsoft.com/azure/azure-resource-manager/bicep/best-practices):
 
@@ -289,7 +289,7 @@ scope: resourceGroup(rg.name)     // Old/wrong
 
 ## Testing
 
-### Validate Bicep Syntax
+### Validate Bicep syntax
 
 ```bash
 # Check main.bicep
@@ -299,7 +299,7 @@ az bicep build --file infrastructure/azure/main.bicep
 az bicep build --file infrastructure/azure/resources.bicep
 ```
 
-### Dry Run (What-If)
+### Dry run (what-if)
 
 ```bash
 az deployment sub what-if \
@@ -321,10 +321,11 @@ az deployment sub create \
   --parameters @infrastructure/azure/parameters.json
 ```
 
-## Related Documentation
+## See also
 
-- [ARCHITECTURE.md](./ARCHITECTURE.md) - Overall Azure architecture
-- [QUICKSTART.md](./QUICKSTART.md) - Quick deployment guide
-- [deploy.sh](./deploy.sh) / [deploy.ps1](./deploy.ps1) - Deployment scripts
-- [Bicep Modules - Microsoft Learn](https://learn.microsoft.com/azure/azure-resource-manager/bicep/modules)
-- [Deployment Scopes - Microsoft Learn](https://learn.microsoft.com/azure/azure-resource-manager/bicep/deploy-to-subscription)
+- [ARCHITECTURE.md](./ARCHITECTURE.md) — Overall Azure infrastructure design
+- [README.md](./README.md) — Full deployment guide
+- [QUICKSTART.md](./QUICKSTART.md) — Quick-reference deployment commands
+- [BICEP-REFACTOR-SUMMARY.md](./BICEP-REFACTOR-SUMMARY.md) — Historical record of the modularization refactor
+- [Bicep modules — Microsoft Learn](https://learn.microsoft.com/azure/azure-resource-manager/bicep/modules)
+- [Deployment scopes — Microsoft Learn](https://learn.microsoft.com/azure/azure-resource-manager/bicep/deploy-to-subscription)

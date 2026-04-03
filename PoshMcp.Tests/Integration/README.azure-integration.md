@@ -1,4 +1,4 @@
-# Azure Deployment Integration Tests
+# Azure deployment integration tests
 
 This directory contains comprehensive integration tests that validate the complete PoshMcp deployment pipeline to Azure Container Apps, including:
 
@@ -165,10 +165,11 @@ az acr login --name myacr
 # 5. Push image
 docker push myacr.azurecr.io/poshmcp-azure:v1
 
-# 6. Deploy with Bicep
-az deployment group create \
-  --resource-group my-rg \
+# 6. Deploy with Bicep (subscription-scoped deployment)
+az deployment sub create \
+  --location eastus \
   --template-file infrastructure/azure/main.bicep \
+  --parameters @infrastructure/azure/parameters.json \
   --parameters containerImage=myacr.azurecr.io/poshmcp-azure:v1 \
   --parameters containerRegistryServer=myacr.azurecr.io
 ```
@@ -411,8 +412,10 @@ steps:
 
 ---
 
-## See Also
+## See also
 
-- [Main Azure Infrastructure Documentation](../../infrastructure/azure/README.md)
-- [Dockerfile Examples](../../examples/README.md)
-- [PoshMcp Architecture](../../DESIGN.md)
+- [Azure infrastructure documentation](../../infrastructure/azure/README.md) — deployment architecture and configuration
+- [Dockerfile examples](../../examples/README.md) — custom image templates
+- [PoshMcp architecture](../../DESIGN.md) — design philosophy
+- [Trait-based test filtering](../../docs/TRAIT-BASED-TEST-FILTERING.md) — filter tests by category, speed, or cost
+- [Quick start reference](../../docs/QUICKSTART-AZURE-INTEGRATION-TEST.md) — quick command reference

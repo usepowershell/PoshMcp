@@ -1,14 +1,9 @@
-# Azure Container Apps Deployment - Quick Reference
+# Azure Container Apps deployment — quick reference
 
-## Prerequisites Checklist
+Copy-paste commands for common operations. For full details, see [README.md](README.md).
+For a step-by-step verification checklist, see [CHECKLIST.md](CHECKLIST.md).
 
-- [ ] Azure CLI installed (`az --version`)
-- [ ] Docker installed and running (`docker ps`)
-- [ ] Logged into Azure (`az login`)
-- [ ] Correct subscription selected (`az account show`)
-- [ ] Azure Container Registry name chosen
-
-## Quick Deploy
+## Quick deploy
 
 ### Bash (Linux/macOS/WSL)
 
@@ -31,9 +26,9 @@ cd infrastructure/azure
 .\deploy.ps1 -RegistryName "myregistry" -ResourceGroup "poshmcp-rg" -Location "eastus"
 ```
 
-## Common Scenarios
+## Common scenarios
 
-### Development Environment
+### Development environment
 
 Parameters for dev/testing (scale-to-zero, lower resources):
 
@@ -46,7 +41,7 @@ Parameters for dev/testing (scale-to-zero, lower resources):
 }
 ```
 
-### Production Environment
+### Production environment
 
 Parameters for production (always-on, higher resources):
 
@@ -59,7 +54,7 @@ Parameters for production (always-on, higher resources):
 }
 ```
 
-### High-Traffic Environment
+### High-traffic environment
 
 Parameters for heavy workloads:
 
@@ -72,7 +67,7 @@ Parameters for heavy workloads:
 }
 ```
 
-## Post-Deployment Verification
+## Post-deployment verification
 
 ```bash
 # Get app URL
@@ -89,7 +84,7 @@ az containerapp logs show --name poshmcp --resource-group poshmcp-rg --follow
 az monitor metrics list --resource $(az containerapp show --name poshmcp --resource-group poshmcp-rg --query id -o tsv) --metric Requests
 ```
 
-## Update Deployment
+## Update deployment
 
 ### Deploy new image version
 
@@ -119,7 +114,7 @@ az containerapp revision activate \
   --revision <revision-name>
 ```
 
-## Scaling Operations
+## Scaling operations
 
 ### Manual scaling
 
@@ -143,7 +138,7 @@ az containerapp update \
   --max-replicas 3
 ```
 
-## Monitoring Queries
+## Monitoring queries
 
 ### Log Analytics (Kusto)
 
@@ -169,7 +164,7 @@ ContainerAppConsoleLogs_CL
 | summarize percentile(todouble(duration_ms), 95) by bin(TimeGenerated, 5m)
 ```
 
-## Troubleshooting Commands
+## Troubleshooting commands
 
 ```bash
 # Check replica status
@@ -226,40 +221,7 @@ az containerapp delete --name poshmcp --resource-group poshmcp-rg --yes
 az group delete --name poshmcp-rg --yes
 ```
 
-## Region Selection
-
-Recommended regions with Container Apps generally available:
-- `eastus` (US East - default, good latency for East Coast)
-- `westus2` (US West - good latency for West Coast)
-- `centralus` (US Central - geographic center)
-- `westeurope` (Europe - Netherlands)
-- `northeurope` (Europe - Ireland)
-- `australiaeast` (Asia Pacific - Sydney)
-- `japaneast` (Asia Pacific - Tokyo)
-- `uksouth` (UK - London)
-
-Check availability:
-```bash
-az provider show --namespace Microsoft.App --query "resourceTypes[?resourceType=='managedEnvironments'].locations"
-```
-
-## CI/CD Variables
-
-For automated deployments, set these as pipeline secrets/variables:
-
-```yaml
-# Required
-AZURE_CREDENTIALS       # Service principal JSON
-REGISTRY_NAME          # ACR name (without .azurecr.io)
-RESOURCE_GROUP         # Resource group name
-
-# Optional (with defaults)
-CONTAINER_APP_NAME     # Default: poshmcp
-LOCATION              # Default: eastus
-IMAGE_TAG             # Default: timestamp or git SHA
-```
-
-## Health Check URLs
+## Health check URLs
 
 After deployment, monitor these endpoints:
 
@@ -267,19 +229,9 @@ After deployment, monitor these endpoints:
 - **Readiness probe:** `https://[app-url]/health/ready`
 - **MCP tools list:** `https://[app-url]/mcp/v1/tools` (if HTTP transport is configured)
 
-## Support Resources
+## See also
 
-- **Azure Docs:** https://learn.microsoft.com/azure/container-apps/
-- **Bicep Docs:** https://learn.microsoft.com/azure/azure-resource-manager/bicep/
-- **PoshMcp README:** ../../README.md
-- **Full Deployment Guide:** README.md
-- **Azure Support:** https://azure.microsoft.com/support/
-
-## Quick Tips
-
-💡 **First deployment:** Run `validate.sh` or `validate.ps1` first to catch issues early  
-💡 **Cost optimization:** Use scale-to-zero (minReplicas: 0) for development  
-💡 **Performance:** Allocate 1GB+ memory for PowerShell workloads  
-💡 **Monitoring:** Enable Application Insights for correlation ID tracking  
-💡 **Security:** Use managed identity instead of registry username/password  
-💡 **Debugging:** Use `az containerapp logs show --follow` for live log streaming
+- [README.md](README.md) — Full deployment guide, CI/CD pipelines, region selection, security, and cost optimization
+- [CHECKLIST.md](CHECKLIST.md) — Step-by-step deployment verification checklist
+- [ARCHITECTURE.md](ARCHITECTURE.md) — Infrastructure design and component details
+- [MODULARIZATION.md](MODULARIZATION.md) — Bicep module architecture and scope handling

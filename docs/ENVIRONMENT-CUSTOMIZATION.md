@@ -1,4 +1,4 @@
-# Environment Customization Guide
+# Environment customization guide
 
 This guide explains how to customize the PowerShell environment in PoshMcp through startup scripts and module management.
 
@@ -604,9 +604,18 @@ docker logs <container-id>
 
 ---
 
-## Additional Resources
+## Additional resources
 
 - [PowerShell Gallery](https://www.powershellgallery.com/)
 - [Docker Volumes Documentation](https://docs.docker.com/storage/volumes/)
 - [PowerShell Module Management](https://docs.microsoft.com/powershell/module/powershellget/)
 - [PoshMcp Project README](../README.md)
+
+---
+
+## See also
+
+- [Implementation guide](IMPLEMENTATION-GUIDE.md) — developer integration steps for this feature
+- [Integration checklist](INTEGRATION-CHECKLIST.md) — step-by-step checklist for wiring up the feature
+- [DOCKER.md](../DOCKER.md) — Docker deployment guide with module installation patterns
+- [Examples](../examples/) — sample configurations and Docker Compose files
