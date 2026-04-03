@@ -130,14 +130,13 @@ function Set-AzureSubscription {
     Write-Information "Using subscription: $currentSub ($currentSubId)" -Tags 'Status'
 }
 
-# NOTE: Resource group creation is now handled by the Bicep template at subscription scope
-# The template will create the resource group if it doesn't exist
-# See main.bicep: resource resourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01'
-<#
+# Ensure the resource group exists before creating resources that depend on it (e.g., ACR).
+# The Bicep template also declares the resource group at subscription scope, which is
+# idempotent — creating a resource group that already exists is a safe no-op in Azure.
 function New-ResourceGroupIfNeeded {
     Write-Information "Checking resource group: $ResourceGroup" -Tags 'Status'
     Write-Verbose "Executing: az group show --name $ResourceGroup"
-    
+
     $null = az group show --name $ResourceGroup 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Information "Creating resource group: $ResourceGroup in $Location" -Tags 'Status'
@@ -152,7 +151,6 @@ function New-ResourceGroupIfNeeded {
         Write-Information "Resource group already exists" -Tags 'Status'
     }
 }
-#>
 
 # Create or get Azure Container Registry
 function Initialize-ContainerRegistry {
@@ -321,8 +319,7 @@ function Invoke-Deployment {
     Test-Prerequisites
     Set-AzureTenant
     Set-AzureSubscription
-    # Resource group creation is now handled by the Bicep template at subscription scope
-    # New-ResourceGroupIfNeeded
+    New-ResourceGroupIfNeeded
     Initialize-ContainerRegistry
     Build-AndPushImage
     Deploy-Infrastructure
