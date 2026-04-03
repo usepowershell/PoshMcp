@@ -240,3 +240,31 @@ main.bicep (subscription)
 
 ---
 
+### 2026-04-03: Documentation gap review after major cleanup
+
+**Task:** Reviewed all 23 markdown files edited during team documentation cleanup pass (~3,100 lines removed). Checked for broken cross-references, missing content, link integrity, redirect stub quality, and navigation gaps.
+
+**Issues found and fixed (4):**
+
+1. **DESIGN.md — Unclosed code block (Critical):** The architecture ASCII diagram's code block (line 49) was never closed with ` ``` `. Everything from "Security and governance" through the "See also" section at the end rendered as code — making 5 headings and all navigation links invisible. Fixed by adding the closing fence.
+
+2. **DOCKER.md — Broken code block structure (Critical):** The "Running Docker Containers" section had a nested/unclosed code block. The `docker.sh` helper commands and "Manual Docker Commands" sections were interleaved, with orphaned lines outside any block. Fixed by properly separating the two command sections. Also merged duplicate "Docker Compose Profiles" / "Docker Compose" headers.
+
+3. **infrastructure/azure/ARCHITECTURE.md — Stale EXAMPLES.md reference:** CI/CD section referenced "Workflow example provided in EXAMPLES.md" but EXAMPLES.md was converted to a redirect stub during cleanup. Updated to link to `README.md#cicd-integration` where the examples now live.
+
+4. **PoshMcp.Tests/Integration/README.azure-integration.md — Wrong deployment command:** Manual test instructions used `az deployment group create` which fails because `main.bicep` targets subscription scope. Fixed to `az deployment sub create` with correct parameters, matching the Bicep modularization architecture.
+
+**No issues found in:**
+- All redirect stubs (DOCKER-BUILD-QUICK-REF.md, DOCKER-BUILD-MODULES.md, AZURE-INTEGRATION-TEST-SCENARIO.md, ENVIRONMENT-CUSTOMIZATION-SUMMARY.md, EXAMPLES.md) — clear titles, descriptions, and valid link targets
+- All "See also" cross-reference sections — consistent and bidirectional
+- Navigation paths — README.md links to all major topics; infrastructure/azure/INDEX.md provides reading-order guidance
+- Content completeness — Azure deployment steps, Docker instructions, integration test setup, and environment customization options all present in canonical locations
+
+**Lessons:**
+- Code block fence bugs are the most dangerous cleanup artifact — they silently hide large sections
+- Bicep modularization changes (subscription-scoped deployment) need to propagate to ALL manual command examples, not just deployment scripts
+- Redirect stubs should always be cross-verified: the content they point to must actually contain the redirected content
+- After deduplication, check that files referencing the removed content now point to the surviving canonical location
+
+---
+
