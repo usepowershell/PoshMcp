@@ -1,5 +1,6 @@
 - **20260403T135630Z**: ✓ BICEP modularization decision processed and archived.
 - **20260403T140503Z**: ✓ Documentation gap review findings documented; decision protocol recorded.
+- **20260403T141812Z**: ✓ Deploy.ps1 RG creation ordering bug fixed; decision merged to team ledger.
 # Amy Work History
 
 ## Project Context
