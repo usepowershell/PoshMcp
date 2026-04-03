@@ -269,3 +269,25 @@ main.bicep (subscription)
 
 ---
 
+### 2026-07: Fix deploy.ps1 resource group ordering bug
+
+**Problem:** `deploy.ps1` failed with `ResourceGroupNotFound` because `Initialize-ContainerRegistry` (which calls `az acr create --resource-group poshmcp-rg`) ran before the resource group existed. The `New-ResourceGroupIfNeeded` function had been commented out with a note that Bicep would handle RG creation — but Bicep runs later in the workflow (step 6), after ACR creation (step 4).
+
+**Root Cause:** When Bicep was modularized to subscription scope, the script's explicit RG creation was removed under the assumption that Bicep alone was sufficient. But `az acr create` needs the RG earlier in the pipeline, before the Bicep deployment step.
+
+**Fix:** Uncommented `New-ResourceGroupIfNeeded` and restored its call in `Invoke-Deployment` before `Initialize-ContainerRegistry`. Added a comment clarifying that both the script and Bicep create the RG — this is safe because Azure RG creation is idempotent.
+
+**Corrected workflow order:**
+1. Test-Prerequisites
+2. Set-AzureTenant
+3. Set-AzureSubscription
+4. **New-ResourceGroupIfNeeded** ← restored
+5. Initialize-ContainerRegistry
+6. Build-AndPushImage
+7. Deploy-Infrastructure (Bicep — re-declares RG, no-op)
+8. Get-DeploymentInfo
+
+**Lesson:** When refactoring infrastructure-as-code to handle resource creation declaratively (Bicep), verify that imperative steps earlier in the pipeline don't depend on those resources already existing. Deployment scripts with mixed imperative/declarative steps need the imperative RG creation as a safety net.
+
+---
+
