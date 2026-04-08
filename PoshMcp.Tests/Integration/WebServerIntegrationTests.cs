@@ -341,6 +341,7 @@ public class HttpMcpClient : IDisposable
     private readonly HttpClient _httpClient;
     private readonly string _baseUrl;
     private int _requestId = 1;
+    private string? _sessionId;
 
     public HttpMcpClient(ILogger logger, string baseUrl)
     {
@@ -455,8 +456,29 @@ public class HttpMcpClient : IDisposable
         {
             var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
 
+            // Add session ID header for non-initialize requests
+            var headers = new Dictionary<string, string>();
+            if (!string.IsNullOrEmpty(_sessionId))
+            {
+                headers["Mcp-Session-Id"] = _sessionId;
+            }
+
+            foreach (var header in headers)
+            {
+                _httpClient.DefaultRequestHeaders.Remove(header.Key);
+                _httpClient.DefaultRequestHeaders.Add(header.Key, header.Value);
+            }
+
             // The MCP HTTP endpoint is at the root /
             var response = await _httpClient.PostAsync("/", content);
+            
+            // Capture session ID from response headers if present
+            if (response.Headers.TryGetValues("Mcp-Session-Id", out var sessionIdValues))
+            {
+                _sessionId = sessionIdValues.FirstOrDefault();
+                _logger.LogDebug($"Captured session ID from response: {_sessionId}");
+            }
+
             if (!response.IsSuccessStatusCode)
             {
                 var errorContent = await response.Content.ReadAsStringAsync();

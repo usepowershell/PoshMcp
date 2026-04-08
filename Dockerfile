@@ -1,5 +1,5 @@
-# Use the official .NET 8 SDK image for building
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+# Use the official .NET 10 SDK image for building
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 
 # Set the working directory
 WORKDIR /src
@@ -26,8 +26,8 @@ RUN dotnet publish PoshMcp.csproj -c Release -o /app/publish/server /p:UseAppHos
 # Copy the startup script
 COPY docker-entrypoint.sh /app/publish/
 
-# Use the official .NET 8 runtime image
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+# Use the official .NET 10 runtime image
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 
 # Install PowerShell
 RUN apt-get update && apt-get install -y \
