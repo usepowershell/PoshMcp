@@ -3,6 +3,24 @@
 Canonical record of decisions, actions, and outcomes.
 
 
+## 2026-04-08
+
+### Serialization migration coverage should anchor on serializer-level tests
+
+**Author:** Fry (via Copilot)
+**Date:** 2026-04-08T00:00:00Z
+**Status:** Proposed
+
+Add focused unit coverage for `PowerShellJsonOptions` string serialization, because the current migration regression is shared across stdio and web paths while the web integration harness is also vulnerable to unrelated `dotnet run` apphost file locks.
+
+**Rationale:**
+- The integration failures prove user-visible breakage across transport paths
+- A serializer-level regression test gives the narrowest reliable validation target for the fix
+- Web integration runs can be polluted by unrelated `dotnet run` file-lock failures, so unit coverage is the safer regression anchor
+
+**Impact:** Prioritize targeted serializer regression coverage while web-path failures are being investigated. Use broader web validation as confirmation, not the sole guardrail.
+
+
 ## 2026-07
 
 ### Restore explicit resource group creation in deploy.ps1
@@ -45,3 +63,10 @@ Prevents broken rendering and incorrect instructions from reaching users after l
 **Date:** 2026-04-03T14:07:03Z
 
 When asked for tenant IDs or domain names, use `C:\Users\stmuraws\source\gim-home\AdvocacyBami\data\tenants.psd1` as the lookup source, plus the hardcoded entry `72f988bf-86f1-41af-91ab-2d7cd011db47` for `microsoft.onmicrosoft.com`. User request — captured for team memory.
+
+### User directive
+
+**By:** Steven Murawski (via Copilot)
+**Date:** 2026-04-03T18:42:46Z
+
+After any code change, `dotnet format` and `dotnet test` should be run to verify formatting and tests pass.

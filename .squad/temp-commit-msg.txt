@@ -1,12 +1,9 @@
-Scribe: Merge decision inbox, orchestration log, session log
+Scribe: log serialization web failure batch
 
 - Merged 2 inbox decisions into canonical decisions.md
-- Deduplication: Amy's deploy.ps1 RG fix (2026-07) + user tenant directive (2026-04-03)
-- Deleted inbox files: amy-deploy-rg-fix.md, copilot-directive-20260403T140703Z.md
-- Created orchestration log for Amy (RG creation ordering fix)
-- Created session log for squad sync
-- Appended Amy work entry to history.md
-- decisions.md: 797 → 2156 bytes
-- inbox: 2 files → 0 files
+- Logged orchestration entries for Bender and Fry
+- Created session log for the serialization web failure batch
+- Appended cross-agent history notes for Bender and Fry
+- Processed the decision inbox during the Scribe pass
 
 Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
