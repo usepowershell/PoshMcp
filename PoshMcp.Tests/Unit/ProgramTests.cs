@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using System;
 using System.IO;
 using System.Threading.Tasks;
 using Xunit;
@@ -51,7 +52,7 @@ public class ProgramTests : PowerShellTestBase
             var result = await Program.ResolveConfigurationPath(configPath);
 
             // Assert
-            Assert.Equal("appsettings.json", result);
+            Assert.Equal(appSettingsPath, result);
         }
         finally
         {
@@ -71,6 +72,11 @@ public class ProgramTests : PowerShellTestBase
         var tempDir = Path.GetTempPath();
         var configPath = Path.Combine(tempDir, $"test_config_{Path.GetRandomFileName()}.json");
         var tempWorkingDir = Path.Combine(tempDir, Path.GetRandomFileName());
+        var userConfigPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "PoshMcp",
+            "appsettings.json");
+        var userConfigExistedBefore = File.Exists(userConfigPath);
         Directory.CreateDirectory(tempWorkingDir);
 
         try
@@ -82,14 +88,16 @@ public class ProgramTests : PowerShellTestBase
             var result = await Program.ResolveConfigurationPath(configPath);
 
             // Assert
-            Assert.Equal(configPath, result);
-            Assert.True(File.Exists(configPath));
+            Assert.Equal(userConfigPath, result);
+            Assert.True(File.Exists(userConfigPath));
         }
         finally
         {
             Directory.SetCurrentDirectory(originalDirectory);
             if (File.Exists(configPath))
                 File.Delete(configPath);
+            if (!userConfigExistedBefore && File.Exists(userConfigPath))
+                File.Delete(userConfigPath);
             if (Directory.Exists(tempWorkingDir))
                 Directory.Delete(tempWorkingDir, true);
         }

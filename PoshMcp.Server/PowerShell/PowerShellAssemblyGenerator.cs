@@ -546,7 +546,8 @@ public class PowerShellAssemblyGenerator
         {
             using (OperationContext.BeginOperation(commandName))
             {
-                logger.LogInformationWithCorrelation($"Executing PowerShell command: {commandName} with {parameterValues?.Length ?? 0} parameters");
+                var parameterSummary = FormatParameterSummary(parameterInfos, parameterValues);
+                logger.LogInformationWithCorrelation($"Executing PowerShell command: {commandName} with {parameterValues?.Length ?? 0} parameters: {parameterSummary}");
 
                 // Record tool invocation start
                 _metrics?.ToolInvocationTotal.Add(1,
@@ -751,6 +752,48 @@ public class PowerShellAssemblyGenerator
                     { "correlation_id", OperationContext.CorrelationId }
                 });
         }
+    }
+
+    private static string FormatParameterSummary(PowerShellParameterInfo[]? parameterInfos, object[]? parameterValues)
+    {
+        if (parameterInfos == null || parameterValues == null || parameterInfos.Length == 0 || parameterValues.Length == 0)
+        {
+            return "(none)";
+        }
+
+        var items = new List<string>();
+        var length = Math.Min(parameterInfos.Length, parameterValues.Length);
+
+        for (int i = 0; i < length; i++)
+        {
+            var name = parameterInfos[i].Name;
+            var value = parameterValues[i];
+
+            if (IsSensitiveParameter(name))
+            {
+                items.Add($"{name}=***");
+                continue;
+            }
+
+            var displayValue = value?.ToString() ?? "<null>";
+            if (displayValue.Length > 120)
+            {
+                displayValue = displayValue.Substring(0, 120) + "...";
+            }
+
+            items.Add($"{name}={displayValue}");
+        }
+
+        return items.Count == 0 ? "(none)" : string.Join(", ", items);
+    }
+
+    private static bool IsSensitiveParameter(string parameterName)
+    {
+        return parameterName.Contains("password", StringComparison.OrdinalIgnoreCase) ||
+               parameterName.Contains("secret", StringComparison.OrdinalIgnoreCase) ||
+               parameterName.Contains("token", StringComparison.OrdinalIgnoreCase) ||
+               parameterName.Contains("apikey", StringComparison.OrdinalIgnoreCase) ||
+               parameterName.Contains("key", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
