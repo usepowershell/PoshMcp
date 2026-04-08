@@ -20,6 +20,73 @@ Add focused unit coverage for `PowerShellJsonOptions` string serialization, beca
 
 **Impact:** Prioritize targeted serializer regression coverage while web-path failures are being investigated. Use broader web validation as confirmation, not the sole guardrail.
 
+### Normalize PowerShell results before JSON serialization
+
+**Author:** Steven Murawski (via Copilot/Hermes)
+**Date:** 2026-04-08
+**Status:** Proposed
+
+Convert PowerShell results into JSON-safe scalars, dictionaries, and arrays before handing them to `System.Text.Json`, with explicit handling for `IDictionary`, `IEnumerable`, pointer-like CLR values, recursive `PSObject` graphs, and inaccessible CLR properties.
+
+**Rationale:**
+- Direct serialization of nested CLR objects leaked framework dictionary internals into responses
+- Members such as `Encoding.Preamble` and pointer-like CLR values can trip unsupported serialization paths
+- Normalizing into JSON-safe shapes protects both live command results and cached outputs
+
+**Impact:** The serialization pipeline should normalize nested PowerShell and CLR objects before JSON output so stdio and web responses stay predictable and cache-safe.
+
+### Preserve scalar PowerShell BaseObject values during JSON serialization
+
+**Author:** Hermes (via Copilot)
+**Date:** 2026-04-08T00:00:00Z
+**Status:** Proposed
+
+Treat scalar `PSObject.BaseObject` values, especially strings, as leaf JSON values before enumerating `PSObject.Properties`.
+
+**Rationale:**
+- The `System.Text.Json` migration regressed simple command output by serializing wrapped strings as PowerShell metadata such as `Length`
+- Scalar leaf handling is the narrow fix for the user-visible string regression
+- Complex PowerShell objects still need property-based serialization after scalar cases are peeled off
+
+**Impact:** String and other scalar PowerShell results should serialize as their actual values instead of adapted metadata objects.
+
+### Tester coverage should pin string serialization through execution and cache paths
+
+**Author:** Fry (via Copilot)
+**Date:** 2026-04-08T00:00:00Z
+**Status:** Proposed
+
+Keep the serializer unit test as the narrow regression anchor, and add focused execution-plus-cache coverage for a string-returning PowerShell command so `ExecutePowerShellCommandTyped` and `GetLastCommandOutput` are pinned against the `[{"Length":N}]` regression.
+
+**Rationale:**
+- HTTP integration tests are useful but indirect for this defect
+- Prior functional cache assertions only checked for valid JSON and cache consistency
+- A direct execution-plus-cache assertion closes the gap on the public response shape that regressed
+
+**Impact:** Regression coverage should include both serializer-level tests and targeted execution/cache assertions for string outputs.
+
+### Reuse existing test build outputs when launching the in-process web harness
+
+**Author:** Steven Murawski (via Copilot)
+**Date:** 2026-04-08T00:00:00Z
+**Status:** Proposed
+
+The in-process web test harness should infer the active test build configuration and launch `PoshMcp.Web` with `dotnet run --no-build --configuration {Debug|Release}` so integration tests reuse existing build outputs.
+
+**Rationale:**
+- `dotnet test -c Release` already produces the required binaries
+- Triggering a second build during `StartAsync()` caused file-lock conflicts against referenced outputs
+- Matching the active test configuration removes accidental Debug/Release mismatches in the harness
+
+**Impact:** Web integration startup should avoid redundant builds and reduce file-lock failures during test execution.
+
+### User directive
+
+**By:** Steven Murawski (via Copilot)
+**Date:** 2026-04-08T00:00:00Z
+
+Do not run builds or tests from VS Code while the MCP server is running; use static inspection instead unless the server is stopped.
+
 
 ## 2026-07
 

@@ -155,6 +155,44 @@ public class ServerWithExternalClient : PowerShellTestBase, IAsyncLifetime
     }
 
     [Fact]
+    public async Task ShouldListAndCallGetProcessTool()
+    {
+        Logger.LogInformation("=== Starting ShouldListAndCallGetProcessTool Test ===");
+
+        var client = _sharedClient ?? throw new InvalidOperationException("Shared client not initialized");
+
+        var toolsResponse = await client.SendListToolsAsync();
+        Assert.NotNull(toolsResponse);
+
+        var tools = toolsResponse["result"]?["tools"] as JArray;
+        Assert.NotNull(tools);
+
+        var getProcessTool = tools.FirstOrDefault(t =>
+            string.Equals(t["name"]?.ToString(), "get_process_id", StringComparison.OrdinalIgnoreCase));
+        Assert.NotNull(getProcessTool);
+
+        var currentProcessId = Process.GetCurrentProcess().Id;
+        var callResponse = await client.SendToolCallAsync("get_process_id", new JObject
+        {
+            ["Id"] = new JArray(currentProcessId)
+        });
+
+        Assert.NotNull(callResponse);
+        Assert.Null(callResponse["error"]);
+        Assert.NotEqual(true, callResponse["result"]?["isError"]?.Value<bool>());
+
+        var content = callResponse["result"]?["content"] as JArray;
+        Assert.NotNull(content);
+        Assert.True(content.Count > 0);
+
+        var textContent = content[0]?["text"]?.ToString();
+        Assert.False(string.IsNullOrWhiteSpace(textContent));
+        Assert.Contains(currentProcessId.ToString(), textContent, StringComparison.Ordinal);
+
+        Logger.LogInformation("Get-Process tool call succeeded for PID {Pid}", currentProcessId);
+    }
+
+    [Fact]
     public async Task ShouldHandleErrors()
     {
         Logger.LogInformation("=== Starting ShouldHandleErrors Test ===");

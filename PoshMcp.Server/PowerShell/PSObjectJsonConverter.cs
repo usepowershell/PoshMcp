@@ -27,41 +27,8 @@ public class PSObjectJsonConverter : JsonConverter<PSObject>
             return;
         }
 
-        // Convert PSObject to a simple dictionary for serialization
-        var dict = new Dictionary<string, object?>();
-
-        try
-        {
-            foreach (var property in value.Properties)
-            {
-                try
-                {
-                    dict[property.Name] = property.Value;
-                }
-                catch
-                {
-                    // Skip inaccessible properties
-                }
-            }
-        }
-        catch
-        {
-            // Fallback if property enumeration fails
-            if (value.BaseObject != null)
-            {
-                dict["_BaseObject"] = value.BaseObject.GetType().FullName;
-                dict["_Value"] = value.BaseObject.ToString();
-            }
-        }
-
-        // Use default options without converters to avoid recursion
-        var simpleOptions = new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = false,
-            WriteIndented = false,
-            DefaultIgnoreCondition = JsonIgnoreCondition.Never
-        };
-        JsonSerializer.Serialize(writer, dict, simpleOptions);
+        var normalized = PowerShellObjectSerializer.FlattenPSObject(value);
+        JsonSerializer.Serialize(writer, normalized, normalized?.GetType() ?? typeof(object), options);
     }
 }
 
