@@ -1,9 +1,8 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Management.Automation;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace PoshMcp.Server.PowerShell;
 
@@ -12,6 +11,10 @@ namespace PoshMcp.Server.PowerShell;
 /// </summary>
 public static class PowerShellObjectSerializer
 {
+    private const int MaxDepth = 4;
+
+    private static readonly IEqualityComparer<object> ReferenceComparer = new ObjectReferenceEqualityComparer();
+
     /// <summary>
     /// Converts a PSObject array to a serializable format that avoids cycles and deep nesting
     /// </summary>
@@ -24,7 +27,7 @@ public static class PowerShellObjectSerializer
             return Array.Empty<object>();
         }
 
-        return psObjects.Select(FlattenPSObject).ToArray();
+        return psObjects.Select(psObject => FlattenPSObject(psObject)).ToArray();
     }
 
     /// <summary>
@@ -39,53 +42,11 @@ public static class PowerShellObjectSerializer
             return null!;
         }
 
+        var visited = new HashSet<object>(ReferenceComparer);
+
         try
         {
-            // If the base object is a simple type, return it directly
-            var baseObject = psObject.BaseObject;
-            if (IsSimpleType(baseObject))
-            {
-                return baseObject;
-            }
-
-            // For complex objects, create a flattened dictionary of properties
-            var result = new Dictionary<string, object?>();
-
-            // Add type information
-            result["_PSTypeName"] = psObject.TypeNames.FirstOrDefault() ?? baseObject.GetType().Name;
-
-            // Add properties with safe traversal
-            foreach (var property in psObject.Properties)
-            {
-                try
-                {
-                    if (property.Value == null)
-                    {
-                        result[property.Name] = null;
-                    }
-                    else if (IsSimpleType(property.Value))
-                    {
-                        result[property.Name] = property.Value;
-                    }
-                    else if (property.Value is PSObject nestedPSObject)
-                    {
-                        // Recursively flatten nested PSObjects, but limit depth
-                        result[property.Name] = FlattenPSObjectSafe(nestedPSObject, 1, 3);
-                    }
-                    else
-                    {
-                        // Convert complex objects to string representation
-                        result[property.Name] = property.Value.ToString();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    // If we can't access a property, include the error info
-                    result[property.Name] = $"[Error accessing property: {ex.Message}]";
-                }
-            }
-
-            return result;
+            return NormalizeValue(psObject, 0, visited)!;
         }
         catch (Exception ex)
         {
@@ -99,55 +60,189 @@ public static class PowerShellObjectSerializer
         }
     }
 
-    /// <summary>
-    /// Safely flattens a PSObject with depth limiting to prevent infinite recursion
-    /// </summary>
-    private static object FlattenPSObjectSafe(PSObject psObject, int currentDepth, int maxDepth)
+    public static object? NormalizeForJson(object? value)
     {
-        if (currentDepth >= maxDepth || psObject == null)
+        var visited = new HashSet<object>(ReferenceComparer);
+        return NormalizeValue(value, 0, visited);
+    }
+
+    private static object? NormalizeValue(object? value, int currentDepth, HashSet<object> visited)
+    {
+        if (value == null)
         {
-            return psObject?.ToString() ?? "null";
+            return null;
         }
 
+        if (currentDepth >= MaxDepth)
+        {
+            return value.ToString();
+        }
+
+        if (value is PSObject psObject)
+        {
+            return NormalizePSObject(psObject, currentDepth, visited);
+        }
+
+        if (value is IntPtr intptr)
+        {
+            return intptr.ToInt64();
+        }
+
+        if (value is UIntPtr uintptr)
+        {
+            return uintptr.ToUInt64();
+        }
+
+        if (IsSimpleType(value))
+        {
+            return value;
+        }
+
+        if (!ShouldTrackReference(value))
+        {
+            return NormalizeNonScalarValue(value, currentDepth, visited);
+        }
+
+        if (!visited.Add(value))
+        {
+            return value.ToString();
+        }
+
+        try
+        {
+            return NormalizeNonScalarValue(value, currentDepth, visited);
+        }
+        finally
+        {
+            visited.Remove(value);
+        }
+    }
+
+    private static object? NormalizeNonScalarValue(object value, int currentDepth, HashSet<object> visited)
+    {
+        if (value is IDictionary dictionary)
+        {
+            var result = new Dictionary<string, object?>();
+
+            foreach (DictionaryEntry entry in dictionary)
+            {
+                var key = entry.Key?.ToString();
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    continue;
+                }
+
+                result[key] = NormalizeValue(entry.Value, currentDepth + 1, visited);
+            }
+
+            return result;
+        }
+
+        if (value is IEnumerable enumerable && value is not string)
+        {
+            var items = new List<object?>();
+            foreach (var item in enumerable)
+            {
+                items.Add(NormalizeValue(item, currentDepth + 1, visited));
+            }
+
+            return items;
+        }
+
+        var properties = GetSafeProperties(value);
+        if (properties.Count == 0)
+        {
+            return value.ToString();
+        }
+
+        var propertyMap = new Dictionary<string, object?>();
+        foreach (var property in properties)
+        {
+            if (TryGetNormalizedPropertyValue(property, currentDepth, visited, out var normalizedValue))
+            {
+                propertyMap[property.Name] = normalizedValue;
+            }
+        }
+
+        return propertyMap.Count > 0 ? propertyMap : value.ToString();
+    }
+
+    private static object? NormalizePSObject(PSObject psObject, int currentDepth, HashSet<object> visited)
+    {
         var baseObject = psObject.BaseObject;
+        if (baseObject == null)
+        {
+            return null;
+        }
+
         if (IsSimpleType(baseObject))
         {
             return baseObject;
         }
 
-        var result = new Dictionary<string, object?>();
-        result["_PSTypeName"] = psObject.TypeNames.FirstOrDefault() ?? baseObject.GetType().Name;
+        if (!ReferenceEquals(baseObject, psObject) && ShouldTrackReference(baseObject) && visited.Contains(baseObject))
+        {
+            return psObject.ToString();
+        }
 
-        // Only include a limited set of properties at deeper levels
-        var properties = psObject.Properties.Take(10); // Limit properties to prevent huge objects
+        if (baseObject is IDictionary or IEnumerable and not string)
+        {
+            return NormalizeValue(baseObject, currentDepth, visited);
+        }
+
+        var properties = GetSafeProperties(psObject);
+        if (properties.Count == 0 && !ReferenceEquals(baseObject, psObject))
+        {
+            return NormalizeValue(baseObject, currentDepth, visited);
+        }
+
+        var result = new Dictionary<string, object?>();
         foreach (var property in properties)
         {
-            try
+            if (TryGetNormalizedPropertyValue(property, currentDepth, visited, out var normalizedValue))
             {
-                if (property.Value == null)
-                {
-                    result[property.Name] = null;
-                }
-                else if (IsSimpleType(property.Value))
-                {
-                    result[property.Name] = property.Value;
-                }
-                else if (property.Value is PSObject nestedPSObject)
-                {
-                    result[property.Name] = FlattenPSObjectSafe(nestedPSObject, currentDepth + 1, maxDepth);
-                }
-                else
-                {
-                    result[property.Name] = property.Value.ToString();
-                }
-            }
-            catch
-            {
-                result[property.Name] = "[Property access error]";
+                result[property.Name] = normalizedValue;
             }
         }
 
-        return result;
+        return result.Count > 0 ? result : psObject.ToString();
+    }
+
+    private static List<PSPropertyInfo> GetSafeProperties(object value)
+    {
+        var properties = new List<PSPropertyInfo>();
+
+        foreach (var property in PSObject.AsPSObject(value).Properties)
+        {
+            if (!property.IsGettable)
+            {
+                continue;
+            }
+
+            properties.Add(property);
+        }
+
+        return properties;
+    }
+
+    private static bool TryGetNormalizedPropertyValue(PSPropertyInfo property, int currentDepth, HashSet<object> visited, out object? normalizedValue)
+    {
+        try
+        {
+            normalizedValue = NormalizeValue(property.Value, currentDepth + 1, visited);
+            return true;
+        }
+        catch
+        {
+            normalizedValue = null;
+            return false;
+        }
+    }
+
+    private static bool ShouldTrackReference(object value)
+    {
+        var type = value.GetType();
+        return !(type.IsValueType || value is string);
     }
 
     /// <summary>
@@ -160,6 +255,8 @@ public static class PowerShellObjectSerializer
         var type = obj.GetType();
         return type.IsPrimitive ||
                type == typeof(string) ||
+               type == typeof(Uri) ||
+               type == typeof(Version) ||
                type == typeof(decimal) ||
                type == typeof(DateTime) ||
                type == typeof(DateTimeOffset) ||
@@ -168,5 +265,18 @@ public static class PowerShellObjectSerializer
                type.IsEnum ||
                (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>) &&
                 IsSimpleType(Nullable.GetUnderlyingType(type)));
+    }
+
+    private sealed class ObjectReferenceEqualityComparer : IEqualityComparer<object>
+    {
+        bool IEqualityComparer<object>.Equals(object? x, object? y)
+        {
+            return ReferenceEquals(x, y);
+        }
+
+        int IEqualityComparer<object>.GetHashCode(object obj)
+        {
+            return System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
+        }
     }
 }

@@ -129,3 +129,12 @@
 - Future test handoffs should include explicit result summaries so Scribe can log validated outcomes, not just assigned scope
 - Team directive now requires `dotnet format` and `dotnet test` after code changes
 
+### 2026-04-08: String serialization regression coverage recorded
+
+**Context:** Logged the focused regression coverage decisions that accompanied the serialization fixes.
+
+**Key learnings:**
+- Serializer-level tests are the narrowest stable guardrail for the string regression
+- Execution-plus-cache assertions are needed to catch public response-shape regressions that pure JSON-validity checks miss
+- Web integration tests remain confirmation coverage, but they should not be the only regression anchor while harness issues are being isolated
+

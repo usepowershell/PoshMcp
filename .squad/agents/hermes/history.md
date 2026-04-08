@@ -15,3 +15,12 @@
 ### 2026-04-03: Session Summary
 **Status:** 2026-03-27 work (PowerShell streams refactoring, multi-tenant review, deployment script patterns) complete.
 **Review Results:** Amy's multi-tenant implementation APPROVED (9/10 PowerShell quality).
+
+### 2026-04-08: Serialization normalization fixes recorded
+
+**Context:** Closed out the serializer migration fixes for string and nested object handling.
+
+**Key learnings:**
+- Scalar `PSObject.BaseObject` values need an early leaf-value path before property enumeration
+- Nested PowerShell and CLR objects should be normalized into JSON-safe scalars, dictionaries, and arrays before `System.Text.Json` runs
+- Serialization fixes need paired coverage so live execution and cached outputs preserve the same shape

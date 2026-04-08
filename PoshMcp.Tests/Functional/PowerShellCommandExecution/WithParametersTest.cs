@@ -32,7 +32,8 @@ public class ExecutePowerShellCommandWithParameters : PowerShellTestBase
             new PowerShellParameterInfo("InputObject", typeof(string), false)
         };
 
-        var parameterValues = new object[] { "dotnet" };
+        var expectedText = "dotnet";
+        var parameterValues = new object[] { expectedText };
 
         // Act
         var result = await PowerShellAssemblyGenerator.ExecutePowerShellCommandTyped(
@@ -55,11 +56,17 @@ public class ExecutePowerShellCommandWithParameters : PowerShellTestBase
         Logger.LogInformation($"Parameterized result: {result}");
         Logger.LogInformation($"Parameterized cached: {cachedOutput}");
 
-        // Both should be valid JSON
-        Assert.True(result.StartsWith("[") || result.StartsWith("{"), "Result should be valid JSON");
-        Assert.True(cachedOutput.StartsWith("[") || cachedOutput.StartsWith("{"), "Cached output should be valid JSON");
-
-        // The results should be consistent - both should contain the same content
+        Assert.Equal($"[\"{expectedText}\"]", result);
         Assert.Equal(result, cachedOutput);
+        Assert.DoesNotContain("\"Length\"", result, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"Length\"", cachedOutput, StringComparison.Ordinal);
+
+        var deserializedResult = ConvertJsonToObjects(result);
+        Assert.Single(deserializedResult);
+        Assert.Equal(expectedText, Assert.IsType<string>(deserializedResult[0]));
+
+        var deserializedCachedOutput = ConvertJsonToObjects(cachedOutput);
+        Assert.Single(deserializedCachedOutput);
+        Assert.Equal(expectedText, Assert.IsType<string>(deserializedCachedOutput[0]));
     }
 }

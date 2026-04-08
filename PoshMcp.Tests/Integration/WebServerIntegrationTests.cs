@@ -185,6 +185,7 @@ public class InProcessWebServer : IDisposable
         }
 
         var webProjectPath = Path.Combine(workspaceRoot, "PoshMcp.Web", "PoshMcp.Web.csproj");
+        var buildConfiguration = ResolveBuildConfiguration();
 
         if (!File.Exists(webProjectPath))
         {
@@ -195,7 +196,7 @@ public class InProcessWebServer : IDisposable
         var startInfo = new ProcessStartInfo
         {
             FileName = "dotnet",
-            Arguments = $"run --project \"{webProjectPath}\" --urls=\"http://localhost:{_port}\"",
+            Arguments = $"run --no-build --configuration {buildConfiguration} --project \"{webProjectPath}\" --urls=\"http://localhost:{_port}\"",
             UseShellExecute = false,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
@@ -203,6 +204,8 @@ public class InProcessWebServer : IDisposable
             CreateNoWindow = true,
             WorkingDirectory = currentDirectory
         };
+
+        _logger.LogInformation("Launching web server with configuration {BuildConfiguration} and no-build to reuse test outputs", buildConfiguration);
 
         // Add environment variables for better debugging and configuration
         startInfo.Environment["ASPNETCORE_ENVIRONMENT"] = "Development";
@@ -312,6 +315,23 @@ public class InProcessWebServer : IDisposable
         }
 
         _logger.LogInformation($"In-process MCP web server started successfully on {ServerUrl}");
+    }
+
+    private static string ResolveBuildConfiguration()
+    {
+        var baseDirectory = AppContext.BaseDirectory;
+
+        if (baseDirectory.IndexOf($"{Path.DirectorySeparatorChar}Release{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return "Release";
+        }
+
+        if (baseDirectory.IndexOf($"{Path.DirectorySeparatorChar}Debug{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return "Debug";
+        }
+
+        return "Debug";
     }
 
     public void Dispose()

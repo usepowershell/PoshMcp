@@ -881,8 +881,8 @@ public class PowerShellAssemblyGenerator
         
         try
         {
-            var resultsArray = results.ToArray();
-            var jsonOutput = JsonSerializer.Serialize(resultsArray, PowerShellJsonOptions.Options);
+            var normalizedResults = PowerShellObjectSerializer.FlattenPSObjects(results.ToArray());
+            var jsonOutput = JsonSerializer.Serialize(normalizedResults, PowerShellJsonOptions.Options);
             logger.LogInformation($"{operationName} completed: {jsonOutput.Length} characters");
             return jsonOutput;
         }
@@ -894,9 +894,6 @@ public class PowerShellAssemblyGenerator
     }
     /// <summary>
     /// Retrieves the cached output from the last executed PowerShell command
-    /// </summary>
-    /// <param name="runspace">The PowerShell runspace to query</param>
-    /// <param name="logger">Logger instance</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>JSON-serialized cached command output, or null if no cache exists</returns>
     public static async Task<string?> GetLastCommandOutput(

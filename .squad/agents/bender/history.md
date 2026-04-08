@@ -81,3 +81,12 @@
 - Keep the web failure investigation anchored to serialization-related regressions in `PoshMcp.Web`
 - Preserve enough context in future handoffs to distinguish assignment scope from verified outcomes
 - Team directive now requires `dotnet format` and `dotnet test` after code changes
+
+### 2026-04-08: Web harness fix recorded for configuration-aligned no-build startup
+
+**Context:** Completed the in-process web harness fix for the serialization migration follow-up.
+
+**Key learnings:**
+- The harness should reuse the active test build outputs instead of triggering a second app build during startup
+- `dotnet run --no-build --configuration {Debug|Release}` needs to match the test run configuration to avoid Debug/Release drift
+- File-lock failures during web integration startup were a harness issue separate from the serializer regression itself
