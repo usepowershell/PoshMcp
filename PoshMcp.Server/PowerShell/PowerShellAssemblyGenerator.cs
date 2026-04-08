@@ -7,6 +7,7 @@ using System.Management.Automation;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.ExceptionServices;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -658,45 +659,31 @@ public class PowerShellAssemblyGenerator
                         return Task.FromResult($"{{\"error\": \"Command completed with errors: {errorMessage}\"}}");
                     }
 
-                    // Convert results to JSON using PowerShell's ConvertTo-Json
+                    // Convert results to JSON using System.Text.Json (much faster than PowerShell's ConvertTo-Json)
                     if (results.Count == 0)
                     {
                         ps.Commands.Clear();
                         return Task.FromResult("[]");
                     }
 
-                    // Use PowerShell's ConvertTo-Json to serialize the results
-                    ps.Commands.Clear();
-                    ps.AddCommand("ConvertTo-Json")
-                      .AddParameter("InputObject", results.ToArray())
-                      .AddParameter("Depth", 10) // Handle nested objects up to 10 levels deep
-                      .AddParameter("Compress", true); // Compact JSON output
-
-                    Collection<PSObject> jsonResults;
                     try
                     {
-                        var safeJsonResults = InvokePowerShellSafe(ps, logger, "converting results to JSON");
-                        jsonResults = safeJsonResults ?? new Collection<PSObject>();
                         ps.Commands.Clear();
+                        
+                        // Serialize directly using System.Text.Json with custom PSObject converter
+                        var resultsArray = results.ToArray();
+                        var jsonOutput = JsonSerializer.Serialize(resultsArray, PowerShellJsonOptions.Options);
+                        
+                        logger.LogInformation($"Command {commandName} completed successfully, returned JSON: {jsonOutput.Length} characters");
+                        return Task.FromResult(jsonOutput);
                     }
                     catch (Exception ex)
                     {
                         status = "error";
                         errorType = "json_serialization_failed";
-                        logger.LogWarning($"Failed to convert PowerShell results to JSON: {ex.Message}");
+                        logger.LogWarning($"Failed to serialize PowerShell results to JSON: {ex.Message}");
                         ps.Commands.Clear();
                         return Task.FromResult($"{{\"error\": \"Failed to serialize results to JSON: {ex.Message}\"}}");
-                    }
-
-                    if (jsonResults.Count > 0)
-                    {
-                        var jsonOutput = jsonResults[0]?.ToString() ?? "null";
-                        logger.LogInformation($"Command {commandName} completed successfully, returned JSON: {jsonOutput.Length} characters");
-                        return Task.FromResult(jsonOutput);
-                    }
-                    else
-                    {
-                        return Task.FromResult("null");
                     }
                 }
                 catch (Exception ex)
@@ -891,22 +878,19 @@ public class PowerShellAssemblyGenerator
         CancellationToken cancellationToken = default)
     {
         ps.Commands.Clear();
-        ps.AddCommand("ConvertTo-Json")
-          .AddParameter("InputObject", results.ToArray())
-          .AddParameter("Depth", 10)
-          .AddParameter("Compress", true);
-
-        var jsonResults = await InvokePowerShellSafeAsync(ps, logger, $"convert {operationName} to JSON", cancellationToken);
-        if (jsonResults == null) return null;
-
-        if (jsonResults.Count > 0)
+        
+        try
         {
-            var jsonOutput = jsonResults[0]?.ToString();
-            logger.LogInformation($"{operationName} completed: {jsonOutput?.Length ?? 0} characters");
+            var resultsArray = results.ToArray();
+            var jsonOutput = JsonSerializer.Serialize(resultsArray, PowerShellJsonOptions.Options);
+            logger.LogInformation($"{operationName} completed: {jsonOutput.Length} characters");
             return jsonOutput;
         }
-
-        return "[]";
+        catch (Exception ex)
+        {
+            logger.LogWarning($"Failed to serialize {operationName} to JSON: {ex.Message}");
+            return null;
+        }
     }
     /// <summary>
     /// Retrieves the cached output from the last executed PowerShell command
