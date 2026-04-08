@@ -97,4 +97,95 @@ PoshMcp is a Model Context Protocol (MCP) server implementation that exposes Pow
 ## File Standards
 - No trailing whitespace
 
-When working on this codebase, focus on maintaining the separation between MCP protocol handling and PowerShell execution, ensure proper error handling and logging, and add comprehensive tests for any new functionality.
+## Docker & Container Support
+
+PoshMcp supports containerized deployment using a **two-tier architecture pattern**.
+
+### Architecture
+- **Base Image (`poshmcp:latest`)** — Contains only the MCP server runtime, no modules
+- **Derived Images** — User-created images that extend the base with modules, config, and startup scripts
+
+This separation ensures clean boundaries: base = runtime, derived = customization.
+
+### Local Build & Run
+
+**Prerequisites:** Docker or Podman, Docker Compose or Podman Compose
+
+**Build the base image:**
+```bash
+# Using helper script (Windows)
+.\docker.ps1 build
+
+# Or direct podman/docker
+podman build -t poshmcp:latest .
+```
+
+**Run as web server (HTTP on port 8080):**
+```bash
+podman run -d -p 8080:8080 -e POSHMCP_MODE=web --name poshmcp-web poshmcp:latest
+curl http://localhost:8080/health
+```
+
+**Run as stdio server:**
+```bash
+podman run -it -e POSHMCP_MODE=stdio poshmcp:latest
+```
+
+**Using docker-compose:**
+```bash
+# Start web server
+podman-compose --profile web up -d
+
+# Start stdio server
+podman-compose --profile stdio up -d
+
+# View logs
+podman-compose logs -f
+
+# Stop all
+podman-compose down
+```
+
+### Building Custom Images
+
+Create a derived image with pre-installed modules (reduces startup time):
+
+```dockerfile
+FROM poshmcp:latest
+USER root
+COPY install-modules.ps1 /tmp/
+ENV INSTALL_PS_MODULES="Pester PSScriptAnalyzer Az.Accounts"
+RUN pwsh /tmp/install-modules.ps1 && rm /tmp/install-modules.ps1
+COPY my-appsettings.json /app/web/appsettings.json
+USER appuser
+```
+
+Build with:
+```bash
+podman build -f examples/Dockerfile.user -t poshmcp-custom:latest .
+podman run -d -p 8080:8080 -e POSHMCP_MODE=web poshmcp-custom:latest
+```
+
+### Environment Variables
+- `POSHMCP_MODE=web` — Run HTTP server (default)
+- `POSHMCP_MODE=stdio` — Run stdio MCP server
+- `ASPNETCORE_ENVIRONMENT=Production` — Production mode
+- `INSTALL_PS_MODULES` — Space-separated module names with optional version constraints (e.g., `"Pester@>=5.0.0 Az.Accounts"`)
+
+### Key Files
+- **`Dockerfile`** — Base image definition
+- **`docker-compose.yml`** — Orchestration configuration with `web` and `stdio` profiles
+- **`docker.ps1`** — Windows helper script (build, run, stop, logs, clean commands)
+- **`install-modules.ps1`** — PowerShell module installer (used in derived images)
+- **`examples/Dockerfile.*`** — Template Dockerfiles (user, azure, custom patterns)
+
+### Common Tasks
+- **Inspect modules in container:** `podman run --rm poshmcp:latest pwsh -Command 'Get-Module -ListAvailable'`
+- **Run with custom config:** `podman run -d -v /path/to/appsettings.json:/app/web/appsettings.json poshmcp:latest`
+- **Monitor startup (web mode):** Watch logs until `Application started` appears; health endpoint available at `http://localhost:8080/health`
+
+### Documentation
+- **[DOCKER.md](../DOCKER.md)** — Complete Docker deployment guide
+- **[examples/](../examples/)** — Docker Compose examples and sample Dockerfiles
+
+When working on this codebase, focus on maintaining the separation between MCP protocol handling and PowerShell execution, ensure proper error handling and logging, add comprehensive tests for any new functionality, and maintain the two-tier Docker architecture pattern for containerized deployments.
