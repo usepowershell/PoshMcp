@@ -125,72 +125,72 @@ public class PowerShellAssemblyGenerator
             {
                 logger.LogInformationWithCorrelation("Generating new in-memory assembly for PowerShell commands");
 
-            // Create a dynamic assembly
-            var assemblyName = new AssemblyName($"PowerShellCommandsAssembly_{Guid.NewGuid():N}");
-            var assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(
-                assemblyName,
-                AssemblyBuilderAccess.Run);
+                // Create a dynamic assembly
+                var assemblyName = new AssemblyName($"PowerShellCommandsAssembly_{Guid.NewGuid():N}");
+                var assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(
+                    assemblyName,
+                    AssemblyBuilderAccess.Run);
 
-            // Create a module
-            var moduleBuilder = assemblyBuilder.DefineDynamicModule("PowerShellCommandsModule");
+                // Create a module
+                var moduleBuilder = assemblyBuilder.DefineDynamicModule("PowerShellCommandsModule");
 
-            // Create a class to hold all the methods
-            var typeBuilder = moduleBuilder.DefineType(
-                "PowerShellCommands",
-                TypeAttributes.Public | TypeAttributes.Class);
+                // Create a class to hold all the methods
+                var typeBuilder = moduleBuilder.DefineType(
+                    "PowerShellCommands",
+                    TypeAttributes.Public | TypeAttributes.Class);
 
-            // Add a logger field
-            var loggerField = typeBuilder.DefineField(
-                "_logger",
-                typeof(ILogger),
-                FieldAttributes.Private | FieldAttributes.InitOnly);
+                // Add a logger field
+                var loggerField = typeBuilder.DefineField(
+                    "_logger",
+                    typeof(ILogger),
+                    FieldAttributes.Private | FieldAttributes.InitOnly);
 
-            // Add a runspace field
-            var runspaceField = typeBuilder.DefineField(
-                "_runspace",
-                typeof(IPowerShellRunspace),
-                FieldAttributes.Private | FieldAttributes.InitOnly);
+                // Add a runspace field
+                var runspaceField = typeBuilder.DefineField(
+                    "_runspace",
+                    typeof(IPowerShellRunspace),
+                    FieldAttributes.Private | FieldAttributes.InitOnly);
 
-            // Generate constructor
-            GenerateConstructor(typeBuilder, loggerField, runspaceField);
+                // Generate constructor
+                GenerateConstructor(typeBuilder, loggerField, runspaceField);
 
-            // Generate methods for each command
-            var commandList = commands.ToList();
-            foreach (var command in commandList)
-            {
-                foreach (var parameterSet in command.ParameterSets)
+                // Generate methods for each command
+                var commandList = commands.ToList();
+                foreach (var command in commandList)
                 {
-                    try
+                    foreach (var parameterSet in command.ParameterSets)
                     {
-                        GenerateMethodForCommand(typeBuilder, command, loggerField, runspaceField, logger, parameterSet);
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogError(ex, $"Failed to generate method for command {command.Name}: {ex.Message}");
+                        try
+                        {
+                            GenerateMethodForCommand(typeBuilder, command, loggerField, runspaceField, logger, parameterSet);
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.LogError(ex, $"Failed to generate method for command {command.Name}: {ex.Message}");
+                        }
                     }
                 }
-            }
 
-            // Generate utility methods for cached data operations
-            try
-            {
-                GenerateGetLastCommandOutputMethod(typeBuilder, loggerField, runspaceField);
-                GenerateSortLastCommandOutputMethod(typeBuilder, loggerField, runspaceField);
-                GenerateFilterLastCommandOutputMethod(typeBuilder, loggerField, runspaceField);
-                GenerateGroupLastCommandOutputMethod(typeBuilder, loggerField, runspaceField);
-                logger.LogDebug("Generated utility methods for cached data operations");
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, $"Failed to generate utility methods: {ex.Message}");
-            }
+                // Generate utility methods for cached data operations
+                try
+                {
+                    GenerateGetLastCommandOutputMethod(typeBuilder, loggerField, runspaceField);
+                    GenerateSortLastCommandOutputMethod(typeBuilder, loggerField, runspaceField);
+                    GenerateFilterLastCommandOutputMethod(typeBuilder, loggerField, runspaceField);
+                    GenerateGroupLastCommandOutputMethod(typeBuilder, loggerField, runspaceField);
+                    logger.LogDebug("Generated utility methods for cached data operations");
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, $"Failed to generate utility methods: {ex.Message}");
+                }
 
-            // Create the type
-            _generatedType = typeBuilder.CreateType();
-            _generatedAssembly = _generatedType.Assembly;
+                // Create the type
+                _generatedType = typeBuilder.CreateType();
+                _generatedAssembly = _generatedType.Assembly;
 
-            logger.LogInformationWithCorrelation($"Successfully generated assembly with {commandList.Count} command methods");
-            return _generatedAssembly;
+                logger.LogInformationWithCorrelation($"Successfully generated assembly with {commandList.Count} command methods");
+                return _generatedAssembly;
             }
         }
     }
@@ -558,143 +558,143 @@ public class PowerShellAssemblyGenerator
                         { "correlation_id", OperationContext.CorrelationId }
                     });
 
-            // Log parameter details
-            if (parameterInfos != null && parameterValues != null)
-            {
-                for (int i = 0; i < parameterInfos.Length && i < parameterValues.Length; i++)
+                // Log parameter details
+                if (parameterInfos != null && parameterValues != null)
                 {
-                    var paramInfo = parameterInfos[i];
-                    var paramValue = parameterValues[i];
-                    logger.LogDebug($"Parameter {i}: {paramInfo.Name} = {paramValue} (Type: {paramInfo.Type.Name})");
-                }
-            }
-
-            return await runspace.ExecuteThreadSafeAsync<string>(ps =>
-            {
-                try
-                {
-                    // Ensure the PowerShell instance is in a clean state
-                    if (ps.InvocationStateInfo.State != PSInvocationState.NotStarted &&
-                        ps.InvocationStateInfo.State != PSInvocationState.Completed)
+                    for (int i = 0; i < parameterInfos.Length && i < parameterValues.Length; i++)
                     {
-                        // If PowerShell is in an invalid state, stop it first
-                        if (ps.InvocationStateInfo.State == PSInvocationState.Running)
-                        {
-                            ps.Stop();
-                        }
+                        var paramInfo = parameterInfos[i];
+                        var paramValue = parameterValues[i];
+                        logger.LogDebug($"Parameter {i}: {paramInfo.Name} = {paramValue} (Type: {paramInfo.Type.Name})");
                     }
+                }
 
-                    ps.Commands.Clear();
-                    ps.AddCommand(commandName);
-
-                    // Add parameters
-                    for (int i = 0; i < (parameterInfos?.Length ?? 0) && i < (parameterValues?.Length ?? 0); i++)
+                return await runspace.ExecuteThreadSafeAsync<string>(ps =>
+                {
+                    try
                     {
-                        var paramInfo = parameterInfos![i];
-                        var paramValue = parameterValues![i];
-
-                        if (paramValue != null)
+                        // Ensure the PowerShell instance is in a clean state
+                        if (ps.InvocationStateInfo.State != PSInvocationState.NotStarted &&
+                            ps.InvocationStateInfo.State != PSInvocationState.Completed)
                         {
-                            // Convert parameter value to the expected type
-                            var convertedValue = PowerShellParameterUtils.ConvertParameterValue(
-                                paramValue, paramInfo.Type, paramInfo.Name, logger);
-
-                            if (convertedValue is SwitchParameter switchParam)
+                            // If PowerShell is in an invalid state, stop it first
+                            if (ps.InvocationStateInfo.State == PSInvocationState.Running)
                             {
-                                if (switchParam.IsPresent)
+                                ps.Stop();
+                            }
+                        }
+
+                        ps.Commands.Clear();
+                        ps.AddCommand(commandName);
+
+                        // Add parameters
+                        for (int i = 0; i < (parameterInfos?.Length ?? 0) && i < (parameterValues?.Length ?? 0); i++)
+                        {
+                            var paramInfo = parameterInfos![i];
+                            var paramValue = parameterValues![i];
+
+                            if (paramValue != null)
+                            {
+                                // Convert parameter value to the expected type
+                                var convertedValue = PowerShellParameterUtils.ConvertParameterValue(
+                                    paramValue, paramInfo.Type, paramInfo.Name, logger);
+
+                                if (convertedValue is SwitchParameter switchParam)
                                 {
-                                    ps.AddParameter(paramInfo.Name);
-                                    logger.LogDebug($"Added switch parameter: {paramInfo.Name}");
+                                    if (switchParam.IsPresent)
+                                    {
+                                        ps.AddParameter(paramInfo.Name);
+                                        logger.LogDebug($"Added switch parameter: {paramInfo.Name}");
+                                    }
+                                }
+                                else
+                                {
+                                    ps.AddParameter(paramInfo.Name, convertedValue);
+                                    logger.LogDebug($"Added parameter {paramInfo.Name} ({convertedValue?.GetType().Name}): {convertedValue}");
                                 }
                             }
-                            else
+                            else if (paramInfo.IsMandatory)
                             {
-                                ps.AddParameter(paramInfo.Name, convertedValue);
-                                logger.LogDebug($"Added parameter {paramInfo.Name} ({convertedValue?.GetType().Name}): {convertedValue}");
+                                throw new ArgumentException($"Mandatory parameter '{paramInfo.Name}' cannot be null");
                             }
                         }
-                        else if (paramInfo.IsMandatory)
+
+                        // Execute the command and pipe to Tee-Object to cache results, then continue to ConvertTo-Json
+                        // This caches the output in $LastCommandOutput variable for later retrieval
+                        ps.AddCommand("Tee-Object")
+                          .AddParameter("Variable", "LastCommandOutput");
+
+                        Collection<PSObject> results;
+                        try
                         {
-                            throw new ArgumentException($"Mandatory parameter '{paramInfo.Name}' cannot be null");
+                            var safeResults = InvokePowerShellSafe(ps, logger, $"executing {commandName}");
+                            results = safeResults ?? new Collection<PSObject>();
+                        }
+                        catch (CommandNotFoundException cmdEx)
+                        {
+                            status = "error";
+                            errorType = "command_not_found";
+                            logger.LogWarning($"PowerShell command {commandName} not found: {cmdEx.Message}");
+                            ps.Commands.Clear();
+                            return Task.FromResult($"{{\"error\": \"The term '{commandName}' is not recognized as a name of a cmdlet, function, script file, or executable program.\"}}");
+                        }
+                        catch (Exception ex)
+                        {
+                            status = "error";
+                            errorType = "execution_failed";
+                            logger.LogWarning($"PowerShell command {commandName} execution failed: {ex.Message}");
+                            ps.Commands.Clear();
+                            return Task.FromResult($"{{\"error\": \"Command execution failed: {ex.Message}\"}}");
+                        }
+
+                        // Handle errors
+                        if (ps.HadErrors)
+                        {
+                            status = "error";
+                            errorType = "powershell_errors";
+                            var errors = ps.Streams.Error.ReadAll();
+                            var errorMessage = string.Join("; ", errors.Select(e => e.ToString()));
+                            logger.LogWarning($"PowerShell command {commandName} had errors: {errorMessage}");
+                            ps.Commands.Clear();
+                            return Task.FromResult($"{{\"error\": \"Command completed with errors: {errorMessage}\"}}");
+                        }
+
+                        // Convert results to JSON using System.Text.Json (much faster than PowerShell's ConvertTo-Json)
+                        if (results.Count == 0)
+                        {
+                            ps.Commands.Clear();
+                            return Task.FromResult("[]");
+                        }
+
+                        try
+                        {
+                            ps.Commands.Clear();
+
+                            // Serialize directly using System.Text.Json with custom PSObject converter
+                            var resultsArray = results.ToArray();
+                            var jsonOutput = JsonSerializer.Serialize(resultsArray, PowerShellJsonOptions.Options);
+
+                            logger.LogInformation($"Command {commandName} completed successfully, returned JSON: {jsonOutput.Length} characters");
+                            return Task.FromResult(jsonOutput);
+                        }
+                        catch (Exception ex)
+                        {
+                            status = "error";
+                            errorType = "json_serialization_failed";
+                            logger.LogWarning($"Failed to serialize PowerShell results to JSON: {ex.Message}");
+                            ps.Commands.Clear();
+                            return Task.FromResult($"{{\"error\": \"Failed to serialize results to JSON: {ex.Message}\"}}");
                         }
                     }
-
-                    // Execute the command and pipe to Tee-Object to cache results, then continue to ConvertTo-Json
-                    // This caches the output in $LastCommandOutput variable for later retrieval
-                    ps.AddCommand("Tee-Object")
-                      .AddParameter("Variable", "LastCommandOutput");
-
-                    Collection<PSObject> results;
-                    try
-                    {
-                        var safeResults = InvokePowerShellSafe(ps, logger, $"executing {commandName}");
-                        results = safeResults ?? new Collection<PSObject>();
-                    }
-                    catch (CommandNotFoundException cmdEx)
-                    {
-                        status = "error";
-                        errorType = "command_not_found";
-                        logger.LogWarning($"PowerShell command {commandName} not found: {cmdEx.Message}");
-                        ps.Commands.Clear();
-                        return Task.FromResult($"{{\"error\": \"The term '{commandName}' is not recognized as a name of a cmdlet, function, script file, or executable program.\"}}");
-                    }
                     catch (Exception ex)
                     {
                         status = "error";
-                        errorType = "execution_failed";
-                        logger.LogWarning($"PowerShell command {commandName} execution failed: {ex.Message}");
+                        errorType = "unexpected_error";
+                        logger.LogWarning($"Unexpected error in PowerShell operation: {ex.Message}");
                         ps.Commands.Clear();
-                        return Task.FromResult($"{{\"error\": \"Command execution failed: {ex.Message}\"}}");
+                        return Task.FromResult($"{{\"error\": \"Unexpected error: {ex.Message}\"}}");
                     }
-
-                    // Handle errors
-                    if (ps.HadErrors)
-                    {
-                        status = "error";
-                        errorType = "powershell_errors";
-                        var errors = ps.Streams.Error.ReadAll();
-                        var errorMessage = string.Join("; ", errors.Select(e => e.ToString()));
-                        logger.LogWarning($"PowerShell command {commandName} had errors: {errorMessage}");
-                        ps.Commands.Clear();
-                        return Task.FromResult($"{{\"error\": \"Command completed with errors: {errorMessage}\"}}");
-                    }
-
-                    // Convert results to JSON using System.Text.Json (much faster than PowerShell's ConvertTo-Json)
-                    if (results.Count == 0)
-                    {
-                        ps.Commands.Clear();
-                        return Task.FromResult("[]");
-                    }
-
-                    try
-                    {
-                        ps.Commands.Clear();
-                        
-                        // Serialize directly using System.Text.Json with custom PSObject converter
-                        var resultsArray = results.ToArray();
-                        var jsonOutput = JsonSerializer.Serialize(resultsArray, PowerShellJsonOptions.Options);
-                        
-                        logger.LogInformation($"Command {commandName} completed successfully, returned JSON: {jsonOutput.Length} characters");
-                        return Task.FromResult(jsonOutput);
-                    }
-                    catch (Exception ex)
-                    {
-                        status = "error";
-                        errorType = "json_serialization_failed";
-                        logger.LogWarning($"Failed to serialize PowerShell results to JSON: {ex.Message}");
-                        ps.Commands.Clear();
-                        return Task.FromResult($"{{\"error\": \"Failed to serialize results to JSON: {ex.Message}\"}}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    status = "error";
-                    errorType = "unexpected_error";
-                    logger.LogWarning($"Unexpected error in PowerShell operation: {ex.Message}");
-                    ps.Commands.Clear();
-                    return Task.FromResult($"{{\"error\": \"Unexpected error: {ex.Message}\"}}");
-                }
-            });
+                });
             }
         }
         catch (Exception ex)
@@ -878,7 +878,7 @@ public class PowerShellAssemblyGenerator
         CancellationToken cancellationToken = default)
     {
         ps.Commands.Clear();
-        
+
         try
         {
             var normalizedResults = PowerShellObjectSerializer.FlattenPSObjects(results.ToArray());

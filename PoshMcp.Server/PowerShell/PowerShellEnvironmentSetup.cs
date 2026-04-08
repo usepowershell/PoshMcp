@@ -214,7 +214,7 @@ public class PowerShellEnvironmentSetup
                 var scriptBuilder = new StringBuilder();
                 scriptBuilder.AppendLine($"$ErrorActionPreference = 'Stop'");
                 scriptBuilder.AppendLine($"try {{");
-                
+
                 // Check if module is already installed
                 scriptBuilder.AppendLine($"    $existingModule = Get-Module -ListAvailable -Name '{module.Name}' -ErrorAction SilentlyContinue");
                 scriptBuilder.AppendLine($"    if ($existingModule -and -not {module.Force.ToString().ToLower()}) {{");
@@ -225,7 +225,7 @@ public class PowerShellEnvironmentSetup
                 scriptBuilder.Append($"    Install-Module -Name '{module.Name}'");
                 scriptBuilder.Append($" -Repository '{module.Repository}'");
                 scriptBuilder.Append($" -Scope '{module.Scope}'");
-                
+
                 if (!string.IsNullOrWhiteSpace(module.Version))
                 {
                     scriptBuilder.Append($" -RequiredVersion '{module.Version}'");

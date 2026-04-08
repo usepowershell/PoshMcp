@@ -491,7 +491,7 @@ public class HttpMcpClient : IDisposable
 
             // The MCP HTTP endpoint is at the root /
             var response = await _httpClient.PostAsync("/", content);
-            
+
             // Capture session ID from response headers if present
             if (response.Headers.TryGetValues("Mcp-Session-Id", out var sessionIdValues))
             {

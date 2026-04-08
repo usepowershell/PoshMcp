@@ -93,7 +93,7 @@ public class CorrelationIdPropagationTests : PowerShellTestBase
         //     await Task.Delay(10);
         //     return CorrelationContext.CorrelationId;
         // }).Select(func => func());
-        
+
         // var results = await Task.WhenAll(tasks);
 
         // Assert
@@ -164,7 +164,7 @@ public class CorrelationIdPropagationTests : PowerShellTestBase
         // var id1 = "request-1";
         // CorrelationContext.CorrelationId = id1;
         // var firstResult = CorrelationContext.CorrelationId;
-        
+
         // Simulate clearing context (as middleware would do between requests)
         // CorrelationContext.Clear();
 
