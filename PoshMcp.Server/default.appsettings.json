@@ -1,0 +1,20 @@
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.Hosting.Lifetime": "Information"
+    }
+  },
+  "PowerShellConfiguration": {
+    "FunctionNames": [
+      "Get-Process",
+      "Get-Service",
+      "Get-Location",
+      "Get-Date"
+    ],
+    "Modules": [],
+    "ExcludePatterns": [],
+    "IncludePatterns": [],
+    "EnableDynamicReloadTools": false
+  }
+}

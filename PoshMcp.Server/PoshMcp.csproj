@@ -27,6 +27,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="default.appsettings.json" />
+
     <Content Include="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <!-- Don't include content files when this project is referenced -->
