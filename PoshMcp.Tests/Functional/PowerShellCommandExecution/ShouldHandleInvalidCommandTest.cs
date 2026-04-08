@@ -24,6 +24,36 @@ public class InvalidCommand : PowerShellTestBase
     }
 
     [Fact]
+    public async Task UnknownCommand_ReturnsStructuredErrorJson_NotEmptyArray()
+    {
+        // Arrange
+        var commandName = "NonExistentCommand-UnknownCommand_ReturnsStructuredErrorJson_NotEmptyArray";
+        var parameters = Array.Empty<PowerShellParameterInfo>();
+
+        // Act
+        var result = await PowerShellAssemblyGenerator.ExecutePowerShellCommandTyped(
+            commandName,
+            parameters,
+            Array.Empty<object>(),
+            CancellationToken.None,
+            PowerShellRunspace,
+            Logger);
+
+        // Assert: response is not null/empty and not the historical empty-array regression payload
+        Assert.False(string.IsNullOrWhiteSpace(result));
+        Assert.NotEqual("[]", result.Trim());
+
+        // Assert: response is valid JSON object with a non-empty error property
+        var token = JToken.Parse(result);
+        var json = Assert.IsType<JObject>(token);
+        var error = json["error"]?.Value<string>();
+
+        Assert.False(string.IsNullOrWhiteSpace(error), $"Expected a non-empty error message JSON payload, but got: {result}");
+        Assert.Contains(commandName, error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("not recognized", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task ShouldHandleInvalidCommand()
     {
         // Arrange
@@ -31,18 +61,21 @@ public class InvalidCommand : PowerShellTestBase
         var parameters = new PowerShellParameterInfo[0];
 
         // Act
-        var result = await PowerShellDynamicAssemblyGenerator.ExecutePowerShellCommandTyped(
+        var result = await PowerShellAssemblyGenerator.ExecutePowerShellCommandTyped(
             commandName,
             parameters,
             new object[0],
             CancellationToken.None,
+            PowerShellRunspace,
             Logger);
 
         // Assert
         Assert.NotNull(result);
-        // With safe pipeline handling, invalid commands should either return empty array or error message
-        // Both are acceptable safe behaviors (no crash)
-        Assert.True(result.Equals("[]", StringComparison.Ordinal) || result.Contains("error"),
-            $"Expected either empty array '[]' or error message, but got: {result}");
+        var json = JObject.Parse(result);
+        var error = json["error"]?.Value<string>();
+
+        Assert.False(string.IsNullOrWhiteSpace(error), $"Expected a non-empty error message JSON payload, but got: {result}");
+        Assert.Contains(commandName, error, StringComparison.Ordinal);
+        Assert.Contains("not recognized", error, StringComparison.OrdinalIgnoreCase);
     }
 }

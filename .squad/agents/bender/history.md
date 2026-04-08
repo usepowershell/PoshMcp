@@ -82,6 +82,23 @@
 - Preserve enough context in future handoffs to distinguish assignment scope from verified outcomes
 - Team directive now requires `dotnet format` and `dotnet test` after code changes
 
+### 2026-04-08: Implemented dotnet tool packaging for PoshMcp.Server
+
+**Context:** Task requested by Steven Murawski to make PoshMcp installable via `dotnet tool install`.
+
+**Changes Made:**
+- Added `<PackAsTool>true</PackAsTool>`, `<ToolCommandName>poshmcp</ToolCommandName>`, `<PackageId>poshmcp</PackageId>`, `<Version>0.1.0</Version>`, and full NuGet metadata properties to `PoshMcp.Server/PoshMcp.csproj`
+- Created `.config/dotnet-tools.json` local tool manifest at the repo root (enables `dotnet tool install --local poshmcp`)
+- No LICENSE file exists at repo root — noted but not created per task instructions
+
+**Outcomes:**
+- Build: `dotnet build PoshMcp.Server/PoshMcp.csproj` — succeeded
+- Pack: `dotnet pack PoshMcp.Server/PoshMcp.csproj --no-build` — produced `PoshMcp.Server/bin/Release/poshmcp.0.1.0.nupkg` (~26 MB includes PowerShell SDK)
+
+**Key Insight:** `--no-build` pack still triggers a `publish` step for tool packaging (expected for `PackAsTool=true`). Output appears under `bin/Release/` not `bin/Release/net10.0/`.
+
+---
+
 ### 2026-04-08: Web harness fix recorded for configuration-aligned no-build startup
 
 **Context:** Completed the in-process web harness fix for the serialization migration follow-up.
