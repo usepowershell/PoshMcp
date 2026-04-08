@@ -6,6 +6,18 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>poshmcp</ToolCommandName>
+    <PackageId>poshmcp</PackageId>
+    <Version>0.1.1</Version>
+    <Authors>Steven Murawski</Authors>
+    <Description>A Model Context Protocol (MCP) server that exposes PowerShell commands and modules as AI-consumable tools.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/usepowershell/poshmcp</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/usepowershell/poshmcp</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>mcp;powershell;ai;model-context-protocol;tools</PackageTags>
+    <Copyright>Copyright (c) Steven Murawski</Copyright>
   </PropertyGroup>
 
   <ItemGroup>

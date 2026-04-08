@@ -546,9 +546,32 @@ public class PowerShellAssemblyGenerator
         try
         {
             using (OperationContext.BeginOperation(commandName))
+            using (logger.BeginCorrelationScope())
             {
+                var invocationId = OperationContext.CorrelationId;
+                var parameterCount = parameterValues?.Length ?? 0;
+
+                logger.LogInformation(
+                    "Tool invocation received: ToolName={ToolName}, InvocationId={InvocationId}, ParameterCount={ParameterCount}",
+                    commandName,
+                    invocationId,
+                    parameterCount);
+
+                logger.LogDebug(
+                    "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
+                    "request_received",
+                    commandName,
+                    invocationId,
+                    stopwatch.ElapsedMilliseconds);
+
                 var parameterSummary = FormatParameterSummary(parameterInfos, parameterValues);
-                logger.LogInformationWithCorrelation($"Executing PowerShell command: {commandName} with {parameterValues?.Length ?? 0} parameters: {parameterSummary}");
+                logger.LogDebug(
+                    "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ParameterSummary={ParameterSummary}, ElapsedMs={ElapsedMs}",
+                    "tool_resolved",
+                    commandName,
+                    invocationId,
+                    parameterSummary,
+                    stopwatch.ElapsedMilliseconds);
 
                 // Record tool invocation start
                 _metrics?.ToolInvocationTotal.Add(1,
@@ -565,7 +588,14 @@ public class PowerShellAssemblyGenerator
                     {
                         var paramInfo = parameterInfos[i];
                         var paramValue = parameterValues[i];
-                        logger.LogDebug($"Parameter {i}: {paramInfo.Name} = {paramValue} (Type: {paramInfo.Type.Name})");
+                        logger.LogDebug(
+                            "Tool parameter detail: ToolName={ToolName}, InvocationId={InvocationId}, Index={Index}, Name={ParameterName}, Type={ParameterType}, Value={ParameterValue}",
+                            commandName,
+                            invocationId,
+                            i,
+                            paramInfo.Name,
+                            paramInfo.Type.Name,
+                            paramValue);
                     }
                 }
 
@@ -587,6 +617,13 @@ public class PowerShellAssemblyGenerator
                         ps.Commands.Clear();
                         ps.AddCommand(commandName);
 
+                        logger.LogDebug(
+                            "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
+                            "pipeline_initialized",
+                            commandName,
+                            invocationId,
+                            stopwatch.ElapsedMilliseconds);
+
                         // Add parameters
                         for (int i = 0; i < (parameterInfos?.Length ?? 0) && i < (parameterValues?.Length ?? 0); i++)
                         {
@@ -604,13 +641,24 @@ public class PowerShellAssemblyGenerator
                                     if (switchParam.IsPresent)
                                     {
                                         ps.AddParameter(paramInfo.Name);
-                                        logger.LogDebug($"Added switch parameter: {paramInfo.Name}");
+                                        logger.LogDebug(
+                                            "Bound switch parameter: ToolName={ToolName}, InvocationId={InvocationId}, ParameterName={ParameterName}, IsPresent={IsPresent}",
+                                            commandName,
+                                            invocationId,
+                                            paramInfo.Name,
+                                            switchParam.IsPresent);
                                     }
                                 }
                                 else
                                 {
                                     ps.AddParameter(paramInfo.Name, convertedValue);
-                                    logger.LogDebug($"Added parameter {paramInfo.Name} ({convertedValue?.GetType().Name}): {convertedValue}");
+                                    logger.LogDebug(
+                                        "Bound parameter: ToolName={ToolName}, InvocationId={InvocationId}, ParameterName={ParameterName}, ValueType={ValueType}, Value={Value}",
+                                        commandName,
+                                        invocationId,
+                                        paramInfo.Name,
+                                        convertedValue?.GetType().Name,
+                                        convertedValue);
                                 }
                             }
                             else if (paramInfo.IsMandatory)
@@ -619,22 +667,47 @@ public class PowerShellAssemblyGenerator
                             }
                         }
 
+                        logger.LogDebug(
+                            "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
+                            "parameters_bound_normalized",
+                            commandName,
+                            invocationId,
+                            stopwatch.ElapsedMilliseconds);
+
                         // Execute the command and pipe to Tee-Object to cache results, then continue to ConvertTo-Json
                         // This caches the output in $LastCommandOutput variable for later retrieval
                         ps.AddCommand("Tee-Object")
                           .AddParameter("Variable", "LastCommandOutput");
+
+                        logger.LogInformation(
+                            "PowerShell pipeline starting: ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
+                            commandName,
+                            invocationId,
+                            stopwatch.ElapsedMilliseconds);
 
                         Collection<PSObject> results;
                         try
                         {
                             var safeResults = InvokePowerShellSafe(ps, logger, $"executing {commandName}");
                             results = safeResults ?? new Collection<PSObject>();
+
+                            logger.LogInformation(
+                                "PowerShell pipeline completed: ToolName={ToolName}, InvocationId={InvocationId}, ResultCount={ResultCount}, ElapsedMs={ElapsedMs}",
+                                commandName,
+                                invocationId,
+                                results.Count,
+                                stopwatch.ElapsedMilliseconds);
                         }
                         catch (CommandNotFoundException cmdEx)
                         {
                             status = "error";
                             errorType = "command_not_found";
-                            logger.LogWarning($"PowerShell command {commandName} not found: {cmdEx.Message}");
+                            logger.LogWarning(
+                                cmdEx,
+                                "PowerShell command not found: ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
+                                commandName,
+                                invocationId,
+                                stopwatch.ElapsedMilliseconds);
                             ps.Commands.Clear();
                             return Task.FromResult($"{{\"error\": \"The term '{commandName}' is not recognized as a name of a cmdlet, function, script file, or executable program.\"}}");
                         }
@@ -642,7 +715,12 @@ public class PowerShellAssemblyGenerator
                         {
                             status = "error";
                             errorType = "execution_failed";
-                            logger.LogWarning($"PowerShell command {commandName} execution failed: {ex.Message}");
+                            logger.LogWarning(
+                                ex,
+                                "PowerShell pipeline failed: ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
+                                commandName,
+                                invocationId,
+                                stopwatch.ElapsedMilliseconds);
                             ps.Commands.Clear();
                             return Task.FromResult($"{{\"error\": \"Command execution failed: {ex.Message}\"}}");
                         }
@@ -654,7 +732,13 @@ public class PowerShellAssemblyGenerator
                             errorType = "powershell_errors";
                             var errors = ps.Streams.Error.ReadAll();
                             var errorMessage = string.Join("; ", errors.Select(e => e.ToString()));
-                            logger.LogWarning($"PowerShell command {commandName} had errors: {errorMessage}");
+                            logger.LogWarning(
+                                "PowerShell command completed with errors: ToolName={ToolName}, InvocationId={InvocationId}, ErrorCount={ErrorCount}, Errors={Errors}, ElapsedMs={ElapsedMs}",
+                                commandName,
+                                invocationId,
+                                errors.Count,
+                                errorMessage,
+                                stopwatch.ElapsedMilliseconds);
                             ps.Commands.Clear();
                             return Task.FromResult($"{{\"error\": \"Command completed with errors: {errorMessage}\"}}");
                         }
@@ -662,52 +746,171 @@ public class PowerShellAssemblyGenerator
                         // Convert results to JSON using System.Text.Json (much faster than PowerShell's ConvertTo-Json)
                         if (results.Count == 0)
                         {
+                            logger.LogDebug(
+                                "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
+                                "result_shaping_empty",
+                                commandName,
+                                invocationId,
+                                stopwatch.ElapsedMilliseconds);
                             ps.Commands.Clear();
                             return Task.FromResult("[]");
                         }
 
                         try
                         {
+                            logger.LogDebug(
+                                "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ResultCount={ResultCount}, ElapsedMs={ElapsedMs}",
+                                "result_shaping_started",
+                                commandName,
+                                invocationId,
+                                results.Count,
+                                stopwatch.ElapsedMilliseconds);
+
                             ps.Commands.Clear();
 
                             // Serialize directly using System.Text.Json with custom PSObject converter
                             var resultsArray = results.ToArray();
                             var jsonOutput = JsonSerializer.Serialize(resultsArray, PowerShellJsonOptions.Options);
 
-                            logger.LogInformation($"Command {commandName} completed successfully, returned JSON: {jsonOutput.Length} characters");
+                            logger.LogDebug(
+                                "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, JsonLength={JsonLength}, ElapsedMs={ElapsedMs}",
+                                "result_shaping_completed",
+                                commandName,
+                                invocationId,
+                                jsonOutput.Length,
+                                stopwatch.ElapsedMilliseconds);
                             return Task.FromResult(jsonOutput);
                         }
                         catch (Exception ex)
                         {
                             status = "error";
                             errorType = "json_serialization_failed";
-                            logger.LogWarning($"Failed to serialize PowerShell results to JSON: {ex.Message}");
+                            logger.LogWarning(
+                                ex,
+                                "Result shaping failed: ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
+                                commandName,
+                                invocationId,
+                                stopwatch.ElapsedMilliseconds);
                             ps.Commands.Clear();
                             return Task.FromResult($"{{\"error\": \"Failed to serialize results to JSON: {ex.Message}\"}}");
                         }
+                    }
+                    catch (OperationCanceledException ex)
+                    {
+                        status = "cancelled";
+                        errorType = "operation_cancelled";
+                        logger.LogWarning(
+                            ex,
+                            "Tool invocation cancelled: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
+                            "pipeline_execution",
+                            commandName,
+                            invocationId,
+                            stopwatch.ElapsedMilliseconds);
+                        ps.Commands.Clear();
+                        throw;
+                    }
+                    catch (TimeoutException ex)
+                    {
+                        status = "timeout";
+                        errorType = "timeout";
+                        logger.LogWarning(
+                            ex,
+                            "Tool invocation timed out: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
+                            "pipeline_execution",
+                            commandName,
+                            invocationId,
+                            stopwatch.ElapsedMilliseconds);
+                        ps.Commands.Clear();
+                        throw;
                     }
                     catch (Exception ex)
                     {
                         status = "error";
                         errorType = "unexpected_error";
-                        logger.LogWarning($"Unexpected error in PowerShell operation: {ex.Message}");
+                        logger.LogWarning(
+                            ex,
+                            "Unexpected error during tool invocation: ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
+                            commandName,
+                            invocationId,
+                            stopwatch.ElapsedMilliseconds);
                         ps.Commands.Clear();
                         return Task.FromResult($"{{\"error\": \"Unexpected error: {ex.Message}\"}}");
                     }
                 });
             }
         }
+        catch (OperationCanceledException ex)
+        {
+            status = "cancelled";
+            errorType = "operation_cancelled";
+            logger.LogWarningWithCorrelation(
+                "Tool invocation cancelled before completion: ToolName={ToolName}, ElapsedMs={ElapsedMs}, CancellationRequested={CancellationRequested}",
+                commandName,
+                stopwatch.ElapsedMilliseconds,
+                cancellationToken.IsCancellationRequested);
+            throw new InvalidOperationException($"Execution cancelled for {commandName}: {ex.Message}", ex);
+        }
+        catch (TimeoutException ex)
+        {
+            status = "timeout";
+            errorType = "timeout";
+            logger.LogWarningWithCorrelation(
+                "Tool invocation timeout: ToolName={ToolName}, ElapsedMs={ElapsedMs}",
+                commandName,
+                stopwatch.ElapsedMilliseconds);
+            throw new InvalidOperationException($"Execution timeout for {commandName}: {ex.Message}", ex);
+        }
         catch (Exception ex)
         {
             status = "error";
             errorType = "critical_error";
-            logger.LogErrorWithCorrelation(ex, $"Error executing PowerShell command {commandName}");
+            logger.LogErrorWithCorrelation(
+                ex,
+                "Error executing PowerShell command: ToolName={ToolName}, ElapsedMs={ElapsedMs}",
+                commandName,
+                stopwatch.ElapsedMilliseconds);
             throw new InvalidOperationException($"Error executing {commandName}: {ex.Message}", ex);
         }
         finally
         {
             // Record metrics for the completed operation
             stopwatch.Stop();
+
+            if (status == "success")
+            {
+                logger.LogInformation(
+                    "Tool invocation completed: ToolName={ToolName}, Status={Status}, ElapsedMs={ElapsedMs}",
+                    commandName,
+                    status,
+                    stopwatch.ElapsedMilliseconds);
+            }
+            else if (status == "cancelled" || status == "timeout")
+            {
+                logger.LogWarning(
+                    "Tool invocation did not complete normally: ToolName={ToolName}, Status={Status}, ErrorType={ErrorType}, ElapsedMs={ElapsedMs}",
+                    commandName,
+                    status,
+                    errorType,
+                    stopwatch.ElapsedMilliseconds);
+            }
+            else if (status == "error" && errorType != "critical_error")
+            {
+                logger.LogWarning(
+                    "Tool invocation completed with handled error response: ToolName={ToolName}, Status={Status}, ErrorType={ErrorType}, ElapsedMs={ElapsedMs}",
+                    commandName,
+                    status,
+                    errorType,
+                    stopwatch.ElapsedMilliseconds);
+            }
+            else
+            {
+                logger.LogError(
+                    "Tool invocation failed: ToolName={ToolName}, Status={Status}, ErrorType={ErrorType}, ElapsedMs={ElapsedMs}",
+                    commandName,
+                    status,
+                    errorType,
+                    stopwatch.ElapsedMilliseconds);
+            }
 
             _metrics?.ToolInvocationTotal.Add(1,
                 new TagList {
@@ -833,9 +1036,9 @@ public class PowerShellAssemblyGenerator
         }
         catch (Exception ex)
         {
-            logger.LogWarning($"Failed to {operationName}: {ex.Message}");
+            logger.LogWarning(ex, "Failed to {OperationName}", operationName);
             ps.Commands.Clear();
-            return null;
+            throw;
         }
     }
 

@@ -38,18 +38,25 @@ public class ValidCommand : PowerShellTestBase
         var parameterValues = new object[] { "TestUser", 3 };
 
         // Act
-        var result = await PowerShellDynamicAssemblyGenerator.ExecutePowerShellCommandTyped(
+        var result = await PowerShellAssemblyGenerator.ExecutePowerShellCommandTyped(
             "Get-SomeOtherData",
             parameterInfos,
             parameterValues,
             CancellationToken.None,
+            PowerShellRunspace,
             Logger);
 
         // Assert
         Assert.NotNull(result);
         Logger.LogInformation($"Command result: {result}");
-        // Should either contain our test data or an error message as JSON string
-        Assert.True(result.Contains("TestUser") || result.Contains("Error") || result.Contains("error") || result.Contains("Command"));
+
+        Assert.DoesNotContain("\"error\"", result, StringComparison.OrdinalIgnoreCase);
+        var deserializedResult = ConvertJsonToObjects(result);
+        Assert.Single(deserializedResult);
+
+        var output = Assert.IsType<string>(deserializedResult[0]);
+        Assert.Contains("Data item 1 for TestUser", output, StringComparison.Ordinal);
+        Assert.Contains("Data item 3 for TestUser", output, StringComparison.Ordinal);
     }
 
     private async Task SetupTestPowerShellFunctionAsync()
