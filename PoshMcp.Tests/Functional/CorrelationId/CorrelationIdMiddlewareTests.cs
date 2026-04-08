@@ -119,7 +119,7 @@ public class CorrelationIdMiddlewareTests : PowerShellTestBase
         // string idInMiddleware = null;
         // string idInController = null;
         // string idInService = null;
-        
+
         // await InvokeMiddlewareWithHandlers(request, async () =>
         // {
         //     idInMiddleware = CorrelationContext.CorrelationId;

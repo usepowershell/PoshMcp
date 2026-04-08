@@ -49,27 +49,27 @@ public class AzureDeploymentIntegrationTests : IAsyncLifetime
     public AzureDeploymentIntegrationTests(ITestOutputHelper output)
     {
         _output = output;
-        
+
         // Load .env file if it exists (supports .env, .env.test, or .env.local)
         LoadEnvironmentFile();
-        
+
         _testId = $"poshmcp-test-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
         _baseImageName = $"poshmcp-base:{_testId}";
         _customImageName = $"poshmcp-azure:{_testId}";
         _location = Environment.GetEnvironmentVariable("AZURE_LOCATION") ?? "eastus";
         _subscriptionId = Environment.GetEnvironmentVariable("AZURE_SUBSCRIPTION_ID") ?? "";
-        
+
         // Use existing resource group or create a test-specific one
-        _resourceGroupName = Environment.GetEnvironmentVariable("AZURE_RESOURCE_GROUP") 
+        _resourceGroupName = Environment.GetEnvironmentVariable("AZURE_RESOURCE_GROUP")
             ?? $"rg-{_testId}";
-        
+
         // Use existing ACR or create a test-specific one
-        _containerRegistryName = Environment.GetEnvironmentVariable("AZURE_CONTAINER_REGISTRY") 
+        _containerRegistryName = Environment.GetEnvironmentVariable("AZURE_CONTAINER_REGISTRY")
             ?? $"acr{_testId.Replace("-", "")}".Substring(0, Math.Min(50, $"acr{_testId.Replace("-", "")}".Length)).ToLowerInvariant();
 
         // Skip tests if Azure credentials are not configured
         _skipTests = string.IsNullOrEmpty(_subscriptionId);
-        
+
         if (_skipTests)
         {
             _output.WriteLine("⚠️  Skipping Azure deployment tests - AZURE_SUBSCRIPTION_ID not set");
@@ -95,7 +95,7 @@ public class AzureDeploymentIntegrationTests : IAsyncLifetime
         // Cleanup: Remove local images
         _output.WriteLine("🧹 Cleaning up Docker images...");
         await RunCommandAsync("docker", $"rmi {_baseImageName} {_customImageName} --force", ignoreErrors: true);
-        
+
         // Note: We don't auto-delete Azure resources to allow manual inspection
         // To cleanup Azure resources, run:
         _output.WriteLine($"💡 To cleanup Azure resources, run:");
@@ -134,12 +134,12 @@ public class AzureDeploymentIntegrationTests : IAsyncLifetime
         }
 
         Assert.Equal(0, exitCode);
-        
+
         // Verify image exists
         var (verifyExit, verifyOutput, _) = await RunCommandAsync("docker", $"images {_baseImageName} --format json");
         Assert.Equal(0, verifyExit);
         Assert.Contains(_baseImageName.Split(':')[0], verifyOutput);
-        
+
         _output.WriteLine($"✅ Base image built successfully");
     }
 
@@ -160,11 +160,11 @@ public class AzureDeploymentIntegrationTests : IAsyncLifetime
 
         // Arrange - Ensure base image exists (build it first)
         await BuildBaseImage_ShouldSucceed();
-        
+
         var repoRoot = GetRepositoryRoot();
         var dockerfilePath = Path.Combine(repoRoot, "examples", "Dockerfile.azure");
         _output.WriteLine($"📦 Building custom Azure image from: {dockerfilePath}");
-        
+
         // Update the FROM line temporarily to use our test base image
         var dockerfileContent = await File.ReadAllTextAsync(dockerfilePath);
         var testDockerfileName = $"Dockerfile.azure.test.{_testId}";
@@ -189,12 +189,12 @@ public class AzureDeploymentIntegrationTests : IAsyncLifetime
             }
 
             Assert.Equal(0, exitCode);
-            
+
             // Verify image exists
             var (verifyExit, verifyOutput, _) = await RunCommandAsync("docker", $"images {_customImageName} --format json");
             Assert.Equal(0, verifyExit);
             Assert.Contains(_customImageName.Split(':')[0], verifyOutput);
-            
+
             // Verify Az modules are installed
             var (inspectExit, inspectOutput, _) = await RunCommandAsync(
                 "docker",
@@ -202,7 +202,7 @@ public class AzureDeploymentIntegrationTests : IAsyncLifetime
             );
             Assert.Equal(0, inspectExit);
             Assert.Contains("Az.Accounts", inspectOutput);
-            
+
             _output.WriteLine($"✅ Custom Azure image built successfully with Az modules");
         }
         finally
@@ -302,7 +302,7 @@ public class AzureDeploymentIntegrationTests : IAsyncLifetime
 
             // Step 5: Push image to ACR
             _output.WriteLine($"\n⬆️  Step 5: Pushing image to ACR...");
-            
+
             // Tag image for ACR
             var acrImageName = $"{acrLoginServer}/poshmcp-azure:{_testId}";
             var (tagExit, _, _) = await RunCommandAsync("docker", $"tag {_customImageName} {acrImageName}");
@@ -322,7 +322,7 @@ public class AzureDeploymentIntegrationTests : IAsyncLifetime
             _output.WriteLine($"\n🚀 Step 6: Deploying to Azure Container Apps...");
             var repoRoot = GetRepositoryRoot();
             var bicepPath = Path.Combine(repoRoot, "infrastructure", "azure", "main.bicep");
-            
+
             var deploymentName = $"deploy-{_testId}";
             var containerAppName = $"app-{_testId}";
             var environmentName = $"env-{_testId}";
@@ -359,11 +359,11 @@ public class AzureDeploymentIntegrationTests : IAsyncLifetime
                 "az",
                 $"containerapp show --name {containerAppName} --resource-group {_resourceGroupName} --query properties.runningStatus -o tsv --subscription {_subscriptionId}"
             );
-            
+
             Assert.Equal(0, healthExit);
             var runningStatus = healthOut.Trim();
             _output.WriteLine($"   Container App Status: {runningStatus}");
-            
+
             // Get the FQDN
             var (fqdnExit, fqdnOut, _) = await RunCommandAsync(
                 "az",
@@ -416,7 +416,7 @@ public class AzureDeploymentIntegrationTests : IAsyncLifetime
         bool ignoreErrors = false)
     {
         _output.WriteLine($"🔧 Running: {command} {arguments}");
-        
+
         var processStartInfo = new ProcessStartInfo
         {
             FileName = command,
@@ -432,7 +432,7 @@ public class AzureDeploymentIntegrationTests : IAsyncLifetime
         var errorBuilder = new StringBuilder();
 
         using var process = new Process { StartInfo = processStartInfo };
-        
+
         process.OutputDataReceived += (sender, e) =>
         {
             if (e.Data != null)
@@ -440,7 +440,7 @@ public class AzureDeploymentIntegrationTests : IAsyncLifetime
                 outputBuilder.AppendLine(e.Data);
             }
         };
-        
+
         process.ErrorDataReceived += (sender, e) =>
         {
             if (e.Data != null)
@@ -452,7 +452,7 @@ public class AzureDeploymentIntegrationTests : IAsyncLifetime
         process.Start();
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
-        
+
         await process.WaitForExitAsync();
 
         var exitCode = process.ExitCode;
@@ -474,14 +474,14 @@ public class AzureDeploymentIntegrationTests : IAsyncLifetime
         // Look for .env files in priority order: .env.test, .env.local, .env
         var repoRoot = GetRepositoryRootForEnv();
         var envFiles = new[] { ".env.test", ".env.local", ".env" };
-        
+
         foreach (var envFileName in envFiles)
         {
             var envFilePath = Path.Combine(repoRoot, envFileName);
             if (File.Exists(envFilePath))
             {
                 _output.WriteLine($"📄 Loading environment from: {envFileName}");
-                
+
                 try
                 {
                     var lines = File.ReadAllLines(envFilePath);
@@ -491,21 +491,21 @@ public class AzureDeploymentIntegrationTests : IAsyncLifetime
                         var trimmed = line.Trim();
                         if (string.IsNullOrWhiteSpace(trimmed) || trimmed.StartsWith("#"))
                             continue;
-                        
+
                         // Parse KEY=VALUE format
                         var parts = trimmed.Split('=', 2);
                         if (parts.Length == 2)
                         {
                             var key = parts[0].Trim();
                             var value = parts[1].Trim();
-                            
+
                             // Remove surrounding quotes if present
                             if ((value.StartsWith("\"") && value.EndsWith("\"")) ||
                                 (value.StartsWith("'") && value.EndsWith("'")))
                             {
                                 value = value.Substring(1, value.Length - 2);
                             }
-                            
+
                             // Only set if not already set (environment variables take precedence)
                             if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(key)))
                             {
@@ -518,7 +518,7 @@ public class AzureDeploymentIntegrationTests : IAsyncLifetime
                             }
                         }
                     }
-                    
+
                     _output.WriteLine($"   ✅ Loaded environment from {envFileName}");
                     return; // Stop after first file found
                 }
@@ -528,7 +528,7 @@ public class AzureDeploymentIntegrationTests : IAsyncLifetime
                 }
             }
         }
-        
+
         _output.WriteLine("ℹ️  No .env file found - using system environment variables only");
     }
 
@@ -542,11 +542,11 @@ public class AzureDeploymentIntegrationTests : IAsyncLifetime
             {
                 return currentDir;
             }
-            
+
             var parent = Directory.GetParent(currentDir);
             currentDir = parent?.FullName;
         }
-        
+
         // Fallback to current directory
         return Directory.GetCurrentDirectory();
     }
