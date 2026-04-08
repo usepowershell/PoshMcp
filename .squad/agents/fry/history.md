@@ -100,3 +100,32 @@
 - Include timeout behavior edge cases from Phase 1 planning
 - Design tests for error code propagation through correlation ID infrastructure
 
+---
+
+### 2026-04-08: Serialization migration triage for web and MCP responses
+
+**Context:** Investigated the current failures after replacing PowerShell `ConvertTo-Json` output with `System.Text.Json` serialization in the server and web app.
+
+**What failed:**
+- `WebServerWithHttpClient.ShouldExecutePowerShellCommand` returns `[{"Length":22}]` instead of the expected string payload.
+- `ServerWithExternalClient.ShouldExecutePowerShellCommand` shows the same regression with `[{"Length":49}]`, confirming this is shared serialization behavior and not web-only.
+- Two web integration failures are startup noise caused by `dotnet run` rebuilding while `PoshMcp.exe` is file-locked by another running process; that issue is separate from the serialization regression.
+
+**Key learning:**
+- `PSObject` values that wrap scalar strings are currently being serialized as objects with PowerShell-adapted properties like `Length` instead of JSON strings.
+- Existing coverage only catches this through broader integration tests, so a focused unit test around `PowerShellJsonOptions` is needed to validate Bender's eventual fix without depending on process startup.
+
+**Tester action:**
+- Added a narrow unit regression test in `PoshMcp.Tests/Unit/PowerShellJsonSerializationTests.cs` that asserts a `PSObject`-wrapped string serializes as `["FromUnitTest"]`.
+
+---
+
+### 2026-04-08: Serialization migration web-failure validation batch logged
+
+**Context:** Scribe recorded a new batch focused on reproducing and validating targeted web failures after the serialization migration. The spawn manifest assigned Fry to the validation side of the investigation.
+
+**Shared Team Update:**
+- Keep targeted validation aligned with serialization-related regressions in `PoshMcp.Web`
+- Future test handoffs should include explicit result summaries so Scribe can log validated outcomes, not just assigned scope
+- Team directive now requires `dotnet format` and `dotnet test` after code changes
+

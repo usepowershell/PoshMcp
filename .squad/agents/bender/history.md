@@ -70,3 +70,14 @@
 - Test suite validates changes (13/13 passing)
 - Phase 1 fully approved and production-ready
 - Team coordination effective through review → fix → validate cycle
+
+---
+
+### 2026-04-08: Serialization migration web-failure batch logged
+
+**Context:** Scribe recorded a new batch focused on PoshMcp.Web failures that appeared after the serialization migration. The spawn manifest assigned Bender to investigate and fix the failing web path.
+
+**Shared Team Update:**
+- Keep the web failure investigation anchored to serialization-related regressions in `PoshMcp.Web`
+- Preserve enough context in future handoffs to distinguish assignment scope from verified outcomes
+- Team directive now requires `dotnet format` and `dotnet test` after code changes
