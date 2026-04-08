@@ -1,6 +1,7 @@
 - **20260403T135630Z**: ✓ BICEP modularization decision processed and archived.
 - **20260403T140503Z**: ✓ Documentation gap review findings documented; decision protocol recorded.
 - **20260403T141812Z**: ✓ Deploy.ps1 RG creation ordering bug fixed; decision merged to team ledger.
+- **20260408T000000Z**: ✓ Deploy.ps1 ACR auth path hardened for transient OAuth EOF/network failures with bounded retries, exponential backoff, and clearer diagnostic snippets for az acr login/push failures.
 # Amy Work History
 
 ## Project Context

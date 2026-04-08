@@ -1,13 +1,12 @@
-feat(azure): modularize Bicep deployment for subscription-scoped RBAC
+Scribe: Merge decision inbox, orchestration log, session log
 
-- Refactor to module-based architecture (main.bicep + resources.bicep)
-- Fix 10 Bicep compilation errors (BCP139, BCP265, BCP037, BCP120)
-- Enable subscription-level role assignments for Managed Identity
-- Add comprehensive documentation (MODULARIZATION.md, BICEP-REFACTOR-SUMMARY.md)
-- Zero breaking changes, supports in-place updates
+- Merged 2 inbox decisions into canonical decisions.md
+- Deduplication: Amy's deploy.ps1 RG fix (2026-07) + user tenant directive (2026-04-03)
+- Deleted inbox files: amy-deploy-rg-fix.md, copilot-directive-20260403T140703Z.md
+- Created orchestration log for Amy (RG creation ordering fix)
+- Created session log for squad sync
+- Appended Amy work entry to history.md
+- decisions.md: 797 → 2156 bytes
+- inbox: 2 files → 0 files
 
-Closes: squad decisions inbox (5 items merged)
-
-Co-authored-by: Amy Wong <devops-platform>
-Co-authored-by: Farnsworth <lead-architect>
-Co-authored-by: Hermes <powershell-expert>
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>

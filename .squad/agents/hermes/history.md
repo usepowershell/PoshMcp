@@ -1,5 +1,6 @@
 # Hermes Work History
 - **20260403T135630Z**: ✓ Docker fixes & scripts reviews compiled and merged into decision ledger.
+- **20260408T000000Z**: ✓ Reviewed/recorded deploy.ps1 hardening for transient ACR OAuth EOF failures: bounded retry loops, transient error classification, and improved failure diagnostics.
 # Hermes Work History
 ## Project Context
 **Project:** PoshMcp - Model Context Protocol (MCP) server for PowerShell

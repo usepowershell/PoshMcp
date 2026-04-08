@@ -39,6 +39,204 @@ $ProjectRoot = Join-Path $ScriptDir '..' '..' | Resolve-Path
 $BicepFile = Join-Path $ScriptDir 'main.bicep'
 $ParametersFile = Join-Path $ScriptDir 'parameters.json'
 
+# Retry configuration for transient ACR auth/network issues.
+$script:LoginMaxAttempts = 4
+$script:PushMaxAttempts = 4
+$script:InitialRetryDelaySeconds = 2
+$script:MaxRetryDelaySeconds = 20
+
+function Get-RetryDelaySeconds {
+    param(
+        [Parameter(Mandatory)]
+        [int]$Attempt
+    )
+
+    $delay = [Math]::Min($script:MaxRetryDelaySeconds, $script:InitialRetryDelaySeconds * [Math]::Pow(2, $Attempt - 1))
+    return [int]$delay
+}
+
+function Get-CommandOutputSnippet {
+    param(
+        [Parameter()]
+        [string]$Output
+    )
+
+    if (-not $Output) {
+        return ''
+    }
+
+    return (($Output -split "`r?`n") |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        Select-Object -First 12) -join [Environment]::NewLine
+}
+
+function Test-IsTransientNetworkError {
+    param(
+        [Parameter()]
+        [string]$Message
+    )
+
+    if (-not $Message) {
+        return $false
+    }
+
+    $patterns = @(
+        'eof',
+        'i/o timeout',
+        'timed out',
+        'timeout',
+        'connection reset',
+        'connection aborted',
+        'temporary failure',
+        'temporarily unavailable',
+        'tls handshake timeout',
+        'context deadline exceeded',
+        '503 service unavailable',
+        '429 too many requests'
+    )
+
+    foreach ($pattern in $patterns) {
+        if ($Message -match $pattern) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Test-IsAuthenticationError {
+    param(
+        [Parameter()]
+        [string]$Message
+    )
+
+    if (-not $Message) {
+        return $false
+    }
+
+    $patterns = @(
+        'unauthorized',
+        'authentication required',
+        'invalid username',
+        'invalid password',
+        'denied',
+        'insufficient scope',
+        'forbidden',
+        '401'
+    )
+
+    foreach ($pattern in $patterns) {
+        if ($Message -match $pattern) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Test-AcrReachability {
+    Write-Information "Checking ACR reachability: https://$RegistryServer/v2/" -Tags 'Status'
+
+    try {
+        $null = Invoke-WebRequest -Uri "https://$RegistryServer/v2/" -Method Head -TimeoutSec 15 -UseBasicParsing -ErrorAction Stop
+        Write-Information "✓ ACR endpoint reachable" -Tags 'Success'
+    }
+    catch {
+        $statusCode = $null
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+        }
+
+        if ($statusCode -eq 401 -or $statusCode -eq 403) {
+            Write-Information "✓ ACR endpoint reachable (authentication challenge received: $statusCode)" -Tags 'Success'
+            return
+        }
+
+        $message = $_.Exception.Message
+        if (Test-IsTransientNetworkError -Message $message) {
+            Write-Warning "Transient network issue detected while probing ACR endpoint: $message"
+        }
+        else {
+            Write-Warning "ACR reachability probe failed: $message"
+        }
+    }
+}
+
+function Invoke-AcrLoginWithRetry {
+    for ($attempt = 1; $attempt -le $script:LoginMaxAttempts; $attempt++) {
+        Write-Information "Logging in to Azure Container Registry (attempt $attempt/$($script:LoginMaxAttempts))..." -Tags 'Status'
+        Write-Verbose "Executing: az acr login --name $RegistryName"
+
+        $commandOutput = (az acr login --name $RegistryName 2>&1 | Out-String)
+        if ($LASTEXITCODE -eq 0) {
+            Write-Information "✓ ACR login succeeded" -Tags 'Success'
+            return
+        }
+
+        $snippet = Get-CommandOutputSnippet -Output $commandOutput
+        $isTransient = Test-IsTransientNetworkError -Message $commandOutput
+        $isAuthError = Test-IsAuthenticationError -Message $commandOutput
+
+        if ($isTransient -and $attempt -lt $script:LoginMaxAttempts) {
+            $delay = Get-RetryDelaySeconds -Attempt $attempt
+            Write-Warning "ACR login failed with a transient network error. Retrying in $delay seconds..."
+            if ($snippet) {
+                Write-Warning "ACR login output: $snippet"
+            }
+            Start-Sleep -Seconds $delay
+            continue
+        }
+
+        if ($commandOutput -match 'oauth2/token' -and $commandOutput -match 'eof') {
+            Write-Error "ACR login failed while requesting OAuth token endpoint (likely transient network interruption). Output: $snippet" -Category ResourceUnavailable -ErrorAction Stop
+        }
+
+        if ($isAuthError -and -not $isTransient) {
+            Write-Error "ACR login failed due to authentication/authorization. Verify Azure login, tenant/subscription context, and ACR permissions. Output: $snippet" -Category AuthenticationError -ErrorAction Stop
+        }
+
+        Write-Error "ACR login failed after $attempt attempt(s). Output: $snippet" -Category InvalidOperation -ErrorAction Stop
+    }
+}
+
+function Invoke-DockerPushWithRetry {
+    param(
+        [Parameter(Mandatory)]
+        [string]$ImageName
+    )
+
+    for ($attempt = 1; $attempt -le $script:PushMaxAttempts; $attempt++) {
+        Write-Information "Pushing image (attempt $attempt/$($script:PushMaxAttempts)): $ImageName" -Tags 'Status'
+        Write-Verbose "Executing: docker push $ImageName"
+
+        $commandOutput = (docker push $ImageName 2>&1 | Out-String)
+        if ($LASTEXITCODE -eq 0) {
+            Write-Information "✓ Push succeeded: $ImageName" -Tags 'Success'
+            return
+        }
+
+        $snippet = Get-CommandOutputSnippet -Output $commandOutput
+        $isTransient = Test-IsTransientNetworkError -Message $commandOutput
+        $isAuthError = Test-IsAuthenticationError -Message $commandOutput
+
+        if ($isTransient -and $attempt -lt $script:PushMaxAttempts) {
+            $delay = Get-RetryDelaySeconds -Attempt $attempt
+            Write-Warning "Docker push failed with a transient network error for $ImageName. Retrying in $delay seconds..."
+            if ($snippet) {
+                Write-Warning "Docker push output: $snippet"
+            }
+            Start-Sleep -Seconds $delay
+            continue
+        }
+
+        if ($isAuthError -and -not $isTransient) {
+            Write-Error "Docker push failed due to authentication/authorization for $ImageName. Verify ACR login and repository permissions. Output: $snippet" -Category AuthenticationError -ErrorAction Stop
+        }
+
+        Write-Error "Docker push failed for $ImageName after $attempt attempt(s). Output: $snippet" -Category InvalidOperation -ErrorAction Stop
+    }
+}
+
 # Check prerequisites
 function Test-Prerequisites {
     Write-Information "Checking prerequisites..." -Tags 'Status'
@@ -201,23 +399,15 @@ function Build-AndPushImage {
         
         Write-Information "✓ Image built: $FullImageName" -Tags 'Success'
         
-        # Login to ACR
-        Write-Information "Logging in to Azure Container Registry..." -Tags 'Status'
-        Write-Verbose "Executing: az acr login --name $RegistryName"
-        az acr login --name $RegistryName
-        if ($LASTEXITCODE -ne 0) {
-            Write-Error "Failed to login to container registry" -Category AuthenticationError -ErrorAction Stop
-        }
+        Test-AcrReachability
+        Invoke-AcrLoginWithRetry
         
         # Push image
         Write-Information "Pushing image to registry..." -Tags 'Status'
         Write-Verbose "Pushing: $FullImageName"
         Write-Verbose "Pushing: $latestImage"
-        docker push $FullImageName
-        docker push $latestImage
-        if ($LASTEXITCODE -ne 0) {
-            Write-Error "Failed to push image" -Category InvalidOperation -ErrorAction Stop
-        }
+        Invoke-DockerPushWithRetry -ImageName $FullImageName
+        Invoke-DockerPushWithRetry -ImageName $latestImage
         
         Write-Information "✓ Image pushed to: $RegistryServer" -Tags 'Success'
     }
@@ -248,15 +438,19 @@ function Deploy-Infrastructure {
         Write-Verbose "Deployment name: $deploymentName"
         
         Write-Verbose "Executing: az deployment sub create"
-        az deployment sub create `
+        $deploymentOutput = az deployment sub create `
             --name $deploymentName `
             --location $Location `
             --template-file $BicepFile `
             --parameters "@$tempParams" `
-            --verbose
+            --verbose 2>&1
         
         if ($LASTEXITCODE -ne 0) {
-            Write-Error "Deployment failed" -Category InvalidOperation -ErrorAction Stop
+            $deploymentErrorDetails = ($deploymentOutput | Out-String).Trim()
+            if (-not $deploymentErrorDetails) {
+                $deploymentErrorDetails = 'No additional error output was captured.'
+            }
+            Write-Error "Deployment failed (exit code: $LASTEXITCODE). Details: $deploymentErrorDetails" -Category InvalidOperation -ErrorAction Stop
         }
         
         Write-Information "✓ Infrastructure deployed" -Tags 'Success'
