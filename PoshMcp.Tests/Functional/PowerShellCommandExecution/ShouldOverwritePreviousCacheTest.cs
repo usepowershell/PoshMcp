@@ -17,6 +17,7 @@ namespace PoshMcp.Tests.Functional.PowerShellCommandExecution;
 /// <summary>
 /// Test for cache overwriting behavior
 /// </summary>
+[Collection("CachingStateTests")]
 public class OverwriteCache : PowerShellTestBase
 {
 
@@ -27,6 +28,12 @@ public class OverwriteCache : PowerShellTestBase
     [Fact]
     public async Task ShouldOverwritePreviousCache()
     {
+        var runtimeCachingState = new RuntimeCachingState();
+        runtimeCachingState.SetGlobalOverride(true);
+        PowerShellAssemblyGenerator.SetRuntimeCachingState(runtimeCachingState);
+
+        try
+        {
         // Arrange
         var parameterInfos = new PowerShellParameterInfo[0];
         var parameterValues = new object[0];
@@ -71,5 +78,10 @@ public class OverwriteCache : PowerShellTestBase
         Logger.LogInformation($"Second cached: {secondCachedOutput}");
 
         Assert.NotEqual(firstCachedOutput, secondCachedOutput);
+        }
+        finally
+        {
+            PowerShellAssemblyGenerator.SetRuntimeCachingState(new RuntimeCachingState());
+        }
     }
 }

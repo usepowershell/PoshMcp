@@ -17,6 +17,7 @@ namespace PoshMcp.Tests.Functional.PowerShellCommandExecution;
 /// <summary>
 /// Test for caching PowerShell command results and retrieval
 /// </summary>
+[Collection("CachingStateTests")]
 public class CacheResults : PowerShellTestBase
 {
     public CacheResults(ITestOutputHelper output) : base(output) { }
@@ -24,6 +25,12 @@ public class CacheResults : PowerShellTestBase
     [Fact]
     public async Task ShouldCacheResults_AndAllowRetrieval()
     {
+        var runtimeCachingState = new RuntimeCachingState();
+        runtimeCachingState.SetGlobalOverride(true);
+        PowerShellAssemblyGenerator.SetRuntimeCachingState(runtimeCachingState);
+
+        try
+        {
         // Arrange - Execute a simple command that produces predictable output
         var parameterInfos = new PowerShellParameterInfo[0]; // No parameters
         var parameterValues = new object[0]; // No parameter values
@@ -66,5 +73,10 @@ public class CacheResults : PowerShellTestBase
                    cachedOutput.Contains("Year") || cachedOutput.Contains("Month") || cachedOutput.Contains("Day") ||
                    cachedOutput.Contains("2025") || cachedOutput.Contains("-") && cachedOutput.Contains("T") && cachedOutput.Contains(":"),
                    "Cached output should contain date information");
+        }
+        finally
+        {
+            PowerShellAssemblyGenerator.SetRuntimeCachingState(new RuntimeCachingState());
+        }
     }
 }

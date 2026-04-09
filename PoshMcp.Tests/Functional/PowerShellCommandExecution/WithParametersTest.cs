@@ -17,6 +17,7 @@ namespace PoshMcp.Tests.Functional.PowerShellCommandExecution;
 /// <summary>
 /// Test for parameterized command caching
 /// </summary>
+[Collection("CachingStateTests")]
 public class ExecutePowerShellCommandWithParameters : PowerShellTestBase
 {
     public ExecutePowerShellCommandWithParameters(ITestOutputHelper output) : base(output)
@@ -26,6 +27,12 @@ public class ExecutePowerShellCommandWithParameters : PowerShellTestBase
     [Fact]
     public async Task ShouldCacheParameterizedResults()
     {
+        var runtimeCachingState = new RuntimeCachingState();
+        runtimeCachingState.SetGlobalOverride(true);
+        PowerShellAssemblyGenerator.SetRuntimeCachingState(runtimeCachingState);
+
+        try
+        {
         // Arrange - Test with Get-ChildItem command that takes parameters
         var parameterInfos = new[]
         {
@@ -68,5 +75,10 @@ public class ExecutePowerShellCommandWithParameters : PowerShellTestBase
         var deserializedCachedOutput = ConvertJsonToObjects(cachedOutput);
         Assert.Single(deserializedCachedOutput);
         Assert.Equal(expectedText, Assert.IsType<string>(deserializedCachedOutput[0]));
+        }
+        finally
+        {
+            PowerShellAssemblyGenerator.SetRuntimeCachingState(new RuntimeCachingState());
+        }
     }
 }
