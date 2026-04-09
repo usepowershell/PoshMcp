@@ -421,7 +421,7 @@ public class HttpMcpClient : IDisposable
     private readonly string _baseUrl;
     private int _requestId = 1;
     private string? _sessionId;
-    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(10);
 
     public HttpMcpClient(ILogger logger, string baseUrl)
     {
@@ -569,12 +569,8 @@ public class HttpMcpClient : IDisposable
                 throw new HttpRequestException($"HTTP {response.StatusCode}: {errorContent}");
             }
 
-            var responseText = await response.Content.ReadAsStringAsync();
-            if (string.IsNullOrEmpty(responseText))
-                throw new InvalidOperationException("No response from web server (empty or null)");
-
-            // Parse Server-Sent Events format
-            var responseJson = ExtractJsonFromSSE(responseText);
+            // Parse first Server-Sent Events payload line without waiting for stream end.
+            var responseJson = await ExtractJsonFromSSEAsync(response.Content);
             var responseObject = JObject.Parse(responseJson);
             _logger.LogDebug($"[WEB SERVER RESPONSE] {responseObject.ToString(Formatting.Indented)}");
 
@@ -587,18 +583,26 @@ public class HttpMcpClient : IDisposable
         }
     }
 
-    private string ExtractJsonFromSSE(string sseResponse)
+    private static async Task<string> ExtractJsonFromSSEAsync(HttpContent content)
     {
-        // Response format is "event: message\ndata: {json}\n"
-        var lines = sseResponse.Split('\n');
-        foreach (var line in lines)
+        await using var stream = await content.ReadAsStreamAsync();
+        using var reader = new StreamReader(stream);
+
+        while (true)
         {
+            var line = await reader.ReadLineAsync();
+            if (line == null)
+            {
+                break;
+            }
+
             if (line.StartsWith("data: "))
             {
                 return line.Substring(6); // Remove "data: " prefix
             }
         }
-        throw new InvalidOperationException($"No data line found in SSE response: {sseResponse}");
+
+        throw new InvalidOperationException("No data line found in SSE response stream");
     }
 
     public void Dispose()

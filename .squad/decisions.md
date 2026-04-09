@@ -360,3 +360,71 @@ Added dedicated integration lifecycle tests asserting `InProcessWebServer` and `
 
 **Impact:** Integration coverage now includes explicit disposal/leak checks for in-process server fixtures, reducing risk of unnoticed process-lifecycle regressions.
 
+### 2026-04-09T00:00:00Z: Unified transport selector foundation in server executable
+
+**By:** Bender (via Copilot)
+**Status:** Implemented
+
+Added explicit transport mode selection in server startup with default stdio behavior and a dedicated HTTP placeholder branch in the same executable.
+
+**Rationale:** Establishes a compile-safe unified transport foundation without regressing stdio workflows while creating a clear seam for full HTTP transport enablement.
+
+### User directive
+
+**By:** Steven Murawski (via Copilot)
+**Date:** 2026-04-09T22:46:44.2180935Z
+
+Use one unified executable for stdio and HTTP transport; ship HTTP transport immediately once green; defer container configuration revamp until after consolidation work.
+
+### HTTP transport phase 1 kickoff sequencing
+
+**Author:** Farnsworth (Lead / Architect)
+**Date:** 2026-04-09
+**Status:** Proposed
+
+Phase 1 prioritizes shared startup composition and tool wiring first, keeps explicit transport selection per host during refactor, and defers container configuration changes until after coding/validation.
+
+**Rationale:** Preserves low-risk incremental delivery and keeps HTTP shipment path unblocked while convergence work proceeds.
+
+### Unified HTTP transport implementation in server executable
+
+**Author:** Bender (Backend Developer)
+**Date:** 2026-04-09
+**Status:** Implemented
+
+Implemented real HTTP serve path in `PoshMcp.Server` for `serve --transport http`, reusing web-host patterns where practical (CORS exposing `Mcp-Session-Id`, session-aware runspace wiring, correlation-id middleware, health endpoints, MCP HTTP endpoint mapping, and MCP path normalization).
+
+**Scope controls:** No container changes, no broad cross-project refactor, minimal package additions required for server-hosted HTTP transport and metrics instrumentation.
+
+**Validation:** Release build for server/tests and focused Program + unified HTTP integration tests passed.
+
+### Unified HTTP runspace parity in server host
+
+**Author:** Hermes (Observability / Diagnostics)
+**Date:** 2026-04-09
+**Status:** Implemented
+
+Implemented session-aware runspace behavior in `PoshMcp.Server` HTTP mode to mirror established web-host semantics, and ensured the same session-aware instance is used for both DI and generated MCP tool execution.
+
+**Rationale:** Preserves proven HTTP session behavior while keeping stdio semantics and dynamic tool behavior unchanged.
+
+### Graceful schema degradation for unsupported CLR overload types
+
+**Author:** Bender (Backend Developer)
+**Date:** 2026-04-09
+**Status:** Implemented
+
+When MCP JSON schema generation encounters unsupported CLR parameter types (pointer/ref-struct cases), skip only that overload instead of failing server bootstrap.
+
+**Rationale:** Localized schema incompatibilities are recoverable; preserving server startup and remaining overload availability is preferable to full startup failure.
+
+### Version 0.2.2 release completed
+
+**Author:** Amy (via Steven Murawski)
+**Date:** 2026-04-09T17:36:00Z
+**Status:** Completed
+
+Bumped global tool package version from 0.2.1 to 0.2.2, built release nupkg, updated global install, and verified CLI reports `0.2.2+88dbdbfc09852f4e40f5d9a7e2ced26417d9a12b`.
+
+**Impact:** Release package `PoshMcp.Server/bin/Release/poshmcp.0.2.2.nupkg` is available and deployed for tool users.
+

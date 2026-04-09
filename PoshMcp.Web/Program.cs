@@ -63,7 +63,7 @@ public class Program
 
         // Register session-aware PowerShell runspace as singleton
         // This proxy will create session-specific runspaces internally based on Mcp-Session-Id header
-        builder.Services.AddSingleton<IPowerShellRunspace, SessionAwarePowerShellRunspace>();
+        builder.Services.AddSingleton<IPowerShellRunspace, PoshMcp.Web.PowerShell.SessionAwarePowerShellRunspace>();
 
         // Register health checks
         builder.Services.AddHealthChecks()
