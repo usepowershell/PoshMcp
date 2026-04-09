@@ -110,6 +110,23 @@ When Bicep was modularized to subscription scope, the `New-ResourceGroupIfNeeded
 
 ## 2026-04-09
 
+### Open question decisions for large-result-performance proposal
+
+**By:** Steven Murawski (via Copilot)
+**Date:** 2026-04-09T16:43:00Z
+**Status:** Decided
+
+User decisions on open questions from Farnsworth's large-result-performance proposal:
+
+- **Q2 (result limiting):** YES — include `_MaxResults` parameter
+- **Q4 (cached results):** Cache the FILTERED object, not the full object
+- **Q5 (reset semantics):** Support null or the value "reset" to return to the previously configured setting
+- **Q6 (gating):** Do NOT gate `set-result-caching` behind `EnableDynamicReloadTools`
+- **Q1 (_AllProperties forcing caching):** Not addressed — keep proposal default (no coupling)
+- **Q3 (Format-List vs Format-Table):** Not addressed — keep proposal default (use display set)
+
+**Rationale:** User decisions captured for Phase 2 and Phase 2.5 implementation guidance.
+
 ### dotnet tool packaging for PoshMcp.Server
 
 **Author:** Bender (Backend Developer)

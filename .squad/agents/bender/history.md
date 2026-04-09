@@ -140,3 +140,32 @@
 - The harness should reuse the active test build outputs instead of triggering a second app build during startup
 - `dotnet run --no-build --configuration {Debug|Release}` needs to match the test run configuration to avoid Debug/Release drift
 - File-lock failures during web integration startup were a harness issue separate from the serializer regression itself
+
+---
+
+### 2026-04-09: Phase 2 + Phase 2.5 implementation — conditional Tee-Object and runtime toggle
+
+**Context:** Crash recovery dispatch. Resuming Phase 2 of Farnsworth's large-result-performance proposal after Phase 1 committed at 9823044.
+
+**User Decisions Captured:**
+- **Q2 (_MaxResults parameter):** YES — include result limiting parameter
+- **Q4 (cache filtering):** Cache the FILTERED object, not the full object
+- **Q5 (reset semantics):** Support null or "reset" to return to previously configured setting
+- **Q6 (gating):** Do NOT gate `set-result-caching` behind `EnableDynamicReloadTools`
+
+**Phase 2 Tasks:**
+- Conditional Tee-Object implementation
+- Per-function and global caching override support
+- Runtime cache override state management
+
+**Phase 2.5 Tasks:**
+- Runtime toggle DI registration (`RuntimeCachingState`)
+- `set-result-caching` MCP tool registration
+- Resolution chain: runtime overrides → per-function config → global config
+
+**Key Implementation Details:**
+- `RuntimeCachingState.cs` for thread-safe override storage (ConcurrentDictionary + volatile)
+- Resolution hierarchy: runtime overrides (global + per-function) > per-function config > global config
+- Ephemeral state — no persistence across server restarts
+- Immediate effect on next command execution
+- Filtered object caching reduces memory footprint vs. full result cache
