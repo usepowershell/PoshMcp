@@ -262,7 +262,24 @@ public static class PowerShellObjectSerializer
             return value;
         }
 
-        if (value is IDictionary or IEnumerable and not string)
+        // Dictionaries are bounded key-value maps — safe to normalize recursively.
+        if (value is IDictionary dictionary)
+        {
+            var result = new Dictionary<string, object?>();
+            foreach (System.Collections.DictionaryEntry entry in dictionary)
+            {
+                var key = entry.Key?.ToString();
+                if (!string.IsNullOrWhiteSpace(key))
+                {
+                    result[key] = NormalizePSPropertyValue(entry.Value, currentDepth + 1, visited);
+                }
+            }
+            return result;
+        }
+
+        // Other enumerables (ProcessModuleCollection, etc.) can be expensive to
+        // enumerate and may trigger Win32 API calls. Use .ToString() to stay safe.
+        if (value is IEnumerable and not string)
         {
             return value.ToString();
         }
