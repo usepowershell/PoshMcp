@@ -139,6 +139,170 @@ The default changes from "caching always on" to "caching off." This is a **break
 - Document the change prominently in release notes
 - Utility tools return a helpful error message (not a crash) when caching is off
 
+### 3.6 Runtime Toggle via MCP Tool
+
+Static configuration (appsettings.json, per-function overrides) covers deployment-time decisions. But an MCP client may want to enable or disable result caching mid-session — for example, turning caching on before a large exploratory query so the filter/sort/group tools become available, then turning it off again to reduce memory pressure.
+
+#### 3.6.1 New MCP Tool: `set-result-caching`
+
+A new MCP tool allows the client to toggle result caching at runtime without restarting the server.
+
+**Tool Schema:**
+
+```jsonc
+{
+  "name": "set-result-caching",
+  "description": "Enable or disable result caching at runtime. When enabled, command output is cached for replay by filter/sort/group tools. When disabled, memory usage is reduced but replay tools are unavailable. Runtime setting takes highest priority, overriding both global and per-function configuration. Pass scope='global' to toggle for all commands, or scope='function' with functionName to toggle for a specific function only.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "true to enable result caching, false to disable it."
+      },
+      "scope": {
+        "type": "string",
+        "enum": ["global", "function"],
+        "description": "Whether to apply the toggle globally or to a specific function. Default: 'global'.",
+        "default": "global"
+      },
+      "functionName": {
+        "type": "string",
+        "description": "Required when scope is 'function'. The PowerShell function name to toggle caching for (e.g., 'Get-Process')."
+      }
+    },
+    "required": ["enabled"]
+  }
+}
+```
+
+**Example calls:**
+
+```jsonc
+// Turn on caching globally
+{ "enabled": true }
+
+// Turn off caching for Get-Process only
+{ "enabled": false, "scope": "function", "functionName": "Get-Process" }
+
+// Reset — remove the runtime override, fall back to config
+// (call with enabled=null or use a separate reset tool)
+```
+
+**Response:**
+
+```jsonc
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Result caching set to enabled (scope: global). Filter, sort, and group tools will now work on subsequent command output."
+    }
+  ]
+}
+```
+
+#### 3.6.2 Design Considerations
+
+**Priority in resolution order:**
+Runtime overrides take the **highest priority**, above per-function config and global config. The full resolution order becomes:
+
+1. Runtime per-function override (set via `set-result-caching` with `scope=function`)
+2. Runtime global override (set via `set-result-caching` with `scope=global`)
+3. Static per-function `EnableResultCaching` value (from `FunctionOverrides` in config)
+4. Static global `EnableResultCaching` value (from `Performance` section in config)
+5. Default: `false`
+
+**Thread safety:**
+The runtime state must be safe for concurrent access. The MCP server processes tool calls that may overlap in multi-turn conversations. Use:
+- A `ConcurrentDictionary<string, bool>` for per-function runtime overrides (keyed by function name)
+- A `volatile bool?` (or `Interlocked`-guarded nullable) for the global runtime override
+- These are simple atomic reads/writes — no locks needed for the global flag; the `ConcurrentDictionary` handles its own synchronization
+
+**Scope:**
+The toggle supports two scopes:
+- **Global** — applies to all commands. Good for "I'm about to do a bunch of exploratory work, cache everything."
+- **Per-function** — applies to a single command. Good for "Cache `Get-Process` output but not `Get-Service`."
+- **Session-scoped** — the runtime state is tied to the MCP server process lifetime. There is no session ID or multi-tenant isolation. This is appropriate because PoshMcp runs as a single-client stdio server.
+
+**Persistence:**
+Runtime overrides are **ephemeral** — they do not survive server restarts. This is intentional:
+- Runtime = developer intent for the current session
+- Config = operational defaults that persist
+- If a user consistently wants caching on, they should set it in `appsettings.json`
+- Mixing runtime state with disk persistence adds complexity (dirty writes, stale state) for no clear benefit
+
+**Immediate effect:**
+When toggled on at runtime, the change takes effect on the **next** tool call. It does not retroactively cache output from previous calls. Specifically:
+- Toggling caching **on** means the next command execution will include `Tee-Object` in the pipeline, and subsequent filter/sort/group calls will work on that output
+- Toggling caching **off** means the next command execution will skip `Tee-Object`. The `$LastCommandOutput` variable from any prior cached run remains in the PowerShell runspace until overwritten or the session ends
+
+#### 3.6.3 Implementation Approach
+
+**Runtime state container:**
+
+```csharp
+/// <summary>
+/// Holds runtime overrides for result caching, set via the set-result-caching MCP tool.
+/// Thread-safe. Ephemeral — does not persist across server restarts.
+/// </summary>
+public class RuntimeCachingState
+{
+    private volatile bool? _globalOverride;
+    private readonly ConcurrentDictionary<string, bool> _functionOverrides = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Set or clear the global runtime override.
+    /// Pass null to remove the override and fall back to config.
+    /// </summary>
+    public void SetGlobalOverride(bool? enabled) => _globalOverride = enabled;
+
+    /// <summary>
+    /// Set or clear a per-function runtime override.
+    /// </summary>
+    public void SetFunctionOverride(string functionName, bool? enabled)
+    {
+        if (enabled.HasValue)
+            _functionOverrides[functionName] = enabled.Value;
+        else
+            _functionOverrides.TryRemove(functionName, out _);
+    }
+
+    /// <summary>
+    /// Resolve the runtime override for a given function.
+    /// Returns null if no runtime override is active (fall through to config).
+    /// </summary>
+    public bool? Resolve(string functionName)
+    {
+        if (_functionOverrides.TryGetValue(functionName, out var funcOverride))
+            return funcOverride;
+        return _globalOverride;
+    }
+}
+```
+
+**Registration:** Register `RuntimeCachingState` as a singleton in DI (`Program.cs`). Inject it into `McpToolFactoryV2` and the generated assembly's static wrapper methods.
+
+**Integration with `ExecutePowerShellCommandTyped`:**
+
+The existing caching check becomes:
+
+```csharp
+bool enableCaching = ResolveCachingSetting(commandName, runtimeState, config);
+
+// ... existing pipeline construction ...
+if (enableCaching)
+{
+    ps.AddCommand("Tee-Object")
+      .AddParameter("Variable", "LastCommandOutput");
+}
+```
+
+Where `ResolveCachingSetting` implements the five-layer resolution order from section 3.6.2.
+
+**Utility tool behavior:**
+When caching is toggled **on** at runtime, filter/sort/group tools start working immediately on the next command's output. If called before any cached output exists, they return the same "no cached output available" error they would return normally.
+
 ---
 
 ## 4. Proposal B: Default Property Filtering via Select-Object
@@ -148,8 +312,9 @@ The default changes from "caching always on" to "caching off." This is a **break
 Append `Select-Object -Property <properties>` to the pipeline after the command (and before Tee-Object, if enabled). The property list is determined by:
 
 1. **Explicit per-function configuration** — highest priority
-2. **DefaultDisplayPropertySet** of the output type — auto-discovered at runtime
-3. **All properties** — fallback when no property set is defined or when caller opts out
+2. **RequestedProperties parameter added to all tool calls** for the caller to request specific property filtering - provided at runtime (see 4.4 for example)
+3. **DefaultDisplayPropertySet** of the output type — auto-discovered at runtime
+4. **All properties** — fallback when no property set is defined or when caller opts out
 
 ### 4.2 How DefaultDisplayPropertySet Works
 
@@ -212,8 +377,29 @@ Every generated tool should accept an optional parameter that lets the MCP calle
   }
 }
 ```
-
 The underscore prefix (`_AllProperties`) signals it's a PoshMcp framework parameter, not a PowerShell parameter.
+
+Or the caller requests specific properties
+
+```jsonc
+// MCP tool schema addition (auto-generated for every tool)
+{
+  "name": "get_process_name",
+  "inputSchema": {
+    "properties": {
+      "Name": { "type": "string" },
+      "_RequestedProperties": {
+        "type": "array",
+        "description": "List of property names to return.",
+        "default": null
+      }
+    }
+  }
+}
+```
+
+The underscore prefix (`_RequestedProperties`) signals it's a PoshMcp framework parameter, not a PowerShell parameter.
+
 
 ### 4.5 Pipeline Construction (Before/After)
 
@@ -341,12 +527,14 @@ public class PowerShellConfiguration
 ### 5.2 Resolution Logic (Pseudocode)
 
 ```
-function ResolveSettings(commandName, globalConfig):
+function ResolveSettings(commandName, globalConfig, runtimeState):
   override = globalConfig.FunctionOverrides[commandName]
 
-  enableCaching = override?.EnableResultCaching
-                  ?? globalConfig.Performance.EnableResultCaching
-                  ?? false
+  // EnableResultCaching — 5-layer resolution (runtime highest priority)
+  enableCaching = runtimeState.Resolve(commandName)           // Layer 1+2: runtime per-function, then runtime global
+                  ?? override?.EnableResultCaching             // Layer 3: static per-function config
+                  ?? globalConfig.Performance.EnableResultCaching  // Layer 4: static global config
+                  ?? false                                     // Layer 5: default
 
   useDefaultProps = override?.UseDefaultDisplayProperties
                     ?? globalConfig.Performance.UseDefaultDisplayProperties
@@ -359,6 +547,8 @@ function ResolveSettings(commandName, globalConfig):
   return (enableCaching, useDefaultProps, properties)
 ```
 
+> **Note:** The `runtimeState.Resolve(commandName)` call checks per-function runtime overrides first, then the global runtime override. If neither is set, it returns `null` and resolution falls through to static configuration. See section 3.6.2 for the full priority order.
+
 ---
 
 ## 6. Implementation Plan
@@ -368,12 +558,14 @@ function ResolveSettings(commandName, globalConfig):
 | File | Change |
 |------|--------|
 | `PoshMcp.Server/PowerShell/PowerShellConfiguration.cs` | Add `PerformanceConfiguration`, `FunctionOverride` classes |
-| `PoshMcp.Server/PowerShell/PowerShellAssemblyGenerator.cs` | Conditional Tee-Object; inject Select-Object into pipeline |
-| `PoshMcp.Server/PowerShell/PowerShellDynamicAssemblyGenerator.cs` | Pass configuration through static wrappers |
-| `PoshMcp.Server/McpToolFactoryV2.cs` | Thread configuration to assembly generator; add `_AllProperties` parameter |
+| `PoshMcp.Server/PowerShell/RuntimeCachingState.cs` | **New file.** Thread-safe runtime caching state container (`ConcurrentDictionary` + volatile global flag) |
+| `PoshMcp.Server/PowerShell/PowerShellAssemblyGenerator.cs` | Conditional Tee-Object; inject Select-Object into pipeline; resolve caching via `RuntimeCachingState` |
+| `PoshMcp.Server/PowerShell/PowerShellDynamicAssemblyGenerator.cs` | Pass configuration and `RuntimeCachingState` through static wrappers |
+| `PoshMcp.Server/McpToolFactoryV2.cs` | Thread configuration to assembly generator; add `_AllProperties` parameter; register `set-result-caching` tool |
 | `PoshMcp.Server/PowerShell/PowerShellSchemaGenerator.cs` | Inject `_AllProperties` into generated tool schemas |
+| `PoshMcp.Server/Program.cs` | Register `RuntimeCachingState` as singleton in DI |
 | `PoshMcp.Server/appsettings.json` | Add default `Performance` section |
-| `PoshMcp.Tests/` | New test files for property filtering and caching toggle |
+| `PoshMcp.Tests/` | New test files for property filtering, caching toggle, and runtime toggle scenarios |
 
 ### 6.2 Work Ordering
 
@@ -389,6 +581,14 @@ Phase 2: Optional Tee-Object (medium risk)
   2. Make Tee-Object conditional
   3. Update utility methods to check caching state
   4. Integration tests: verify caching on/off behavior
+
+Phase 2.5: Runtime Caching Toggle (low-medium risk, depends on Phase 2)
+  1. Implement RuntimeCachingState class (ConcurrentDictionary + volatile flag)
+  2. Register as singleton in DI (Program.cs)
+  3. Wire into McpToolFactoryV2 — register `set-result-caching` as a built-in MCP tool
+  4. Update ResolveCachingSetting to check runtime state first
+  5. Unit tests: thread safety, resolution priority, scope behavior
+  6. Integration tests: toggle on/off mid-session, verify filter/sort/group availability
 
 Phase 3: Select-Object property filtering (medium risk)
   1. Implement DefaultDisplayPropertySet discovery
@@ -409,8 +609,14 @@ Phase 4: Documentation and defaults
 |---------------|---------------|
 | **Unit: Config resolution** | Override precedence, default values, null handling |
 | **Unit: Pipeline construction** | Select-Object injected with correct properties; Tee-Object present/absent |
+| **Unit: RuntimeCachingState** | Thread-safe concurrent reads/writes; per-function vs global priority; null returns when no override set |
+| **Unit: Resolution with runtime** | 5-layer resolution order: runtime per-function > runtime global > config per-function > config global > default |
 | **Integration: Caching disabled** | Tool execution works; utility tools return clear error |
 | **Integration: Caching enabled** | Tee-Object present; filter/sort/group still work |
+| **Integration: Runtime toggle on** | Call `set-result-caching` with `enabled=true`; next command output is cached; filter/sort/group work |
+| **Integration: Runtime toggle off** | Call `set-result-caching` with `enabled=false`; next command skips Tee-Object; utility tools return error |
+| **Integration: Runtime per-function** | Toggle caching on for `Get-Process` only; verify `Get-Service` remains uncached |
+| **Integration: Runtime overrides config** | Config says `EnableResultCaching: true`; runtime toggle sets `false`; verify caching is off |
 | **Integration: Property filtering** | JSON output contains only selected properties |
 | **Integration: _AllProperties=true** | Full object graph returned |
 | **Integration: No DisplayPropertySet** | Commands without property sets return all properties gracefully |
@@ -425,6 +631,8 @@ Phase 4: Documentation and defaults
 | Select-Object changes output type (loses type identity) | Low | Medium | Select-Object preserves `PSTypeName`; test explicitly |
 | Performance regression in property discovery | Low | Low | Cache at assembly generation time, not per-invocation |
 | Commands with no output type metadata | Medium | Low | Skip filtering for unresolvable types |
+| Runtime toggle race condition with concurrent tool calls | Low | Medium | `ConcurrentDictionary` and `volatile` provide safe concurrent access; no locks needed for simple flag reads |
+| Runtime toggle confuses MCP clients expecting stable behavior | Low | Low | Tool response clearly states what changed; state is ephemeral (resets on restart) |
 
 ---
 
@@ -437,6 +645,10 @@ Phase 4: Documentation and defaults
 3. **What about `Format-List` vs `Format-Table` property sets?** PowerShell has `DefaultDisplayPropertySet` (table) and `DefaultKeyPropertySet` (list). We use the display set. If users want the key set, they can configure explicit properties.
 
 4. **Should cached results use the filtered or full object?** Current design: cache whatever comes out of the pipeline (filtered if Select-Object is active). This means `get-last-command-output` returns the filtered version. To get full results from cache, caller would need `_AllProperties=true` on the original call.
+
+5. **Should the runtime toggle support a "reset" operation?** Currently, `set-result-caching` sets `enabled` to `true` or `false`. A caller might want to remove the runtime override entirely and fall back to config. Options: (a) accept `null` for `enabled` to mean "clear override", (b) add a separate `reset-result-caching` tool, (c) don't support reset — just set to the desired value. Current recommendation: support `null` on the `enabled` parameter as a "clear override" semantic.
+
+6. **Should `set-result-caching` be gated behind `EnableDynamicReloadTools`?** The existing `EnableDynamicReloadTools` config flag controls whether runtime configuration tools are exposed. The `set-result-caching` tool is conceptually similar. Recommendation: gate it behind the same flag for consistency.
 
 ---
 
