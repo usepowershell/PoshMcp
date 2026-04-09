@@ -199,7 +199,7 @@ public static class PowerShellObjectSerializer
         var result = new Dictionary<string, object?>();
         foreach (var property in properties)
         {
-            if (TryGetNormalizedPropertyValue(property, currentDepth, visited, out var normalizedValue))
+            if (TryGetShallowPSPropertyValue(property, currentDepth, visited, out var normalizedValue))
             {
                 result[property.Name] = normalizedValue;
             }
@@ -223,6 +223,56 @@ public static class PowerShellObjectSerializer
         }
 
         return properties;
+    }
+
+    private static bool TryGetShallowPSPropertyValue(PSPropertyInfo property, int currentDepth, HashSet<object> visited, out object? normalizedValue)
+    {
+        try
+        {
+            var propertyValue = property.Value;
+            normalizedValue = NormalizePSPropertyValue(propertyValue, currentDepth, visited);
+            return true;
+        }
+        catch
+        {
+            normalizedValue = null;
+            return false;
+        }
+    }
+
+    private static object? NormalizePSPropertyValue(object? value, int currentDepth, HashSet<object> visited)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+
+        if (value is IntPtr intptr)
+        {
+            return intptr.ToInt64();
+        }
+
+        if (value is UIntPtr uintptr)
+        {
+            return uintptr.ToUInt64();
+        }
+
+        if (IsSimpleType(value))
+        {
+            return value;
+        }
+
+        if (value is IDictionary or IEnumerable and not string)
+        {
+            return value.ToString();
+        }
+
+        if (value is PSObject nestedPsObject)
+        {
+            return NormalizeValue(nestedPsObject, currentDepth + 1, visited);
+        }
+
+        return value.ToString();
     }
 
     private static bool TryGetNormalizedPropertyValue(PSPropertyInfo property, int currentDepth, HashSet<object> visited, out object? normalizedValue)
