@@ -138,3 +138,20 @@
 - Execution-plus-cache assertions are needed to catch public response-shape regressions that pure JSON-validity checks miss
 - Web integration tests remain confirmation coverage, but they should not be the only regression anchor while harness issues are being isolated
 
+### 2026-04-09: Integration runtime and process-leak analysis for server harnesses
+
+**Context:** Investigated user concern that slower tests were caused by leaked web server processes.
+
+**Evidence gathered:**
+- Focused integration subset (`WebServerWithHttpClient` + `ServerWithExternalClient`) took ~16.7s for 7 tests, with two tests consuming ~3.8-3.9s each due to server startup and first tool invocation overhead.
+- Full integration filter run took ~16.9s for 24 tests, with top durations: `ServerWithExternalClient.ShouldExecutePowerShellCommand` (3.93s), `MultiUserIsolationTests.TwoClientsGetSeparatePowerShellRunspaces` (3.85s), `WebServerWithHttpClient.ShouldExecutePowerShellCommand` (3.84s).
+- Before/after process snapshot around focused run reported `BEFORE_COUNT=0` and `AFTER_COUNT=0` for processes matching `PoshMcp.Web`/`PoshMcp.Server` command lines.
+
+**Testing changes made:**
+- Added `WebServerProcessLifecycleTests.InProcessWebServer_Dispose_ShouldTerminateServerProcess`.
+- Added `McpServerProcessLifecycleTests.InProcessMcpServer_Dispose_ShouldTerminateServerProcess`.
+- Added `InProcessWebServer.GetServerProcess()` to support direct lifecycle assertion.
+
+**Key learning:**
+- Current slowdown is primarily startup + command execution cost in integration harnesses, not observed lingering parent server processes after dispose.
+

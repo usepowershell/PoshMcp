@@ -330,3 +330,33 @@ Split `IDictionary` and `IEnumerable` handling in `NormalizePSPropertyValue`:
 - Modified: `PoshMcp.Server/PowerShell/PowerShellObjectSerializer.cs` (IDictionary handling)
 - Consumers: Pipeline construction in `PowerShellAssemblyGenerator` will use `PropertySetDiscovery.DiscoverAll()` at startup to determine which properties to `Select-Object` for each command.
 
+### Integration fixture process cleanup hardening
+
+**By:** Bender (via Copilot)
+**Date:** 2026-04-09T00:00:00Z
+**Status:** Proposed
+
+In integration fixtures that launch dotnet child processes, use explicit process-tree termination and a centralized teardown helper, and invoke cleanup on startup-failure paths before rethrowing.
+
+**Rationale:**
+- Parent-only Kill can leave orphaned child processes
+- Startup exceptions can bypass deterministic process cleanup
+- Orphaned processes cause longer test sessions and flaky follow-on runs
+
+**Impact:** Integration fixture lifecycle management should always use deterministic process-tree cleanup in both normal teardown and startup-failure paths.
+
+### Integration runtime analysis and leak-guard coverage
+
+**By:** Fry (via Copilot)
+**Date:** 2026-04-09T00:00:00Z
+**Status:** Proposed
+
+Added dedicated integration lifecycle tests asserting `InProcessWebServer` and `InProcessMcpServer` terminate spawned server processes during `Dispose()`, with focused before/after process snapshots to check for server-process leakage.
+
+**Rationale:**
+- User reported slower tests and suspected lingering web/server processes
+- Evidence points to startup and first command execution runtime concentration
+- Focused lifecycle tests create explicit guardrails against process-leak regressions
+
+**Impact:** Integration coverage now includes explicit disposal/leak checks for in-process server fixtures, reducing risk of unnoticed process-lifecycle regressions.
+

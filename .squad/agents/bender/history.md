@@ -169,3 +169,22 @@
 - Ephemeral state — no persistence across server restarts
 - Immediate effect on next command execution
 - Filtered object caching reduces memory footprint vs. full result cache
+
+---
+
+### 2026-04-09: Integration test process cleanup hardening (orphaned child process risk)
+
+**Context:** Investigated long-running tests where integration fixtures launch `dotnet run` child processes for `PoshMcp.Server` and `PoshMcp.Web`.
+
+**Root Cause Identified:**
+- Fixture teardown called `Process.Kill()` without `entireProcessTree: true`, which can leave child app processes alive when the parent launcher exits.
+- Startup failure paths in test server fixtures could throw after process start without guaranteed cleanup in all failure branches.
+
+**Fix Applied:**
+- Added shared `StopServerProcess()` helper in both `InProcessWebServer` and `InProcessMcpServer`.
+- Switched to `Kill(entireProcessTree: true)` and always dispose/null the process handle.
+- Ensured startup failure paths call `StopServerProcess()` before rethrowing.
+
+**Verification:**
+- Focused integration tests passed with no lingering `PoshMcp.Web.csproj` or `PoshMcp.csproj` processes after completion.
+- This reduces process leak risk that can accumulate and slow subsequent test runs.
