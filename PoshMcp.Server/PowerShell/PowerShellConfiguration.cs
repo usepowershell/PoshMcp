@@ -45,6 +45,17 @@ public class PowerShellConfiguration
     public EnvironmentConfiguration Environment { get; set; } = new();
 
     /// <summary>
+    /// Performance tuning (result caching, property filtering).
+    /// </summary>
+    public PerformanceConfiguration Performance { get; set; } = new();
+
+    /// <summary>
+    /// Per-function overrides for performance and display settings,
+    /// keyed by PowerShell function name (e.g. "Get-Process").
+    /// </summary>
+    public Dictionary<string, FunctionOverride> FunctionOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Gets all function names from all configuration sources
     /// </summary>
     public List<string> GetAllFunctionNames()
