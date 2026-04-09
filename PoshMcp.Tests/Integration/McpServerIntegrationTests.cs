@@ -223,6 +223,41 @@ public class ServerWithExternalClient : PowerShellTestBase, IAsyncLifetime
     #endregion
 }
 
+public class McpServerProcessLifecycleTests : PowerShellTestBase
+{
+    public McpServerProcessLifecycleTests(ITestOutputHelper output) : base(output)
+    {
+    }
+
+    [Fact]
+    public async Task InProcessMcpServer_Dispose_ShouldTerminateServerProcess()
+    {
+        var server = new InProcessMcpServer(Logger);
+        await server.StartAsync();
+
+        var serverProcessId = server.GetServerProcess().Id;
+        server.Dispose();
+
+        await Task.Delay(250);
+
+        Assert.False(IsProcessAlive(serverProcessId),
+            $"Expected stdio server process {serverProcessId} to be terminated during dispose.");
+    }
+
+    private static bool IsProcessAlive(int processId)
+    {
+        try
+        {
+            var process = Process.GetProcessById(processId);
+            return !process.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+}
+
 /// <summary>
 /// In-process MCP server that can be debugged while external clients connect
 /// </summary>
@@ -257,6 +292,7 @@ public class InProcessMcpServer : IDisposable
         }
 
         var serverProjectPath = Path.Combine(workspaceRoot, "PoshMcp.Server", "PoshMcp.csproj");
+        var buildConfiguration = ResolveBuildConfiguration();
 
         if (!File.Exists(serverProjectPath))
         {
@@ -267,7 +303,7 @@ public class InProcessMcpServer : IDisposable
         var startInfo = new ProcessStartInfo
         {
             FileName = "dotnet",
-            Arguments = $"run --project \"{serverProjectPath}\"",
+            Arguments = $"run --no-build --configuration {buildConfiguration} --project \"{serverProjectPath}\"",
             UseShellExecute = false,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
@@ -287,38 +323,84 @@ public class InProcessMcpServer : IDisposable
             }
         };
 
-        _serverProcess.Start();
-        _serverProcess.BeginErrorReadLine();
-        // DO NOT call BeginOutputReadLine() because we need to read stdout ourselves for MCP communication
-
-        // Give the process a moment to start before we begin testing connectivity
-        await Task.Delay(3000);
-
-        if (_serverProcess.HasExited)
+        try
         {
-            throw new InvalidOperationException($"Server process exited with code {_serverProcess.ExitCode}");
-        }
+            _serverProcess.Start();
+            _serverProcess.BeginErrorReadLine();
+            // DO NOT call BeginOutputReadLine() because we need to read stdout ourselves for MCP communication
 
-        _logger.LogInformation("In-process MCP server process started successfully");
+            // Give the process a moment to start before we begin testing connectivity
+            await Task.Delay(3000);
+
+            if (_serverProcess.HasExited)
+            {
+                throw new InvalidOperationException($"Server process exited with code {_serverProcess.ExitCode}");
+            }
+
+            _logger.LogInformation("In-process MCP server process started successfully");
+        }
+        catch
+        {
+            StopServerProcess();
+            throw;
+        }
     }
 
     public Process GetServerProcess() => _serverProcess ?? throw new InvalidOperationException("Server not started");
+
+    private static string ResolveBuildConfiguration()
+    {
+        var baseDirectory = AppContext.BaseDirectory;
+
+        if (baseDirectory.IndexOf($"{Path.DirectorySeparatorChar}Release{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return "Release";
+        }
+
+        if (baseDirectory.IndexOf($"{Path.DirectorySeparatorChar}Debug{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return "Debug";
+        }
+
+        return "Debug";
+    }
 
     public void Dispose()
     {
         _logger.LogInformation("Disposing in-process MCP server...");
 
-        if (_serverProcess != null && !_serverProcess.HasExited)
-        {
-            _serverProcess.Kill();
-            _serverProcess.WaitForExit(5000);
-            _serverProcess.Dispose();
-        }
+        StopServerProcess();
 
         _cancellationTokenSource.Cancel();
         _cancellationTokenSource.Dispose();
 
         _logger.LogInformation("In-process MCP server disposed");
+    }
+
+    private void StopServerProcess()
+    {
+        if (_serverProcess == null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!_serverProcess.HasExited)
+            {
+                _serverProcess.Kill(entireProcessTree: true);
+                _serverProcess.WaitForExit(5000);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to stop stdio server process cleanly");
+        }
+        finally
+        {
+            _serverProcess.Dispose();
+            _serverProcess = null;
+        }
     }
 }
 
@@ -332,6 +414,7 @@ public class ExternalMcpClient : IDisposable
     private Process? _serverProcess;
     private int _requestId = 1;
     private readonly SemaphoreSlim _streamSemaphore = new(1, 1); // Ensure only one request/response at a time
+    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(15);
 
     public ExternalMcpClient(ILogger logger, InProcessMcpServer server)
     {
@@ -344,14 +427,18 @@ public class ExternalMcpClient : IDisposable
         _serverProcess = _server.GetServerProcess();
 
         // Test server readiness by attempting to initialize until it succeeds
-        var maxRetries = 30; // 30 seconds total
+        var startupTimeout = TimeSpan.FromSeconds(45);
         var retryDelay = 1000; // 1 second between retries
         var initialized = false;
+        var attempt = 0;
+        var startupStopwatch = Stopwatch.StartNew();
 
         _logger.LogInformation("Testing server readiness by attempting initialization...");
 
-        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        while (startupStopwatch.Elapsed < startupTimeout)
         {
+            attempt++;
+
             try
             {
                 // Check if the server process is still running
@@ -381,7 +468,7 @@ public class ExternalMcpClient : IDisposable
                     continue;
                 }
             }
-            catch (Exception ex) when (attempt < maxRetries)
+            catch (Exception ex) when (startupStopwatch.Elapsed < startupTimeout)
             {
                 _logger.LogDebug($"Initialization attempt {attempt} failed: {ex.Message}. Retrying in {retryDelay}ms...");
                 await Task.Delay(retryDelay);
@@ -390,7 +477,7 @@ public class ExternalMcpClient : IDisposable
 
         if (!initialized)
         {
-            throw new TimeoutException($"Server did not become ready with tools after {maxRetries} attempts");
+            throw new TimeoutException($"Server did not become ready with tools after {attempt} attempts in {startupTimeout.TotalSeconds:0} seconds");
         }
 
         _logger.LogInformation("External MCP client connected to server stdio and server is ready with tools");
@@ -472,18 +559,9 @@ public class ExternalMcpClient : IDisposable
                 await _serverProcess.StandardInput.WriteLineAsync(requestJson);
                 await _serverProcess.StandardInput.FlushAsync();
 
-                // Read response from server with timeout (synchronized)
-                var responseTask = _serverProcess.StandardOutput.ReadLineAsync();
-                var timeoutTask = Task.Delay(5000); // 5 second timeout for individual requests
-
-                var completedTask = await Task.WhenAny(responseTask, timeoutTask);
-
-                if (completedTask == timeoutTask)
-                {
-                    throw new TimeoutException("Server did not respond within 5 seconds");
-                }
-
-                var responseJson = await responseTask;
+                // Cancel the read when timed out so we do not leave orphaned reads on the shared stdout stream.
+                using var responseTimeout = new CancellationTokenSource(RequestTimeout);
+                var responseJson = await _serverProcess.StandardOutput.ReadLineAsync(responseTimeout.Token);
                 if (string.IsNullOrEmpty(responseJson))
                     throw new InvalidOperationException("No response from server (empty or null)");
 
@@ -491,6 +569,10 @@ public class ExternalMcpClient : IDisposable
                 _logger.LogDebug($"[SERVER RESPONSE] {response.ToString(Formatting.Indented)}");
 
                 return response;
+            }
+            catch (OperationCanceledException)
+            {
+                throw new TimeoutException($"Server did not respond within {RequestTimeout.TotalSeconds:0} seconds");
             }
             catch (Exception ex)
             {

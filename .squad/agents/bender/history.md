@@ -119,6 +119,36 @@
 - Phase 3: Type-specific property shaping registry in `PowerShellObjectSerializer` (2–3 days)
 - Phase 4: Per-function config schema in `PowerShellConfiguration` / `appsettings.json`
 
+---
+
+### 2026-04-09: Fixed JSON schema generation crash on unsupported CLR types
+
+**Context:** Integration test `ServerWithExternalClient.ShouldExecutePowerShellCommand` was failing with `System.TimeoutException` because the server crashed during initialization when attempting to create tools for `Get-Process -InputObject <Process[]>` overloads.
+
+**Root Cause:** When `McpServerTool.Create()` tried to build a JSON schema for the function's parameters, it introspected the `Process[]` parameter type and encountered `Encoding.Preamble` (a `ReadOnlySpan<byte>`). The JSON schema generator cannot serialize pointer types or ref structs, triggering an unhandled `InvalidOperationException` that crashed the entire server initialization.
+
+**Fix Applied** (minimal, graceful degradation):
+1. Changed `CreateSingleMcpTool()` return type to `McpServerTool?` (nullable)
+2. Wrapped `McpServerTool.Create()` call in try-catch for `InvalidOperationException` with condition checking for "pointer type" or "ref struct" in message
+3. On catch: log a warning that the method cannot be exposed, return `null`
+4. Updated `CreateMcpToolsFromMethods()` to check `tool != null` before adding to list, properly counting failures
+
+**Impact:**
+- Problematic overloads skipped: `get_process_input_object`, `get_process_input_object_with_user_name`
+- Other Get-Process variants still exposed: `get_process_name`, `get_process_id`, etc.
+- Server starts successfully and responds to client within timeout window
+- Test now passes (2/2 integration tests passing)
+
+**Key Insight:** Schema generation failures on complex CLR types are not hard errors — graceful degradation (skip the overload, expose other variants) allows the server to bootstrap successfully while maintaining functionality for the majority of command variants.
+
+**Files Modified:**
+- `PoshMcp.Server/McpToolFactoryV2.cs` (lines 420–450 and 394–420)
+
+**Testing:**
+- `dotnet test --filter "ShouldExecutePowerShellCommand"` → Passed (2/2 tests, 8s duration)
+- No changes to tool exposure strategy in `appsettings.json`
+- Build: `dotnet build` → succeeded with 0 warnings
+
 **Key config schema additions:**
 - `PowerShellConfiguration.DefaultMaxResults` (int, default 50)
 - `PowerShellConfiguration.FunctionLimits` (Dictionary<string, FunctionLimitConfiguration>)

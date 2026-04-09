@@ -404,8 +404,15 @@ public class McpToolFactoryV2
             try
             {
                 var tool = CreateSingleMcpTool(kvp, generatedInstance, methodToCommandMap, logger);
-                tools.Add(tool);
-                successCount++;
+                if (tool != null)
+                {
+                    tools.Add(tool);
+                    successCount++;
+                }
+                else
+                {
+                    failureCount++;
+                }
             }
             catch (Exception ex)
             {
@@ -418,7 +425,7 @@ public class McpToolFactoryV2
         return tools;
     }
 
-    private McpServerTool CreateSingleMcpTool(KeyValuePair<string, MethodInfo> methodKvp, object generatedInstance, Dictionary<string, PowerShellCommandMetadata> methodToCommandMap, ILogger logger)
+    private McpServerTool? CreateSingleMcpTool(KeyValuePair<string, MethodInfo> methodKvp, object generatedInstance, Dictionary<string, PowerShellCommandMetadata> methodToCommandMap, ILogger logger)
     {
         var methodName = methodKvp.Key;
         var method = methodKvp.Value;
@@ -431,7 +438,16 @@ public class McpToolFactoryV2
         var options = CreateMcpToolOptions(methodName, metadata);
 
         LogToolCreationSuccess(methodName, delegateType, metadata, logger);
-        return McpServerTool.Create(methodDelegate, options);
+
+        try
+        {
+            return McpServerTool.Create(methodDelegate, options);
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("pointer type") || ex.Message.Contains("ref struct"))
+        {
+            logger.LogWarning($"Method '{methodName}' cannot be exposed as an MCP tool due to unsupported CLR parameter types: {ex.Message}. This overload will be skipped, but other variants of the command may still be available.");
+            return null;
+        }
     }
 
     private static PowerShellCommandMetadata GetOrCreateMethodMetadata(string methodName, Dictionary<string, PowerShellCommandMetadata> methodToCommandMap)

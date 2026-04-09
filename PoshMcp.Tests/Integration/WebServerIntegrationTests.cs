@@ -148,6 +148,41 @@ public class WebServerWithHttpClient : PowerShellTestBase, IAsyncLifetime
     }
 }
 
+public class WebServerProcessLifecycleTests : PowerShellTestBase
+{
+    public WebServerProcessLifecycleTests(ITestOutputHelper output) : base(output)
+    {
+    }
+
+    [Fact]
+    public async Task InProcessWebServer_Dispose_ShouldTerminateServerProcess()
+    {
+        var server = new InProcessWebServer(Logger);
+        await server.StartAsync();
+
+        var serverProcessId = server.GetServerProcess().Id;
+        server.Dispose();
+
+        await Task.Delay(250);
+
+        Assert.False(IsProcessAlive(serverProcessId),
+            $"Expected web server process {serverProcessId} to be terminated during dispose.");
+    }
+
+    private static bool IsProcessAlive(int processId)
+    {
+        try
+        {
+            var process = Process.GetProcessById(processId);
+            return !process.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+}
+
 /// <summary>
 /// In-process MCP web server that can be debugged while HTTP clients connect
 /// </summary>
@@ -160,6 +195,8 @@ public class InProcessWebServer : IDisposable
 
     public string ServerUrl => $"http://localhost:{_port}";
     public bool IsRunning => _serverProcess != null && !_serverProcess.HasExited;
+
+    public Process GetServerProcess() => _serverProcess ?? throw new InvalidOperationException("Server not started");
 
     public InProcessWebServer(ILogger logger, int port = 0)
     {
@@ -311,6 +348,7 @@ public class InProcessWebServer : IDisposable
                 ? $"Process exited with code {_serverProcess.ExitCode}"
                 : "Process still running but not responding";
 
+            StopServerProcess();
             throw new TimeoutException($"Web server did not become ready after {maxRetries} attempts on {ServerUrl}. {processStatus}{errorDetails}");
         }
 
@@ -338,17 +376,38 @@ public class InProcessWebServer : IDisposable
     {
         _logger.LogInformation("Disposing in-process MCP web server...");
 
-        if (_serverProcess != null && !_serverProcess.HasExited)
-        {
-            _serverProcess.Kill();
-            _serverProcess.WaitForExit(5000);
-            _serverProcess.Dispose();
-        }
+        StopServerProcess();
 
         _cancellationTokenSource.Cancel();
         _cancellationTokenSource.Dispose();
 
         _logger.LogInformation("In-process MCP web server disposed");
+    }
+
+    private void StopServerProcess()
+    {
+        if (_serverProcess == null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!_serverProcess.HasExited)
+            {
+                _serverProcess.Kill(entireProcessTree: true);
+                _serverProcess.WaitForExit(5000);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to stop web server process cleanly");
+        }
+        finally
+        {
+            _serverProcess.Dispose();
+            _serverProcess = null;
+        }
     }
 }
 
@@ -362,6 +421,7 @@ public class HttpMcpClient : IDisposable
     private readonly string _baseUrl;
     private int _requestId = 1;
     private string? _sessionId;
+    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(5);
 
     public HttpMcpClient(ILogger logger, string baseUrl)
     {
@@ -370,7 +430,7 @@ public class HttpMcpClient : IDisposable
         _httpClient = new HttpClient
         {
             BaseAddress = new Uri(baseUrl),
-            Timeout = TimeSpan.FromSeconds(30)
+            Timeout = RequestTimeout
         };
 
         // Set Accept headers as required by the MCP server
@@ -383,12 +443,16 @@ public class HttpMcpClient : IDisposable
     {
         _logger.LogInformation($"Testing web server readiness at {_baseUrl}...");
 
-        var maxRetries = 30; // 30 seconds total
+        var startupTimeout = TimeSpan.FromSeconds(45);
         var retryDelay = 1000; // 1 second between retries
         var initialized = false;
+        var attempt = 0;
+        var startupStopwatch = Stopwatch.StartNew();
 
-        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        while (startupStopwatch.Elapsed < startupTimeout)
         {
+            attempt++;
+
             try
             {
                 // Try to send an initialize request
@@ -398,7 +462,7 @@ public class HttpMcpClient : IDisposable
                 _logger.LogInformation($"Web server ready after {attempt} attempt(s)");
                 break;
             }
-            catch (Exception ex) when (attempt < maxRetries)
+            catch (Exception ex) when (startupStopwatch.Elapsed < startupTimeout)
             {
                 _logger.LogDebug($"Initialization attempt {attempt} failed: {ex.Message}. Retrying in {retryDelay}ms...");
                 await Task.Delay(retryDelay);
@@ -407,7 +471,7 @@ public class HttpMcpClient : IDisposable
 
         if (!initialized)
         {
-            throw new TimeoutException($"Web server did not become ready after {maxRetries} attempts");
+            throw new TimeoutException($"Web server did not become ready after {attempt} attempts in {startupTimeout.TotalSeconds:0} seconds");
         }
 
         _logger.LogInformation("HTTP MCP client connected to web server and server is ready");
