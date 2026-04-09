@@ -1,9 +1,9 @@
-Scribe: log serialization web failure batch
+feat: Phase 1 - Performance config classes and runtime caching state
 
-- Merged 2 inbox decisions into canonical decisions.md
-- Logged orchestration entries for Bender and Fry
-- Created session log for the serialization web failure batch
-- Appended cross-agent history notes for Bender and Fry
-- Processed the decision inbox during the Scribe pass
+Add PerformanceConfiguration and FunctionOverride classes for per-function
+performance tuning. Add RuntimeCachingState with thread-safe runtime
+overrides. Update PowerShellConfiguration. Add unit tests.
+
+Spec: specs/large-result-performance.md
 
 Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
