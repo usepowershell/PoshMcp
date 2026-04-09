@@ -17,6 +17,7 @@ namespace PoshMcp.Tests.Functional.SortLastCommand;
 /// <summary>
 /// Test for sorting cached results
 /// </summary>
+[Collection("CachingStateTests")]
 public class Output_Test : PowerShellTestBase
 {
     public Output_Test(ITestOutputHelper output) : base(output) { }
@@ -24,6 +25,12 @@ public class Output_Test : PowerShellTestBase
     [Fact]
     public async Task ShouldSortCachedResults()
     {
+        var runtimeCachingState = new RuntimeCachingState();
+        runtimeCachingState.SetGlobalOverride(true);
+        PowerShellAssemblyGenerator.SetRuntimeCachingState(runtimeCachingState);
+
+        try
+        {
         // Arrange - Execute a simpler command that produces known sortable output
         var parameterInfos = new PowerShellParameterInfo[0];
         var parameterValues = new object[0];
@@ -81,5 +88,10 @@ public class Output_Test : PowerShellTestBase
         Assert.NotEqual(sortedOutput, sortedDescendingOutput);
 
         Logger.LogInformation($"Successfully sorted strings in both directions");
+        }
+        finally
+        {
+            PowerShellAssemblyGenerator.SetRuntimeCachingState(new RuntimeCachingState());
+        }
     }
 }
