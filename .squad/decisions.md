@@ -289,3 +289,44 @@ Add a `set-result-caching` MCP tool that sets runtime overrides for result cachi
 - Updated resolution logic in `ExecutePowerShellCommandTyped`
 - New Phase 2.5 in implementation plan (between Phase 2 and Phase 3)
 - Additional unit and integration tests
+
+
+### 2026-04-09T17:18Z: User directive — aggressive commit strategy
+**By:** Steven Murawski (via Copilot)
+**What:** "Continue to cache status aggressively" — commit after every logical chunk of work. Do not batch commits. Crash recovery protection.
+**Why:** User request after losing in-flight work from Bender and Hermes during a crash.
+**Context:** Spawned as crash recovery workflow. Teams spawned: Bender (Select-Object pipeline injection), Hermes (DefaultDisplayPropertySet), Scribe (logging/recovery).
+
+
+# Decision: PropertySetDiscovery uses temporary runspace and two-step type lookup
+
+**Author:** Hermes (PowerShell Expert)
+**Date:** 2026-07
+**Status:** Implemented
+
+## Decision
+
+`PropertySetDiscovery` uses a temporary `Runspace` (not the singleton `PowerShellRunspaceHolder`) and a two-step lookup pattern: Get-Command → OutputType → Get-TypeData → DefaultDisplayPropertySet.
+
+## Rationale
+
+1. **Temporary runspace:** Discovery runs at assembly generation time, before the singleton is initialized and before any MCP client connects. Using the singleton would create a startup ordering dependency and could deadlock if the semaphore is already held.
+
+2. **Two-step lookup (no command execution):** Some commands have side effects (Set-*, Remove-*, Stop-*). We never execute the actual command. Instead we read the `OutputType` metadata from `Get-Command`, then query `Get-TypeData` for the type's display property set. This is purely metadata inspection.
+
+3. **Best-effort with null:** If any step fails (no OutputType, no TypeData, no DefaultDisplayPropertySet), we return null. The caller interprets null as "use all properties." This keeps the system working for commands that don't declare output types.
+
+4. **ConcurrentDictionary cache:** Discovery only needs to run once per command name. The cache is process-lifetime.
+
+## Related Decision: IDictionary recursive normalization in serializer
+
+Split `IDictionary` and `IEnumerable` handling in `NormalizePSPropertyValue`:
+- **IDictionary** → recursively normalize entries (bounded key-value maps, safe to walk, `.ToString()` is useless on Hashtable)
+- **IEnumerable** → keep `.ToString()` (unbounded, may trigger expensive OS calls like `ProcessModuleCollection`)
+
+## Impact
+
+- New file: `PoshMcp.Server/PowerShell/PropertySetDiscovery.cs`
+- Modified: `PoshMcp.Server/PowerShell/PowerShellObjectSerializer.cs` (IDictionary handling)
+- Consumers: Pipeline construction in `PowerShellAssemblyGenerator` will use `PropertySetDiscovery.DiscoverAll()` at startup to determine which properties to `Select-Object` for each command.
+
