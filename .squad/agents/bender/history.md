@@ -99,6 +99,39 @@
 
 ---
 
+### 2026-07: MCP pipeline analysis for Get-Process large result set hang
+
+**Context:** Investigated why `Get-Process` and similar cmdlets hang when called via the MCP server.
+
+**Root Cause — three compounding layers:**
+
+1. **Synchronous `ps.Invoke()` inside `ExecuteThreadSafeAsync` lambda** (primary): The lambda at `PowerShellAssemblyGenerator.cs:602` is not `async` — it calls `InvokePowerShellSafe` which calls `ps.Invoke()` synchronously, blocking the thread pool thread for the full command duration. The `SemaphoreSlim(1,1)` in `PowerShellRunspaceHolder` is held the entire time. An `InvokePowerShellSafeAsync` already exists at line 1048 using `Task.Run(() => ps.Invoke(), cancellationToken)` but is not wired into the main execution path.
+
+2. **`Tee-Object` full-buffer**: The pipeline `Get-Process | Tee-Object -Variable LastCommandOutput` forces full buffering of all `Process` objects (holding live OS handles) before emitting any result.
+
+3. **`GetSafeProperties` enumerates ~50 `Process` properties**: Properties like `Modules`, `MainModule`, `Threads`, and `Handle` call kernel APIs (`EnumProcessModules`) that can block indefinitely on system/protected processes. These are blocking stalls, not exceptions — they are not caught by the `try/catch` in `TryGetShallowPSPropertyValue`.
+
+**No MCP response size limit exists** anywhere in the SDK or our code. The entire serialized JSON (~2 MB for a typical process list) is assembled in memory and written as one stdout line.
+
+**Recommended fix order:**
+- Phase 1: Result count cap with truncation hint before serialization step (1 day)
+- Phase 2: Use `InvokePowerShellSafeAsync` with `async` lambda (2–3 days)
+- Phase 3: Type-specific property shaping registry in `PowerShellObjectSerializer` (2–3 days)
+- Phase 4: Per-function config schema in `PowerShellConfiguration` / `appsettings.json`
+
+**Key config schema additions:**
+- `PowerShellConfiguration.DefaultMaxResults` (int, default 50)
+- `PowerShellConfiguration.FunctionLimits` (Dictionary<string, FunctionLimitConfiguration>)
+- `FunctionLimitConfiguration.MaxResults` and `.SelectProperties`
+
+**Key files for implementation:**
+- `PowerShellAssemblyGenerator.cs` lines 602, 691, 772 — execution and serialization path
+- `PowerShellRunspaceHolder.cs` — `SemaphoreSlim` gating
+- `PowerShellObjectSerializer.cs` — `GetSafeProperties` / `TryGetShallowPSPropertyValue`
+- `PowerShellConfiguration.cs` — config DTO to extend
+
+---
+
 ### 2026-04-08: Web harness fix recorded for configuration-aligned no-build startup
 
 **Context:** Completed the in-process web harness fix for the serialization migration follow-up.
