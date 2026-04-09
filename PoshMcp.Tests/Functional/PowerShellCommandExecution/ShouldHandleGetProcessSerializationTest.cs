@@ -22,12 +22,18 @@ public class HandleGetProcessSerialization : PowerShellTestBase
     {
         var parameterInfos = new[]
         {
-            new PowerShellParameterInfo("Id", typeof(int[]), false)
+            new PowerShellParameterInfo("Id", typeof(int[]), false),
+            new PowerShellParameterInfo("_AllProperties", typeof(bool?), false),
+            new PowerShellParameterInfo("_MaxResults", typeof(int?), false),
+            new PowerShellParameterInfo("_RequestedProperties", typeof(string[]), false)
         };
 
         var parameterValues = new object[]
         {
-            new[] { Environment.ProcessId }
+            new[] { Environment.ProcessId },
+            true,
+            null!,
+            null!
         };
 
         var result = await PowerShellAssemblyGenerator.ExecutePowerShellCommandTyped(
