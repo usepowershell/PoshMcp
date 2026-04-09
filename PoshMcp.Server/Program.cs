@@ -1037,6 +1037,12 @@ public class Program
 
     private static List<McpServerTool> SetupMcpTools(IServiceProvider serviceProvider, PowerShellConfiguration config, ILogger logger, string finalConfigPath)
     {
+        // Create RuntimeCachingState singleton and wire into assembly generator static state
+        var runtimeCachingState = new RuntimeCachingState();
+        PowerShellAssemblyGenerator.SetRuntimeCachingState(runtimeCachingState);
+        PowerShellAssemblyGenerator.SetConfiguration(config);
+        logger.LogInformation("RuntimeCachingState initialized and wired into PowerShellAssemblyGenerator");
+
         var toolFactory = new McpToolFactoryV2();
         var tools = toolFactory.GetToolsList(config, logger);
 
@@ -1050,6 +1056,11 @@ public class Program
         {
             logger.LogInformation($"Added {tools.Count} total tools (dynamic reload tools are disabled)");
         }
+
+        // Always register set-result-caching (not gated by EnableDynamicReloadTools)
+        var setResultCachingTool = CreateSetResultCachingToolInstance(runtimeCachingState);
+        tools.Add(setResultCachingTool);
+        logger.LogInformation("Registered set-result-caching tool (always enabled)");
 
         return tools;
     }
@@ -1119,6 +1130,40 @@ public class Program
             OpenWorld = false,
             UseStructuredContent = true
         });
+    }
+
+    private static McpServerTool CreateSetResultCachingToolInstance(RuntimeCachingState runtimeCachingState)
+    {
+        Func<string?, string?, string?, CancellationToken, Task<string>> setResultCachingDelegate =
+            (enabled, scope, functionName, cancellationToken) =>
+            {
+                bool? enabledBool = ParseEnabledParameter(enabled);
+                var result = runtimeCachingState.HandleSetResultCaching(enabledBool, scope ?? "global", functionName);
+                return Task.FromResult(result);
+            };
+
+        return McpServerTool.Create(setResultCachingDelegate, new McpServerToolCreateOptions
+        {
+            Name = "set-result-caching",
+            Description = "Enable or disable result caching at runtime. When enabled, command output is cached for replay by filter/sort/group tools. Pass enabled=null or enabled='reset' to clear the runtime override and fall back to configuration. Runtime settings are ephemeral and do not persist across server restarts.",
+            Title = "Set Result Caching",
+            ReadOnly = false,
+            Destructive = false,
+            Idempotent = true,
+            OpenWorld = false,
+            UseStructuredContent = true
+        });
+    }
+
+    private static bool? ParseEnabledParameter(string? enabled)
+    {
+        if (string.IsNullOrEmpty(enabled) || string.Equals(enabled, "reset", StringComparison.OrdinalIgnoreCase))
+            return null;
+        if (string.Equals(enabled, "true", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (string.Equals(enabled, "false", StringComparison.OrdinalIgnoreCase))
+            return false;
+        return null;
     }
 
     private static void ConfigureServerServices(HostApplicationBuilder builder, List<McpServerTool> tools)

@@ -10,14 +10,18 @@ namespace PoshMcp.Server.PowerShell;
 /// </summary>
 public class RuntimeCachingState
 {
-    private volatile bool? _globalOverride;
+    private volatile int _globalOverrideValue = -1; // -1 = not set, 0 = false, 1 = true
     private readonly ConcurrentDictionary<string, bool> _functionOverrides = new(StringComparer.OrdinalIgnoreCase);
+
+    // Maps the int sentinel back to bool?
+    private bool? GlobalOverride => _globalOverrideValue < 0 ? (bool?)null : _globalOverrideValue > 0;
 
     /// <summary>
     /// Set or clear the global runtime override.
     /// Pass null to remove the override and fall back to config.
     /// </summary>
-    public void SetGlobalOverride(bool? enabled) => _globalOverride = enabled;
+    public void SetGlobalOverride(bool? enabled)
+        => _globalOverrideValue = enabled.HasValue ? (enabled.Value ? 1 : 0) : -1;
 
     /// <summary>
     /// Set or clear a per-function runtime override.
@@ -40,7 +44,7 @@ public class RuntimeCachingState
     {
         if (_functionOverrides.TryGetValue(functionName, out var funcOverride))
             return funcOverride;
-        return _globalOverride;
+        return GlobalOverride;
     }
 
     /// <summary>
