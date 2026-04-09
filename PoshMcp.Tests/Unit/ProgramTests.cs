@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using System;
 using System.IO;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Xunit;
 using Xunit.Abstractions;
@@ -19,6 +20,7 @@ public class ProgramTests : PowerShellTestBase
     {
         // Arrange
         var tempFile = Path.GetTempFileName();
+        await File.WriteAllTextAsync(tempFile, "{}");
         try
         {
             // Act
@@ -26,6 +28,89 @@ public class ProgramTests : PowerShellTestBase
 
             // Assert
             Assert.Equal(tempFile, result);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task ResolveConfigurationPath_WhenExistingConfigMissingTopLevelSection_AddsMissingDefaultsOnly()
+    {
+        // Arrange
+        var tempFile = Path.GetTempFileName();
+        var configJson = @"{
+    ""PowerShellConfiguration"": {
+        ""FunctionNames"": [""Get-ChildItem""],
+        ""Modules"": [],
+        ""ExcludePatterns"": [],
+        ""IncludePatterns"": []
+    }
+}";
+        await File.WriteAllTextAsync(tempFile, configJson);
+
+        try
+        {
+            // Act
+            var result = await Program.ResolveConfigurationPath(tempFile);
+
+            // Assert
+            Assert.Equal(tempFile, result);
+
+            var upgradedRoot = JsonNode.Parse(await File.ReadAllTextAsync(tempFile))?.AsObject();
+            Assert.NotNull(upgradedRoot);
+            Assert.NotNull(upgradedRoot!["Logging"]);
+
+            var functionNames = upgradedRoot["PowerShellConfiguration"]?["FunctionNames"]?.AsArray();
+            Assert.NotNull(functionNames);
+            Assert.Single(functionNames!);
+            Assert.Equal("Get-ChildItem", functionNames[0]?.GetValue<string>());
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task ResolveConfigurationPath_WhenExistingConfigMissingNestedKey_AddsNestedDefaultsWithoutOverwriting()
+    {
+        // Arrange
+        var tempFile = Path.GetTempFileName();
+        var configJson = @"{
+    ""Logging"": {
+        ""LogLevel"": {
+            ""Default"": ""Warning""
+        }
+    },
+    ""PowerShellConfiguration"": {
+        ""FunctionNames"": [""Get-Process""],
+        ""Modules"": [],
+        ""ExcludePatterns"": [],
+        ""IncludePatterns"": []
+    }
+}";
+        await File.WriteAllTextAsync(tempFile, configJson);
+
+        try
+        {
+            // Act
+            _ = await Program.ResolveConfigurationPath(tempFile);
+
+            // Assert
+            var upgradedRoot = JsonNode.Parse(await File.ReadAllTextAsync(tempFile))?.AsObject();
+            Assert.NotNull(upgradedRoot);
+
+            var logLevel = upgradedRoot!["Logging"]?["LogLevel"]?.AsObject();
+            Assert.NotNull(logLevel);
+            Assert.Equal("Warning", logLevel!["Default"]?.GetValue<string>());
+            Assert.Equal("Information", logLevel["Microsoft.Hosting.Lifetime"]?.GetValue<string>());
+
+            var dynamicReloadTools = upgradedRoot["PowerShellConfiguration"]?["EnableDynamicReloadTools"]?.GetValue<bool>();
+            Assert.False(dynamicReloadTools);
         }
         finally
         {

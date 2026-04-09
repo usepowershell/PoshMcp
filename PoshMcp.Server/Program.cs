@@ -15,6 +15,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -748,18 +749,21 @@ public class Program
                 throw new FileNotFoundException($"Configuration file not found: {absoluteConfigPath}");
             }
 
+            await UpgradeConfigWithMissingDefaultsAsync(absoluteConfigPath);
             return new ResolvedSetting(absoluteConfigPath, preferredConfigPath.Source);
         }
 
         var currentDirectoryConfigPath = Path.GetFullPath("appsettings.json");
         if (File.Exists(currentDirectoryConfigPath))
         {
+            await UpgradeConfigWithMissingDefaultsAsync(currentDirectoryConfigPath);
             return new ResolvedSetting(currentDirectoryConfigPath, CwdSource);
         }
 
         var userConfigPath = GetUserConfigPath();
         if (File.Exists(userConfigPath))
         {
+            await UpgradeConfigWithMissingDefaultsAsync(userConfigPath);
             return new ResolvedSetting(userConfigPath, UserSource);
         }
 
@@ -783,6 +787,58 @@ public class Program
 
         var defaultConfigJson = LoadEmbeddedDefaultConfig();
         await File.WriteAllTextAsync(userConfigPath, defaultConfigJson);
+    }
+
+    private static async Task UpgradeConfigWithMissingDefaultsAsync(string configPath)
+    {
+        var defaultConfigJson = LoadEmbeddedDefaultConfig();
+        var existingConfigJson = await File.ReadAllTextAsync(configPath);
+
+        var parseOptions = new JsonDocumentOptions
+        {
+            CommentHandling = JsonCommentHandling.Skip,
+            AllowTrailingCommas = true
+        };
+
+        var defaultRoot = JsonNode.Parse(defaultConfigJson, documentOptions: parseOptions)?.AsObject()
+            ?? throw new InvalidOperationException("Embedded default configuration must be a JSON object.");
+        var existingRoot = JsonNode.Parse(existingConfigJson, documentOptions: parseOptions)?.AsObject()
+            ?? throw new InvalidOperationException($"Configuration file '{configPath}' must be a JSON object.");
+
+        var changed = MergeMissingProperties(defaultRoot, existingRoot);
+        if (!changed)
+        {
+            return;
+        }
+
+        var updatedConfigJson = existingRoot.ToJsonString(new JsonSerializerOptions
+        {
+            WriteIndented = true
+        });
+
+        await File.WriteAllTextAsync(configPath, updatedConfigJson + Environment.NewLine);
+    }
+
+    private static bool MergeMissingProperties(JsonObject defaultObject, JsonObject targetObject)
+    {
+        var changed = false;
+
+        foreach (var defaultProperty in defaultObject)
+        {
+            if (!targetObject.TryGetPropertyValue(defaultProperty.Key, out var existingValue))
+            {
+                targetObject[defaultProperty.Key] = defaultProperty.Value?.DeepClone();
+                changed = true;
+                continue;
+            }
+
+            if (defaultProperty.Value is JsonObject defaultChildObject && existingValue is JsonObject existingChildObject)
+            {
+                changed |= MergeMissingProperties(defaultChildObject, existingChildObject);
+            }
+        }
+
+        return changed;
     }
 
     private static string LoadEmbeddedDefaultConfig()
