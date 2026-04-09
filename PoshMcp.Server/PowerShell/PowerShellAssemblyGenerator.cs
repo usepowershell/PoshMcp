@@ -21,6 +21,11 @@ namespace PoshMcp.Server.PowerShell;
 /// </summary>
 public class PowerShellAssemblyGenerator
 {
+    private const int FrameworkParameterCount = 3;
+    private const string AllPropertiesParameterName = "_AllProperties";
+    private const string MaxResultsParameterName = "_MaxResults";
+    private const string RequestedPropertiesParameterName = "_RequestedProperties";
+
     public Assembly? GeneratedAssembly => _generatedAssembly;
 
     /// <summary>
@@ -505,7 +510,7 @@ public class PowerShellAssemblyGenerator
         var parametersLocal = il.DeclareLocal(typeof(object[]));
 
         // Create parameter info array
-        il.Emit(OpCodes.Ldc_I4, parameters.Count);
+        il.Emit(OpCodes.Ldc_I4, parameters.Count + FrameworkParameterCount);
         il.Emit(OpCodes.Newarr, typeof(PowerShellParameterInfo));
         il.Emit(OpCodes.Stloc, parameterInfoArrayLocal);
 
@@ -533,6 +538,11 @@ public class PowerShellAssemblyGenerator
             il.Emit(OpCodes.Stelem_Ref);
         }
 
+        // Add framework parameter metadata (_AllProperties, _MaxResults, _RequestedProperties)
+        EmitFrameworkParameterInfo(il, parameterInfoArrayLocal, parameters.Count, AllPropertiesParameterName, typeof(bool?));
+        EmitFrameworkParameterInfo(il, parameterInfoArrayLocal, parameters.Count + 1, MaxResultsParameterName, typeof(int?));
+        EmitFrameworkParameterInfo(il, parameterInfoArrayLocal, parameters.Count + 2, RequestedPropertiesParameterName, typeof(string[]));
+
         // Create method parameter types array for boxing
         var methodParameterTypes = new List<Type>();
         foreach (var param in parameters)
@@ -550,7 +560,7 @@ public class PowerShellAssemblyGenerator
         }
 
         // Create object array for parameter values
-        il.Emit(OpCodes.Ldc_I4, parameters.Count);
+        il.Emit(OpCodes.Ldc_I4, parameters.Count + FrameworkParameterCount);
         il.Emit(OpCodes.Newarr, typeof(object));
         il.Emit(OpCodes.Stloc, parametersLocal);
 
@@ -571,11 +581,20 @@ public class PowerShellAssemblyGenerator
             il.Emit(OpCodes.Stelem_Ref);
         }
 
+        // Populate framework parameter values from generated method args
+        EmitFrameworkParameterValue(il, parametersLocal, parameters.Count, parameters.Count + 1, typeof(bool?));
+        EmitFrameworkParameterValue(il, parametersLocal, parameters.Count + 1, parameters.Count + 2, typeof(int?));
+        // _RequestedProperties is already a reference type (string[])
+        il.Emit(OpCodes.Ldloc, parametersLocal);
+        il.Emit(OpCodes.Ldc_I4, parameters.Count + 2);
+        il.Emit(OpCodes.Ldarg, parameters.Count + 3);
+        il.Emit(OpCodes.Stelem_Ref);
+
         // Call ExecutePowerShellCommandTyped
         il.Emit(OpCodes.Ldstr, commandInfo.Name); // command name
         il.Emit(OpCodes.Ldloc, parameterInfoArrayLocal); // parameter info
         il.Emit(OpCodes.Ldloc, parametersLocal); // parameter values
-        il.Emit(OpCodes.Ldarg, parameters.Count + 1); // CancellationToken (last parameter)
+        il.Emit(OpCodes.Ldarg, parameters.Count + FrameworkParameterCount + 1); // CancellationToken (last parameter)
         il.Emit(OpCodes.Ldarg_0); // this
         il.Emit(OpCodes.Ldfld, runspaceField); // runspace
         il.Emit(OpCodes.Ldarg_0); // this
@@ -583,6 +602,27 @@ public class PowerShellAssemblyGenerator
         il.Emit(OpCodes.Call, executeMethod);
 
         il.Emit(OpCodes.Ret);
+    }
+
+    private static void EmitFrameworkParameterInfo(ILGenerator il, LocalBuilder parameterInfoArrayLocal, int index, string name, Type type)
+    {
+        il.Emit(OpCodes.Ldloc, parameterInfoArrayLocal);
+        il.Emit(OpCodes.Ldc_I4, index);
+        il.Emit(OpCodes.Ldstr, name);
+        il.Emit(OpCodes.Ldtoken, type);
+        il.Emit(OpCodes.Call, typeof(Type).GetMethod("GetTypeFromHandle")!);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Newobj, typeof(PowerShellParameterInfo).GetConstructor(new[] { typeof(string), typeof(Type), typeof(bool) })!);
+        il.Emit(OpCodes.Stelem_Ref);
+    }
+
+    private static void EmitFrameworkParameterValue(ILGenerator il, LocalBuilder parametersLocal, int arrayIndex, int argumentIndex, Type parameterType)
+    {
+        il.Emit(OpCodes.Ldloc, parametersLocal);
+        il.Emit(OpCodes.Ldc_I4, arrayIndex);
+        il.Emit(OpCodes.Ldarg, argumentIndex);
+        il.Emit(OpCodes.Box, parameterType);
+        il.Emit(OpCodes.Stelem_Ref);
     }
 
     /// <summary>
@@ -629,6 +669,8 @@ public class PowerShellAssemblyGenerator
                     invocationId,
                     parameterSummary,
                     stopwatch.ElapsedMilliseconds);
+
+                var frameworkOptions = ResolveFrameworkExecutionOptions(parameterInfos, parameterValues, commandName, logger);
 
                 // Record tool invocation start
                 _metrics?.ToolInvocationTotal.Add(1,
@@ -687,6 +729,12 @@ public class PowerShellAssemblyGenerator
                             var paramInfo = parameterInfos![i];
                             var paramValue = parameterValues![i];
 
+                            if (paramInfo.Name.StartsWith("_", StringComparison.Ordinal))
+                            {
+                                // Framework parameters are consumed by PoshMcp and must not be passed to PowerShell.
+                                continue;
+                            }
+
                             if (paramValue != null)
                             {
                                 // Convert parameter value to the expected type
@@ -730,6 +778,34 @@ public class PowerShellAssemblyGenerator
                             commandName,
                             invocationId,
                             stopwatch.ElapsedMilliseconds);
+
+                        // Build a single Select-Object stage so _MaxResults and property filtering compose consistently.
+                        var selectedProperties = ResolveSelectedProperties(commandName, frameworkOptions);
+                        var shouldApplyPropertySelection = selectedProperties != null;
+                        var shouldApplyMaxResults = frameworkOptions.MaxResults.HasValue && frameworkOptions.MaxResults.Value > 0;
+
+                        if (shouldApplyPropertySelection || shouldApplyMaxResults)
+                        {
+                            ps.AddCommand("Select-Object");
+
+                            if (shouldApplyPropertySelection)
+                            {
+                                ps.AddParameter("Property", selectedProperties!.ToArray());
+                            }
+
+                            if (shouldApplyMaxResults)
+                            {
+                                ps.AddParameter("First", frameworkOptions.MaxResults!.Value);
+                            }
+
+                            logger.LogInformation(
+                                "Result shaping decision: ToolName={ToolName}, InvocationId={InvocationId}, ApplyPropertySelection={ApplyPropertySelection}, SelectedPropertyCount={SelectedPropertyCount}, MaxResults={MaxResults}",
+                                commandName,
+                                invocationId,
+                                shouldApplyPropertySelection,
+                                selectedProperties?.Count ?? 0,
+                                frameworkOptions.MaxResults);
+                        }
 
                         // Conditionally pipe to Tee-Object to cache results in $LastCommandOutput
                         bool enableCaching = ResolveCachingSetting(commandName);
@@ -1008,6 +1084,100 @@ public class PowerShellAssemblyGenerator
                 });
         }
     }
+
+    private static FrameworkExecutionOptions ResolveFrameworkExecutionOptions(
+        PowerShellParameterInfo[]? parameterInfos,
+        object[]? parameterValues,
+        string commandName,
+        ILogger logger)
+    {
+        var allProperties = GetFrameworkParameterValue<bool?>(parameterInfos, parameterValues, AllPropertiesParameterName);
+        var maxResults = GetFrameworkParameterValue<int?>(parameterInfos, parameterValues, MaxResultsParameterName);
+        var requestedProperties = GetFrameworkParameterValue<string[]>(parameterInfos, parameterValues, RequestedPropertiesParameterName)
+            ?.Where(static value => !string.IsNullOrWhiteSpace(value))
+            .ToArray();
+
+        if (maxResults.HasValue && maxResults.Value <= 0)
+        {
+            logger.LogWarning(
+                "Ignoring non-positive _MaxResults value for command {CommandName}: {MaxResults}",
+                commandName,
+                maxResults.Value);
+            maxResults = null;
+        }
+
+        return new FrameworkExecutionOptions(allProperties == true, maxResults, requestedProperties);
+    }
+
+    private static IReadOnlyList<string>? ResolveSelectedProperties(string commandName, FrameworkExecutionOptions options)
+    {
+        if (options.AllProperties)
+        {
+            return null;
+        }
+
+        if (options.RequestedProperties is { Length: > 0 })
+        {
+            return options.RequestedProperties;
+        }
+
+        if (_powerShellConfig?.FunctionOverrides.TryGetValue(commandName, out var functionOverride) == true
+            && functionOverride.DefaultProperties != null)
+        {
+            return functionOverride.DefaultProperties;
+        }
+
+        var useDefaultDisplayProperties = (_powerShellConfig?.FunctionOverrides.TryGetValue(commandName, out functionOverride) == true
+            ? functionOverride.UseDefaultDisplayProperties
+            : null)
+            ?? _powerShellConfig?.Performance.UseDefaultDisplayProperties
+            ?? true;
+
+        if (!useDefaultDisplayProperties)
+        {
+            return null;
+        }
+
+        // Best-effort discovery. Null means no property set exists, so fall back to all properties.
+        return PropertySetDiscovery.DiscoverDefaultDisplayProperties(commandName);
+    }
+
+    private static T? GetFrameworkParameterValue<T>(PowerShellParameterInfo[]? parameterInfos, object[]? parameterValues, string parameterName)
+    {
+        if (parameterInfos == null || parameterValues == null)
+        {
+            return default;
+        }
+
+        var limit = Math.Min(parameterInfos.Length, parameterValues.Length);
+        for (int i = 0; i < limit; i++)
+        {
+            if (!string.Equals(parameterInfos[i].Name, parameterName, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var value = parameterValues[i];
+            if (value == null)
+            {
+                return default;
+            }
+
+            if (value is T typed)
+            {
+                return typed;
+            }
+
+            return (T?)Convert.ChangeType(value, Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T));
+        }
+
+        return default;
+    }
+
+    private sealed record FrameworkExecutionOptions(
+        bool AllProperties,
+        int? MaxResults,
+        string[]? RequestedProperties);
 
     private static string FormatParameterSummary(PowerShellParameterInfo[]? parameterInfos, object[]? parameterValues)
     {
