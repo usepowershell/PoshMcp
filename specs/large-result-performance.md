@@ -636,19 +636,19 @@ Phase 4: Documentation and defaults
 
 ---
 
-## 7. Open Questions
+## 7. Open Questions — Resolved
 
-1. **Should `_AllProperties` also force caching on?** If a caller requests all properties, they probably want replay capability too. Current proposal: no coupling — they're independent settings.
+1. **Should `_AllProperties` also force caching on?** No coupling — they're independent settings. ✅ *Kept default (not addressed — no coupling).*
 
-2. **Should we support `-First N` / result limiting?** A `_MaxResults` parameter could cap the number of objects before serialization. This is orthogonal but synergistic. Recommend deferring to a follow-up proposal.
+2. **Should we support `-First N` / result limiting?** ✅ **YES** — Add a `_MaxResults` framework parameter (int?) to every generated tool. When provided, inject `Select-Object -First N` into the pipeline before serialization. Caps result count to reduce payload and serialization time. *Decision by: Steven Murawski, 2026-04-09.*
 
-3. **What about `Format-List` vs `Format-Table` property sets?** PowerShell has `DefaultDisplayPropertySet` (table) and `DefaultKeyPropertySet` (list). We use the display set. If users want the key set, they can configure explicit properties.
+3. **What about `Format-List` vs `Format-Table` property sets?** Use the display set (`DefaultDisplayPropertySet`). ✅ *Kept default (not addressed).*
 
-4. **Should cached results use the filtered or full object?** Current design: cache whatever comes out of the pipeline (filtered if Select-Object is active). This means `get-last-command-output` returns the filtered version. To get full results from cache, caller would need `_AllProperties=true` on the original call.
+4. **Should cached results use the filtered or full object?** ✅ **Cache the FILTERED object.** Cache whatever comes out of the pipeline (after Select-Object if active). `get-last-command-output` returns the filtered version. To get full results from cache, caller needs `_AllProperties=true` on the original call. *Decision by: Steven Murawski, 2026-04-09.*
 
-5. **Should the runtime toggle support a "reset" operation?** Currently, `set-result-caching` sets `enabled` to `true` or `false`. A caller might want to remove the runtime override entirely and fall back to config. Options: (a) accept `null` for `enabled` to mean "clear override", (b) add a separate `reset-result-caching` tool, (c) don't support reset — just set to the desired value. Current recommendation: support `null` on the `enabled` parameter as a "clear override" semantic.
+5. **Should the runtime toggle support a "reset" operation?** ✅ **YES** — Support `null` OR the string value `"reset"` on the `enabled` parameter. Both clear the runtime override and fall back to the previously configured setting. No separate reset tool needed. *Decision by: Steven Murawski, 2026-04-09.*
 
-6. **Should `set-result-caching` be gated behind `EnableDynamicReloadTools`?** The existing `EnableDynamicReloadTools` config flag controls whether runtime configuration tools are exposed. The `set-result-caching` tool is conceptually similar. Recommendation: gate it behind the same flag for consistency.
+6. **Should `set-result-caching` be gated behind `EnableDynamicReloadTools`?** ✅ **NO** — Do NOT gate it. `set-result-caching` is always registered as an MCP tool regardless of the `EnableDynamicReloadTools` setting. *Decision by: Steven Murawski, 2026-04-09.*
 
 ---
 
