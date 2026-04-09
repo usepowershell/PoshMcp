@@ -388,7 +388,20 @@ public class PowerShellAssemblyGenerator
             parameterMandatory.Add(isMandatory);
         }
 
-        // Add CancellationToken parameter
+        // Add PoshMcp framework parameters (underscore prefix = not passed to PowerShell)
+        parameterTypes.Add(typeof(bool?));
+        parameterNames.Add("_AllProperties");
+        parameterMandatory.Add(false);
+
+        parameterTypes.Add(typeof(int?));
+        parameterNames.Add("_MaxResults");
+        parameterMandatory.Add(false);
+
+        parameterTypes.Add(typeof(string[]));
+        parameterNames.Add("_RequestedProperties");
+        parameterMandatory.Add(false);
+
+        // Add CancellationToken parameter (always last)
         parameterTypes.Add(typeof(CancellationToken));
         parameterNames.Add("cancellationToken");
         parameterMandatory.Add(false); // CancellationToken is not mandatory
