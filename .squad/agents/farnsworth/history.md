@@ -13,6 +13,25 @@ Current Priorities:
 
 ## Learnings
 
+### 2026-07: Large result set performance proposal
+
+**Key findings from codebase analysis:**
+- `Tee-Object -Variable LastCommandOutput` is injected unconditionally into every command pipeline at `PowerShellAssemblyGenerator.cs:677-680`
+- This caching supports four utility tools: `get-last-command-output`, `sort-last-command-output`, `filter-last-command-output`, `group-last-command-output`
+- Serialization walks all gettable `PSObject.Properties` up to depth 4 in `PowerShellObjectSerializer.cs`
+- No property filtering exists — Get-Process returns ~80 properties per object when PowerShell's own display uses 5
+- Pipeline construction lives in `ExecutePowerShellCommandTyped()` (static method called by IL-generated code)
+- Configuration model is `PowerShellConfiguration.cs` — currently has no per-function override capability
+- Proposed adding `PerformanceConfiguration` and `FunctionOverride` classes; Select-Object injection; conditional Tee-Object
+- Proposal written to `specs/large-result-performance.md`
+
+**Architecture decisions:**
+- Tee-Object should default to OFF (opt-in) — most MCP callers never use replay tools
+- Select-Object with DefaultDisplayPropertySet should default to ON — 95%+ payload reduction for common commands
+- `_AllProperties` framework parameter (underscore prefix convention) lets callers bypass filtering per-call
+- Property discovery via `Get-TypeData` and `[OutputType]` avoids executing commands at schema generation time
+- Per-function overrides via `FunctionOverrides` dictionary in config; explicit `DefaultProperties` list takes priority
+
 ### 2026-04-08: dotnet tool packaging architecture
 
 **Decision summary:**
