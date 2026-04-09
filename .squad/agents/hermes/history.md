@@ -51,3 +51,17 @@
 1. **Result count cap** (Approach B, quick win): truncate to ~50 results before serialization; include totalCount in response.
 2. **Property shaping for known CLR types** (Approach A, medium effort): type-specific shapersfor `Process`, `Service`, `FileInfo` that emit only AI-useful properties.
 3. **Async invocation with CancellationToken** (Approach C, high effort): use `InvokePowerShellSafeAsync` in the main execution path and thread the CancellationToken through.
+
+### 2026-07: PropertySetDiscovery and serializer refinement
+
+**Context:** Phase 3 crash recovery — implemented DefaultDisplayPropertySet discovery and refined serializer.
+
+**Key files:**
+- `PoshMcp.Server/PowerShell/PropertySetDiscovery.cs` — Discovery of DefaultDisplayPropertySet via Get-Command OutputType + Get-TypeData. Uses temporary runspace, ConcurrentDictionary cache, best-effort (returns null on failure).
+- `PoshMcp.Server/PowerShell/PowerShellObjectSerializer.cs` — Refined `NormalizePSPropertyValue`: IDictionary now recursively normalized instead of `.ToString()` (dictionaries are bounded key-value maps). IEnumerable kept as `.ToString()` (expensive to enumerate, e.g., ProcessModuleCollection).
+
+**Design decisions:**
+- PropertySetDiscovery uses temporary runspace, NOT the singleton — runs at assembly generation time before the server is fully initialized.
+- Two-step lookup: Get-Command → OutputType names → Get-TypeData → DefaultDisplayPropertySet.ReferencedProperties.
+- DiscoverAll() shares a single runspace across all commands for startup efficiency.
+- IDictionary vs IEnumerable split in shallow path: dictionaries are safe JSON maps; enumerables may trigger OS calls.
