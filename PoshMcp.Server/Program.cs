@@ -1,8 +1,14 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
+using PoshMcp.Server.Health;
+using PoshMcp.Server.Observability;
 using PoshMcp.Server.PowerShell;
 using PoshMcp.Server.Metrics;
 using OpenTelemetry;
@@ -154,20 +160,7 @@ public class Program
         {
             var resolvedSettings = await ResolveCommandSettingsAsync(args, configPath, logLevelText, transport, sessionMode, mcpPath);
             var parsedLogLevel = ParseLogLevel(resolvedSettings.LogLevel.Value);
-
-            // Keep option surface stable now; this binary currently supports stdio only.
-            if (resolvedSettings.Transport.Value != "stdio")
-            {
-                Console.Error.WriteLine($"Unsupported transport '{resolvedSettings.Transport.Value}' in this executable. Use 'stdio'.");
-                Console.Error.WriteLine("Tip: use the web host executable for HTTP/SSE transports.");
-                Environment.ExitCode = ExitCodeStartupError;
-                return;
-            }
-
-            // Reserved options are accepted for interface stability and future hosted modes.
-            _ = resolvedSettings.SessionMode;
-            _ = url;
-            _ = resolvedSettings.McpPath;
+            var transportMode = ResolveTransportMode(resolvedSettings.Transport.Value);
 
             try
             {
@@ -176,8 +169,23 @@ public class Program
                     PrintResolvedSettings("serve", resolvedSettings);
                 }
 
-                await RunMcpServerAsync(args, parsedLogLevel, resolvedSettings.FinalConfigPath);
-                Environment.ExitCode = ExitCodeSuccess;
+                if (transportMode == TransportMode.Stdio)
+                {
+                    await RunMcpServerAsync(args, parsedLogLevel, resolvedSettings.FinalConfigPath);
+                    Environment.ExitCode = ExitCodeSuccess;
+                    return;
+                }
+
+                if (transportMode == TransportMode.Http)
+                {
+                    await RunHttpTransportServerAsync(args, parsedLogLevel, resolvedSettings.FinalConfigPath, url, resolvedSettings.McpPath.Value);
+                    Environment.ExitCode = ExitCodeSuccess;
+                    return;
+                }
+
+                Console.Error.WriteLine($"Unsupported transport '{resolvedSettings.Transport.Value}' in this executable.");
+                Console.Error.WriteLine("Supported transport modes in this executable: stdio, http.");
+                Environment.ExitCode = ExitCodeStartupError;
             }
             catch (FileNotFoundException ex)
             {
@@ -383,7 +391,7 @@ public class Program
         var resolvedConfigPath = await ResolveConfigurationPathWithSourceAsync(preferredConfigPath);
         var resolvedLogLevel = ResolveEffectiveLogLevel(args, logLevelText);
         var resolvedTransport = ResolveArgumentOrEnvironmentWithSource(transport, TransportEnvVar, "stdio");
-        var normalizedTransport = new ResolvedSetting((resolvedTransport.Value ?? "stdio").ToLowerInvariant(), resolvedTransport.Source);
+        var normalizedTransport = new ResolvedSetting(NormalizeTransportValue(resolvedTransport.Value), resolvedTransport.Source);
         var resolvedSessionMode = ResolveArgumentOrEnvironmentWithSource(sessionMode, SessionModeEnvVar);
         var resolvedMcpPath = ResolveArgumentOrEnvironmentWithSource(mcpPath, McpPathEnvVar);
 
@@ -394,6 +402,42 @@ public class Program
             normalizedTransport,
             resolvedSessionMode,
             resolvedMcpPath);
+    }
+
+    internal static string NormalizeTransportValue(string? transport)
+    {
+        if (string.IsNullOrWhiteSpace(transport))
+        {
+            return "stdio";
+        }
+
+        return transport.Trim().ToLowerInvariant();
+    }
+
+    internal static TransportMode ResolveTransportMode(string? transport)
+    {
+        return NormalizeTransportValue(transport) switch
+        {
+            "stdio" => TransportMode.Stdio,
+            "http" => TransportMode.Http,
+            _ => TransportMode.Unsupported
+        };
+    }
+
+    internal static string? NormalizeMcpPath(string? mcpPath)
+    {
+        if (string.IsNullOrWhiteSpace(mcpPath))
+        {
+            return null;
+        }
+
+        var normalized = mcpPath.Trim();
+        if (!normalized.StartsWith('/'))
+        {
+            normalized = "/" + normalized;
+        }
+
+        return normalized;
     }
 
     private static void PrintResolvedSettings(string commandName, ResolvedCommandSettings settings)
@@ -742,6 +786,13 @@ public class Program
         ResolvedSetting SessionMode,
         ResolvedSetting McpPath);
 
+    internal enum TransportMode
+    {
+        Stdio,
+        Http,
+        Unsupported
+    }
+
     private static async Task<string> ResolveExplicitOrDefaultConfigPath(string? explicitConfigPath)
     {
         var preferredConfigPath = string.IsNullOrWhiteSpace(explicitConfigPath)
@@ -1069,9 +1120,193 @@ public class Program
         var finalConfigPath = await ConfigureServerConfiguration(builder, explicitConfigPath);
         var serviceProvider = builder.Services.BuildServiceProvider();
         var (logger, config) = ExtractLoggerAndConfiguration(serviceProvider, finalConfigPath);
-        var tools = SetupMcpTools(serviceProvider, config, logger, finalConfigPath);
+        var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
+        var tools = SetupMcpTools(loggerFactory, config, logger, finalConfigPath);
         ConfigureServerServices(builder, tools);
         await builder.Build().RunAsync();
+    }
+
+    private static async Task RunHttpTransportServerAsync(
+        string[] args,
+        LogLevel logLevel,
+        string finalConfigPath,
+        string? url,
+        string? mcpPath)
+    {
+        var builder = WebApplication.CreateBuilder(args);
+
+        builder.Logging.AddConsole(consoleLogOptions =>
+        {
+            consoleLogOptions.LogToStandardErrorThreshold = LogLevel.Trace;
+        });
+        builder.Logging.SetMinimumLevel(logLevel);
+
+        if (!string.IsNullOrWhiteSpace(url))
+        {
+            builder.WebHost.UseUrls(url);
+        }
+
+        builder.Configuration.AddJsonFile(finalConfigPath, optional: false, reloadOnChange: true);
+        builder.Services.Configure<PowerShellConfiguration>(
+            builder.Configuration.GetSection("PowerShellConfiguration"));
+
+        ConfigureJsonSerializerOptions(builder);
+        ConfigureCorsForMcp(builder);
+        RegisterHealthChecks(builder);
+
+        ConfigureOpenTelemetryForHttp(builder);
+
+        using var bootstrapLoggerFactory = CreateLoggerFactory(logLevel);
+        var logger = bootstrapLoggerFactory.CreateLogger("PoshMcpHttpLogger");
+        var config = LoadPowerShellConfiguration(finalConfigPath, logger);
+
+        var sharedHttpContextAccessor = new HttpContextAccessor();
+        var sharedRunspaceLogger = bootstrapLoggerFactory.CreateLogger<SessionAwarePowerShellRunspace>();
+        var sharedSessionRunspace = new SessionAwarePowerShellRunspace(sharedHttpContextAccessor, sharedRunspaceLogger);
+
+        builder.Services.AddSingleton<IHttpContextAccessor>(sharedHttpContextAccessor);
+        builder.Services.AddSingleton<IPowerShellRunspace>(sharedSessionRunspace);
+
+        logger.LogInformation("Using configuration file: {ConfigurationPath}", finalConfigPath);
+
+        var tools = SetupHttpMcpTools(bootstrapLoggerFactory, config, logger, finalConfigPath, sharedSessionRunspace);
+        builder.Services
+            .AddMcpServer()
+            .WithHttpTransport()
+            .WithTools(tools);
+
+        RegisterCleanupServices(builder);
+
+        var app = builder.Build();
+
+        app.Use(async (context, next) =>
+        {
+            var correlationId = context.Request.Headers["X-Correlation-ID"].FirstOrDefault()
+                ?? OperationContext.GenerateCorrelationId();
+            OperationContext.CorrelationId = correlationId;
+            context.Response.Headers["X-Correlation-ID"] = correlationId;
+
+            await next();
+        });
+
+        app.UseCors();
+
+        app.MapHealthChecks("/health", new HealthCheckOptions
+        {
+            ResponseWriter = WriteHealthCheckResponseAsync
+        });
+        app.MapHealthChecks("/health/ready", new HealthCheckOptions
+        {
+            Predicate = _ => true
+        });
+
+        var normalizedMcpPath = NormalizeMcpPath(mcpPath);
+        if (string.IsNullOrWhiteSpace(normalizedMcpPath))
+        {
+            app.MapMcp();
+        }
+        else
+        {
+            app.MapMcp(normalizedMcpPath);
+        }
+
+        await app.RunAsync();
+    }
+
+    private static void ConfigureCorsForMcp(WebApplicationBuilder builder)
+    {
+        builder.Services.AddCors(options =>
+        {
+            options.AddDefaultPolicy(policy =>
+            {
+                policy.AllowAnyOrigin()
+                    .AllowAnyMethod()
+                    .AllowAnyHeader()
+                    .WithExposedHeaders("Mcp-Session-Id");
+            });
+        });
+    }
+
+    private static void RegisterHealthChecks(WebApplicationBuilder builder)
+    {
+        builder.Services.AddHealthChecks()
+            .AddCheck<PowerShellRunspaceHealthCheck>("powershell_runspace")
+            .AddCheck<AssemblyGenerationHealthCheck>("assembly_generation")
+            .AddCheck<ConfigurationHealthCheck>("configuration");
+    }
+
+    private static void ConfigureOpenTelemetryForHttp(WebApplicationBuilder builder)
+    {
+        builder.Services.AddSingleton<McpMetrics>();
+
+        builder.Services.AddOpenTelemetry()
+            .WithMetrics(metricsBuilder =>
+            {
+                metricsBuilder
+                    .AddMeter(McpMetrics.MeterName)
+                    .AddAspNetCoreInstrumentation()
+                    .AddConsoleExporter();
+            });
+
+        builder.Services.AddSingleton<IHostedService>(serviceProvider =>
+        {
+            var metrics = serviceProvider.GetRequiredService<McpMetrics>();
+            McpToolFactoryV2.SetMetrics(metrics);
+            PowerShellAssemblyGenerator.SetMetrics(metrics);
+            return new MetricsConfigurationService();
+        });
+    }
+
+    private static async Task WriteHealthCheckResponseAsync(HttpContext context, Microsoft.Extensions.Diagnostics.HealthChecks.HealthReport report)
+    {
+        context.Response.ContentType = "application/json";
+        var result = JsonSerializer.Serialize(new
+        {
+            status = report.Status.ToString(),
+            checks = report.Entries.Select(e => new
+            {
+                name = e.Key,
+                status = e.Value.Status.ToString(),
+                description = e.Value.Description,
+                duration = e.Value.Duration.TotalMilliseconds,
+                data = e.Value.Data
+            }),
+            totalDuration = report.TotalDuration.TotalMilliseconds
+        });
+        await context.Response.WriteAsync(result);
+    }
+
+    private static List<McpServerTool> SetupHttpMcpTools(
+        ILoggerFactory loggerFactory,
+        PowerShellConfiguration config,
+        ILogger logger,
+        string finalConfigPath,
+        IPowerShellRunspace sessionAwareRunspace)
+    {
+        var runtimeCachingState = new RuntimeCachingState();
+        PowerShellAssemblyGenerator.SetRuntimeCachingState(runtimeCachingState);
+        PowerShellAssemblyGenerator.SetConfiguration(config);
+        logger.LogInformation("RuntimeCachingState initialized and wired into PowerShellAssemblyGenerator");
+
+        var toolFactory = new McpToolFactoryV2(sessionAwareRunspace);
+        var tools = toolFactory.GetToolsList(config, logger);
+
+        if (config.EnableDynamicReloadTools)
+        {
+            var reloadTools = CreateConfigurationReloadTools(loggerFactory, toolFactory, config, finalConfigPath);
+            AddConfigurationReloadToolsToList(tools, reloadTools);
+            logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools)");
+        }
+        else
+        {
+            logger.LogInformation($"Added {tools.Count} total tools (dynamic reload tools are disabled)");
+        }
+
+        var setResultCachingTool = CreateSetResultCachingToolInstance(runtimeCachingState);
+        tools.Add(setResultCachingTool);
+        logger.LogInformation("Registered set-result-caching tool (always enabled)");
+
+        return tools;
     }
 
     private static void ConfigureServerLogging(HostApplicationBuilder builder, LogLevel? overrideLogLevel)
@@ -1104,7 +1339,7 @@ public class Program
         return (logger, config);
     }
 
-    private static List<McpServerTool> SetupMcpTools(IServiceProvider serviceProvider, PowerShellConfiguration config, ILogger logger, string finalConfigPath)
+    private static List<McpServerTool> SetupMcpTools(ILoggerFactory loggerFactory, PowerShellConfiguration config, ILogger logger, string finalConfigPath)
     {
         // Create RuntimeCachingState singleton and wire into assembly generator static state
         var runtimeCachingState = new RuntimeCachingState();
@@ -1117,7 +1352,7 @@ public class Program
 
         if (config.EnableDynamicReloadTools)
         {
-            var reloadTools = CreateConfigurationReloadTools(serviceProvider, toolFactory, config, finalConfigPath);
+            var reloadTools = CreateConfigurationReloadTools(loggerFactory, toolFactory, config, finalConfigPath);
             AddConfigurationReloadToolsToList(tools, reloadTools);
             logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools)");
         }
@@ -1134,11 +1369,11 @@ public class Program
         return tools;
     }
 
-    private static ConfigurationReloadTools CreateConfigurationReloadTools(IServiceProvider serviceProvider, McpToolFactoryV2 toolFactory, PowerShellConfiguration config, string finalConfigPath)
+    private static ConfigurationReloadTools CreateConfigurationReloadTools(ILoggerFactory loggerFactory, McpToolFactoryV2 toolFactory, PowerShellConfiguration config, string finalConfigPath)
     {
-        var reloadServiceLogger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger<PowerShellConfigurationReloadService>();
+        var reloadServiceLogger = loggerFactory.CreateLogger<PowerShellConfigurationReloadService>();
         var reloadService = new PowerShellConfigurationReloadService(reloadServiceLogger, toolFactory, config, finalConfigPath);
-        var reloadToolsLogger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger<ConfigurationReloadTools>();
+        var reloadToolsLogger = loggerFactory.CreateLogger<ConfigurationReloadTools>();
         return new ConfigurationReloadTools(reloadService, reloadToolsLogger);
     }
 
@@ -1277,6 +1512,17 @@ public class Program
         });
     }
 
+    private static void ConfigureJsonSerializerOptions(WebApplicationBuilder builder)
+    {
+        builder.Services.Configure<JsonSerializerOptions>(options =>
+        {
+            options.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+            options.MaxDepth = 128;
+            options.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+            options.WriteIndented = false;
+        });
+    }
+
     private static void RegisterMcpServerServices(HostApplicationBuilder builder, List<McpServerTool> tools)
     {
         builder.Services
@@ -1286,6 +1532,11 @@ public class Program
     }
 
     private static void RegisterCleanupServices(HostApplicationBuilder builder)
+    {
+        builder.Services.AddSingleton<IHostedService, PowerShellCleanupService>();
+    }
+
+    private static void RegisterCleanupServices(WebApplicationBuilder builder)
     {
         builder.Services.AddSingleton<IHostedService, PowerShellCleanupService>();
     }

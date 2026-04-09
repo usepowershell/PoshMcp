@@ -8,9 +8,9 @@
 
 ## Recent Status (2026-04-09)
 
-**Summary:** Phase 1 infrastructure complete. Monitoring deployment stability. Supporting team decision coordination on performance features.
+**Summary:** Phase 1 infrastructure complete. Monitoring deployment stability. Supporting team decision coordination on performance features. Version 0.2.2 release packaged and deployed.
 
-**Current Role:** Infrastructure and decision pipeline coordination. Mastery areas: health checks, Azure Container Apps, multi-tenant deployment, documentation verification.
+**Current Role:** Infrastructure and decision pipeline coordination. Mastery areas: health checks, Azure Container Apps, multi-tenant deployment, documentation verification, release management.
 
 ## Project Context
 
@@ -298,6 +298,31 @@ main.bicep (subscription)
 8. Get-DeploymentInfo
 
 **Lesson:** When refactoring infrastructure-as-code to handle resource creation declaratively (Bicep), verify that imperative steps earlier in the pipeline don't depend on those resources already existing. Deployment scripts with mixed imperative/declarative steps need the imperative RG creation as a safety net.
+
+---
+
+### 2026-04-09: Version 0.2.2 Release Cycle
+
+**Task:** Patch version bump and release deployment.
+
+**Actions:**
+1. Bumped version in `PoshMcp.Server/PoshMcp.csproj`: 0.2.1 → 0.2.2
+2. Ran `dotnet pack -c Release` → generated `poshmcp.0.2.2.nupkg` (26.4 MB)
+3. Updated global tool: `dotnet tool update -g poshmcp --add-source ./PoshMcp.Server/bin/Release`
+   - Upgraded from 0.2.0 → 0.2.2 (previous v0.2.1 was not in release bin, only 0.2.0 existed)
+4. Verified deployment:
+   - `poshmcp --version` → `0.2.2+88dbdbfc09852f4e40f5d9a7e2ced26417d9a12b` ✅
+   - `poshmcp --help` → Full CLI help and commands available ✅
+   - All commands functional (serve, list-tools, validate-config, doctor, psmodulepath)
+
+**Package Location:** `C:\Users\stmuraws\source\usepowershell\poshmcp\PoshMcp.Server\bin\Release\poshmcp.0.2.2.nupkg`
+
+**Key Learnings:**
+- Dotnet tool pack generates nupkg in bin/Release, not specific subdirectory
+- `dotnet tool update` with `--add-source` correctly resolves local packages
+- Version info embeds git commit hash (useful for tracking production deployments)
+- Global tool updates are atomic — no downtime for CLI users
+- All release pack warnings were expected (PoshMcp.Web not packable, intentional scope)
 
 ---
 

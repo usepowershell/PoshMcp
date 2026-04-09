@@ -20,3 +20,4 @@ PoshMcp dynamically transforms PowerShell scripts, cmdlets, and modules into sec
 
 *Learnings from work will be recorded here automatically*
 - 2026-04-08: Added lifecycle-focused tool invocation logging notes for a perceived `Get-Process` hang; recorded that build and targeted test validation passed.
+- 2026-04-09: Consolidating transport-foundation, HTTP implementation, and gate decisions in one merge pass keeps `.squad/decisions.md` coherent and avoids losing green-criteria evidence.

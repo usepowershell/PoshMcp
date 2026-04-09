@@ -204,6 +204,59 @@ public class ProgramTests : PowerShellTestBase
         Assert.NotNull(logger);
     }
 
+    [Theory]
+    [InlineData(null, "stdio")]
+    [InlineData("", "stdio")]
+    [InlineData("  ", "stdio")]
+    [InlineData("stdio", "stdio")]
+    [InlineData("STDIO", "stdio")]
+    [InlineData("http", "http")]
+    [InlineData("HTTP", "http")]
+    [InlineData(" http ", "http")]
+    [InlineData("sse", "sse")]
+    public void NormalizeTransportValue_ReturnsExpectedNormalizedValue(string? input, string expected)
+    {
+        // Act
+        var result = Program.NormalizeTransportValue(input);
+
+        // Assert
+        Assert.Equal(expected, result);
+    }
+
+    [Theory]
+    [InlineData(null, "Stdio")]
+    [InlineData("", "Stdio")]
+    [InlineData("stdio", "Stdio")]
+    [InlineData("STDIO", "Stdio")]
+    [InlineData("http", "Http")]
+    [InlineData("HTTP", "Http")]
+    [InlineData("sse", "Unsupported")]
+    [InlineData("unknown", "Unsupported")]
+    public void ResolveTransportMode_ReturnsExpectedMode(string? input, string expected)
+    {
+        // Act
+        var result = Program.ResolveTransportMode(input);
+
+        // Assert
+        Assert.Equal(expected, result.ToString());
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("", null)]
+    [InlineData("   ", null)]
+    [InlineData("mcp", "/mcp")]
+    [InlineData("/mcp", "/mcp")]
+    [InlineData(" custom/path ", "/custom/path")]
+    public void NormalizeMcpPath_ReturnsExpectedPath(string? input, string? expected)
+    {
+        // Act
+        var result = Program.NormalizeMcpPath(input);
+
+        // Assert
+        Assert.Equal(expected, result);
+    }
+
     [Fact]
     public void LoadPowerShellConfiguration_WithValidConfigPath_ReturnsConfiguration()
     {
