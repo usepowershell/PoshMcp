@@ -39,6 +39,10 @@ public class PowerShellAssemblyGenerator
     // Static metrics instance for instrumentation
     private static McpMetrics? _metrics;
 
+    // Static configuration and runtime state for caching resolution
+    private static PowerShellConfiguration? _powerShellConfig;
+    private static RuntimeCachingState? _runtimeCachingState;
+
     public static string SanitizeMethodName(string commandName, string? parameterSetName = null)
     {
         return SanitizeMethodName_Internal(commandName, parameterSetName);
@@ -103,6 +107,46 @@ public class PowerShellAssemblyGenerator
     public static void SetMetrics(McpMetrics metrics)
     {
         _metrics = metrics;
+    }
+
+    /// <summary>
+    /// Sets the PowerShell configuration for caching resolution.
+    /// </summary>
+    public static void SetConfiguration(PowerShellConfiguration config)
+    {
+        _powerShellConfig = config;
+    }
+
+    /// <summary>
+    /// Sets the runtime caching state for dynamic override resolution.
+    /// </summary>
+    public static void SetRuntimeCachingState(RuntimeCachingState state)
+    {
+        _runtimeCachingState = state;
+    }
+
+    /// <summary>
+    /// Resolves whether result caching is enabled for the given command using a 5-layer priority:
+    /// runtime per-function > runtime global > config per-function > config global > default (false).
+    /// </summary>
+    public static bool ResolveCachingSetting(string commandName)
+    {
+        // Layers 1 & 2: Runtime overrides (per-function takes priority over global)
+        var runtimeResolved = _runtimeCachingState?.Resolve(commandName);
+        if (runtimeResolved.HasValue)
+        {
+            return runtimeResolved.Value;
+        }
+
+        // Layer 3: Config per-function override
+        if (_powerShellConfig?.FunctionOverrides.TryGetValue(commandName, out var funcOverride) == true
+            && funcOverride.EnableResultCaching.HasValue)
+        {
+            return funcOverride.EnableResultCaching.Value;
+        }
+
+        // Layer 4: Config global; Layer 5: default false
+        return _powerShellConfig?.Performance.EnableResultCaching ?? false;
     }
 
     /// <summary>
@@ -674,10 +718,18 @@ public class PowerShellAssemblyGenerator
                             invocationId,
                             stopwatch.ElapsedMilliseconds);
 
-                        // Execute the command and pipe to Tee-Object to cache results, then continue to ConvertTo-Json
-                        // This caches the output in $LastCommandOutput variable for later retrieval
-                        ps.AddCommand("Tee-Object")
-                          .AddParameter("Variable", "LastCommandOutput");
+                        // Conditionally pipe to Tee-Object to cache results in $LastCommandOutput
+                        bool enableCaching = ResolveCachingSetting(commandName);
+                        logger.LogInformation(
+                            "Result caching decision: ToolName={ToolName}, EnableCaching={EnableCaching}, InvocationId={InvocationId}",
+                            commandName,
+                            enableCaching,
+                            invocationId);
+                        if (enableCaching)
+                        {
+                            ps.AddCommand("Tee-Object")
+                              .AddParameter("Variable", "LastCommandOutput");
+                        }
 
                         logger.LogInformation(
                             "PowerShell pipeline starting: ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
@@ -1125,9 +1177,9 @@ public class PowerShellAssemblyGenerator
                 // Convert results to JSON if there's cached data
                 if (results.Count == 0 || results[0]?.BaseObject == null)
                 {
-                    logger.LogInformation("No cached command output available");
+                    logger.LogInformation("No cached command output available — result caching may be disabled");
                     ps.Commands.Clear();
-                    return null;
+                    return "{\"error\": \"Result caching is disabled for this session. Enable it via configuration or the set-result-caching tool to use this feature.\"}";
                 }
 
                 return await ConvertToJson(ps, results, logger, "cached output retrieval", cancellationToken);
@@ -1194,9 +1246,9 @@ public class PowerShellAssemblyGenerator
                 // Convert results to JSON if there's data
                 if (results.Count == 0)
                 {
-                    logger.LogInformation("No cached command output available for sorting");
+                    logger.LogInformation("No cached command output available for sorting — result caching may be disabled");
                     ps.Commands.Clear();
-                    return "[]";
+                    return "{\"error\": \"Result caching is disabled for this session. Enable it via configuration or the set-result-caching tool to use this feature.\"}";
                 }
 
                 return await ConvertToJson(ps, results, logger, "sorted cached output", cancellationToken);
@@ -1277,9 +1329,9 @@ public class PowerShellAssemblyGenerator
                 // Convert results to JSON if there's data
                 if (results.Count == 0)
                 {
-                    logger.LogInformation("No cached command output available for filtering or filter returned no results");
+                    logger.LogInformation("No cached command output available for filtering — result caching may be disabled or filter matched nothing");
                     ps.Commands.Clear();
-                    return "[]";
+                    return "{\"error\": \"Result caching is disabled for this session. Enable it via configuration or the set-result-caching tool to use this feature.\"}";
                 }
 
                 return await ConvertToJson(ps, results, logger, "filtered cached output", cancellationToken);
@@ -1349,9 +1401,9 @@ public class PowerShellAssemblyGenerator
                 // Convert results to JSON if there's data
                 if (results.Count == 0)
                 {
-                    logger.LogInformation("No cached command output available for grouping");
+                    logger.LogInformation("No cached command output available for grouping — result caching may be disabled");
                     ps.Commands.Clear();
-                    return "[]";
+                    return "{\"error\": \"Result caching is disabled for this session. Enable it via configuration or the set-result-caching tool to use this feature.\"}";
                 }
 
                 return await ConvertToJson(ps, results, logger, "grouped cached output", cancellationToken);
