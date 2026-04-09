@@ -428,3 +428,19 @@ Bumped global tool package version from 0.2.1 to 0.2.2, built release nupkg, upd
 
 **Impact:** Release package `PoshMcp.Server/bin/Release/poshmcp.0.2.2.nupkg` is available and deployed for tool users.
 
+### CLI config lifecycle commands in server executable
+
+**Author:** Bender (Backend Developer)
+**Date:** 2026-04-09
+**Status:** Implemented
+
+Added CLI configuration management commands to `PoshMcp.Server`:
+- `create-config` creates a default `appsettings.json` in the current directory (with `--force` support)
+- `update-config` updates the active config file using the same resolution precedence as `doctor`
+
+`update-config` defaults to interactive prompts for newly added functions, including advanced per-function overrides (`EnableResultCaching`, `UseDefaultDisplayProperties`, and `DefaultProperties`). A `--non-interactive` switch supports CI/automation workflows.
+
+**Rationale:** Keep configuration lifecycle actions in one executable, avoid manual JSON edits for common scenarios, and preserve predictable file targeting by reusing doctor-style config resolution.
+
+**Impact:** CLI help surface expanded; targeted unit coverage added for create/update flows and advanced prompt behavior; README/TODO updates recorded by the implementation agent.
+

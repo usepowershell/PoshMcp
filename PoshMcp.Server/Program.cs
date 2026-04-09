@@ -16,6 +16,7 @@ using OpenTelemetry.Metrics;
 using System;
 using System.Collections.Generic;
 using System.CommandLine;
+using System.CommandLine.Invocation;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -83,6 +84,74 @@ public class Program
             aliases: new[] { "--format" },
             description: "Output format: text|json");
 
+        var forceOption = new Option<bool>(
+            aliases: new[] { "--force", "-f" },
+            description: "Overwrite an existing appsettings.json when creating defaults");
+
+        var nonInteractiveOption = new Option<bool>(
+            aliases: new[] { "--non-interactive" },
+            description: "Skip interactive advanced-configuration prompts during updates");
+
+        var addFunctionOption = new Option<string[]>(
+            aliases: new[] { "--add-function" },
+            description: "Add one or more function names to PowerShellConfiguration.FunctionNames")
+        {
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var removeFunctionOption = new Option<string[]>(
+            aliases: new[] { "--remove-function" },
+            description: "Remove one or more function names from PowerShellConfiguration.FunctionNames")
+        {
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var addModuleOption = new Option<string[]>(
+            aliases: new[] { "--add-module" },
+            description: "Add one or more module names to PowerShellConfiguration.Modules")
+        {
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var removeModuleOption = new Option<string[]>(
+            aliases: new[] { "--remove-module" },
+            description: "Remove one or more module names from PowerShellConfiguration.Modules")
+        {
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var addIncludePatternOption = new Option<string[]>(
+            aliases: new[] { "--add-include-pattern" },
+            description: "Add one or more patterns to PowerShellConfiguration.IncludePatterns")
+        {
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var removeIncludePatternOption = new Option<string[]>(
+            aliases: new[] { "--remove-include-pattern" },
+            description: "Remove one or more patterns from PowerShellConfiguration.IncludePatterns")
+        {
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var addExcludePatternOption = new Option<string[]>(
+            aliases: new[] { "--add-exclude-pattern" },
+            description: "Add one or more patterns to PowerShellConfiguration.ExcludePatterns")
+        {
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var removeExcludePatternOption = new Option<string[]>(
+            aliases: new[] { "--remove-exclude-pattern" },
+            description: "Remove one or more patterns from PowerShellConfiguration.ExcludePatterns")
+        {
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var enableDynamicReloadToolsOption = new Option<string?>(
+            aliases: new[] { "--enable-dynamic-reload-tools" },
+            description: "Set PowerShellConfiguration.EnableDynamicReloadTools to true or false");
+
         var sessionModeOption = new Option<string?>(
             aliases: new[] { "--session-mode" },
             description: "Session mode hint: stateful|stateless (reserved for hosted transports)");
@@ -122,6 +191,25 @@ public class Program
         doctorCommand.AddOption(mcpPathOption);
         doctorCommand.AddOption(formatOption);
 
+        var createConfigCommand = new Command("create-config", "Create a default appsettings.json in the current directory");
+        createConfigCommand.AddOption(forceOption);
+        createConfigCommand.AddOption(formatOption);
+
+        var updateConfigCommand = new Command("update-config", "Update settings in the active configuration file (same resolution rules as doctor)");
+        updateConfigCommand.AddOption(configOption);
+        updateConfigCommand.AddOption(logLevelOption);
+        updateConfigCommand.AddOption(formatOption);
+        updateConfigCommand.AddOption(addFunctionOption);
+        updateConfigCommand.AddOption(removeFunctionOption);
+        updateConfigCommand.AddOption(addModuleOption);
+        updateConfigCommand.AddOption(removeModuleOption);
+        updateConfigCommand.AddOption(addIncludePatternOption);
+        updateConfigCommand.AddOption(removeIncludePatternOption);
+        updateConfigCommand.AddOption(addExcludePatternOption);
+        updateConfigCommand.AddOption(removeExcludePatternOption);
+        updateConfigCommand.AddOption(enableDynamicReloadToolsOption);
+        updateConfigCommand.AddOption(nonInteractiveOption);
+
         var psModulePathCommand = new Command("psmodulepath", "Start a PowerShell runspace and report the value of $env:PSModulePath");
         psModulePathCommand.AddOption(verboseOption);
         psModulePathCommand.AddOption(debugOption);
@@ -131,6 +219,8 @@ public class Program
         rootCommand.AddCommand(listToolsCommand);
         rootCommand.AddCommand(validateConfigCommand);
         rootCommand.AddCommand(doctorCommand);
+        rootCommand.AddCommand(createConfigCommand);
+        rootCommand.AddCommand(updateConfigCommand);
         rootCommand.AddOption(evaluateToolsOption);
         rootCommand.AddOption(verboseOption);
         rootCommand.AddOption(debugOption);
@@ -269,6 +359,131 @@ public class Program
             }
         }, configOption, logLevelOption, transportOption, sessionModeOption, mcpPathOption, formatOption);
 
+        createConfigCommand.SetHandler(async (force, format) =>
+        {
+            var outputFormat = NormalizeFormat(format);
+            var targetPath = Path.GetFullPath("appsettings.json");
+
+            try
+            {
+                var created = await CreateDefaultConfigInCurrentDirectoryAsync(targetPath, force);
+
+                if (outputFormat == "json")
+                {
+                    var payload = new
+                    {
+                        success = true,
+                        configurationPath = targetPath,
+                        overwritten = created.WasOverwritten
+                    };
+                    Console.WriteLine(JsonSerializer.Serialize(payload));
+                }
+                else
+                {
+                    Console.WriteLine(created.WasOverwritten
+                        ? $"Overwrote default configuration: {targetPath}"
+                        : $"Created default configuration: {targetPath}");
+                }
+
+                Environment.ExitCode = ExitCodeSuccess;
+            }
+            catch (IOException ex)
+            {
+                Console.Error.WriteLine($"Configuration error: {ex.Message}");
+                Environment.ExitCode = ExitCodeConfigError;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Runtime error: {ex.Message}");
+                Environment.ExitCode = ExitCodeRuntimeError;
+            }
+        }, forceOption, formatOption);
+
+        updateConfigCommand.SetHandler(async (InvocationContext context) =>
+        {
+            var configPath = context.ParseResult.GetValueForOption(configOption);
+            var logLevelText = context.ParseResult.GetValueForOption(logLevelOption);
+            var format = context.ParseResult.GetValueForOption(formatOption);
+            var addFunctions = context.ParseResult.GetValueForOption(addFunctionOption);
+            var removeFunctions = context.ParseResult.GetValueForOption(removeFunctionOption);
+            var addModules = context.ParseResult.GetValueForOption(addModuleOption);
+            var removeModules = context.ParseResult.GetValueForOption(removeModuleOption);
+            var addIncludePatterns = context.ParseResult.GetValueForOption(addIncludePatternOption);
+            var removeIncludePatterns = context.ParseResult.GetValueForOption(removeIncludePatternOption);
+            var addExcludePatterns = context.ParseResult.GetValueForOption(addExcludePatternOption);
+            var removeExcludePatterns = context.ParseResult.GetValueForOption(removeExcludePatternOption);
+            var enableDynamicReloadTools = context.ParseResult.GetValueForOption(enableDynamicReloadToolsOption);
+            var nonInteractive = context.ParseResult.GetValueForOption(nonInteractiveOption);
+
+            var resolvedSettings = await ResolveCommandSettingsAsync(args, configPath, logLevelText, null, null, null);
+            var parsedLogLevel = ParseLogLevel(resolvedSettings.LogLevel.Value);
+            var outputFormat = NormalizeFormat(format);
+
+            try
+            {
+                if (ShouldPrintResolvedSettings(parsedLogLevel))
+                {
+                    PrintResolvedSettings("update-config", resolvedSettings);
+                }
+
+                var updateRequest = new ConfigUpdateRequest(
+                    addFunctions ?? Array.Empty<string>(),
+                    removeFunctions ?? Array.Empty<string>(),
+                    addModules ?? Array.Empty<string>(),
+                    removeModules ?? Array.Empty<string>(),
+                    addIncludePatterns ?? Array.Empty<string>(),
+                    removeIncludePatterns ?? Array.Empty<string>(),
+                    addExcludePatterns ?? Array.Empty<string>(),
+                    removeExcludePatterns ?? Array.Empty<string>(),
+                    TryParseRequiredBoolean(enableDynamicReloadTools),
+                    nonInteractive);
+
+                var result = await UpdateConfigurationFileAsync(resolvedSettings.FinalConfigPath, updateRequest);
+
+                if (outputFormat == "json")
+                {
+                    var payload = new
+                    {
+                        success = true,
+                        configurationPath = result.ConfigurationPath,
+                        changed = result.Changed,
+                        addedFunctions = result.AddedFunctions,
+                        removedFunctions = result.RemovedFunctions,
+                        advancedPromptedFunctionCount = result.AdvancedPromptedFunctionCount
+                    };
+                    Console.WriteLine(JsonSerializer.Serialize(payload));
+                }
+                else
+                {
+                    Console.WriteLine(result.Changed
+                        ? $"Updated configuration: {result.ConfigurationPath}"
+                        : $"No changes applied to configuration: {result.ConfigurationPath}");
+                    Console.WriteLine($"Added functions: {result.AddedFunctions} | Removed functions: {result.RemovedFunctions}");
+                    if (result.AdvancedPromptedFunctionCount > 0)
+                    {
+                        Console.WriteLine($"Advanced prompts completed for {result.AdvancedPromptedFunctionCount} function(s).");
+                    }
+                }
+
+                Environment.ExitCode = ExitCodeSuccess;
+            }
+            catch (FileNotFoundException ex)
+            {
+                Console.Error.WriteLine($"Configuration error: {ex.Message}");
+                Environment.ExitCode = ExitCodeConfigError;
+            }
+            catch (ArgumentException ex)
+            {
+                Console.Error.WriteLine($"Configuration error: {ex.Message}");
+                Environment.ExitCode = ExitCodeConfigError;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Runtime error: {ex.Message}");
+                Environment.ExitCode = ExitCodeRuntimeError;
+            }
+        });
+
         // Handler for the psmodulepath command
         psModulePathCommand.SetHandler((verbose, debug, trace) =>
         {
@@ -348,6 +563,22 @@ public class Program
         }
 
         return "text";
+    }
+
+    private static bool? TryParseRequiredBoolean(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var normalized = value.Trim();
+        if (bool.TryParse(normalized, out var parsed))
+        {
+            return parsed;
+        }
+
+        throw new ArgumentException($"Expected 'true' or 'false' but received '{value}'.");
     }
 
     private static ResolvedSetting ResolveEffectiveLogLevel(string[] args, string? logLevelText)
@@ -776,6 +1007,27 @@ public class Program
         bool Found,
         List<string> MatchedToolNames);
 
+    private sealed record CreateDefaultConfigResult(bool WasOverwritten);
+
+    private sealed record ConfigUpdateRequest(
+        IEnumerable<string> AddFunctions,
+        IEnumerable<string> RemoveFunctions,
+        IEnumerable<string> AddModules,
+        IEnumerable<string> RemoveModules,
+        IEnumerable<string> AddIncludePatterns,
+        IEnumerable<string> RemoveIncludePatterns,
+        IEnumerable<string> AddExcludePatterns,
+        IEnumerable<string> RemoveExcludePatterns,
+        bool? EnableDynamicReloadTools,
+        bool NonInteractive);
+
+    private sealed record ConfigUpdateResult(
+        string ConfigurationPath,
+        bool Changed,
+        int AddedFunctions,
+        int RemovedFunctions,
+        int AdvancedPromptedFunctionCount);
+
     private sealed record ResolvedSetting(string? Value, string Source);
 
     private sealed record ResolvedCommandSettings(
@@ -851,6 +1103,249 @@ public class Program
 
         var defaultConfigJson = LoadEmbeddedDefaultConfig();
         await File.WriteAllTextAsync(userConfigPath, defaultConfigJson);
+    }
+
+    private static async Task<CreateDefaultConfigResult> CreateDefaultConfigInCurrentDirectoryAsync(string targetPath, bool force)
+    {
+        var alreadyExists = File.Exists(targetPath);
+        if (alreadyExists && !force)
+        {
+            throw new IOException($"Configuration file already exists: {targetPath}. Use --force to overwrite.");
+        }
+
+        var defaultConfigJson = LoadEmbeddedDefaultConfig();
+        await File.WriteAllTextAsync(targetPath, defaultConfigJson + Environment.NewLine);
+        return new CreateDefaultConfigResult(alreadyExists);
+    }
+
+    private static async Task<ConfigUpdateResult> UpdateConfigurationFileAsync(string configPath, ConfigUpdateRequest request)
+    {
+        var existingConfigJson = await File.ReadAllTextAsync(configPath);
+        var parseOptions = new JsonDocumentOptions
+        {
+            CommentHandling = JsonCommentHandling.Skip,
+            AllowTrailingCommas = true
+        };
+
+        var root = JsonNode.Parse(existingConfigJson, documentOptions: parseOptions)?.AsObject()
+            ?? throw new InvalidOperationException($"Configuration file '{configPath}' must be a JSON object.");
+
+        var powerShellConfiguration = GetOrCreateObject(root, "PowerShellConfiguration");
+
+        var functionNames = GetOrCreateArray(powerShellConfiguration, "FunctionNames");
+        var addedFunctions = AddUniqueValues(functionNames, request.AddFunctions, out var addedFunctionNames);
+        var removedFunctions = RemoveValues(functionNames, request.RemoveFunctions);
+
+        var addedModules = AddUniqueValues(GetOrCreateArray(powerShellConfiguration, "Modules"), request.AddModules, out _);
+        var removedModules = RemoveValues(GetOrCreateArray(powerShellConfiguration, "Modules"), request.RemoveModules);
+
+        var addedIncludePatterns = AddUniqueValues(GetOrCreateArray(powerShellConfiguration, "IncludePatterns"), request.AddIncludePatterns, out _);
+        var removedIncludePatterns = RemoveValues(GetOrCreateArray(powerShellConfiguration, "IncludePatterns"), request.RemoveIncludePatterns);
+
+        var addedExcludePatterns = AddUniqueValues(GetOrCreateArray(powerShellConfiguration, "ExcludePatterns"), request.AddExcludePatterns, out _);
+        var removedExcludePatterns = RemoveValues(GetOrCreateArray(powerShellConfiguration, "ExcludePatterns"), request.RemoveExcludePatterns);
+
+        var boolUpdateApplied = false;
+        if (request.EnableDynamicReloadTools.HasValue)
+        {
+            powerShellConfiguration["EnableDynamicReloadTools"] = request.EnableDynamicReloadTools.Value;
+            boolUpdateApplied = true;
+        }
+
+        var advancedPromptedFunctionCount = 0;
+        if (!request.NonInteractive && addedFunctionNames.Count > 0)
+        {
+            advancedPromptedFunctionCount = PromptForAdvancedFunctionConfiguration(powerShellConfiguration, addedFunctionNames);
+        }
+
+        var changed = addedFunctions > 0 || removedFunctions > 0 ||
+            addedModules > 0 || removedModules > 0 ||
+            addedIncludePatterns > 0 || removedIncludePatterns > 0 ||
+            addedExcludePatterns > 0 || removedExcludePatterns > 0 ||
+            boolUpdateApplied || advancedPromptedFunctionCount > 0;
+
+        if (changed)
+        {
+            var updatedConfigJson = root.ToJsonString(new JsonSerializerOptions
+            {
+                WriteIndented = true
+            });
+
+            await File.WriteAllTextAsync(configPath, updatedConfigJson + Environment.NewLine);
+        }
+
+        return new ConfigUpdateResult(
+            configPath,
+            changed,
+            addedFunctions,
+            removedFunctions,
+            advancedPromptedFunctionCount);
+    }
+
+    private static int PromptForAdvancedFunctionConfiguration(JsonObject powerShellConfiguration, IEnumerable<string> addedFunctionNames)
+    {
+        var promptedCount = 0;
+
+        foreach (var functionName in addedFunctionNames)
+        {
+            Console.Write($"Configure advanced settings for '{functionName}'? [y/N]: ");
+            if (!IsYesAnswer(Console.ReadLine()))
+            {
+                continue;
+            }
+
+            var functionOverrides = GetOrCreateObject(powerShellConfiguration, "FunctionOverrides");
+            var functionOverride = GetOrCreateObject(functionOverrides, functionName);
+
+            var cachingOverride = PromptForNullableBoolean($"Override EnableResultCaching for {functionName} (true/false/skip): ");
+            if (cachingOverride.HasValue)
+            {
+                functionOverride["EnableResultCaching"] = cachingOverride.Value;
+            }
+
+            var displayOverride = PromptForNullableBoolean($"Override UseDefaultDisplayProperties for {functionName} (true/false/skip): ");
+            if (displayOverride.HasValue)
+            {
+                functionOverride["UseDefaultDisplayProperties"] = displayOverride.Value;
+            }
+
+            Console.Write($"Set DefaultProperties for {functionName} (comma-separated, blank to skip): ");
+            var defaultPropertiesText = Console.ReadLine();
+            if (!string.IsNullOrWhiteSpace(defaultPropertiesText))
+            {
+                var propertyValues = defaultPropertiesText
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(value => value.Trim())
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (propertyValues.Count > 0)
+                {
+                    functionOverride["DefaultProperties"] = new JsonArray(propertyValues.Select(value => (JsonNode?)value).ToArray());
+                }
+            }
+
+            promptedCount++;
+        }
+
+        return promptedCount;
+    }
+
+    private static bool IsYesAnswer(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        var normalized = value.Trim();
+        return string.Equals(normalized, "y", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, "yes", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool? PromptForNullableBoolean(string prompt)
+    {
+        while (true)
+        {
+            Console.Write(prompt);
+            var input = Console.ReadLine();
+            if (string.IsNullOrWhiteSpace(input) || string.Equals(input.Trim(), "skip", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            if (bool.TryParse(input.Trim(), out var parsed))
+            {
+                return parsed;
+            }
+
+            Console.WriteLine("Please enter true, false, or skip.");
+        }
+    }
+
+    private static JsonObject GetOrCreateObject(JsonObject parent, string propertyName)
+    {
+        if (parent[propertyName] is JsonObject existing)
+        {
+            return existing;
+        }
+
+        var created = new JsonObject();
+        parent[propertyName] = created;
+        return created;
+    }
+
+    private static JsonArray GetOrCreateArray(JsonObject parent, string propertyName)
+    {
+        if (parent[propertyName] is JsonArray existing)
+        {
+            return existing;
+        }
+
+        var created = new JsonArray();
+        parent[propertyName] = created;
+        return created;
+    }
+
+    private static int AddUniqueValues(JsonArray array, IEnumerable<string> values, out List<string> addedValues)
+    {
+        var existing = new HashSet<string>(
+            array.Select(v => v?.GetValue<string>())
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .Select(v => v!.Trim()),
+            StringComparer.OrdinalIgnoreCase);
+
+        addedValues = new List<string>();
+        foreach (var value in values)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            var normalized = value.Trim();
+            if (!existing.Add(normalized))
+            {
+                continue;
+            }
+
+            array.Add(normalized);
+            addedValues.Add(normalized);
+        }
+
+        return addedValues.Count;
+    }
+
+    private static int RemoveValues(JsonArray array, IEnumerable<string> values)
+    {
+        var toRemove = new HashSet<string>(
+            values.Where(v => !string.IsNullOrWhiteSpace(v))
+                .Select(v => v.Trim()),
+            StringComparer.OrdinalIgnoreCase);
+
+        if (toRemove.Count == 0)
+        {
+            return 0;
+        }
+
+        var removed = 0;
+        for (var i = array.Count - 1; i >= 0; i--)
+        {
+            var existing = array[i]?.GetValue<string>();
+            if (string.IsNullOrWhiteSpace(existing))
+            {
+                continue;
+            }
+
+            if (toRemove.Contains(existing.Trim()))
+            {
+                array.RemoveAt(i);
+                removed++;
+            }
+        }
+
+        return removed;
     }
 
     private static async Task UpgradeConfigWithMissingDefaultsAsync(string configPath)

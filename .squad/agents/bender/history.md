@@ -218,3 +218,19 @@
 **Verification:**
 - Focused integration tests passed with no lingering `PoshMcp.Web.csproj` or `PoshMcp.csproj` processes after completion.
 - This reduces process leak risk that can accumulate and slow subsequent test runs.
+
+### 2026-04-09: Added CLI configuration management commands
+
+**Context:** Implemented TODO items to add CLI-driven configuration creation and mutation flows in `PoshMcp.Server/Program.cs`.
+
+**What shipped:**
+- New `create-config` command creates default `appsettings.json` in current directory with optional `--force` overwrite
+- New `update-config` command updates the active configuration file using the same path-resolution chain as `doctor`
+- Update command supports function/module/include/exclude edits and `EnableDynamicReloadTools`
+- Interactive advanced prompts now run when new functions are added, allowing per-function overrides for:
+	- `EnableResultCaching`
+	- `UseDefaultDisplayProperties`
+	- `DefaultProperties`
+- Added `--non-interactive` mode for automation workflows
+
+**Key insight:** Reusing existing configuration resolution logic (`ResolveCommandSettingsAsync`) keeps CLI behavior consistent and avoids drift between diagnostics (`doctor`) and mutation commands.

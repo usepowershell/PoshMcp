@@ -137,6 +137,21 @@ Configure which PowerShell commands to expose in `appsettings.json`:
 }
 ```
 
+### CLI Configuration Commands
+
+Manage configuration files directly from the PoshMcp CLI:
+
+```bash
+# Create default appsettings.json in the current directory
+dotnet run --project PoshMcp.Server -- create-config
+
+# Update the active configuration file (resolved with doctor rules)
+dotnet run --project PoshMcp.Server -- update-config --add-function Get-Process
+
+# Automation-friendly update (skip interactive advanced prompts)
+dotnet run --project PoshMcp.Server -- update-config --non-interactive --add-module Az.Accounts
+```
+
 ### Built-in Utility Tools
 
 PoshMcp includes commands for working with PowerShell output:
