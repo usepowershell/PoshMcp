@@ -66,7 +66,7 @@ public partial class GeneratedMethod : PowerShellTestBase
         Logger.LogInformation($"Returned JSON: {result}");
 
         // Verify the result is valid JSON and contains expected process data
-        Assert.Contains("ProcessName", result);
+        Assert.Contains("\"Name\"", result);
         Assert.Contains("Id", result);
         Assert.Contains(currentProcessId.ToString(), result);
     }

@@ -1,5 +1,6 @@
 using PoshMcp.Server.PowerShell;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Management.Automation;
 using System.Reflection;
@@ -82,7 +83,15 @@ function Get-SomeOtherData {
 
         Logger.LogInformation($"Invoking method with parameters: Name='{name}', Count={count}");
 
-        var result = method.Invoke(instance, new object[] { name, count, cancellationToken });
+        var parameterDict = new Dictionary<string, object?>
+        {
+            ["Name"] = name,
+            ["Count"] = count,
+            ["cancellationToken"] = cancellationToken
+        };
+        var invokeParameters = PowerShellParameterUtils.CreateParameterArray(method, parameterDict);
+
+        var result = method.Invoke(instance, invokeParameters);
 
         // Assert
         Assert.NotNull(result);
