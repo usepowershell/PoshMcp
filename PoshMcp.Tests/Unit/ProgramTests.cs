@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using PoshMcp.Server.PowerShell;
 using System;
 using System.IO;
 using System.Text.Json.Nodes;
@@ -340,5 +341,74 @@ public class ProgramTests : PowerShellTestBase
             if (File.Exists(tempFile))
                 File.Delete(tempFile);
         }
+    }
+
+    [Fact]
+    public void SerializeEffectivePowerShellConfiguration_IncludesPerformanceAndEffectiveSettings()
+    {
+        // Arrange
+        var config = new PowerShellConfiguration
+        {
+            FunctionNames = new() { "Get-Process" },
+            Commands = new() { "Get-Service" },
+            Modules = new() { "Microsoft.PowerShell.Management" },
+            ExcludePatterns = new() { "*Secret*" },
+            IncludePatterns = new() { "Get-*" },
+            EnableDynamicReloadTools = true,
+            Environment = new EnvironmentConfiguration
+            {
+                ImportModules = new() { "Pester" },
+                ModulePaths = new() { "C:/Modules" },
+                StartupScript = "Write-Host startup",
+                StartupScriptPath = "./startup.ps1",
+                TrustPSGallery = false,
+                SkipPublisherCheck = false,
+                AllowClobber = true,
+                InstallTimeoutSeconds = 120
+            },
+            Performance = new PerformanceConfiguration
+            {
+                EnableResultCaching = true,
+                UseDefaultDisplayProperties = false
+            },
+            FunctionOverrides =
+            {
+                ["Get-Process"] = new FunctionOverride
+                {
+                    DefaultProperties = new() { "Name", "Id" },
+                    EnableResultCaching = false,
+                    UseDefaultDisplayProperties = true
+                }
+            }
+        };
+
+        // Act
+        var json = Program.SerializeEffectivePowerShellConfiguration(config);
+        var root = JsonNode.Parse(json)?.AsObject();
+
+        // Assert
+        Assert.NotNull(root);
+        Assert.Equal("Get-Process", root!["FunctionNames"]?[0]?.GetValue<string>());
+        Assert.Equal("Get-Service", root["Commands"]?[0]?.GetValue<string>());
+        Assert.Equal("Microsoft.PowerShell.Management", root["Modules"]?[0]?.GetValue<string>());
+        Assert.Equal("*Secret*", root["ExcludePatterns"]?[0]?.GetValue<string>());
+        Assert.Equal("Get-*", root["IncludePatterns"]?[0]?.GetValue<string>());
+        Assert.True(root["EnableDynamicReloadTools"]?.GetValue<bool>());
+
+        Assert.True(root["Performance"]?["EnableResultCaching"]?.GetValue<bool>());
+        Assert.False(root["Performance"]?["UseDefaultDisplayProperties"]?.GetValue<bool>());
+
+        Assert.Equal("Pester", root["Environment"]?["ImportModules"]?[0]?.GetValue<string>());
+        Assert.Equal("C:/Modules", root["Environment"]?["ModulePaths"]?[0]?.GetValue<string>());
+        Assert.Equal("Write-Host startup", root["Environment"]?["StartupScript"]?.GetValue<string>());
+        Assert.Equal("./startup.ps1", root["Environment"]?["StartupScriptPath"]?.GetValue<string>());
+        Assert.False(root["Environment"]?["TrustPSGallery"]?.GetValue<bool>());
+        Assert.False(root["Environment"]?["SkipPublisherCheck"]?.GetValue<bool>());
+        Assert.True(root["Environment"]?["AllowClobber"]?.GetValue<bool>());
+        Assert.Equal(120, root["Environment"]?["InstallTimeoutSeconds"]?.GetValue<int>());
+
+        Assert.Equal("Name", root["FunctionOverrides"]?["Get-Process"]?["DefaultProperties"]?[0]?.GetValue<string>());
+        Assert.False(root["FunctionOverrides"]?["Get-Process"]?["EnableResultCaching"]?.GetValue<bool>());
+        Assert.True(root["FunctionOverrides"]?["Get-Process"]?["UseDefaultDisplayProperties"]?.GetValue<bool>());
     }
 }

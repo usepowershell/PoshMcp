@@ -478,6 +478,7 @@ public class Program
             ? discoveredToolNames
             : GetExpectedToolNames(configuredFunctionStatus, config.EnableDynamicReloadTools);
         var diagnostics = CollectPowerShellDiagnostics();
+        var effectivePowerShellConfiguration = JsonNode.Parse(SerializeEffectivePowerShellConfiguration(config));
 
         var foundFunctions = configuredFunctionStatus.Where(f => f.Found).Select(f => f.FunctionName).ToList();
         var missingFunctions = configuredFunctionStatus.Where(f => !f.Found).Select(f => f.FunctionName).ToList();
@@ -496,6 +497,7 @@ public class Program
                 effectiveSessionModeSource = settings.SessionMode.Source,
                 effectiveMcpPath = settings.McpPath.Value,
                 effectiveMcpPathSource = settings.McpPath.Source,
+                effectivePowerShellConfiguration,
                 toolCount = tools.Count,
                 toolNames,
                 configuredFunctionCount = configuredFunctionStatus.Count,
@@ -517,6 +519,8 @@ public class Program
         Console.WriteLine($"Effective transport: {settings.Transport.Value} (source: {settings.Transport.Source})");
         Console.WriteLine($"Effective session mode: {settings.SessionMode.Value ?? "(not set)"} (source: {settings.SessionMode.Source})");
         Console.WriteLine($"Effective MCP path: {settings.McpPath.Value ?? "(not set)"} (source: {settings.McpPath.Source})");
+        Console.WriteLine("Effective PowerShell configuration:");
+        Console.WriteLine(SerializeEffectivePowerShellConfiguration(config, writeIndented: true));
         Console.WriteLine($"Tools discovered: {tools.Count}");
         Console.WriteLine($"Configured functions found: {foundFunctions.Count}/{configuredFunctionStatus.Count}");
         if (configuredFunctionStatus.Count > 0)
@@ -557,6 +561,15 @@ public class Program
                 Console.WriteLine($"- {modulePath}");
             }
         }
+    }
+
+    internal static string SerializeEffectivePowerShellConfiguration(PowerShellConfiguration config, bool writeIndented = false)
+    {
+        return JsonSerializer.Serialize(config, new JsonSerializerOptions
+        {
+            WriteIndented = writeIndented,
+            DefaultIgnoreCondition = JsonIgnoreCondition.Never
+        });
     }
 
     private static (string PowerShellVersion, int ModulePathEntries, string[] ModulePaths) CollectPowerShellDiagnostics()

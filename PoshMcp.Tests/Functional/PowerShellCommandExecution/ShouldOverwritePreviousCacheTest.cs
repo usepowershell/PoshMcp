@@ -34,50 +34,50 @@ public class OverwriteCache : PowerShellTestBase
 
         try
         {
-        // Arrange
-        var parameterInfos = new PowerShellParameterInfo[0];
-        var parameterValues = new object[0];
+            // Arrange
+            var parameterInfos = new PowerShellParameterInfo[0];
+            var parameterValues = new object[0];
 
-        // Act 1 - Execute first command (Get-Date)
-        var firstResult = await PowerShellAssemblyGenerator.ExecutePowerShellCommandTyped(
-            "Get-Date",
-            parameterInfos,
-            parameterValues,
-            CancellationToken.None,
-            PowerShellRunspace,
-            Logger);
+            // Act 1 - Execute first command (Get-Date)
+            var firstResult = await PowerShellAssemblyGenerator.ExecutePowerShellCommandTyped(
+                "Get-Date",
+                parameterInfos,
+                parameterValues,
+                CancellationToken.None,
+                PowerShellRunspace,
+                Logger);
 
-        var firstCachedOutput = await PowerShellAssemblyGenerator.GetLastCommandOutput(
-            PowerShellRunspace,
-            Logger,
-            CancellationToken.None);
+            var firstCachedOutput = await PowerShellAssemblyGenerator.GetLastCommandOutput(
+                PowerShellRunspace,
+                Logger,
+                CancellationToken.None);
 
-        // Act 2 - Execute second command (Get-Location)
-        var secondResult = await PowerShellAssemblyGenerator.ExecutePowerShellCommandTyped(
-            "Get-Host",
-            parameterInfos,
-            parameterValues,
-            CancellationToken.None,
-            PowerShellRunspace,
-            Logger);
+            // Act 2 - Execute second command (Get-Location)
+            var secondResult = await PowerShellAssemblyGenerator.ExecutePowerShellCommandTyped(
+                "Get-Host",
+                parameterInfos,
+                parameterValues,
+                CancellationToken.None,
+                PowerShellRunspace,
+                Logger);
 
-        var secondCachedOutput = await PowerShellAssemblyGenerator.GetLastCommandOutput(
-            PowerShellRunspace,
-            Logger,
-            CancellationToken.None);
+            var secondCachedOutput = await PowerShellAssemblyGenerator.GetLastCommandOutput(
+                PowerShellRunspace,
+                Logger,
+                CancellationToken.None);
 
-        // Assert
-        Assert.NotNull(firstResult);
-        Assert.NotNull(firstCachedOutput);
-        Assert.NotNull(secondResult);
-        Assert.NotNull(secondCachedOutput);
+            // Assert
+            Assert.NotNull(firstResult);
+            Assert.NotNull(firstCachedOutput);
+            Assert.NotNull(secondResult);
+            Assert.NotNull(secondCachedOutput);
 
-        Logger.LogInformation($"First result: {firstResult}");
-        Logger.LogInformation($"First cached: {firstCachedOutput}");
-        Logger.LogInformation($"Second result: {secondResult}");
-        Logger.LogInformation($"Second cached: {secondCachedOutput}");
+            Logger.LogInformation($"First result: {firstResult}");
+            Logger.LogInformation($"First cached: {firstCachedOutput}");
+            Logger.LogInformation($"Second result: {secondResult}");
+            Logger.LogInformation($"Second cached: {secondCachedOutput}");
 
-        Assert.NotEqual(firstCachedOutput, secondCachedOutput);
+            Assert.NotEqual(firstCachedOutput, secondCachedOutput);
         }
         finally
         {
