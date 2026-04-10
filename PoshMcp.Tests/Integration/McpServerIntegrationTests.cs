@@ -113,22 +113,23 @@ public class ServerWithExternalClient : PowerShellTestBase, IAsyncLifetime
         Assert.NotNull(tools);
         Assert.True(tools.Count > 0, $"No tools available for PowerShell test. Response: {toolsResponse.ToString(Formatting.None)}");
 
-        // Look for the specific tool we want to test
-        var getSomeDataTool = tools.FirstOrDefault(t => t["name"]?.ToString() == "get_some_data");
-        if (getSomeDataTool == null)
+        // Look for a real tool that exists in the current test configuration
+        var getProcessTool = tools.FirstOrDefault(t => t["name"]?.ToString() == "get_process_id");
+        if (getProcessTool == null)
         {
-            Logger.LogWarning("get_some_data tool not found. Available tools:");
+            Logger.LogWarning("get_process_id tool not found. Available tools:");
             foreach (var tool in tools)
             {
                 Logger.LogWarning($"  - {tool["name"]}");
             }
-            Assert.Fail("get_some_data tool not found in available tools");
+            Assert.Fail("get_process_id tool not found in available tools");
         }
 
-        // Call the PowerShell function through MCP
-        var callResponse = await client.SendToolCallAsync("get_some_data", new
+        // Call a stable PowerShell command through MCP
+        var currentProcessId = Process.GetCurrentProcess().Id;
+        var callResponse = await client.SendToolCallAsync("get_process_id", new JObject
         {
-            Name = new[] { "FromIntegrationTest" }
+            ["Id"] = new JArray(currentProcessId)
         });
 
         // Assert: Verify the response
@@ -149,7 +150,7 @@ public class ServerWithExternalClient : PowerShellTestBase, IAsyncLifetime
         Logger.LogInformation($"Tool call result from external client: {textContent}");
 
         // Verify the output contains expected data
-        Assert.Contains("persistent", textContent);
+        Assert.Contains(currentProcessId.ToString(), textContent, StringComparison.Ordinal);
 
         Logger.LogInformation("PowerShell command executed successfully via external client");
     }
@@ -326,6 +327,7 @@ public class InProcessMcpServer : IDisposable
         try
         {
             _serverProcess.Start();
+            TestProcessRegistry.Register(_serverProcess);
             _serverProcess.BeginErrorReadLine();
             // DO NOT call BeginOutputReadLine() because we need to read stdout ourselves for MCP communication
 
@@ -398,6 +400,7 @@ public class InProcessMcpServer : IDisposable
         }
         finally
         {
+            TestProcessRegistry.Unregister(_serverProcess);
             _serverProcess.Dispose();
             _serverProcess = null;
         }

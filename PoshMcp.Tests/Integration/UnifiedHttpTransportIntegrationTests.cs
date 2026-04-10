@@ -360,6 +360,7 @@ internal sealed class InProcessUnifiedHttpServer : IDisposable
         _serverProcess.ErrorDataReceived += OnOutputData;
 
         _serverProcess.Start();
+        TestProcessRegistry.Register(_serverProcess);
         _serverProcess.BeginOutputReadLine();
         _serverProcess.BeginErrorReadLine();
 
@@ -450,6 +451,7 @@ internal sealed class InProcessUnifiedHttpServer : IDisposable
         }
         finally
         {
+            TestProcessRegistry.Unregister(_serverProcess);
             _serverProcess.Dispose();
             _serverProcess = null;
         }
