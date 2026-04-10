@@ -44,3 +44,12 @@ Current Priorities:
 - `net10.0` is the hard prerequisite; must be in README.
 - Start version at `0.1.0`.
 - PackageId: `PoshMcp`, Authors: `Steven Murawski`, License: `MIT` (needs LICENSE file at repo root).
+
+### 2026-04-10: Config doctor MCP exposure review
+
+**Context:** Reviewed the architecture and MCP contract for exposing doctor-style diagnostics through the MCP tool surface without making it universally available.
+
+**Key learnings:**
+- The existing runtime doctor command already centralizes config, transport, and tool expectation diagnostics inside `PoshMcp.Server/Program.cs`, so MCP exposure should reuse that contract instead of creating a second diagnostic path.
+- Diagnostic MCP exposure belongs behind the same configuration gate used for dynamic reload tooling so normal production surfaces stay minimal by default.
+- Contract review for this feature should stay anchored to `GetExpectedToolNames(...)` and the doctor command's resolved-settings flow, because those are the stable points that define what "healthy" means for config-aware tooling.

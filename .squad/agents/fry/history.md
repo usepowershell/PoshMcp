@@ -155,3 +155,24 @@
 **Key learning:**
 - Current slowdown is primarily startup + command execution cost in integration harnesses, not observed lingering parent server processes after dispose.
 
+### 2026-04-10: Focused gating coverage for doctor MCP exposure
+
+**Context:** Added focused tests around config-gated doctor tool exposure.
+
+**Key learnings:**
+- The most valuable assertions are around expected tool names and gate behavior, not end-to-end command execution, because they validate the contract that the MCP server advertises.
+- Reusing the existing doctor transport-selection test patterns keeps the new coverage narrow and stable while still exercising resolved configuration behavior.
+- For config-gated tooling, a small focused unit suite is the fastest way to catch regressions where a diagnostic tool becomes accidentally public or disappears when the flag is enabled.
+
+### 2026-04-10: Doctor-as-tool gating coverage uses doctor JSON as the public seam
+
+**Context:** Added focused test coverage for the new configuration-troubleshooting MCP tool request before the implementation landed.
+
+**Testing changes made:**
+- Extended `PoshMcp.Tests/Unit/ProgramTransportSelectionTests.cs` with doctor JSON assertions for default-hidden behavior, config-enabled visibility, and environment-driven disabling.
+- Reused the existing `doctor --format json` harness instead of reflecting into private tool setup methods.
+
+**Key learning:**
+- The smallest stable regression surface for this feature is the doctor payload's `effectivePowerShellConfiguration` plus `toolNames`, not the private tool registration helpers.
+- The current codebase does not yet show environment-variable binding for `EnableDynamicReloadTools`, so the env-override assertion is a deliberate red/green guide for the implementation.
+
