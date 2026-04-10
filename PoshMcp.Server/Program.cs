@@ -41,6 +41,7 @@ public class Program
     private const string McpPathEnvVar = "POSHMCP_MCP_PATH";
     private const string SessionModeEnvVar = "POSHMCP_SESSION_MODE";
     private const string LogLevelEnvVar = "POSHMCP_LOG_LEVEL";
+    private const string EnableConfigurationTroubleshootingToolEnvVar = "POSHMCP_ENABLE_CONFIGURATION_TROUBLESHOOTING_TOOL";
     private const string CliSource = "cli";
     private const string EnvSource = "env";
     private const string DefaultSource = "default";
@@ -951,12 +952,15 @@ public class Program
         var logger = loggerFactory.CreateLogger("Doctor");
 
         var config = LoadPowerShellConfiguration(settings.FinalConfigPath, logger);
-        var tools = DiscoverTools(config, logger);
+        var tools = SetupMcpTools(loggerFactory, config, logger, settings.FinalConfigPath);
         var discoveredToolNames = GetDiscoveredToolNames(tools);
         var configuredFunctionStatus = BuildConfiguredFunctionStatus(config.FunctionNames, discoveredToolNames);
         var toolNames = discoveredToolNames.Count > 0
             ? discoveredToolNames
-            : GetExpectedToolNames(configuredFunctionStatus, config.EnableDynamicReloadTools);
+            : GetExpectedToolNames(
+                configuredFunctionStatus,
+                config.EnableDynamicReloadTools,
+                config.EnableConfigurationTroubleshootingTool);
         var diagnostics = CollectPowerShellDiagnostics();
         var effectivePowerShellConfiguration = JsonNode.Parse(SerializeEffectivePowerShellConfiguration(config));
 
@@ -965,31 +969,19 @@ public class Program
 
         if (format == "json")
         {
-            var payload = new
-            {
-                configurationPath = settings.FinalConfigPath,
-                configurationPathSource = settings.ConfigPath.Source,
-                effectiveLogLevel = settings.LogLevel.Value,
-                effectiveLogLevelSource = settings.LogLevel.Source,
-                effectiveTransport = settings.Transport.Value,
-                effectiveTransportSource = settings.Transport.Source,
-                effectiveSessionMode = settings.SessionMode.Value,
-                effectiveSessionModeSource = settings.SessionMode.Source,
-                effectiveMcpPath = settings.McpPath.Value,
-                effectiveMcpPathSource = settings.McpPath.Source,
-                effectivePowerShellConfiguration,
-                toolCount = tools.Count,
-                toolNames,
-                configuredFunctionCount = configuredFunctionStatus.Count,
-                configuredFunctionsFound = foundFunctions,
-                configuredFunctionsMissing = missingFunctions,
-                configuredFunctionStatus,
-                powershellVersion = diagnostics.PowerShellVersion,
-                modulePathEntries = diagnostics.ModulePathEntries,
-                modulePaths = diagnostics.ModulePaths,
-                generatedAtUtc = DateTime.UtcNow
-            };
-            Console.WriteLine(JsonSerializer.Serialize(payload));
+            Console.WriteLine(BuildDoctorJson(
+                configurationPath: settings.FinalConfigPath,
+                configurationPathSource: settings.ConfigPath.Source,
+                effectiveLogLevel: settings.LogLevel.Value ?? LogLevel.Information.ToString(),
+                effectiveLogLevelSource: settings.LogLevel.Source,
+                effectiveTransport: settings.Transport.Value ?? "stdio",
+                effectiveTransportSource: settings.Transport.Source,
+                effectiveSessionMode: settings.SessionMode.Value,
+                effectiveSessionModeSource: settings.SessionMode.Source,
+                effectiveMcpPath: settings.McpPath.Value,
+                effectiveMcpPathSource: settings.McpPath.Source,
+                config: config,
+                tools: tools));
             return;
         }
 
@@ -1050,6 +1042,62 @@ public class Program
             WriteIndented = writeIndented,
             DefaultIgnoreCondition = JsonIgnoreCondition.Never
         });
+    }
+
+    internal static string BuildDoctorJson(
+        string configurationPath,
+        string configurationPathSource,
+        string effectiveLogLevel,
+        string effectiveLogLevelSource,
+        string effectiveTransport,
+        string effectiveTransportSource,
+        string? effectiveSessionMode,
+        string effectiveSessionModeSource,
+        string? effectiveMcpPath,
+        string effectiveMcpPathSource,
+        PowerShellConfiguration config,
+        List<McpServerTool> tools)
+    {
+        var discoveredToolNames = GetDiscoveredToolNames(tools);
+        var configuredFunctionStatus = BuildConfiguredFunctionStatus(config.FunctionNames, discoveredToolNames);
+        var toolNames = discoveredToolNames.Count > 0
+            ? discoveredToolNames
+            : GetExpectedToolNames(
+                configuredFunctionStatus,
+                config.EnableDynamicReloadTools,
+                config.EnableConfigurationTroubleshootingTool);
+        var diagnostics = CollectPowerShellDiagnostics();
+        var effectivePowerShellConfiguration = JsonNode.Parse(SerializeEffectivePowerShellConfiguration(config));
+
+        var foundFunctions = configuredFunctionStatus.Where(f => f.Found).Select(f => f.FunctionName).ToList();
+        var missingFunctions = configuredFunctionStatus.Where(f => !f.Found).Select(f => f.FunctionName).ToList();
+
+        var payload = new
+        {
+            configurationPath,
+            configurationPathSource,
+            effectiveLogLevel,
+            effectiveLogLevelSource,
+            effectiveTransport,
+            effectiveTransportSource,
+            effectiveSessionMode,
+            effectiveSessionModeSource,
+            effectiveMcpPath,
+            effectiveMcpPathSource,
+            effectivePowerShellConfiguration,
+            toolCount = tools.Count,
+            toolNames,
+            configuredFunctionCount = configuredFunctionStatus.Count,
+            configuredFunctionsFound = foundFunctions,
+            configuredFunctionsMissing = missingFunctions,
+            configuredFunctionStatus,
+            powershellVersion = diagnostics.PowerShellVersion,
+            modulePathEntries = diagnostics.ModulePathEntries,
+            modulePaths = diagnostics.ModulePaths,
+            generatedAtUtc = DateTime.UtcNow
+        };
+
+        return JsonSerializer.Serialize(payload);
     }
 
     private static (string PowerShellVersion, int ModulePathEntries, string[] ModulePaths) CollectPowerShellDiagnostics()
@@ -1171,7 +1219,10 @@ public class Program
         return null;
     }
 
-    private static List<string> GetExpectedToolNames(List<ConfiguredFunctionStatus> configuredFunctionStatus, bool enableDynamicReloadTools)
+    private static List<string> GetExpectedToolNames(
+        List<ConfiguredFunctionStatus> configuredFunctionStatus,
+        bool enableDynamicReloadTools,
+        bool enableConfigurationTroubleshootingTool)
     {
         var names = new List<string>();
 
@@ -1183,13 +1234,19 @@ public class Program
         names.Add("sort_last_command_output");
         names.Add("filter_last_command_output");
         names.Add("group_last_command_output");
+        names.Add("set-result-caching");
 
         // Dynamic configuration tools are conditional.
         if (enableDynamicReloadTools)
         {
-            names.Add("reload_configuration_from_file");
-            names.Add("update_configuration");
-            names.Add("get_configuration_status");
+            names.Add("reload-configuration-from-file");
+            names.Add("update-configuration");
+            names.Add("get-configuration-status");
+        }
+
+        if (enableConfigurationTroubleshootingTool)
+        {
+            names.Add("get-configuration-troubleshooting");
         }
 
         return names
@@ -1749,8 +1806,48 @@ public class Program
 
         var config = new PowerShellConfiguration();
         configuration.GetSection("PowerShellConfiguration").Bind(config);
+        ApplyPowerShellConfigurationEnvironmentOverrides(config, logger);
         LogConfigurationDetails(config, logger);
         return config;
+    }
+
+    private static void ApplyPowerShellConfigurationEnvironmentOverrides(PowerShellConfiguration config, ILogger logger)
+    {
+        var troubleshootingToolOverride = ResolveBooleanEnvironmentOverride(
+            EnableConfigurationTroubleshootingToolEnvVar,
+            logger,
+            nameof(PowerShellConfiguration.EnableConfigurationTroubleshootingTool));
+
+        if (troubleshootingToolOverride.HasValue)
+        {
+            config.EnableConfigurationTroubleshootingTool = troubleshootingToolOverride.Value;
+        }
+    }
+
+    private static bool? ResolveBooleanEnvironmentOverride(string environmentVariableName, ILogger logger, string settingName)
+    {
+        var rawValue = Environment.GetEnvironmentVariable(environmentVariableName);
+        if (string.IsNullOrWhiteSpace(rawValue))
+        {
+            return null;
+        }
+
+        if (bool.TryParse(rawValue.Trim(), out var parsedValue))
+        {
+            logger.LogDebug(
+                "Applied environment override {EnvironmentVariable}={Value} to {SettingName}",
+                environmentVariableName,
+                parsedValue,
+                settingName);
+            return parsedValue;
+        }
+
+        logger.LogWarning(
+            "Ignoring invalid boolean environment override {EnvironmentVariable}={Value} for {SettingName}",
+            environmentVariableName,
+            rawValue,
+            settingName);
+        return null;
     }
 
     private static void LogConfigurationDetails(PowerShellConfiguration config, ILogger logger)
@@ -1869,7 +1966,7 @@ public class Program
 
         logger.LogInformation("Using configuration file: {ConfigurationPath}", finalConfigPath);
 
-        var tools = SetupHttpMcpTools(bootstrapLoggerFactory, config, logger, finalConfigPath, sharedSessionRunspace);
+        var tools = SetupHttpMcpTools(bootstrapLoggerFactory, config, logger, finalConfigPath, sharedSessionRunspace, mcpPath);
         builder.Services
             .AddMcpServer()
             .WithHttpTransport()
@@ -1981,7 +2078,8 @@ public class Program
         PowerShellConfiguration config,
         ILogger logger,
         string finalConfigPath,
-        IPowerShellRunspace sessionAwareRunspace)
+        IPowerShellRunspace sessionAwareRunspace,
+        string? mcpPath)
     {
         var runtimeCachingState = new RuntimeCachingState();
         PowerShellAssemblyGenerator.SetRuntimeCachingState(runtimeCachingState);
@@ -2005,6 +2103,16 @@ public class Program
         var setResultCachingTool = CreateSetResultCachingToolInstance(runtimeCachingState);
         tools.Add(setResultCachingTool);
         logger.LogInformation("Registered set-result-caching tool (always enabled)");
+
+        AddConfigurationTroubleshootingToolIfEnabled(
+            tools,
+            loggerFactory,
+            config,
+            finalConfigPath,
+            "http",
+            null,
+            NormalizeMcpPath(mcpPath),
+            logger);
 
         return tools;
     }
@@ -2035,6 +2143,7 @@ public class Program
     {
         var logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("PoshMcpLogger");
         var config = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<PowerShellConfiguration>>().Value;
+        ApplyPowerShellConfigurationEnvironmentOverrides(config, logger);
         logger.LogInformation($"Using configuration file: {finalConfigPath}");
         return (logger, config);
     }
@@ -2066,6 +2175,16 @@ public class Program
         tools.Add(setResultCachingTool);
         logger.LogInformation("Registered set-result-caching tool (always enabled)");
 
+        AddConfigurationTroubleshootingToolIfEnabled(
+            tools,
+            loggerFactory,
+            config,
+            finalConfigPath,
+            "stdio",
+            null,
+            null,
+            logger);
+
         return tools;
     }
 
@@ -2075,6 +2194,52 @@ public class Program
         var reloadService = new PowerShellConfigurationReloadService(reloadServiceLogger, toolFactory, config, finalConfigPath);
         var reloadToolsLogger = loggerFactory.CreateLogger<ConfigurationReloadTools>();
         return new ConfigurationReloadTools(reloadService, reloadToolsLogger);
+    }
+
+    private static void AddConfigurationTroubleshootingToolIfEnabled(
+        List<McpServerTool> tools,
+        ILoggerFactory loggerFactory,
+        PowerShellConfiguration config,
+        string finalConfigPath,
+        string effectiveTransport,
+        string? effectiveSessionMode,
+        string? effectiveMcpPath,
+        ILogger logger)
+    {
+        if (!config.EnableConfigurationTroubleshootingTool)
+        {
+            logger.LogInformation("Configuration troubleshooting tool is disabled");
+            return;
+        }
+
+        var troubleshootingTools = CreateConfigurationTroubleshootingTools(
+            loggerFactory,
+            finalConfigPath,
+            effectiveTransport,
+            effectiveSessionMode,
+            effectiveMcpPath,
+            () => tools.ToList());
+        var troubleshootingTool = CreateConfigurationTroubleshootingToolInstance(troubleshootingTools);
+        tools.Add(troubleshootingTool);
+        logger.LogInformation("Registered get-configuration-troubleshooting tool");
+    }
+
+    private static ConfigurationTroubleshootingTools CreateConfigurationTroubleshootingTools(
+        ILoggerFactory loggerFactory,
+        string finalConfigPath,
+        string effectiveTransport,
+        string? effectiveSessionMode,
+        string? effectiveMcpPath,
+        Func<List<McpServerTool>> registeredToolsProvider)
+    {
+        var troubleshootingLogger = loggerFactory.CreateLogger<ConfigurationTroubleshootingTools>();
+        return new ConfigurationTroubleshootingTools(
+            finalConfigPath,
+            effectiveTransport,
+            effectiveSessionMode,
+            effectiveMcpPath,
+            registeredToolsProvider,
+            troubleshootingLogger);
     }
 
     private static void AddConfigurationReloadToolsToList(List<McpServerTool> tools, ConfigurationReloadTools reloadTools)
@@ -2128,6 +2293,22 @@ public class Program
             Name = "get-configuration-status",
             Description = "Gets current PowerShell configuration status and tool information",
             Title = "Get Configuration Status",
+            ReadOnly = true,
+            Destructive = false,
+            Idempotent = true,
+            OpenWorld = false,
+            UseStructuredContent = true
+        });
+    }
+
+    private static McpServerTool CreateConfigurationTroubleshootingToolInstance(ConfigurationTroubleshootingTools troubleshootingTools)
+    {
+        var troubleshootingDelegate = new Func<CancellationToken, Task<string>>(troubleshootingTools.GetConfigurationTroubleshooting);
+        return McpServerTool.Create(troubleshootingDelegate, new McpServerToolCreateOptions
+        {
+            Name = "get-configuration-troubleshooting",
+            Description = "Runs doctor-style configuration and runtime diagnostics against the active server configuration",
+            Title = "Get Configuration Troubleshooting",
             ReadOnly = true,
             Destructive = false,
             Idempotent = true,

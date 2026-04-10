@@ -16,6 +16,7 @@
     "ExcludePatterns": [],
     "IncludePatterns": [],
     "EnableDynamicReloadTools": false,
+    "EnableConfigurationTroubleshootingTool": false,
     "Performance": {
       "EnableResultCaching": true,
       "UseDefaultDisplayProperties": true

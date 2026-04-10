@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Xunit;
@@ -7,88 +8,83 @@ using Xunit;
 namespace PoshMcp.Tests.Unit;
 
 [Collection("TransportSelectionTests")]
-public class ProgramTransportSelectionTests
+public class ProgramDoctorToolExposureTests
 {
-    private const string TransportEnvVar = "POSHMCP_TRANSPORT";
+    private const string TroubleshootingToolEnvVar = "POSHMCP_ENABLE_CONFIGURATION_TROUBLESHOOTING_TOOL";
 
     [Fact]
-    public async Task DoctorCommand_WithNoTransportInputs_ShouldDefaultToStdio()
+    public async Task DoctorCommand_WithConfigurationTroubleshootingToolDisabled_OmitsTroubleshootingToolName()
     {
-        using var configFile = new TemporaryConfigFile();
+        using var configFile = new TemporaryConfigFile(enableConfigurationTroubleshootingTool: false);
         using var capture = new ConsoleCapture();
-        using var transportScope = new EnvironmentVariableScope(TransportEnvVar, null);
+        using var envScope = new EnvironmentVariableScope(TroubleshootingToolEnvVar, null);
 
         var result = await Program.Main(new[] { "doctor", "--config", configFile.Path, "--format", "json" });
 
         Assert.Equal(0, result);
-        var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
-        Assert.NotNull(payload);
-        Assert.Equal("stdio", payload!["effectiveTransport"]?.GetValue<string>());
+        var toolNames = GetToolNames(capture.StandardOutput);
+        Assert.DoesNotContain("get-configuration-troubleshooting", toolNames);
     }
 
     [Fact]
-    public async Task DoctorCommand_WithTransportEnvironmentVariable_ShouldUseEnvironmentValue()
+    public async Task DoctorCommand_WithConfigurationTroubleshootingToolEnabled_IncludesTroubleshootingToolName()
     {
-        using var configFile = new TemporaryConfigFile();
+        using var configFile = new TemporaryConfigFile(enableConfigurationTroubleshootingTool: true);
         using var capture = new ConsoleCapture();
-        using var transportScope = new EnvironmentVariableScope(TransportEnvVar, "http");
+        using var envScope = new EnvironmentVariableScope(TroubleshootingToolEnvVar, null);
 
         var result = await Program.Main(new[] { "doctor", "--config", configFile.Path, "--format", "json" });
 
         Assert.Equal(0, result);
-        var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
-        Assert.NotNull(payload);
-        Assert.Equal("http", payload!["effectiveTransport"]?.GetValue<string>());
-        Assert.Equal("env", payload["effectiveTransportSource"]?.GetValue<string>());
+        var toolNames = GetToolNames(capture.StandardOutput);
+        Assert.Contains("get-configuration-troubleshooting", toolNames);
     }
 
     [Fact]
-    public async Task DoctorCommand_WithCliTransportStdio_ShouldOverrideEnvironmentTransport()
+    public async Task DoctorCommand_WithEnvironmentOverride_EnablesConfigurationTroubleshootingTool()
     {
-        using var configFile = new TemporaryConfigFile();
+        using var configFile = new TemporaryConfigFile(enableConfigurationTroubleshootingTool: false);
         using var capture = new ConsoleCapture();
-        using var transportScope = new EnvironmentVariableScope(TransportEnvVar, "http");
+        using var envScope = new EnvironmentVariableScope(TroubleshootingToolEnvVar, "true");
 
-        var result = await Program.Main(new[] { "doctor", "--config", configFile.Path, "--transport", "stdio", "--format", "json" });
+        var result = await Program.Main(new[] { "doctor", "--config", configFile.Path, "--format", "json" });
 
         Assert.Equal(0, result);
+
         var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
         Assert.NotNull(payload);
-        Assert.Equal("stdio", payload!["effectiveTransport"]?.GetValue<string>());
-        Assert.Equal("cli", payload["effectiveTransportSource"]?.GetValue<string>());
+        Assert.True(payload!["effectivePowerShellConfiguration"]?["EnableConfigurationTroubleshootingTool"]?.GetValue<bool>());
+
+        var toolNames = GetToolNames(capture.StandardOutput);
+        Assert.Contains("get-configuration-troubleshooting", toolNames);
     }
 
-    [Fact]
-    public async Task DoctorCommand_WithCliTransportHttp_ShouldUseCliValue()
+    private static string[] GetToolNames(string standardOutput)
     {
-        using var configFile = new TemporaryConfigFile();
-        using var capture = new ConsoleCapture();
-        using var transportScope = new EnvironmentVariableScope(TransportEnvVar, null);
-
-        var result = await Program.Main(new[] { "doctor", "--config", configFile.Path, "--transport", "http", "--format", "json" });
-
-        Assert.Equal(0, result);
-        var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
-        Assert.NotNull(payload);
-        Assert.Equal("http", payload!["effectiveTransport"]?.GetValue<string>());
-        Assert.Equal("cli", payload["effectiveTransportSource"]?.GetValue<string>());
+        return JsonNode.Parse(standardOutput.Trim())?["toolNames"]?.AsArray()
+            .Select(node => node?.GetValue<string>())
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Cast<string>()
+            .ToArray()
+            ?? Array.Empty<string>();
     }
 
     private sealed class TemporaryConfigFile : IDisposable
     {
         public string Path { get; }
 
-        public TemporaryConfigFile()
+        public TemporaryConfigFile(bool enableConfigurationTroubleshootingTool)
         {
-            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"poshmcp-transport-tests-{Guid.NewGuid():N}.json");
+            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"poshmcp-doctor-tests-{Guid.NewGuid():N}.json");
 
-            var json = """
+            var json = $$"""
 {
   "PowerShellConfiguration": {
     "FunctionNames": ["Get-Date"],
     "Modules": [],
     "ExcludePatterns": [],
-    "IncludePatterns": []
+    "IncludePatterns": [],
+    "EnableConfigurationTroubleshootingTool": {{enableConfigurationTroubleshootingTool.ToString().ToLowerInvariant()}}
   }
 }
 """;
@@ -113,7 +109,6 @@ public class ProgramTransportSelectionTests
         private readonly StringWriter _capturedError;
 
         public string StandardOutput => _capturedOut.ToString();
-        public string StandardError => _capturedError.ToString();
 
         public ConsoleCapture()
         {
@@ -152,5 +147,4 @@ public class ProgramTransportSelectionTests
             Environment.SetEnvironmentVariable(_name, _originalValue);
         }
     }
-
 }

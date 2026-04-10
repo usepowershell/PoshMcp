@@ -408,6 +408,7 @@ public class ProgramTests : PowerShellTestBase
             ExcludePatterns = new() { "*Secret*" },
             IncludePatterns = new() { "Get-*" },
             EnableDynamicReloadTools = true,
+            EnableConfigurationTroubleshootingTool = true,
             Environment = new EnvironmentConfiguration
             {
                 ImportModules = new() { "Pester" },
@@ -447,6 +448,7 @@ public class ProgramTests : PowerShellTestBase
         Assert.Equal("*Secret*", root["ExcludePatterns"]?[0]?.GetValue<string>());
         Assert.Equal("Get-*", root["IncludePatterns"]?[0]?.GetValue<string>());
         Assert.True(root["EnableDynamicReloadTools"]?.GetValue<bool>());
+        Assert.True(root["EnableConfigurationTroubleshootingTool"]?.GetValue<bool>());
 
         Assert.True(root["Performance"]?["EnableResultCaching"]?.GetValue<bool>());
         Assert.False(root["Performance"]?["UseDefaultDisplayProperties"]?.GetValue<bool>());

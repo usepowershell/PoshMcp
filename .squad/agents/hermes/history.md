@@ -65,3 +65,13 @@
 - Two-step lookup: Get-Command → OutputType names → Get-TypeData → DefaultDisplayPropertySet.ReferencedProperties.
 - DiscoverAll() shares a single runspace across all commands for startup efficiency.
 - IDictionary vs IEnumerable split in shallow path: dictionaries are safe JSON maps; enumerables may trigger OS calls.
+
+### 2026-04-10: Module discovery order during tool generation
+
+**Context:** Validated startup/tool-generation ordering for configured modules and fixed discovery order.
+
+**Key learnings:**
+- `McpToolFactoryV2.GetAvailableCommandsWithMetadata` previously attempted `Get-Command -Name` discovery before any explicit `Import-Module` call.
+- `PowerShellEnvironmentSetup` exists but is not part of the current startup/tool-generation path, so environment-level module imports are not automatically applied during discovery.
+- For reliable by-name discovery when auto-loading is disabled, configured modules must be imported first in the same runspace used by tool generation.
+- Safe behavior is best-effort import (warn and continue on import failure) so one bad module does not block all discovery.
