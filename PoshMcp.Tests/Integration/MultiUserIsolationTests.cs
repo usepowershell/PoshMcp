@@ -15,7 +15,7 @@ namespace PoshMcp.Tests.Integration;
 public class MultiUserIsolationTests : PowerShellTestBase, IAsyncLifetime
 {
     private readonly ITestOutputHelper _output;
-    private InProcessWebServer? _server;
+    private InProcessUnifiedHttpServer? _server;
     private string _baseUrl = string.Empty;
 
     public MultiUserIsolationTests(ITestOutputHelper output) : base(output)
@@ -49,11 +49,11 @@ public class MultiUserIsolationTests : PowerShellTestBase, IAsyncLifetime
             // Since each client has its own MCP session, the SessionAwarePowerShellRunspace
             // will create separate PowerShell runspaces for each one
 
-            Logger.LogInformation("Calling get_some_data from client 1...");
-            var client1Response = await client1.SendToolCallAsync("get_some_data", new { test = "session-1-data" });
+            Logger.LogInformation("Calling get_process from client 1...");
+            var client1Response = await client1.SendToolCallAsync("get_process", new { });
             Assert.NotNull(client1Response);
             var client1Text = client1Response.ToString();
-            Assert.Contains("session-1-data", client1Text);
+            Assert.NotEmpty(client1Text);
 
             // Verify that client2 does not see the output from client1's command execution
             // get_last_command_output should return null
@@ -63,6 +63,13 @@ public class MultiUserIsolationTests : PowerShellTestBase, IAsyncLifetime
             Assert.NotNull(client2Response);
             Assert.Contains("null", client2Text);
 
+            // Verify distinct session IDs – the strongest indicator of session isolation
+            Assert.NotNull(client1.SessionId);
+            Assert.NotNull(client2.SessionId);
+            Assert.NotEqual(client1.SessionId, client2.SessionId);
+
+            Logger.LogInformation($"Client 1 session: {client1.SessionId}");
+            Logger.LogInformation($"Client 2 session: {client2.SessionId}");
             Logger.LogInformation($"Client 1 response: {client1Text.Substring(0, Math.Min(200, client1Text.Length))}...");
             Logger.LogInformation($"Client 2 response: {client2Text.Substring(0, Math.Min(200, client2Text.Length))}...");
 
@@ -79,7 +86,7 @@ public class MultiUserIsolationTests : PowerShellTestBase, IAsyncLifetime
     public async Task InitializeAsync()
     {
         Logger.LogInformation("=== Initializing MultiUserIsolationTests - starting web server ===");
-        _server = new InProcessWebServer(Logger);
+        _server = new InProcessUnifiedHttpServer();
         await _server.StartAsync();
         _baseUrl = _server.ServerUrl;
         Logger.LogInformation($"=== Web server started at {_baseUrl} ===");

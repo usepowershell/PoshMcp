@@ -7,19 +7,69 @@ This directory contains the infrastructure-as-code templates and deployment scri
 PoshMcp is deployed to Azure Container Apps in web/HTTP mode, exposing PowerShell functions as MCP (Model Context Protocol) tools via HTTP endpoints. This deployment includes:
 
 - **Azure Container Apps**: Serverless container hosting with autoscaling
+- **Azure Container Registry**: Private registry for container images  
 - **Log Analytics Workspace**: Centralized logging and monitoring
 - **Application Insights**: APM and distributed tracing
-- **Managed Identity**: Secure access to Azure resources
-- **Health Checks**: Kubernetes-style liveness and readiness probes
+- **Managed Identity**: Secure access to Azure resources (zero credential management)
+- **Health Checks**: Kubernetes-style liveness and readiness probes for high availability
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│           Client (Claude/Cline with MCP Client)              │
+└─────────────────────────────┬────────────────────────────────┘
+                              │ HTTP/S
+                              ▼
+┌──────────────────────────────────────────────────────────────┐
+│                    Azure Container Apps                       │
+│                                                               │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │ PoshMcp Web Server (HTTP on port 8080)                 │  │
+│  │  - MCP tools endpoint: /tools/list                     │  │
+│  │  - Tool execution: /tools/call                         │  │
+│  │  - Health: /health, /health/ready                      │  │
+│  │  - Autoscaling: 1-10 replicas (configurable)           │  │
+│  │  - Identity: User-assigned Managed Identity            │  │
+│  └────────────────────────────────────────────────────────┘  │
+│                              │                                 │
+├──────────────────────────────┼─────────────────────────────────┤
+│                              │                                 │
+│  ┌──────────────────┐ ┌──────────────────┐ ┌──────────────┐  │
+│  │ Log Analytics    │ │ Application      │ │ Azure Key    │  │
+│  │ Workspace        │ │ Insights (APM/   │ │ Vault (for   │  │
+│  │ (Logs/Metrics)   │ │ Traces/Metrics)  │ │ secrets)     │  │
+│  └──────────────────┘ └──────────────────┘ └──────────────┘  │
+└──────────────────────────────────────────────────────────────┘
+                              │
+          ┌───────────────────┘
+          ▼
+┌──────────────────────────────────────────────────────────────┐
+│         Azure Container Registry (ACR)                        │
+│  - Stores PoshMcp container images                            │
+│  - Integrates with Managed Identity for pulling               │
+└──────────────────────────────────────────────────────────────┘
+```
 
 ## Prerequisites
 
 Before deploying, ensure you have:
 
 1. **Azure CLI** (v2.50.0+): [Installation Guide](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
-2. **Docker**: [Installation Guide](https://docs.docker.com/get-docker/)
+2. **Docker**: [Installation Guide](https://docs.docker.com/get-docker/) for building images
 3. **Azure Subscription**: With appropriate permissions to create resources
-4. **Azure Container Registry**: Or permissions to create one
+4. **Azure Container Registry**: Or permissions to create one during deployment
+5. **.NET 8 SDK**  (optional, only for local development): [Installation](https://dotnet.microsoft.com/download/dotnet/8.0)
+
+### Permissions Required
+
+Your Azure account needs these roles or permissions:
+
+- **Contributor** on the target resource group (or more granular permissions below)
+- **Reader** on the subscription (for listing resources)
+- **User Assigned Identity Operator** (for Managed Identity)
+- **Azure Container Registry Push** (for uploading images)
+- **Container Apps Operator** (for deploying to Container Apps)
 
 ### Authentication
 
@@ -35,9 +85,30 @@ Set your subscription (if you have multiple):
 az account set --subscription "Your Subscription Name"
 ```
 
-## Quick Start
+## Quick Azure Deployment
 
-### Using Bash
+Build and push to Azure Container Registry using the `poshmcp` CLI:
+
+```bash
+poshmcp build --modules "Az.Accounts Az.KeyVault" --tag myregistry.azurecr.io/poshmcp:latest
+```
+
+Create a container instance or app:
+
+```bash
+az containerapp create \
+    --image myregistry.azurecr.io/poshmcp:latest \
+    --environment-variables POSHMCP_TRANSPORT=http \
+    --ingress external --target-port 8080
+```
+
+For Managed Identity and custom config, see "Configuration & Authentication" section below.
+
+---
+
+## Deployment Methods
+
+### Quick Start: Bash/Shell
 
 ```bash
 # Set required environment variables
@@ -54,7 +125,7 @@ chmod +x deploy.sh
 ./deploy.sh
 ```
 
-### Using PowerShell
+### Quick Start: PowerShell
 
 ```powershell
 # Set required parameters and run deployment
@@ -62,8 +133,299 @@ cd infrastructure/azure
 ./deploy.ps1 -RegistryName "myregistry" -ResourceGroup "poshmcp-rg" -Location "eastus"
 
 # Optional: Specify Azure tenant (for multi-tenant scenarios)
-./deploy.ps1 -RegistryName "myregistry" -TenantId "00000000-0000-0000-0000-000000000000"
+./deploy.ps1 -RegistryName "myregistry" `
+             -TenantId "00000000-0000-0000-0000-000000000000" `
+             -ResourceGroup "poshmcp-rg"
 ```
+
+### Using Validation
+
+Before deploying, validate your configuration:
+
+```bash
+# Bash
+cd infrastructure/azure
+./validate.sh
+
+# PowerShell
+./validate.ps1 -RegistryName "myregistry" -ResourceGroup "poshmcp-rg"
+```
+
+## Configuration
+
+### Parameters File: `parameters.json`
+
+Edit `parameters.json` to customize your deployment:
+
+```json
+{
+  "containerAppName": "poshmcp",           // Container App name (or leave as poshmcp)
+  "environmentName": "poshmcp-env",        // Container Apps Environment name
+  "location": "eastus",                    // Azure region
+  "minReplicas": 1,                        // Minimum instances
+  "maxReplicas": 10,                       // Maximum instances (autoscaling)
+  "cpuCores": "0.5",                       // CPU cores per instance (0.25, 0.5, 1.0, etc)
+  "memoryGi": "1.0",                       // Memory in GB per instance (0.5, 1.0, 1.5, 2.0, etc)
+  "powerShellFunctions": "Get-SomeData",   // Comma-separated function names to expose
+  "enableDynamicReloadTools": true         // Enable runtime configuration reload
+}
+```
+
+### Resource Sizing
+
+PoshMcp runs PowerShell workloads which can be memory-intensive. Use this table to size your deployment:
+
+| Workload Type | CPU | Memory | Min Replicas | Max Replicas | Est. Cost | Notes |
+|---------------|-----|--------|--------------|--------------|-----------|-------|
+| Development   | 0.25| 0.5Gi  | 0            | 3            | ~$15/mo   | When-needed autoscaling |
+| Production    | 0.5 | 1.0Gi  | 1            | 10           | ~$50/mo   | Always-on minimum instance |
+| Heavy Load    | 1.0 | 2.0Gi  | 2            | 20           | ~$150/mo  | High concurrency support |
+| Enterprise    | 2.0 | 4.0Gi  | 3            | 30           | ~$300/mo  | Large batch operations |
+
+### Environment Variables
+
+The deployment automatically configures these environment variables in the Container App:
+
+- `ASPNETCORE_ENVIRONMENT`: Production
+- `ASPNETCORE_URLS`: http://+:8080
+- `POSHMCP_MODE`: web
+- `PowerShellConfiguration__FunctionNames__0`: Your configured functions
+- `PowerShellConfiguration__EnableDynamicReloadTools`: true/false
+- `APPLICATIONINSIGHTS_CONNECTION_STRING`: Auto-configured for Application Insights
+- `AZURE_CLIENT_ID`: Managed Identity client ID (auto-assigned)
+
+### Custom Environment Variables
+
+Add custom variables to Container App after deployment:
+
+```bash
+# Via Azure CLI
+az containerapp update \
+  --resource-group poshmcp-rg \
+  --name poshmcp \
+  --replace-env-vars "MY_CUSTOM_VAR=value" "ANOTHER_VAR=another-value"
+```
+
+## Multi-Tenant Support
+
+The deployment scripts support working with multiple Azure tenants, useful when:
+- You have subscriptions in different Azure Active Directory tenants
+- You need to deploy to a specific tenant in a multi-tenant organization
+- You work across customer environments
+
+### Specifying a Tenant
+
+Use the `-TenantId` parameter (PowerShell) or `AZURE_TENANT_ID` environment variable (Bash):
+
+**PowerShell:**
+```powershell
+./deploy.ps1 -RegistryName "myregistry" -TenantId "11111111-2222-3333-4444-555555555555"
+```
+
+**Bash:**
+```bash
+export AZURE_TENANT_ID="11111111-2222-3333-4444-555555555555"
+./deploy.sh
+```
+
+### Tenant Validation
+
+The deployment script automatically:
+1. **Validates tenant access**: Checks if you're logged into the specified tenant
+2. **Switches tenants**: Performs `az login --tenant` if needed
+3. **Validates subscription**: Ensures the target subscription belongs to the correct tenant
+4. **Shows tenant info**: Displays current tenant ID in deployment output
+
+### Multi-Tenant Deployment Examples
+
+#### Scenario 1: Explicit Tenant Selection
+
+When you know the tenant ID for each environment:
+
+```powershell
+# Deploy Company A to company-a tenant
+./deploy.ps1 -RegistryName "company-a-registry" `
+             -TenantId "company-a-tenant-id" `
+             -ResourceGroup "company-a-rg"
+
+# Deploy Company B to company-b tenant
+./deploy.ps1 -RegistryName "company-b-registry" `
+             -TenantId "company-b-tenant-id" `
+             -ResourceGroup "company-b-rg"
+```
+
+#### Scenario 2: Using Current Tenant
+
+If you don't specify a tenant, the deployment uses your currently logged-in tenant:
+
+```powershell
+az login
+./deploy.ps1 -RegistryName "myregistry" -ResourceGroup "poshmcp-rg"
+```
+
+#### Scenario 3: CI/CD with Managed Identity
+
+In Azure DevOps or GitHub Actions, the tenant is typically implicit through the service connection:
+
+```bash
+# Service principal automatically authenticated to correct tenant
+./deploy.sh
+```
+
+#### Scenario 4: Switching Between Tenants
+
+```powershell
+# Deploy to customer A
+./deploy.ps1 -RegistryName "customerA-registry" -TenantId "customer-a-tenant-id"
+
+# Deploy to customer B
+./deploy.ps1 -RegistryName "customerB-registry" -TenantId "customer-b-tenant-id"
+```
+
+## Post-Deployment
+
+### Verify Deployment
+
+```bash
+# Check Container App status
+az containerapp show -g poshmcp-rg -n poshmcp
+
+# Check replica status
+az containerapp replica list -g poshmcp-rg -n poshmcp
+
+# View recent logs
+az containerapp logs show -g poshmcp-rg -n poshmcp -f
+```
+
+### Access the Service
+
+Get the service URL:
+
+```bash
+# Get Container App details
+az containerapp show -g poshmcp-rg -n poshmcp --query properties.configuration.ingress.fqdn
+```
+
+Then test the MCP tools endpoint:
+
+```bash
+# List available tools
+curl https://your-container-app.azurecontainerapps.io/tools/list | jq
+
+# Check health
+curl https://your-container-app.azurecontainerapps.io/health | jq
+```
+
+### Configure Azure Managed Identity
+
+To use Azure resources within PoshMcp:
+
+```bash
+# Assign role to Container App Managed Identity (example: Reader on subscription)
+MANAGED_IDENTITY_ID=$(az containerapp identity show \
+  -g poshmcp-rg -n poshmcp \
+  --query principalId -o tsv)
+
+az role assignment create \
+  --assignee $MANAGED_IDENTITY_ID \
+  --role "Reader" \
+  --scope /subscriptions/$(az account show --query id -o tsv)
+```
+
+###  Enable Application Insights Monitoring
+
+View metrics and traces from Application Insights:
+
+1. Go to [Azure Portal](https://portal.azure.com)
+2. Navigate to Application Insights resource
+3. View Application Map, Performance, and custom metrics
+
+### Scaling Configuration
+
+Auto-scaling rules are configured based on CPU and memory:
+
+```bash
+# View current autoscale settings
+az containerapp show -g poshmcp-rg -n  poshmcp \
+  --query 'properties.template.scale'
+```
+
+Modify scaling in `parameters.json` and redeploy.
+
+## Troubleshooting
+
+### Deployment Fails with Registry Error
+
+```bash
+# Ensure registry exists and you have access
+az acr show -n myregistry -g poshmcp-rg
+
+# Or create a new registry
+az acr create -g poshmcp-rg -n myregistry --sku Basic
+```
+
+### Container App Won't Start (CrashLoopBackOff)
+
+Check logs:
+
+```bash
+# View Container App logs
+az containerapp logs show -g poshmcp-rg -n poshmcp --follow
+
+# Check Application Insights for errors
+az monitor application-insights metrics show \
+  -g poshmcp-rg --app poshmcp-ai
+```
+
+### Health Check Failures
+
+```bash
+# Manual health check
+curl https://your-container-app.azurecontainerapps.io/health
+
+# Check readiness probe
+curl https://your-container-app.azurecontainerapps.io/health/ready
+```
+
+### High Memory Usage
+
+Adjust memory limits in `parameters.json`:
+
+```json
+{
+  "memoryGi": "2.0",     // Increase from 1.0 to 2.0
+  "cpuCores": "1.0"      // Increase CPU proportionally
+}
+```
+
+Then redeploy:
+
+```bash
+./deploy.ps1 -UpdateExisting
+```
+
+## Cleanup
+
+Remove all Azure resources created by this deployment:
+
+```bash
+# Delete the resource group (includes all resources)
+az group delete -n poshmcp-rg
+
+# Or delete individual resources if you managed them separately
+az containerapp delete -g poshmcp-rg -n poshmcp
+az acr delete -n myregistry
+```
+
+## See Also
+
+- **[DOCKER.md](../DOCKER.md)** — Building and customizing container images
+- **[examples/README.md](../examples/README.md)** — Docker Compose examples and customization patterns
+- **[docs/ENVIRONMENT-CUSTOMIZATION.md](../docs/ENVIRONMENT-CUSTOMIZATION.md)** — PowerShell environment setup
+- **[Microsoft Azure Container Apps Documentation](https://learn.microsoft.com/azure/container-apps/)** — Azure official docs
+- **[Bicep Documentation](../main.bicep)** — Infrastructure-as-code template
+
+
 
 ## Multi-tenant support
 

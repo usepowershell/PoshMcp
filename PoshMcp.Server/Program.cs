@@ -17,6 +17,7 @@ using System;
 using System.Collections.Generic;
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -215,6 +216,65 @@ public class Program
         psModulePathCommand.AddOption(debugOption);
         psModulePathCommand.AddOption(traceOption);
 
+        // Build command for Docker image creation
+        var buildModulesOption = new Option<string?>(
+            aliases: new[] { "--modules" },
+            description: "Space-separated module names to pre-install in the image (e.g., 'Pester Az.Accounts')");
+
+        var buildTypeOption = new Option<string?>(
+            aliases: new[] { "--type", "--base" },
+            description: "Image type: 'base' (runtime only) or 'custom' (with modules). Default: base");
+
+        var buildTagOption = new Option<string?>(
+            aliases: new[] { "--tag" },
+            description: "Image tag name (default: poshmcp:latest)");
+
+        var buildDockerFileOption = new Option<string?>(
+            aliases: new[] { "--docker-file" },
+            description: "Custom Dockerfile path for advanced users");
+
+        var buildCommand = new Command("build", "Build a Docker image for PoshMcp container deployment");
+        buildCommand.AddOption(buildModulesOption);
+        buildCommand.AddOption(buildTypeOption);
+        buildCommand.AddOption(buildTagOption);
+        buildCommand.AddOption(buildDockerFileOption);
+
+        // Run command for Docker container execution
+        var runModeOption = new Option<string?>(
+            aliases: new[] { "--mode" },
+            description: "Transport mode: 'http' or 'stdio' (default: http)");
+
+        var runPortOption = new Option<int?>(
+            aliases: new[] { "--port" },
+            description: "Port number for HTTP mode (default: 8080)");
+
+        var runTagOption = new Option<string?>(
+            aliases: new[] { "--tag" },
+            description: "Image tag to run (default: poshmcp:latest)");
+
+        var runConfigOption = new Option<string?>(
+            aliases: new[] { "--config" },
+            description: "Config file path to mount into container");
+
+        var runVolumeOption = new Option<string[]>(
+            aliases: new[] { "--volume" },
+            description: "Volume mount in format 'source:destination' (repeatable)")
+        {
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var runInteractiveOption = new Option<bool>(
+            aliases: new[] { "--interactive", "-it" },
+            description: "Run in interactive mode with terminal");
+
+        var runCommand = new Command("run", "Run PoshMcp in a Docker container");
+        runCommand.AddOption(runModeOption);
+        runCommand.AddOption(runPortOption);
+        runCommand.AddOption(runTagOption);
+        runCommand.AddOption(runConfigOption);
+        runCommand.AddOption(runVolumeOption);
+        runCommand.AddOption(runInteractiveOption);
+
         rootCommand.AddCommand(serveCommand);
         rootCommand.AddCommand(listToolsCommand);
         rootCommand.AddCommand(validateConfigCommand);
@@ -226,6 +286,8 @@ public class Program
         rootCommand.AddOption(debugOption);
         rootCommand.AddOption(traceOption);
         rootCommand.AddCommand(psModulePathCommand);
+        rootCommand.AddCommand(buildCommand);
+        rootCommand.AddCommand(runCommand);
 
         // Handler for the main command (default MCP server behavior)
         rootCommand.SetHandler(async (evaluateTools, verbose, debug, trace) =>
@@ -495,6 +557,149 @@ public class Program
 
             RunPSModulePathCommand(logLevel);
         }, verboseOption, debugOption, traceOption);
+
+        // Handler for the build command
+        buildCommand.SetHandler((modules, type, tag, dockerFile) =>
+        {
+            try
+            {
+                var buildType = string.IsNullOrWhiteSpace(type) ? "base" : type.ToLowerInvariant();
+                var imageTag = string.IsNullOrWhiteSpace(tag) ? "poshmcp:latest" : tag;
+                var dockerPath = DetectDockerCommand();
+
+                if (dockerPath == null)
+                {
+                    Console.Error.WriteLine("Error: Docker or Podman is not installed or not available in PATH.");
+                    Console.Error.WriteLine("Please install Docker (https://www.docker.com) or Podman (https://podman.io)");
+                    Environment.ExitCode = ExitCodeStartupError;
+                    return;
+                }
+
+                Console.WriteLine($"Building {buildType} PoshMcp image: {imageTag}");
+
+                var imageFile = string.IsNullOrWhiteSpace(dockerFile) ? "Dockerfile" : dockerFile;
+                if (!File.Exists(imageFile))
+                {
+                    Console.Error.WriteLine($"Error: Dockerfile not found at {imageFile}");
+                    Environment.ExitCode = ExitCodeConfigError;
+                    return;
+                }
+
+                var buildArgs = $"build -f {imageFile} -t {imageTag}";
+
+                if (!string.IsNullOrWhiteSpace(modules))
+                {
+                    buildArgs += $" --build-arg INSTALL_PS_MODULES=\"{modules}\"";
+                }
+
+                var result = ExecuteDockerCommand(dockerPath, buildArgs);
+                if (result != ExitCodeSuccess)
+                {
+                    Environment.ExitCode = result;
+                    return;
+                }
+
+                Console.WriteLine($"Successfully built image: {imageTag}");
+                Environment.ExitCode = ExitCodeSuccess;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Build error: {ex.Message}");
+                Environment.ExitCode = ExitCodeRuntimeError;
+            }
+        }, buildModulesOption, buildTypeOption, buildTagOption, buildDockerFileOption);
+
+        // Handler for the run command
+        runCommand.SetHandler((mode, port, tag, config, volumes, interactive) =>
+        {
+            try
+            {
+                var transportMode = string.IsNullOrWhiteSpace(mode) ? "http" : mode.ToLowerInvariant();
+                var portNumber = port ?? 8080;
+                var imageTag = string.IsNullOrWhiteSpace(tag) ? "poshmcp:latest" : tag;
+                var dockerPath = DetectDockerCommand();
+
+                if (dockerPath == null)
+                {
+                    Console.Error.WriteLine("Error: Docker or Podman is not installed or not available in PATH.");
+                    Console.Error.WriteLine("Please install Docker (https://www.docker.com) or Podman (https://podman.io)");
+                    Environment.ExitCode = ExitCodeStartupError;
+                    return;
+                }
+
+                if (transportMode != "http" && transportMode != "stdio")
+                {
+                    Console.Error.WriteLine("Error: --mode must be 'http' or 'stdio'");
+                    Environment.ExitCode = ExitCodeConfigError;
+                    return;
+                }
+
+                var runArgs = "run -d";
+
+                if (interactive)
+                {
+                    runArgs = "run -it";
+                }
+
+                // Set transport mode environment variable
+                var envVar = transportMode == "http" ? "http" : "stdio";
+                runArgs += $" -e POSHMCP_TRANSPORT={envVar}";
+
+                // Expose port for HTTP mode
+                if (transportMode == "http")
+                {
+                    runArgs += $" -p {portNumber}:8080";
+                }
+
+                // Mount config file if provided
+                if (!string.IsNullOrWhiteSpace(config))
+                {
+                    var configPath = Path.GetFullPath(config);
+                    if (!File.Exists(configPath))
+                    {
+                        Console.Error.WriteLine($"Error: Config file not found: {configPath}");
+                        Environment.ExitCode = ExitCodeConfigError;
+                        return;
+                    }
+
+                    runArgs += $" -v {configPath}:/app/appsettings.json:ro";
+                }
+
+                // Add volume mounts if provided
+                if (volumes != null && volumes.Length > 0)
+                {
+                    foreach (var volume in volumes)
+                    {
+                        runArgs += $" -v {volume}";
+                    }
+                }
+
+                // Add image tag
+                runArgs += $" {imageTag}";
+
+                if (interactive)
+                {
+                    Console.WriteLine($"Starting PoshMcp container in interactive mode: {imageTag}");
+                    var result = ExecuteDockerCommand(dockerPath, runArgs, interactive: true);
+                    Environment.ExitCode = result;
+                }
+                else
+                {
+                    Console.WriteLine($"Starting PoshMcp container in {transportMode} mode on port {portNumber}...");
+                    var result = ExecuteDockerCommand(dockerPath, runArgs);
+                    if (result == ExitCodeSuccess)
+                    {
+                        Console.WriteLine($"Container started successfully ({transportMode} mode on port {portNumber})");
+                    }
+                    Environment.ExitCode = result;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Run error: {ex.Message}");
+                Environment.ExitCode = ExitCodeRuntimeError;
+            }
+        }, runModeOption, runPortOption, runTagOption, runConfigOption, runVolumeOption, runInteractiveOption);
 
         return await rootCommand.InvokeAsync(args);
     }
@@ -2034,6 +2239,111 @@ public class Program
     private static void RegisterCleanupServices(WebApplicationBuilder builder)
     {
         builder.Services.AddSingleton<IHostedService, PowerShellCleanupService>();
+    }
+
+    /// <summary>
+    /// Detects whether docker or podman is available in the system PATH.
+    /// Returns the command name ("docker" or "podman") or null if neither is available.
+    /// </summary>
+    private static string? DetectDockerCommand()
+    {
+        // Try docker first
+        if (CommandExists("docker"))
+        {
+            return "docker";
+        }
+
+        // Fall back to podman
+        if (CommandExists("podman"))
+        {
+            return "podman";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Checks if a command exists in the system PATH by attempting to execute it with --version.
+    /// </summary>
+    private static bool CommandExists(string command)
+    {
+        try
+        {
+            var processInfo = new ProcessStartInfo
+            {
+                FileName = command,
+                Arguments = "--version",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using (var process = Process.Start(processInfo))
+            {
+                return process?.WaitForExit(5000) == true && process.ExitCode == 0;
+            }
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Executes a docker or podman command and returns the exit code.
+    /// Optionally runs in interactive mode for terminal interaction.
+    /// </summary>
+    private static int ExecuteDockerCommand(string dockerCommand, string arguments, bool interactive = false)
+    {
+        try
+        {
+            var processInfo = new ProcessStartInfo
+            {
+                FileName = dockerCommand,
+                Arguments = arguments,
+                RedirectStandardOutput = !interactive,
+                RedirectStandardError = !interactive,
+                UseShellExecute = false,
+                CreateNoWindow = !interactive
+            };
+
+            using (var process = Process.Start(processInfo))
+            {
+                if (process == null)
+                {
+                    return ExitCodeRuntimeError;
+                }
+
+                if (!interactive)
+                {
+                    var output = process.StandardOutput.ReadToEnd();
+                    var error = process.StandardError.ReadToEnd();
+
+                    process.WaitForExit();
+
+                    if (process.ExitCode != 0 && !string.IsNullOrEmpty(error))
+                    {
+                        Console.Error.WriteLine(error);
+                    }
+                    else if (!string.IsNullOrEmpty(output) && process.ExitCode == 0)
+                    {
+                        Console.WriteLine(output);
+                    }
+                }
+                else
+                {
+                    process.WaitForExit();
+                }
+
+                return process.ExitCode;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Failed to execute {dockerCommand}: {ex.Message}");
+            return ExitCodeRuntimeError;
+        }
     }
 
 }

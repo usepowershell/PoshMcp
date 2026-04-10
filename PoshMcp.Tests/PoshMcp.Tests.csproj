@@ -29,7 +29,6 @@
   <ItemGroup>
 
     <ProjectReference Include="..\PoshMcp.Server\PoshMcp.csproj" />
-    <ProjectReference Include="..\PoshMcp.Web\PoshMcp.Web.csproj" />
   </ItemGroup>
 
 </Project>

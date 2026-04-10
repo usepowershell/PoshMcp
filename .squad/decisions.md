@@ -444,3 +444,23 @@ Added CLI configuration management commands to `PoshMcp.Server`:
 
 **Impact:** CLI help surface expanded; targeted unit coverage added for create/update flows and advanced prompt behavior; README/TODO updates recorded by the implementation agent.
 
+### Local dotnet tool versioning workflow for global poshmcp updates
+
+**Author:** Amy (DevOps / Platform)
+**Date:** 2026-04-09
+**Status:** Implemented
+
+Use `PoshMcp.Server/PoshMcp.csproj` as the package source of truth, bump `Version` with a patch increment for small releases, pack to the local feed folder, and update the global tool from that feed.
+
+**Rationale:** `PoshMcp.Server/PoshMcp.csproj` is the correct tool package source because it defines `PackAsTool=true`, `ToolCommandName=poshmcp`, and `PackageId=poshmcp`.
+
+**Operational guardrail:** Before `dotnet tool update -g poshmcp`, stop any running `poshmcp.exe` process to avoid uninstall/update lock failures on `.dotnet/tools/.store/poshmcp/<version>`.
+
+**Standard command sequence:**
+1. `dotnet pack .\PoshMcp.Server\PoshMcp.csproj -c Release -o .\artifacts\nupkg`
+2. `Get-Process poshmcp -ErrorAction SilentlyContinue | Stop-Process -Force`
+3. `dotnet tool update -g poshmcp --version <newVersion> --add-source .\artifacts\nupkg --ignore-failed-sources`
+4. `dotnet tool list -g`
+
+**Outcome:** Version bumped from 0.3.0 to 0.3.1, package built, and global tool updated to 0.3.1.
+

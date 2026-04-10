@@ -1,6 +1,10 @@
 # Docker build with pre-installed modules
 
-> **⚠️ Deprecated:** The build-argument approach described here is superseded by the **derived image pattern** in [DOCKER.md](../DOCKER.md). Use that guide for new projects.
+> **⚠️ Advanced Docker Patterns**
+> For most use cases, use `poshmcp build` and `poshmcp run` commands (see [DOCKER.md](../DOCKER.md)).
+> This document covers advanced scenarios and manual Docker workflows.
+
+> **Deprecated:** The build-argument approach described here is superseded. Use `poshmcp build --modules` for the standard approach.
 
 This page is kept as a reference for teams still using the legacy `INSTALL_PS_MODULES` build argument. For the recommended approach, create your own Dockerfile that extends `poshmcp:latest` — see [DOCKER.md § Creating your custom image](../DOCKER.md#creating-your-custom-image).
 

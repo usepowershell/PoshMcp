@@ -1,44 +1,85 @@
 version: '3.8'
 
+x-common-variables: &common-variables
+  ASPNETCORE_ENVIRONMENT: Production
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+
 services:
+  # ========================================================================
   # Web/HTTP server mode (default)
+  # Run with: docker-compose up poshmcp-web
+  # Health check: curl http://localhost:8080/health
+  # ========================================================================
   poshmcp-web:
+    container_name: poshmcp-web
     build:
       context: .
       dockerfile: Dockerfile
+      # Build args for extended/derived images (module installation)
       args:
         INSTALL_PS_MODULES: ${INSTALL_PS_MODULES:-}
         MODULE_INSTALL_SCOPE: ${MODULE_INSTALL_SCOPE:-AllUsers}
         SKIP_PUBLISHER_CHECK: ${SKIP_PUBLISHER_CHECK:-true}
-    image: ${IMAGE_NAME:-poshmcp}:latest
+    image: ${IMAGE_NAME:-poshmcp}:${IMAGE_TAG:-latest}
     ports:
-      - "8080:8080"
+      - "${WEB_PORT:-8080}:8080"
     environment:
-      - ASPNETCORE_ENVIRONMENT=Production
-      - ASPNETCORE_URLS=http://+:8080
-      - POSHMCP_MODE=web
+      <<: *common-variables
+      ASPNETCORE_URLS: http://+:8080
+      POSHMCP_MODE: web
     volumes:
-      # Mount configuration files if needed
-      - ./PoshMcp.Web/appsettings.json:/app/web/appsettings.json:ro
+      # Mount configuration files as read-only for production safety
+      - ./PoshMcp.Server/appsettings.json:/app/web/appsettings.json:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
+    # Resource limits for production deployments (adjust as needed)
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '1'
+    #       memory: 512M
+    #     reservations:
+    #       cpus: '0.5'
+    #       memory: 256M
+    labels:
+      app: poshmcp
+      mode: web
+      version: "${IMAGE_TAG:-latest}"
     profiles: ["web", "http"]
 
-  # stdio server mode  
+  # ========================================================================
+  # stdio server mode (MCP stdio communication)
+  # Run with: docker-compose --profile stdio up poshmcp-stdio
+  # Usage: Interactive terminal communication, suitable for development
+  # ========================================================================
   poshmcp-stdio:
+    container_name: poshmcp-stdio
     build:
       context: .
       dockerfile: Dockerfile
+      # Build args for extended/derived images (module installation)
       args:
         INSTALL_PS_MODULES: ${INSTALL_PS_MODULES:-}
         MODULE_INSTALL_SCOPE: ${MODULE_INSTALL_SCOPE:-AllUsers}
         SKIP_PUBLISHER_CHECK: ${SKIP_PUBLISHER_CHECK:-true}
-    image: ${IMAGE_NAME:-poshmcp}:latest
+    image: ${IMAGE_NAME:-poshmcp}:${IMAGE_TAG:-latest}
     environment:
-      - POSHMCP_MODE=stdio
+      <<: *common-variables
+      POSHMCP_MODE: stdio
     volumes:
-      # Mount configuration files if needed
+      # Mount configuration files as read-only for production safety
       - ./PoshMcp.Server/appsettings.json:/app/server/appsettings.json:ro
     stdin_open: true
     tty: true
     restart: unless-stopped
+    labels:
+      app: poshmcp
+      mode: stdio
+      version: "${IMAGE_TAG:-latest}"
     profiles: ["stdio", "server"]

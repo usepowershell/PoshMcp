@@ -3,6 +3,7 @@
 - **20260403T141812Z**: ✓ Deploy.ps1 RG creation ordering bug fixed; decision merged to team ledger.
 - **20260408T000000Z**: ✓ Deploy.ps1 ACR auth path hardened for transient OAuth EOF/network failures with bounded retries, exponential backoff, and clearer diagnostic snippets for az acr login/push failures.
 - **20260409T163500Z**: ✓ Decision merged: Runtime Caching Toggle via MCP Tool. Proposed implementation (Phase 2.5) with global + per-function scopes, ephemeral state, gated behind EnableDynamicReloadTools.
+- **20260409T184741Z**: ✓ Dotnet global tool update can fail with access denied when `poshmcp.exe` is running; stop the process before `dotnet tool update -g` to avoid uninstall lock failures.
 
 # Amy Work History
 
