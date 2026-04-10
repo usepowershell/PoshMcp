@@ -96,10 +96,11 @@ public class ShouldApplyPhase3PropertyFiltering : PowerShellTestBase
     }
 
     [Fact]
-    public async Task GetService_RequestedPropertiesAndMaxResults_AreAppliedTogether()
+    public async Task ExecutePowerShellCommandTyped_AppliesRequestedPropertiesAndMaxResultsTogether()
     {
         var parameterInfos = new[]
         {
+            new PowerShellParameterInfo("Name", typeof(string[]), false),
             new PowerShellParameterInfo("_AllProperties", typeof(bool?), false),
             new PowerShellParameterInfo("_MaxResults", typeof(int?), false),
             new PowerShellParameterInfo("_RequestedProperties", typeof(string[]), false)
@@ -107,13 +108,14 @@ public class ShouldApplyPhase3PropertyFiltering : PowerShellTestBase
 
         var parameterValues = new object[]
         {
+            new[] { "PSVersionTable", "PID" },
             null!,
             1,
             new[] { "Name" }
         };
 
         var result = await PowerShellAssemblyGenerator.ExecutePowerShellCommandTyped(
-            "Get-Service",
+            "Get-Variable",
             parameterInfos,
             parameterValues,
             CancellationToken.None,
@@ -126,9 +128,13 @@ public class ShouldApplyPhase3PropertyFiltering : PowerShellTestBase
         var deserialized = ConvertJsonToObjects(result);
         Assert.Single(deserialized);
 
-        var service = Assert.IsType<Dictionary<string, object>>(deserialized[0]);
-        Assert.Single(service);
-        Assert.Contains("Name", service.Keys);
+        var variable = Assert.IsType<Dictionary<string, object>>(deserialized[0]);
+        Assert.Single(variable);
+        Assert.Contains("Name", variable.Keys);
+
+        var nameValue = Assert.IsType<string>(variable["Name"]);
+        Assert.False(string.IsNullOrWhiteSpace(nameValue));
+        Assert.Contains(nameValue, new[] { "PSVersionTable", "PID" });
     }
 
     [Fact]
