@@ -1,28 +1,11 @@
 #!/bin/bash
 
-# Startup script for PoshMcp - can run either Web server or stdio server
-# Based on POSHMCP_MODE environment variable
+# Simplified startup script for PoshMcp
+# Delegates all transport mode handling to the poshmcp CLI
 
 set -e
 
-# Default to web mode if not specified
-POSHMCP_MODE=${POSHMCP_MODE:-web}
+# Run poshmcp serve with transport mode from environment or default to http
+POSHMCP_TRANSPORT=${POSHMCP_TRANSPORT:-http}
+exec /app/server/poshmcp serve --transport "$POSHMCP_TRANSPORT"
 
-echo "PoshMcp startup mode: $POSHMCP_MODE"
-
-case "$POSHMCP_MODE" in
-    "web"|"http")
-        echo "Starting PoshMcp Web Server..."
-        cd /app/web
-        exec dotnet PoshMcp.Web.dll
-        ;;
-    "stdio"|"server")
-        echo "Starting PoshMcp stdio Server..."
-        cd /app/server
-        exec dotnet PoshMcp.dll
-        ;;
-    *)
-        echo "Error: Invalid POSHMCP_MODE='$POSHMCP_MODE'. Valid values: web, http, stdio, server"
-        exit 1
-        ;;
-esac

@@ -85,24 +85,29 @@ dotnet run --project PoshMcp.Server
 dotnet run --project PoshMcp.Web
 ```
 
-### Docker Deployment
+### Container Deployment
+
+PoshMcp uses the `poshmcp` CLI for containerized deployment—same commands locally or in containers.
 
 ```bash
-# Build and run web server
-./docker.sh build
-./docker.sh run web
+# Build container image
+poshmcp build                                          # Build base runtime image
+poshmcp build --modules "Az.Accounts Pester"         # Pre-install modules
+poshmcp build --type custom --tag myorg/poshmcp:v1   # Custom image with tag
 
-# Build with pre-installed PowerShell modules (faster startup)
-./docker.sh build --modules "Pester PSScriptAnalyzer"
-./docker.sh run web
+# Run in a container
+poshmcp run --mode http --port 8080                  # Run HTTP server
+poshmcp run --mode stdio --interactive               # Run stdio server with tty
+poshmcp run --config /path/appsettings.json --tag myorg/poshmcp:v1
 
-# Access at http://localhost:8080
-curl http://localhost:8080/health | jq
+# See all options
+poshmcp build --help
+poshmcp run --help
 ```
 
-**Performance Tip:** Pre-install PowerShell modules at build time to reduce container startup time from ~30s to <1s. See [DOCKER.md](DOCKER.md) for details.
+**Performance Tip:** Pre-install PowerShell modules at build time to reduce container startup time from ~30s to <1s. See [DOCKER.md](DOCKER.md) for architecture details.
 
-See [DOCKER.md](DOCKER.md) for detailed Docker configuration, including custom image patterns and module pre-installation.
+Traditional docker commands still work—use `poshmcp build/run` for the standard approach. See [DOCKER.md](DOCKER.md) for detailed container architecture, Azure deployment, and advanced scenarios.
 
 ### Azure Container Apps
 
@@ -150,6 +155,10 @@ dotnet run --project PoshMcp.Server -- update-config --add-function Get-Process
 
 # Automation-friendly update (skip interactive advanced prompts)
 dotnet run --project PoshMcp.Server -- update-config --non-interactive --add-module Az.Accounts
+
+# Update in web mode
+cd PoshMcp.Web
+dotnet run -- update-config --add-function Get-Service
 ```
 
 ### Built-in Utility Tools
@@ -258,13 +267,46 @@ For architectural details, see [DESIGN.md](DESIGN.md).
 
 ## Documentation
 
+### Getting Started
+- **[README.md](README.md)** (this file) — Project overview, quick start, and basic configuration
+- **[DOCKER.md](DOCKER.md)** — Docker deployment guide with base and custom image patterns
 - **[DESIGN.md](DESIGN.md)** — Architecture and design philosophy
-- **[DOCKER.md](DOCKER.md)** — Docker deployment guide
-- **[docs/ENVIRONMENT-CUSTOMIZATION.md](docs/ENVIRONMENT-CUSTOMIZATION.md)** — Environment customization guide
-- **[docs/IMPLEMENTATION-GUIDE.md](docs/IMPLEMENTATION-GUIDE.md)** — Implementation guide for developers
-- **[infrastructure/azure/](infrastructure/azure/README.md)** — Azure deployment documentation
-- **[PoshMcp.Tests/README.md](PoshMcp.Tests/README.md)** — Test organization and guidelines
-- **[examples/](examples/)** — Configuration examples and Docker Compose files
+
+### Deployment & Infrastructure
+- **[infrastructure/azure/README.md](infrastructure/azure/README.md)** — Azure Container Apps deployment guide
+  - Prerequisites, multi-tenant support, resource sizing
+  - Post-deployment verification and scaling
+- **[examples/README.md](examples/README.md)** — Example configurations and Dockerfile templates
+  - Detailed explanations of each example Dockerfile
+  - Configuration file examples and startup scripts
+  - Docker Compose orchestration examples
+
+### Configuration & Customization
+- **[docs/ENVIRONMENT-CUSTOMIZATION.md](docs/ENVIRONMENT-CUSTOMIZATION.md)** — PowerShell environment setup (startup scripts, modules, paths)
+  - Module installation and importing
+  - Startup script configuration (inline and file-based)
+  - Environment-specific customization
+- **[examples/startup.ps1](examples/startup.ps1)** — Comprehensive startup script example
+- **[examples/azure-managed-identity-startup.ps1](examples/azure-managed-identity-startup.ps1)** — Azure authentication example
+
+### Development & Testing
+- **[PoshMcp.Tests/README.md](PoshMcp.Tests/README.md)** — Test organization and development guidelines
+  - Unit, functional, and integration test categories
+  - Running tests by category or trait
+  - Contributing test guidelines
+- **[docs/IMPLEMENTATION-GUIDE.md](docs/IMPLEMENTATION-GUIDE.md)** — Developer integration guide
+- **[.github/copilot-instructions.md](.github/copilot-instructions.md)** — Development guidelines and conventions
+
+### Advanced Topics
+- **[docs/AZURE-INTEGRATION-TEST-SCENARIO.md](docs/AZURE-INTEGRATION-TEST-SCENARIO.md)** — Azure integration test documentation
+- **[docs/QUICKSTART-AZURE-INTEGRATION-TEST.md](docs/QUICKSTART-AZURE-INTEGRATION-TEST.md)** — Azure test quick reference
+- **[docs/TRAIT-BASED-TEST-FILTERING.md](docs/TRAIT-BASED-TEST-FILTERING.md)** — Test filtering by category, speed, or cost
+- **[docs/INTEGRATION-CHECKLIST.md](docs/INTEGRATION-CHECKLIST.md)** — Integration task checklist
+
+### Docker & Container Registry
+- **[DOCKER.md](DOCKER.md)** — Complete Docker deployment (see "Resources" section above)
+- **[docs/DOCKER-BUILD-QUICK-REF.md](docs/DOCKER-BUILD-QUICK-REF.md)** — Docker build quick reference
+- **[docs/DOCKER-BUILD-MODULES.md](docs/DOCKER-BUILD-MODULES.md)** — Legacy module building approach (deprecated, see DOCKER.md)
 
 ---
 

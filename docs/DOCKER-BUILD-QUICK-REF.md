@@ -1,6 +1,8 @@
 # Docker build quick reference
 
-> **📍 This content has moved.** The comprehensive Docker guide is now [DOCKER.md](../DOCKER.md).
+> **⚠️ Advanced Docker Patterns**
+> For most use cases, use `poshmcp build` and `poshmcp run` commands (see [DOCKER.md](../DOCKER.md)).
+> This document covers advanced scenarios and manual Docker workflows.
 
 This page previously contained a quick reference for building Docker images with pre-installed PowerShell modules using build arguments. That approach is now **deprecated** in favor of the derived image pattern documented in [DOCKER.md](../DOCKER.md).
 
