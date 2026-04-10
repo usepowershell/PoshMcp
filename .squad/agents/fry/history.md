@@ -176,3 +176,21 @@
 - The smallest stable regression surface for this feature is the doctor payload's `effectivePowerShellConfiguration` plus `toolNames`, not the private tool registration helpers.
 - The current codebase does not yet show environment-variable binding for `EnableDynamicReloadTools`, so the env-override assertion is a deliberate red/green guide for the implementation.
 
+### 2026-04-10: Startup ordering coverage for module import and function discovery
+
+**Context:** Validated whether existing tests cover startup ordering between environment setup (`ImportModules` / startup script execution) and tool discovery.
+
+**Findings:**
+- Existing coverage exercised command discovery and configuration wiring but did not assert ordering behavior where discovery must run after environment setup.
+- `PowerShellEnvironmentSetup` had no direct test coverage prior to this change.
+
+**Testing changes made:**
+- Added `PoshMcp.Tests/Unit/ModuleDiscoveryStartupOrderingTests.cs` with two deterministic tests:
+	- `GetToolsList_WithImportedModuleBeforeDiscovery_ShouldDiscoverModuleFunction`
+	- `GetToolsList_WithStartupScriptBeforeDiscovery_ShouldDiscoverScriptFunction`
+- Both tests verify the negative case before setup (no tool) and positive case after setup (function discoverable and tool generated) against a shared isolated runspace.
+
+**Key learning:**
+- A before/after assertion in the same runspace is the most stable way to catch discovery-before-import regressions without introducing process startup flakiness.
+- Tool-name assertions should tolerate normalization behavior and focus on uniquely generated function signatures.
+

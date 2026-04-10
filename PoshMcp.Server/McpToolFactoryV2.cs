@@ -542,6 +542,11 @@ public class McpToolFactoryV2
             logger.LogTrace($"  Include Patterns: [{string.Join(", ", config.IncludePatterns)}]");
             logger.LogTrace($"  Exclude Patterns: [{string.Join(", ", config.ExcludePatterns)}]");
 
+            if (config.Modules.Any())
+            {
+                ImportConfiguredModules(config.Modules, powerShell, logger);
+            }
+
             // Always process function names if specified
             if (allFunctionNames.Any())
             {
@@ -647,6 +652,41 @@ public class McpToolFactoryV2
         }
 
         return commands;
+    }
+
+    private void ImportConfiguredModules(List<string> modules, PSPowerShell powerShell, ILogger logger)
+    {
+        foreach (var module in modules.Where(m => !string.IsNullOrWhiteSpace(m)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try
+            {
+                powerShell.Commands.Clear();
+                powerShell.AddCommand("Import-Module")
+                    .AddParameter("Name", module)
+                    .AddParameter("ErrorAction", "Stop")
+                    .AddParameter("PassThru");
+                var imported = powerShell.Invoke();
+                powerShell.Commands.Clear();
+
+                if (powerShell.HadErrors)
+                {
+                    var errors = string.Join("; ", powerShell.Streams.Error.Select(e => e.ToString()));
+                    logger.LogWarning($"Failed to import module '{module}' before discovery: {errors}");
+                    powerShell.Streams.Error.Clear();
+                    continue;
+                }
+
+                logger.LogDebug($"Imported module '{module}' before discovery ({imported.Count} result objects)");
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, $"Failed to import module '{module}' before discovery. Command discovery will continue.");
+            }
+            finally
+            {
+                powerShell.Commands.Clear();
+            }
+        }
     }
 
     private List<CommandInfo> GetCommandsByModule(List<string> modules, PSPowerShell powerShell, ILogger logger)
