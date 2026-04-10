@@ -13,7 +13,7 @@ PoshMcp bridges the gap between traditional PowerShell automation and modern AI 
 - **Automatic Tool Discovery**: PowerShell commands become AI tools without manual registration
 - **Persistent State**: Variables, functions, and modules persist across command executions
 - **Flexible Deployment**: Run as stdio server (for MCP clients) or HTTP server (for web integration)
-- **Enterprise Ready**: Built on .NET 8 with OpenTelemetry, health checks, and Azure Managed Identity support
+- **Enterprise Ready**: Built on .NET 10 with OpenTelemetry, health checks, and Azure Managed Identity support
 
 **Perfect for:** DevOps engineers, system administrators, and PowerShell toolmakers who want to democratize access to their automation scripts.
 
@@ -65,7 +65,7 @@ PoshMcp automatically:
 
 ### Prerequisites
 
-- [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+- [.NET 10.0 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 - PowerShell 7.x (included via Microsoft.PowerShell.SDK)
 
 ### Installation
@@ -81,8 +81,8 @@ dotnet build
 # Run stdio server (for MCP clients)
 dotnet run --project PoshMcp.Server
 
-# OR run web server (for HTTP access)
-dotnet run --project PoshMcp.Web
+# Run HTTP server (for web integration)
+dotnet run --project PoshMcp.Server -- serve --transport http
 ```
 
 ### Container Deployment
@@ -156,9 +156,8 @@ dotnet run --project PoshMcp.Server -- update-config --add-function Get-Process
 # Automation-friendly update (skip interactive advanced prompts)
 dotnet run --project PoshMcp.Server -- update-config --non-interactive --add-module Az.Accounts
 
-# Update in web mode
-cd PoshMcp.Web
-dotnet run -- update-config --add-function Get-Service
+# Update config for HTTP mode
+dotnet run --project PoshMcp.Server -- update-config --add-function Get-Service
 ```
 
 ### Built-in Utility Tools
@@ -247,10 +246,9 @@ Load modules from local directories or mounted volumes:
 
 ## Architecture
 
-PoshMcp is organized into three main projects:
+PoshMcp is organized into two main projects:
 
-- **PoshMcp.Server**: stdio-based MCP server for direct client integration
-- **PoshMcp.Web**: HTTP-based server with multi-user isolation
+- **PoshMcp.Server**: MCP server supporting both stdio and HTTP transport (use `--transport stdio` or `--transport http`)
 - **PoshMcp.Tests**: Comprehensive test suite (unit, functional, integration)
 
 ### Core Components
@@ -460,7 +458,7 @@ See [.squad/decisions.md](.squad/decisions.md) for architectural decisions and [
 
 - **[Model Context Protocol](https://modelcontextprotocol.io)** - MCP specification and documentation
 - **[PowerShell Documentation](https://docs.microsoft.com/powershell/)** - PowerShell reference
-- **[.NET 8 Documentation](https://docs.microsoft.com/dotnet/)** - .NET platform documentation
+- **[.NET 10 Documentation](https://docs.microsoft.com/dotnet/)** - .NET platform documentation
 - **[Azure Container Apps](https://learn.microsoft.com/azure/container-apps/)** - Azure deployment guide
 
 ---

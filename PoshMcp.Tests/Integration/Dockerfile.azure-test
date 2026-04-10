@@ -25,7 +25,6 @@ RUN pwsh /tmp/install-modules.ps1 && rm /tmp/install-modules.ps1
 COPY examples/azure-managed-identity-startup.ps1 /app/startup.ps1
 
 # Copy test configuration
-COPY examples/appsettings.advanced.json /app/web/appsettings.json
 COPY examples/appsettings.advanced.json /app/server/appsettings.json
 
 # Verify modules are installed (fail fast if something went wrong)

@@ -44,7 +44,6 @@ RUN apt-get update && apt-get install -y \
 RUN mkdir -p /app/scripts /app/logs && chown -R appuser:appuser /app/scripts /app/logs
 
 # Copy custom configuration files
-COPY examples/appsettings.advanced.json /app/web/appsettings.json
 COPY examples/appsettings.advanced.json /app/server/appsettings.json
 
 # Copy custom startup and helper scripts

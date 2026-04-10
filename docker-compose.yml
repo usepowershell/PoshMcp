@@ -27,10 +27,10 @@ services:
     environment:
       <<: *common-variables
       ASPNETCORE_URLS: http://+:8080
-      POSHMCP_MODE: web
+      POSHMCP_TRANSPORT: http
     volumes:
       # Mount configuration files as read-only for production safety
-      - ./PoshMcp.Server/appsettings.json:/app/web/appsettings.json:ro
+      - ./PoshMcp.Server/appsettings.json:/app/server/appsettings.json:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
@@ -71,7 +71,7 @@ services:
     image: ${IMAGE_NAME:-poshmcp}:${IMAGE_TAG:-latest}
     environment:
       <<: *common-variables
-      POSHMCP_MODE: stdio
+      POSHMCP_TRANSPORT: stdio
     volumes:
       # Mount configuration files as read-only for production safety
       - ./PoshMcp.Server/appsettings.json:/app/server/appsettings.json:ro

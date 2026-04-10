@@ -40,7 +40,6 @@ All configuration is declarative and happens during PowerShell runspace initiali
 
 ### ✅ Integrated (As of Recent Updates)
 - ✅ Service registration in `PoshMcp.Server/Program.cs`
-- ✅ Service registration in `PoshMcp.Web/Program.cs`
 - ✅ PowerShellRunspaceInitializer updated with environment setup
 - ✅ PowerShellRunspaceHolder integration
 

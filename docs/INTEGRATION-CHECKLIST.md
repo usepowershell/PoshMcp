@@ -14,7 +14,7 @@
 
 ### Register services
 
-**Files:** `PoshMcp.Server/Program.cs` and `PoshMcp.Web/Program.cs`
+**File:** `PoshMcp.Server/Program.cs`
 
 - [ ] Add `builder.Services.AddSingleton<PowerShellEnvironmentSetup>()`
 - [ ] Verify configuration binding includes the `Environment` section
