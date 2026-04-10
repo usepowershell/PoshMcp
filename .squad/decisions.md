@@ -11,14 +11,14 @@ Canonical record of decisions, actions, and outcomes.
 **Date:** 2026-04-08T00:00:00Z
 **Status:** Proposed
 
-Add focused unit coverage for `PowerShellJsonOptions` string serialization, because the current migration regression is shared across stdio and web paths while the web integration harness is also vulnerable to unrelated `dotnet run` apphost file locks.
+Add focused unit coverage for `PowerShellJsonOptions` string serialization, because the current migration regression is shared across stdio and HTTP transport paths while the HTTP integration harness is also vulnerable to unrelated `dotnet run` apphost file locks.
 
 **Rationale:**
 - The integration failures prove user-visible breakage across transport paths
 - A serializer-level regression test gives the narrowest reliable validation target for the fix
 - Web integration runs can be polluted by unrelated `dotnet run` file-lock failures, so unit coverage is the safer regression anchor
 
-**Impact:** Prioritize targeted serializer regression coverage while web-path failures are being investigated. Use broader web validation as confirmation, not the sole guardrail.
+**Impact:** Prioritize targeted serializer regression coverage while HTTP transport failures are being investigated. Use broader HTTP integration validation as confirmation, not the sole guardrail.
 
 ### Normalize PowerShell results before JSON serialization
 
@@ -33,7 +33,7 @@ Convert PowerShell results into JSON-safe scalars, dictionaries, and arrays befo
 - Members such as `Encoding.Preamble` and pointer-like CLR values can trip unsupported serialization paths
 - Normalizing into JSON-safe shapes protects both live command results and cached outputs
 
-**Impact:** The serialization pipeline should normalize nested PowerShell and CLR objects before JSON output so stdio and web responses stay predictable and cache-safe.
+**Impact:** The serialization pipeline should normalize nested PowerShell and CLR objects before JSON output so stdio and HTTP transport responses stay predictable and cache-safe.
 
 ### Preserve scalar PowerShell BaseObject values during JSON serialization
 
@@ -65,20 +65,20 @@ Keep the serializer unit test as the narrow regression anchor, and add focused e
 
 **Impact:** Regression coverage should include both serializer-level tests and targeted execution/cache assertions for string outputs.
 
-### Reuse existing test build outputs when launching the in-process web harness
+### Reuse existing test build outputs when launching the in-process HTTP test harness
 
 **Author:** Steven Murawski (via Copilot)
 **Date:** 2026-04-08T00:00:00Z
-**Status:** Proposed
+**Status:** Superseded — see "poshmcp as single entry point" (2026-04-10)
 
-The in-process web test harness should infer the active test build configuration and launch `PoshMcp.Web` with `dotnet run --no-build --configuration {Debug|Release}` so integration tests reuse existing build outputs.
+The in-process HTTP test harness should infer the active test build configuration and launch `PoshMcp.Server` with `dotnet run --no-build --configuration {Debug|Release} -- serve --transport http` so integration tests reuse existing build outputs.
 
 **Rationale:**
 - `dotnet test -c Release` already produces the required binaries
 - Triggering a second build during `StartAsync()` caused file-lock conflicts against referenced outputs
 - Matching the active test configuration removes accidental Debug/Release mismatches in the harness
 
-**Impact:** Web integration startup should avoid redundant builds and reduce file-lock failures during test execution.
+**Impact:** HTTP integration startup should avoid redundant builds and reduce file-lock failures during test execution.
 
 ### User directive
 
@@ -135,7 +135,7 @@ User decisions on open questions from Farnsworth's large-result-performance prop
 
 Dotnet tool properties added to `PoshMcp.Server/PoshMcp.csproj`: `<PackAsTool>true</PackAsTool>`, `<ToolCommandName>poshmcp</ToolCommandName>`, `<PackageId>poshmcp</PackageId>`, `<Version>0.1.0</Version>` with standard metadata. Local tool manifest `.config/dotnet-tools.json` created for per-repo installation. Content files (appsettings.json, etc.) excluded from NuGet package via `<Pack>false</Pack>`. `default.appsettings.json` embedded as resource. Pack succeeded; output: `PoshMcp.Server/bin/Release/poshmcp.0.1.0.nupkg` (~26 MB). Usage: `dotnet tool install -g poshmcp` (global) or `dotnet tool install --local poshmcp` (local with manifest).
 
-**Rationale:** `PoshMcp.Server` is stdio MCP-ready with full CLI; Web project is deployment-focused and not packaged. Tool command `poshmcp` matches project name and convention.
+**Rationale:** `PoshMcp.Server` is the single application binary; `poshmcp` is the CLI entry point for all transports. Tool command `poshmcp` matches project name and convention.
 
 **Impact:** Users can now install via standard dotnet tooling. Requires .NET 10 Runtime. Configuration via cwd `appsettings.json` or environment variables.
 
@@ -197,13 +197,40 @@ Same root causes confirmed independently: (1) Synchronous blocking in `ExecuteTh
 
 **Recommendation:** Implement B first (2 days, low risk, eliminates user-visible symptom). Then A (makes tool AI-useful). Then C (necessary for correct async behavior and server resilience). A+B together address all three causes; B alone addresses Cause 3 by capping serialization work.
 
+### poshmcp as single entry point — PoshMcp.Web removed
+
+**Author:** Steven Murawski (via Farnsworth/Amy/Leela/Bender)
+**Date:** 2026-04-10
+**Status:** Implemented
+
+`PoshMcp.Web` has been removed. `PoshMcp.Server` (`poshmcp` CLI tool) is the sole entry point for all transports.
+
+**What changed:**
+- `poshmcp serve --transport http` provides full HTTP/web server behavior (health checks, CORS, session-aware runspaces, OpenTelemetry)
+- `poshmcp serve --transport stdio` provides MCP stdio transport (unchanged)
+- `poshmcp build --tag <image>` delegates to docker/podman to build a container image
+- `poshmcp run --mode http|stdio` runs the container
+- `docker-entrypoint.sh` simplified to: `exec /app/server/poshmcp serve --transport "$POSHMCP_TRANSPORT"`
+- `PoshMcp.Web/` directory deleted; removed from `PoshMcp.sln`
+- All tests migrated from `InProcessWebServer` → `InProcessUnifiedHttpServer`
+- `POSHMCP_MODE` environment variable replaced by `POSHMCP_TRANSPORT` (values: `http`, `stdio`)
+
+**Rationale:**
+- Single binary simplifies installation, deployment, and troubleshooting
+- `poshmcp` CLI as Docker entry point is consistent with how professional tools work (same commands locally and in containers)
+- PoshMcp.Web carried dead JWT dependencies and no unique functionality
+
+**Impact:** Any reference to `PoshMcp.Web`, `/app/web/`, `POSHMCP_MODE`, or `dotnet run --project PoshMcp.Web` should be updated to use `poshmcp serve --transport <http|stdio>` and `POSHMCP_TRANSPORT`.
+
+---
+
 ### dotnet tool Packaging ADR — PoshMcp
 
 **Author:** Farnsworth (Lead / Architect)
 **Date:** 2026-04-09
 **Status:** Proposed
 
-Architectural decision record: `PoshMcp.Server` becomes dotnet tool, not Web. Server: stdio MCP transport, complete CLI, fully self-contained. Web: deployment-focused, best via Docker/ACA, not a CLI tool experience.
+Architectural decision record: `PoshMcp.Server` becomes dotnet tool. Server: supports both stdio and HTTP transports via `poshmcp serve --transport <stdio|http>`, complete CLI, fully self-contained.
 
 **Key decisions:**
 1. **Which project:** `PoshMcp.Server` only (Exe with CLI, stdio-ready).

@@ -59,7 +59,7 @@ Before deploying, ensure you have:
 2. **Docker**: [Installation Guide](https://docs.docker.com/get-docker/) for building images
 3. **Azure Subscription**: With appropriate permissions to create resources
 4. **Azure Container Registry**: Or permissions to create one during deployment
-5. **.NET 8 SDK**  (optional, only for local development): [Installation](https://dotnet.microsoft.com/download/dotnet/8.0)
+5. **.NET 10 SDK**  (optional, only for local development): [Installation](https://dotnet.microsoft.com/download/dotnet/10.0)
 
 ### Permissions Required
 

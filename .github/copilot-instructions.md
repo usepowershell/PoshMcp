@@ -156,7 +156,7 @@ USER root
 COPY install-modules.ps1 /tmp/
 ENV INSTALL_PS_MODULES="Pester PSScriptAnalyzer Az.Accounts"
 RUN pwsh /tmp/install-modules.ps1 && rm /tmp/install-modules.ps1
-COPY my-appsettings.json /app/web/appsettings.json
+COPY my-appsettings.json /app/server/appsettings.json
 USER appuser
 ```
 
@@ -181,7 +181,7 @@ podman run -d -p 8080:8080 -e POSHMCP_MODE=web poshmcp-custom:latest
 
 ### Common Tasks
 - **Inspect modules in container:** `podman run --rm poshmcp:latest pwsh -Command 'Get-Module -ListAvailable'`
-- **Run with custom config:** `podman run -d -v /path/to/appsettings.json:/app/web/appsettings.json poshmcp:latest`
+- **Run with custom config:** `podman run -d -v /path/to/appsettings.json:/app/server/appsettings.json poshmcp:latest`
 - **Monitor startup (web mode):** Watch logs until `Application started` appears; health endpoint available at `http://localhost:8080/health`
 
 ### Documentation

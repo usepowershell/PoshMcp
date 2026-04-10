@@ -25,7 +25,6 @@ ENV INSTALL_PS_MODULES="Az.Accounts@>=2.12.0 Az.Resources Az.Storage Az.KeyVault
 RUN pwsh /tmp/install-modules.ps1 && rm /tmp/install-modules.ps1
 
 # Copy Azure-specific configuration
-COPY examples/appsettings.advanced.json /app/web/appsettings.json
 COPY examples/appsettings.advanced.json /app/server/appsettings.json
 
 # Copy Azure Managed Identity startup script (authenticates to Azure)

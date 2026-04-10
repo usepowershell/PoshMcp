@@ -22,10 +22,7 @@ COPY install-modules.ps1 /tmp/
 ENV INSTALL_PS_MODULES="Pester PSScriptAnalyzer"
 RUN pwsh /tmp/install-modules.ps1 && rm /tmp/install-modules.ps1
 
-# Copy your custom appsettings.json for web mode
-COPY examples/appsettings.basic.json /app/web/appsettings.json
-
-# Copy your custom appsettings.json for stdio mode
+# Copy your custom appsettings.json
 COPY examples/appsettings.basic.json /app/server/appsettings.json
 
 # (Optional) Copy custom startup scripts

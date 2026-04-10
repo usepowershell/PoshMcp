@@ -11,6 +11,15 @@
 # Ignore test results
 **/TestResults/
 
+# Ignore test and client projects (not needed for server build)
+TestClient/
+PoshMcp.Tests/
+
+# Ignore agent/tool configuration directories
+.squad/
+.claude/
+.copilot/
+
 # Ignore VS Code and Visual Studio files
 .vscode/
 .vs/
@@ -37,8 +46,6 @@
 *.ps1
 !install-modules.ps1
 !examples/*.ps1
-cleanup.sh
-launcher.sh
 run-tests.sh
 
 # Ignore old directory

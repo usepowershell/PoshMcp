@@ -98,8 +98,9 @@ synchronization. Every new abstraction MUST justify its complexity.
 - **Configuration**: PowerShell functions declared in `appsettings.json`
   under `PowerShellConfiguration.FunctionNames`; the server dynamically
   discovers and exposes them
-- **Dual Transport**: stdio mode (`PoshMcp.Server`) for MCP clients,
-  HTTP mode (`PoshMcp.Web`) for web integration — both MUST be maintained
+- **Dual Transport**: stdio mode (`--transport stdio`) for MCP clients,
+  HTTP mode (`--transport http`) for web integration — both MUST be
+  supported in `PoshMcp.Server` (single binary, transport selected at startup)
 - **Debugging**: Use `TestOutputHelper` for test log capture; enable
   detailed logging for MCP communication troubleshooting
 - **File naming**: PascalCase for C# classes/methods, test files end

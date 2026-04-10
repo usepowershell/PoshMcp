@@ -83,7 +83,7 @@ This document explains how the environment customization feature is implemented 
 
 ### Step 1: Register Services
 
-In `Program.cs` (stdio) or `PoshMcp.Web/Program.cs`:
+In `PoshMcp.Server/Program.cs`:
 
 ```csharp
 // Add after existing PowerShellConfiguration binding
