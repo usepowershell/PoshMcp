@@ -22,6 +22,8 @@ jobs:
   build-and-publish:
     runs-on: ubuntu-latest
     name: Build & Publish NuGet Packages
+    outputs:
+      version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Checkout code
@@ -118,6 +120,78 @@ jobs:
           path: ./nupkg/*.nupkg
           if-no-files-found: warn
           retention-days: 30
+
+  build-and-publish-container:
+    runs-on: ubuntu-latest
+    name: Build & Publish Container Image
+    needs: build-and-publish
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Restore and build PoshMcp.Server
+        run: dotnet build PoshMcp.Server/PoshMcp.csproj --configuration Release
+        env:
+          DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+          DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+      # Compute the fully-qualified ghcr.io image name.
+      # github.repository is already owner/repo so we just lower-case it.
+      - name: Compute image name
+        id: image
+        run: |
+          REPO="${{ github.repository }}"
+          echo "name=ghcr.io/${REPO,,}/poshmcp" >> $GITHUB_OUTPUT
+
+      # Use the poshmcp CLI to build the container image.
+      # poshmcp build --tag delegates to: docker build -f Dockerfile -t <tag>
+      # dotnet run is used here so we don't need a global tool install in CI.
+      - name: Build container image with poshmcp build
+        run: |
+          IMAGE="${{ steps.image.outputs.name }}:${{ needs.build-and-publish.outputs.version }}"
+          echo "Building image: $IMAGE"
+          dotnet run --project PoshMcp.Server/PoshMcp.csproj \
+            --configuration Release --no-build \
+            -- build --tag "$IMAGE"
+
+      - name: Tag image as latest (releases only)
+        if: github.event_name == 'release'
+        run: |
+          IMAGE="${{ steps.image.outputs.name }}:${{ needs.build-and-publish.outputs.version }}"
+          docker tag "$IMAGE" "${{ steps.image.outputs.name }}:latest"
+
+      - name: Push versioned image
+        run: |
+          docker push "${{ steps.image.outputs.name }}:${{ needs.build-and-publish.outputs.version }}"
+
+      - name: Push latest tag (releases only)
+        if: github.event_name == 'release'
+        run: |
+          docker push "${{ steps.image.outputs.name }}:latest"
+
+      - name: Summary
+        run: |
+          echo "## Container Image Published" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ steps.image.outputs.name }}:${{ needs.build-and-publish.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            echo "- \`${{ steps.image.outputs.name }}:latest\`" >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Create GitHub Release Note
         if: github.event_name == 'workflow_dispatch' && success()
