@@ -1,1 +1,1 @@
-Scribe: log config doctor tool session
+Scribe: update config doctor session metadata
