@@ -538,3 +538,29 @@ If out-of-process hosting proceeds, prefer a single persistent `pwsh` child proc
 
 **Impact:** Future out-of-process implementation work should treat persistent subprocess hosting and protocol-safe host-script behavior as the default design direction.
 
+## 2026-04-11
+
+### Out-of-process execution architecture plan
+
+**Author:** Farnsworth (Lead / Architect)
+**Date:** 2026-04-11
+**Status:** Proposed
+
+Comprehensive plan for out-of-process PowerShell execution written to `specs/out-of-process-execution.md`. The feature enables modules that crash the in-process runtime (Az.*, Microsoft.Graph.*) to run in a separate `pwsh` subprocess.
+
+**Key architectural decisions:**
+
+1. **Communication protocol: stdin/stdout ndjson** (not TCP). Lower complexity than the localhost TCP direction noted on 2026-04-10 — no port conflicts, no firewall, no connection handshake, works identically cross-platform. TCP remains a future option for multi-client scenarios.
+
+2. **6-phase implementation plan** starting with stub types to fix 13 build errors (Phase 1), then subprocess lifecycle (Phase 2), command discovery (Phase 3), command invocation (Phase 4), IL assembly generation (Phase 5), and integration testing with Az/Graph modules (Phase 6).
+
+3. **`oop-host.ps1` subprocess host** — a PowerShell script running inside the persistent `pwsh` process that handles discover/invoke/ping/shutdown requests via ndjson protocol.
+
+4. **Crash recovery** — automatic subprocess restart with exponential backoff (3 retries in 5 minutes), re-discovery after restart.
+
+5. **No mixed mode** in v1 — RuntimeMode is server-wide (InProcess or OutOfProcess). Per-function routing deferred.
+
+**Impact:** Unblocks `dotnet build` (Phase 1 is immediate priority) and enables PoshMcp to serve modules from the `integration/Modules/` test corpus.
+
+**Full spec:** `specs/out-of-process-execution.md`
+
