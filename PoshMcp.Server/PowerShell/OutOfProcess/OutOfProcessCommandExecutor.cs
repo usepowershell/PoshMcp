@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -51,7 +53,7 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        var scriptPath = ResolveHostScriptPath();
+        var scriptPath = await ResolveHostScriptPathAsync().ConfigureAwait(false);
         var pwshPath = ResolvePwshPath();
 
         _logger.LogInformation("Starting OOP subprocess: {PwshPath} -NoProfile -NonInteractive -File {ScriptPath}",
@@ -558,27 +560,107 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
 
     /// <summary>
     /// Resolves the path to the oop-host.ps1 script.
+    /// Priority: environment variable override → embedded resource extraction → build output fallback.
     /// </summary>
-    internal static string ResolveHostScriptPath()
+    internal async Task<string> ResolveHostScriptPathAsync()
     {
-        // Primary: relative to the app base directory (build output)
+        // 1. Check for user-supplied override via environment variable
+        var overridePath = Environment.GetEnvironmentVariable("POSHMCP_OOP_HOST_PATH");
+        if (!string.IsNullOrWhiteSpace(overridePath))
+        {
+            if (File.Exists(overridePath))
+            {
+                _logger.LogInformation("Using override oop-host.ps1 from POSHMCP_OOP_HOST_PATH: {Path}", overridePath);
+                return overridePath;
+            }
+
+            _logger.LogWarning(
+                "POSHMCP_OOP_HOST_PATH is set to '{Path}' but the file does not exist. Falling back to embedded resource.",
+                overridePath);
+        }
+
+        // 2. Extract from embedded resource
+        var extractedPath = await ExtractHostScriptAsync().ConfigureAwait(false);
+        if (extractedPath is not null)
+        {
+            _logger.LogInformation("Using embedded oop-host.ps1 extracted to: {Path}", extractedPath);
+            return extractedPath;
+        }
+
+        // 3. Fallback: build output directory (local development)
         var basePath = Path.Combine(AppContext.BaseDirectory, "PowerShell", "OutOfProcess", "oop-host.ps1");
         if (File.Exists(basePath))
         {
+            _logger.LogInformation("Using oop-host.ps1 from build output: {Path}", basePath);
             return basePath;
         }
 
-        // Fallback: AppDomain base
         var domainPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PowerShell", "OutOfProcess", "oop-host.ps1");
         if (File.Exists(domainPath))
         {
+            _logger.LogInformation("Using oop-host.ps1 from domain base: {Path}", domainPath);
             return domainPath;
         }
 
         throw new FileNotFoundException(
             "Could not locate oop-host.ps1. Searched:\n" +
+            "  POSHMCP_OOP_HOST_PATH environment variable\n" +
+            "  Embedded assembly resource\n" +
             $"  {basePath}\n" +
             $"  {domainPath}");
+    }
+
+    /// <summary>
+    /// Extracts the embedded oop-host.ps1 resource to a temp directory.
+    /// Uses a SHA256 content hash to avoid unnecessary rewrites.
+    /// Returns the extracted path, or null if the embedded resource is not found.
+    /// </summary>
+    internal async Task<string?> ExtractHostScriptAsync()
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        var resourceName = assembly
+            .GetManifestResourceNames()
+            .FirstOrDefault(name => name.EndsWith("oop-host.ps1", StringComparison.OrdinalIgnoreCase));
+
+        if (resourceName is null)
+        {
+            _logger.LogDebug("Embedded oop-host.ps1 resource not found in assembly.");
+            return null;
+        }
+
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream is null)
+        {
+            _logger.LogDebug("Unable to open embedded resource stream for '{ResourceName}'.", resourceName);
+            return null;
+        }
+
+        var resourceBytes = new byte[stream.Length];
+        await stream.ReadExactlyAsync(resourceBytes).ConfigureAwait(false);
+
+        var hash = Convert.ToHexStringLower(SHA256.HashData(resourceBytes));
+
+        var extractDir = Path.Combine(Path.GetTempPath(), "poshmcp");
+        var extractPath = Path.Combine(extractDir, "oop-host.ps1");
+        var hashPath = Path.Combine(extractDir, "oop-host.ps1.sha256");
+
+        // Check if already extracted with matching hash
+        if (File.Exists(extractPath) && File.Exists(hashPath))
+        {
+            var existingHash = await File.ReadAllTextAsync(hashPath).ConfigureAwait(false);
+            if (string.Equals(existingHash.Trim(), hash, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogDebug("Embedded oop-host.ps1 already extracted with matching hash.");
+                return extractPath;
+            }
+        }
+
+        Directory.CreateDirectory(extractDir);
+        await File.WriteAllBytesAsync(extractPath, resourceBytes).ConfigureAwait(false);
+        await File.WriteAllTextAsync(hashPath, hash).ConfigureAwait(false);
+
+        _logger.LogDebug("Extracted oop-host.ps1 to {Path} (hash: {Hash}).", extractPath, hash);
+        return extractPath;
     }
 
     /// <summary>
