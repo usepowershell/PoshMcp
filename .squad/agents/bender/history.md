@@ -242,3 +242,15 @@
 - Special built-in tools belong in the existing `Program.cs` registration seam rather than the PowerShell discovery path.
 - Out-of-process recovery fixes were safest when they restored harness parity first: explicit config args, stderr capture, and compile-safe startup expectations.
 - Avoid activating tests against a runtime mode the executable and shared harness cannot actually start yet.
+
+### 2026-04-11: Cross-agent update — Out-of-process execution plan filed
+
+**Context:** Farnsworth filed a comprehensive OOP execution plan at `specs/out-of-process-execution.md`.
+
+**Key points for Bender:**
+- Communication protocol is ndjson over stdin/stdout (not TCP as previously proposed on 2026-04-10)
+- Phase 1 (stub types) is the immediate priority — fixes 13 build errors
+- Phase 2 (subprocess lifecycle) and Phase 4 (command invocation) are the main backend implementation phases
+- `oop-host.ps1` is the subprocess host script — handles discover/invoke/ping/shutdown via ndjson
+- Crash recovery uses exponential backoff (3 retries in 5 min)
+- RuntimeMode is server-wide in v1 (InProcess or OutOfProcess), no per-function routing

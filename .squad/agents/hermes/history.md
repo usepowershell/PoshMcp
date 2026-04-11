@@ -73,3 +73,14 @@
 - Partial vendored trees like `integration/Modules/Az.AppConfiguration/2.0.1` are likely merge fallout and should be removed rather than patched around.
 - Module discovery needs explicit import-before-discovery ordering when autoloading cannot be trusted.
 - If the host script work resumes, keep stdout protocol-only, route diagnostics to stderr, and resolve commands through `Get-Command` plus `CommandInfo` invocation instead of string evaluation.
+
+### 2026-04-11: Cross-agent update — Out-of-process execution plan filed
+
+**Context:** Farnsworth filed a comprehensive OOP execution plan at `specs/out-of-process-execution.md`.
+
+**Key points for Hermes:**
+- Communication protocol is ndjson over stdin/stdout (supersedes the localhost TCP direction from 2026-04-10)
+- Phase 3 (command discovery) involves the subprocess discovering commands via `Get-Command` and reporting back — similar to `PropertySetDiscovery` patterns Hermes already implemented
+- `oop-host.ps1` uses the host-script safety rules Hermes helped define: stdout protocol-only, stderr for diagnostics, `Get-Command` + `CommandInfo` invocation
+- Phase 6 (integration testing) will use modules from `integration/Modules/` — the canonical split layout Hermes helped establish
+- Crash recovery with automatic subprocess restart and exponential backoff
