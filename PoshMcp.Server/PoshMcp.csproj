@@ -48,6 +48,10 @@
   <ItemGroup>
     <EmbeddedResource Include="default.appsettings.json" />
 
+    <None Include="PowerShell\OutOfProcess\oop-host.ps1">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+
     <Content Include="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <!-- Don't include content files when this project is referenced -->

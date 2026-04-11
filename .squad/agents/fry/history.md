@@ -48,6 +48,25 @@
 - Organized functionally: Unit tests for logic, Functional tests for feature scenarios
 - Each test includes detailed comments explaining what it validates and why
 
+### 2026-04-11: OOP Phase 6 Unit Tests Created (Issue #61)
+
+**Context:** Created unit tests for out-of-process execution stub types. Written ahead of the stubs (Bender's task) — tests won't compile until `PoshMcp.Server/PowerShell/OutOfProcess/` types exist.
+
+**Test Files Created:**
+1. `PoshMcp.Tests/Unit/OutOfProcess/RuntimeModeTests.cs` — 10 tests: enum values exist, Parse round-trips, TryParse valid/invalid, case sensitivity, value count
+2. `PoshMcp.Tests/Unit/OutOfProcess/RemoteToolSchemaTests.cs` — 14 tests: DTO defaults (Name, Description, Parameters, ParameterSetName), property setting, RemoteParameterSchema defaults (TypeName="System.String", IsMandatory=false, Position=int.MaxValue), JSON serialization round-trips via Newtonsoft
+3. `PoshMcp.Tests/Unit/OutOfProcess/OutOfProcessCommandExecutorTests.cs` — 12 tests: constructor with logger, StartAsync/DiscoverCommandsAsync/InvokeAsync all throw NotImplementedException, DisposeAsync doesn't throw (called once and twice), implements ICommandExecutor and IAsyncDisposable
+4. `PoshMcp.Tests/Unit/OutOfProcess/OutOfProcessToolAssemblyGeneratorTests.cs` — 8 tests: constructor with mock ICommandExecutor, GenerateAssembly/GetGeneratedInstance/GetGeneratedMethods throw NotImplementedException, ClearCache doesn't throw (called once and twice)
+
+**Total new test count:** 44 tests
+
+**Key Patterns:**
+- Used `NullLogger<T>.Instance` from Microsoft.Extensions.Logging.Abstractions for logger params
+- Used Moq for `ICommandExecutor` mock (already in test .csproj)
+- Namespace: `PoshMcp.Tests.Unit.OutOfProcess`
+- Tests are designed for stubs — will need updates when real implementations arrive
+- Build blocked by missing server stubs (13 CS0234/CS0246 errors in PoshMcp.Server, not in test code)
+
 **Integration with Existing Tests:**
 - Follows PowerShellTestBase pattern for consistent logging and infrastructure
 - Uses same xUnit testing framework as rest of project

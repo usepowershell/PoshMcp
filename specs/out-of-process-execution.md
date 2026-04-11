@@ -579,11 +579,19 @@ poshmcp serve --runtime-mode OutOfProcess
 
 1. **Should we support running multiple `pwsh` subprocesses for parallelism?** Current design is 1:1 (one executor = one process), serialized access. Parallel invoke would require either multiple processes or request multiplexing in the host script.
 
+* We should experiment and look at creating a runspace pool in the one process and using new runspaces for each instance needed.  Then we should compare performance and behavior to separate processes.
+
 2. **Should `oop-host.ps1` be an embedded resource or a file on disk?** Embedded resource is more self-contained but harder to debug. File on disk allows users to customize. Recommendation: **embedded resource** extracted to a temp file at startup, with an override option for development.
+
+* embedded resource that writes to disk with the override option
 
 3. **Should we support mixed mode (some commands in-process, some OOP)?** The current `RuntimeMode` is server-wide. Mixed mode would require per-function config. Defer to a later iteration — it adds significant complexity to routing.
 
+* Keep it server-wide for now.
+
 4. **How should `oop-host.ps1` handle environment customization?** The existing `EnvironmentConfiguration` (startup scripts, module installation from `appsettings.json`) needs an equivalent flow for the subprocess. The subprocess should run the same startup scripts and module installation logic before discovery.
+
+* oop-host should support all the customization the in-process host does.
 
 ## File Inventory Summary
 

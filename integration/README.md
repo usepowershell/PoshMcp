@@ -8,8 +8,8 @@ If `./integration/Modules` (from the projecte root) does not exist:
 if (-not (Test-Path './integration/Modules/')) {
   mkdir integration/Modules
   push-location ./integration/Modules
-  Save-Module Az -Force
-  Save-Module Microsoft.Graph -Force
+  Save-Module Az -Path . -Force
+  Save-Module Microsoft.Graph -path . -Force
 }
 ```
 
