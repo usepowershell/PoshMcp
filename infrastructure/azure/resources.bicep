@@ -175,8 +175,8 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
               value: 'http://+:8080'
             }
             {
-              name: 'POSHMCP_MODE'
-              value: 'web'
+              name: 'POSHMCP_TRANSPORT'
+              value: 'http'
             }
             {
               name: 'PowerShellConfiguration__FunctionNames__0'

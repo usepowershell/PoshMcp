@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using PoshMcp.Server.Observability;
 using PoshMcp.Server.PowerShell;
+using PoshMcp.Server.PowerShell.OutOfProcess;
 using PoshMcp.Server.Metrics;
 using PSPowerShell = System.Management.Automation.PowerShell;
 
@@ -34,7 +35,9 @@ public class PowerShellCommandMetadata
 /// </summary>
 public class McpToolFactoryV2
 {
-    private readonly PowerShellAssemblyGenerator _assemblyGenerator;
+    private readonly PowerShellAssemblyGenerator? _assemblyGenerator;
+    private readonly OutOfProcessToolAssemblyGenerator? _outOfProcessAssemblyGenerator;
+    private readonly ICommandExecutor? _commandExecutor;
     private static McpMetrics? _metrics;
 
     /// <summary>
@@ -63,12 +66,19 @@ public class McpToolFactoryV2
         _assemblyGenerator = new PowerShellAssemblyGenerator(runspace);
     }
 
+    public McpToolFactoryV2(ICommandExecutor commandExecutor)
+    {
+        _commandExecutor = commandExecutor ?? throw new ArgumentNullException(nameof(commandExecutor));
+        _outOfProcessAssemblyGenerator = new OutOfProcessToolAssemblyGenerator(commandExecutor);
+    }
+
     /// <summary>
     /// Clears the cached assembly to force regeneration on next GetToolsList call
     /// </summary>
     public void ClearCache()
     {
-        _assemblyGenerator.ClearCache();
+        _assemblyGenerator?.ClearCache();
+        _outOfProcessAssemblyGenerator?.ClearCache();
     }
 
     /// <summary>
@@ -289,12 +299,23 @@ public class McpToolFactoryV2
     /// <returns>List of MCP server tools</returns>
     public List<McpServerTool> GetToolsList(PowerShellConfiguration config, ILogger logger)
     {
+        return GetToolsListAsync(config, logger).GetAwaiter().GetResult();
+    }
+
+    public async Task<List<McpServerTool>> GetToolsListAsync(PowerShellConfiguration config, ILogger logger, CancellationToken cancellationToken = default)
+    {
         try
         {
             using (OperationContext.BeginOperation("GetToolsList"))
             {
                 logger.LogInformationWithCorrelation("Starting MCP tools generation using dynamic assembly approach");
                 LogToolGenerationStart(logger, config);
+
+                if (config.RuntimeMode == RuntimeMode.OutOfProcess)
+                {
+                    return await GetOutOfProcessToolsListAsync(config, logger, cancellationToken);
+                }
+
                 var commands = ValidateAndGetCommands(config, logger);
                 if (!commands.Any()) return new List<McpServerTool>();
 
@@ -311,11 +332,35 @@ public class McpToolFactoryV2
         }
     }
 
+    private async Task<List<McpServerTool>> GetOutOfProcessToolsListAsync(PowerShellConfiguration config, ILogger logger, CancellationToken cancellationToken)
+    {
+        if (_commandExecutor == null || _outOfProcessAssemblyGenerator == null)
+        {
+            throw new InvalidOperationException("Out-of-process runtime mode requires an ICommandExecutor-backed McpToolFactoryV2 instance.");
+        }
+
+        var schemas = await _commandExecutor.DiscoverCommandsAsync(config, cancellationToken);
+        if (schemas.Count == 0)
+        {
+            logger.LogWarning("Out-of-process discovery returned no tool schemas");
+            return new List<McpServerTool>();
+        }
+
+        _outOfProcessAssemblyGenerator.GenerateAssembly(schemas, logger);
+        var generatedInstance = _outOfProcessAssemblyGenerator.GetGeneratedInstance(logger);
+        var generatedMethods = _outOfProcessAssemblyGenerator.GetGeneratedMethods();
+        var methodToCommandMap = CreateRemoteCommandMetadataMapping(schemas);
+        var tools = CreateMcpToolsFromMethods(generatedMethods, generatedInstance, methodToCommandMap, logger);
+        LogToolGenerationResults(tools, logger);
+        return tools;
+    }
+
     private static void LogToolGenerationStart(ILogger logger, PowerShellConfiguration config)
     {
         logger.LogInformation("Starting MCP tools generation using dynamic assembly approach");
         logger.LogTrace("Tool factory configuration:");
         logger.LogTrace($"  Config type: {config.GetType().Name}");
+        logger.LogTrace($"  Runtime mode: {config.RuntimeMode}");
     }
 
     private List<CommandInfo> ValidateAndGetCommands(PowerShellConfiguration config, ILogger logger)
@@ -379,6 +424,43 @@ public class McpToolFactoryV2
         {
             MapParameterSetsToMetadata(command, powerShell, methodToCommandMap, logger);
         }
+        return methodToCommandMap;
+    }
+
+    private static Dictionary<string, PowerShellCommandMetadata> CreateRemoteCommandMetadataMapping(IReadOnlyList<RemoteToolSchema> schemas)
+    {
+        var methodToCommandMap = new Dictionary<string, PowerShellCommandMetadata>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var schema in schemas)
+        {
+            var methodName = PowerShellAssemblyGenerator.SanitizeMethodName(schema.Name, schema.ParameterSetName);
+            var metadata = new PowerShellCommandMetadata
+            {
+                CommandName = schema.Name,
+                Description = string.IsNullOrWhiteSpace(schema.Description) ? schema.Name : schema.Description,
+                IsDestructive = false,
+                IsReadOnly = false,
+                IsIdempotent = false
+            };
+
+            var verb = ExtractVerbFromCommandName(schema.Name);
+            if (IsReadOnlyVerb(verb))
+            {
+                metadata.IsReadOnly = true;
+                metadata.IsIdempotent = true;
+            }
+            else if (IsDestructiveVerb(verb))
+            {
+                metadata.IsDestructive = true;
+            }
+            else if (string.Equals(verb, "Set", StringComparison.OrdinalIgnoreCase))
+            {
+                metadata.IsIdempotent = true;
+            }
+
+            methodToCommandMap[methodName] = metadata;
+        }
+
         return methodToCommandMap;
     }
 
@@ -542,11 +624,6 @@ public class McpToolFactoryV2
             logger.LogTrace($"  Include Patterns: [{string.Join(", ", config.IncludePatterns)}]");
             logger.LogTrace($"  Exclude Patterns: [{string.Join(", ", config.ExcludePatterns)}]");
 
-            if (config.Modules.Any())
-            {
-                ImportConfiguredModules(config.Modules, powerShell, logger);
-            }
-
             // Always process function names if specified
             if (allFunctionNames.Any())
             {
@@ -652,41 +729,6 @@ public class McpToolFactoryV2
         }
 
         return commands;
-    }
-
-    private void ImportConfiguredModules(List<string> modules, PSPowerShell powerShell, ILogger logger)
-    {
-        foreach (var module in modules.Where(m => !string.IsNullOrWhiteSpace(m)).Distinct(StringComparer.OrdinalIgnoreCase))
-        {
-            try
-            {
-                powerShell.Commands.Clear();
-                powerShell.AddCommand("Import-Module")
-                    .AddParameter("Name", module)
-                    .AddParameter("ErrorAction", "Stop")
-                    .AddParameter("PassThru");
-                var imported = powerShell.Invoke();
-                powerShell.Commands.Clear();
-
-                if (powerShell.HadErrors)
-                {
-                    var errors = string.Join("; ", powerShell.Streams.Error.Select(e => e.ToString()));
-                    logger.LogWarning($"Failed to import module '{module}' before discovery: {errors}");
-                    powerShell.Streams.Error.Clear();
-                    continue;
-                }
-
-                logger.LogDebug($"Imported module '{module}' before discovery ({imported.Count} result objects)");
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, $"Failed to import module '{module}' before discovery. Command discovery will continue.");
-            }
-            finally
-            {
-                powerShell.Commands.Clear();
-            }
-        }
     }
 
     private List<CommandInfo> GetCommandsByModule(List<string> modules, PSPowerShell powerShell, ILogger logger)

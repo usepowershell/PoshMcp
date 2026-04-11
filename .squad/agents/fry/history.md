@@ -155,42 +155,27 @@
 **Key learning:**
 - Current slowdown is primarily startup + command execution cost in integration harnesses, not observed lingering parent server processes after dispose.
 
-### 2026-04-10: Focused gating coverage for doctor MCP exposure
-
-**Context:** Added focused tests around config-gated doctor tool exposure.
+### 2026-04-10: Recovery validation learnings for doctor and out-of-process work
 
 **Key learnings:**
-- The most valuable assertions are around expected tool names and gate behavior, not end-to-end command execution, because they validate the contract that the MCP server advertises.
-- Reusing the existing doctor transport-selection test patterns keeps the new coverage narrow and stable while still exercising resolved configuration behavior.
-- For config-gated tooling, a small focused unit suite is the fastest way to catch regressions where a diagnostic tool becomes accidentally public or disappears when the flag is enabled.
+- The public doctor JSON payload is the right narrow contract for gating tests on troubleshooting-tool exposure.
+- Startup-order tests are an effective regression guard for module import/discovery sequencing without requiring full server startup.
+- Out-of-process end-to-end coverage should remain scaffold-only until the executable and shared harness expose the runtime mode under test.
+- Validation on recovery branches should prefer compile-safe, high-signal tests over speculative integration activation.
 
-### 2026-04-10: Doctor-as-tool gating coverage uses doctor JSON as the public seam
+### 2026-04-10: Out-of-process executor coverage activated against real host script
 
-**Context:** Added focused test coverage for the new configuration-troubleshooting MCP tool request before the implementation landed.
+**Context:** Converted the executor-side out-of-process tests from TODO stubs into real tests that start `poshmcp-host.ps1`, execute commands, and perform module discovery against the checked-in `integration/Modules` corpus.
 
-**Testing changes made:**
-- Extended `PoshMcp.Tests/Unit/ProgramTransportSelectionTests.cs` with doctor JSON assertions for default-hidden behavior, config-enabled visibility, and environment-driven disabling.
-- Reused the existing `doctor --format json` harness instead of reflecting into private tool setup methods.
+**What changed:**
+- Added real `OutOfProcessCommandExecutorTests` coverage for happy-path execution, subprocess error handling, null-parameter behavior, and Az.Accounts discovery.
+- Extended doctor transport-selection coverage to include session mode and MCP path source precedence.
+- Confirmed `integration/Modules` is deliberate test input by forwarding `PowerShellConfiguration.Environment.ModulePaths` into out-of-process discovery.
 
-**Key learning:**
-- The smallest stable regression surface for this feature is the doctor payload's `effectivePowerShellConfiguration` plus `toolNames`, not the private tool registration helpers.
-- The current codebase does not yet show environment-variable binding for `EnableDynamicReloadTools`, so the env-override assertion is a deliberate red/green guide for the implementation.
+**Validation:**
+- Compile-backed focused suite passed: Program tests, transport-selection tests, McpToolFactory tests, host script tests, local module loading tests, out-of-process module tests, and executor tests.
 
-### 2026-04-10: Startup ordering coverage for module import and function discovery
+**Remaining gap:**
+- Full MCP server startup tests for out-of-process mode are still scaffolded because `Program.cs` and the in-process server harness do not yet expose a `--runtime-mode` integration path.
 
-**Context:** Validated whether existing tests cover startup ordering between environment setup (`ImportModules` / startup script execution) and tool discovery.
-
-**Findings:**
-- Existing coverage exercised command discovery and configuration wiring but did not assert ordering behavior where discovery must run after environment setup.
-- `PowerShellEnvironmentSetup` had no direct test coverage prior to this change.
-
-**Testing changes made:**
-- Added `PoshMcp.Tests/Unit/ModuleDiscoveryStartupOrderingTests.cs` with two deterministic tests:
-	- `GetToolsList_WithImportedModuleBeforeDiscovery_ShouldDiscoverModuleFunction`
-	- `GetToolsList_WithStartupScriptBeforeDiscovery_ShouldDiscoverScriptFunction`
-- Both tests verify the negative case before setup (no tool) and positive case after setup (function discoverable and tool generated) against a shared isolated runspace.
-
-**Key learning:**
-- A before/after assertion in the same runspace is the most stable way to catch discovery-before-import regressions without introducing process startup flakiness.
-- Tool-name assertions should tolerate normalization behavior and focus on uniquely generated function signatures.
 

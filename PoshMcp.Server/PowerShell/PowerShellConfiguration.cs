@@ -10,6 +10,11 @@ namespace PoshMcp.Server.PowerShell;
 public class PowerShellConfiguration
 {
     /// <summary>
+    /// Selects whether commands execute in-process or via the persistent PowerShell subprocess host.
+    /// </summary>
+    public RuntimeMode RuntimeMode { get; set; } = RuntimeMode.InProcess;
+
+    /// <summary>
     /// Specific function names to import
     /// </summary>
     public List<string> FunctionNames { get; set; } = new();
@@ -40,7 +45,7 @@ public class PowerShellConfiguration
     public bool EnableDynamicReloadTools { get; set; } = false;
 
     /// <summary>
-    /// Whether to expose the doctor-style configuration troubleshooting MCP tool.
+    /// Whether to expose the configuration troubleshooting tool.
     /// </summary>
     public bool EnableConfigurationTroubleshootingTool { get; set; } = false;
 

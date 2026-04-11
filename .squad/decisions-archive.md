@@ -1,6 +1,6 @@
 # Decisions Archive
 
-Archived decisions older than 7 days.
+Archived decisions outside the active Scribe retention window.
 
 ## 2026-03-27: Squad initialization
 
@@ -82,6 +82,46 @@ Archived decisions older than 7 days.
 **Testing:** Fry created 37 test scenarios (13 passing at phase completion)
 
 **Status:** Active
+
+## 2025-07
+
+### Runtime Caching Toggle via MCP Tool
+
+**Author:** Farnsworth (Lead / Architect)
+**Date:** 2025-07-17
+**Status:** Proposed
+**Spec:** `specs/large-result-performance.md` (section 3.6)
+
+Add a `set-result-caching` MCP tool that sets runtime overrides for result caching without restarting the server.
+
+**Key design choices:**
+1. **Runtime overrides take highest priority** in the resolution chain — above per-function config and global config.
+2. **Scope: global + per-function.** The tool accepts a `scope` parameter (`global` or `function`). Per-function runtime overrides take priority over global runtime override.
+3. **Ephemeral state.** Runtime overrides do not persist across server restarts. Runtime = session intent; config = operational defaults.
+4. **Thread-safe via `ConcurrentDictionary` + `volatile`.** No locks needed for simple flag reads/writes.
+5. **Immediate effect on next command.** Toggling caching does not retroactively cache previous output.
+6. **Gating.** Recommend gating behind `EnableDynamicReloadTools` for consistency with other runtime configuration tools.
+
+**Rationale:**
+- Steven requested runtime toggleability without restart for developer iteration
+- Single-client stdio server model makes session-scoped state unnecessary
+- Per-function + global hierarchy mirrors static config, reducing cognitive load
+
+**Impact:**
+- New file: `RuntimeCachingState.cs`
+- New DI registration in `Program.cs`
+- New MCP tool registered in `McpToolFactoryV2`
+- Updated resolution logic in `ExecutePowerShellCommandTyped`
+- New Phase 2.5 in implementation plan (between Phase 2 and Phase 3)
+- Additional unit and integration tests
+
+## 2025-11-26
+
+### Recovery fix for out-of-process merge fallout
+
+**By:** Bender
+**What:** Restored a shared `Program.BuildDoctorJson(...)` helper so CLI doctor output and MCP troubleshooting tools use the same JSON payload builder, and extended the shared `InProcessMcpServer` test harness to support explicit config arguments and stderr capture expected by out-of-process integration tests.
+**Why:** The merge left the server and integration harness in mismatched states: the runtime troubleshooting tool still depended on a removed helper, and the new out-of-process tests depended on harness features that were no longer present. Centralizing the doctor JSON path again and updating the shared harness was the minimal root-cause fix.
 
 ---
 

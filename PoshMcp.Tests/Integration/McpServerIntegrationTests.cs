@@ -266,14 +266,20 @@ public class InProcessMcpServer : IDisposable
 {
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _cancellationTokenSource;
+    private readonly string? _extraArgs;
+    private readonly string? _explicitConfigPath;
+    private readonly List<string> _standardErrorLines = new();
+    private readonly object _standardErrorLock = new();
     private Process? _serverProcess;
 
     public bool IsRunning => _serverProcess != null && !_serverProcess.HasExited;
 
-    public InProcessMcpServer(ILogger logger)
+    public InProcessMcpServer(ILogger logger, string? extraArgs = null, string? explicitConfigPath = null)
     {
         _logger = logger;
         _cancellationTokenSource = new CancellationTokenSource();
+        _extraArgs = extraArgs;
+        _explicitConfigPath = explicitConfigPath;
     }
 
     public async Task StartAsync()
@@ -304,7 +310,7 @@ public class InProcessMcpServer : IDisposable
         var startInfo = new ProcessStartInfo
         {
             FileName = "dotnet",
-            Arguments = $"run --no-build --configuration {buildConfiguration} --project \"{serverProjectPath}\"",
+            Arguments = BuildRunArguments(buildConfiguration, serverProjectPath),
             UseShellExecute = false,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
@@ -320,6 +326,11 @@ public class InProcessMcpServer : IDisposable
         {
             if (!string.IsNullOrEmpty(e.Data))
             {
+                lock (_standardErrorLock)
+                {
+                    _standardErrorLines.Add(e.Data);
+                }
+
                 _logger.LogError($"[SERVER ERROR] {e.Data}");
             }
         };
@@ -350,6 +361,14 @@ public class InProcessMcpServer : IDisposable
 
     public Process GetServerProcess() => _serverProcess ?? throw new InvalidOperationException("Server not started");
 
+    public IReadOnlyList<string> GetStandardErrorLines()
+    {
+        lock (_standardErrorLock)
+        {
+            return _standardErrorLines.ToList();
+        }
+    }
+
     private static string ResolveBuildConfiguration()
     {
         var baseDirectory = AppContext.BaseDirectory;
@@ -365,6 +384,32 @@ public class InProcessMcpServer : IDisposable
         }
 
         return "Debug";
+    }
+
+    private string BuildRunArguments(string buildConfiguration, string serverProjectPath)
+    {
+        var arguments = $"run --no-build --configuration {buildConfiguration} --project \"{serverProjectPath}\"";
+        var appArgs = _extraArgs?.Trim();
+
+        if (!string.IsNullOrWhiteSpace(_explicitConfigPath))
+        {
+            var normalizedConfigPath = Path.GetFullPath(_explicitConfigPath);
+            if (string.IsNullOrWhiteSpace(appArgs))
+            {
+                appArgs = $"serve --config \"{normalizedConfigPath}\"";
+            }
+            else if (!appArgs.Contains("--config", StringComparison.OrdinalIgnoreCase))
+            {
+                appArgs += $" --config \"{normalizedConfigPath}\"";
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(appArgs))
+        {
+            arguments += $" -- {appArgs}";
+        }
+
+        return arguments;
     }
 
     public void Dispose()

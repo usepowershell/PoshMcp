@@ -1,6 +1,26 @@
-# PoshMcp environment customization examples
+# PoshMcp Environment Customization Examples
 
 This directory contains examples demonstrating how to customize the PowerShell environment in PoshMcp, including Dockerfile templates for creating custom images.
+
+## Configuration Examples
+
+### `appsettings.outofprocess.integration-modules.json`
+
+**Purpose:** Local testing example for out-of-process runtime mode with the integration test module corpus.
+
+**⚠️ Important:**
+- **For local development and testing only**
+- Uses `integration/Modules` — a test-asset corpus, not production content
+- Not for end-user deployment
+- See [docs/OUT-OF-PROCESS.md](../docs/OUT-OF-PROCESS.md) for out-of-process deployment guide
+
+**Example usage:**
+```bash
+dotnet run --project PoshMcp.Server -- serve \
+  --config examples/appsettings.outofprocess.integration-modules.json
+```
+
+For production out-of-process deployments, use PowerShell Gallery modules or your organization's module repository.
 
 ## Files
 
@@ -88,7 +108,7 @@ docker run -it --rm my-poshmcp
 
 # With Azure authentication
 docker run -d -p 8080:8080 \
-  -e POSHMCP_MODE=web \
+  -e POSHMCP_TRANSPORT=http \
   -e AZURE_CLIENT_ID=your-client-id \
   -e AZURE_TENANT_ID=your-tenant-id \
   poshmcp-azure
@@ -379,7 +399,7 @@ services:
   poshmcp-basic:
     image: poshmcp:latest
     environment:
-      POSHMCP_MODE: web
+      POSHMCP_TRANSPORT: http
     volumes:
       - ./startup.ps1:/app/startup.ps1:ro
       - ./appsettings.basic.json:/app/appsettings.json:ro

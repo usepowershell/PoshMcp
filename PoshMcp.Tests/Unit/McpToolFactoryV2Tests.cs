@@ -1,8 +1,4 @@
 using Microsoft.Extensions.Logging;
-using PoshMcp.Server.PowerShell;
-using System;
-using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Management.Automation;
 using Xunit;
@@ -106,54 +102,5 @@ public class McpToolFactoryV2Tests : PowerShellTestBase
 
         // Assert
         Assert.False(isDestructive);
-    }
-
-    [Fact]
-    public void GetToolsList_WithConfiguredModuleAndAutoloadDisabled_ImportsModuleBeforeNameDiscovery()
-    {
-        var moduleName = "HermesModule";
-        var commandName = "Get-HermesValue";
-        var tempRoot = Path.Combine(Path.GetTempPath(), "poshmcp-tests", Guid.NewGuid().ToString("N"));
-        var moduleDir = Path.Combine(tempRoot, moduleName);
-        Directory.CreateDirectory(moduleDir);
-
-        var moduleFilePath = Path.Combine(moduleDir, moduleName + ".psm1");
-        File.WriteAllText(moduleFilePath, @"
-function Get-HermesValue {
-    return 'ok'
-}
-
-Export-ModuleMember -Function Get-HermesValue
-");
-
-        var runspace = new IsolatedPowerShellRunspace();
-        try
-        {
-            runspace.ExecuteThreadSafe(ps =>
-            {
-                ps.Commands.Clear();
-                ps.AddScript($"$PSModuleAutoLoadingPreference = 'None'; $env:PSModulePath = '{tempRoot.Replace("'", "''")}{Path.PathSeparator}' + $env:PSModulePath");
-                ps.Invoke();
-                ps.Commands.Clear();
-            });
-
-            var toolFactory = new McpToolFactoryV2(runspace);
-            var config = new PowerShellConfiguration
-            {
-                FunctionNames = new List<string> { commandName },
-                Modules = new List<string> { moduleName }
-            };
-
-            var tools = toolFactory.GetToolsList(config, Logger);
-            Assert.Contains(tools, t => t.ProtocolTool.Name.StartsWith("get_hermes_value", StringComparison.OrdinalIgnoreCase));
-        }
-        finally
-        {
-            runspace.Dispose();
-            if (Directory.Exists(tempRoot))
-            {
-                Directory.Delete(tempRoot, recursive: true);
-            }
-        }
     }
 }

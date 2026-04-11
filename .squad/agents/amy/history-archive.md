@@ -1,3 +1,11 @@
+# Amy Work History - Archive
+
+## Archived Snapshot — 2026-04-10T19-51-18Z
+
+Archived because `history.md` exceeded the 15 KB summarization threshold. The active history was replaced with a compact summary that preserves recent work while this detailed snapshot remains available for reference.
+
+---
+
 - **20260403T135630Z**: ✓ BICEP modularization decision processed and archived.
 - **20260403T140503Z**: ✓ Documentation gap review findings documented; decision protocol recorded.
 - **20260403T141812Z**: ✓ Deploy.ps1 RG creation ordering bug fixed; decision merged to team ledger.
@@ -143,19 +151,19 @@ main.bicep (subscription)
 **Key Architectural Decisions:**
 
 1. **Subscription Scope Entry Point:**
-   - `main.bicep` at subscription scope creates RG and role assignments
-   - Uses `az.resourceGroup(rg.name)` for module scope declaration
-   - Aggregates outputs from module
+	- `main.bicep` at subscription scope creates RG and role assignments
+	- Uses `az.resourceGroup(rg.name)` for module scope declaration
+	- Aggregates outputs from module
 
 2. **Resource Group Module:**
-   - `resources.bicep` contains all RG-scoped resources (already existed, now properly used)
-   - No changes required to resource definitions
-   - Outputs consumed by parent for role assignment
+	- `resources.bicep` contains all RG-scoped resources (already existed, now properly used)
+	- No changes required to resource definitions
+	- Outputs consumed by parent for role assignment
 
 3. **Role Assignment Fix:**
-   - Changed from runtime GUID: `guid(subscription().id, resources.outputs.principalId, ...)`
-   - To deterministic GUID: `guid(subscription().id, resourceGroupName, containerAppName, roleId)`
-   - Ensures name calculable at deployment start (BCP120 requirement)
+	- Changed from runtime GUID: `guid(subscription().id, resources.outputs.principalId, ...)`
+	- To deterministic GUID: `guid(subscription().id, resourceGroupName, containerAppName, roleId)`
+	- Ensures name calculable at deployment start (BCP120 requirement)
 
 **Files Modified:**
 - `infrastructure/azure/main.bicep` - Refactored to use module pattern
@@ -310,11 +318,11 @@ main.bicep (subscription)
 1. Bumped version in `PoshMcp.Server/PoshMcp.csproj`: 0.2.1 → 0.2.2
 2. Ran `dotnet pack -c Release` → generated `poshmcp.0.2.2.nupkg` (26.4 MB)
 3. Updated global tool: `dotnet tool update -g poshmcp --add-source ./PoshMcp.Server/bin/Release`
-   - Upgraded from 0.2.0 → 0.2.2 (previous v0.2.1 was not in release bin, only 0.2.0 existed)
+	- Upgraded from 0.2.0 → 0.2.2 (previous v0.2.1 was not in release bin, only 0.2.0 existed)
 4. Verified deployment:
-   - `poshmcp --version` → `0.2.2+88dbdbfc09852f4e40f5d9a7e2ced26417d9a12b` ✅
-   - `poshmcp --help` → Full CLI help and commands available ✅
-   - All commands functional (serve, list-tools, validate-config, doctor, psmodulepath)
+	- `poshmcp --version` → `0.2.2+88dbdbfc09852f4e40f5d9a7e2ced26417d9a12b` ✅
+	- `poshmcp --help` → Full CLI help and commands available ✅
+	- All commands functional (serve, list-tools, validate-config, doctor, psmodulepath)
 
 **Package Location:** `C:\Users\stmuraws\source\usepowershell\poshmcp\PoshMcp.Server\bin\Release\poshmcp.0.2.2.nupkg`
 

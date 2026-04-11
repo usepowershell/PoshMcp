@@ -22,4 +22,5 @@ PoshMcp dynamically transforms PowerShell scripts, cmdlets, and modules into sec
 - 2026-04-08: Added lifecycle-focused tool invocation logging notes for a perceived `Get-Process` hang; recorded that build and targeted test validation passed.
 - 2026-04-09: Consolidating transport-foundation, HTTP implementation, and gate decisions in one merge pass keeps `.squad/decisions.md` coherent and avoids losing green-criteria evidence.
 - 2026-04-09: Merging the CLI config command inbox item into `.squad/decisions.md` with a single canonical entry and then removing inbox residue keeps the decision ledger clean and auditable.
-- 2026-04-10: When a session has no decision inbox items, Scribe should still refresh precheck metrics, write orchestration/session health logs, and summarize oversized agent histories so squad state stays current even without a new decision merge.
+- 2026-04-10: When `decisions.md` is already above the archival threshold, check existing entries for age violations before assuming the inbox is the only archival source.
+- 2026-04-10: Recovery batches with overlapping agent findings are easier to audit when Scribe merges them into a few canonical ledger entries instead of copying each inbox file verbatim.

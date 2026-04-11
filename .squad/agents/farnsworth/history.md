@@ -45,11 +45,10 @@ Current Priorities:
 - Start version at `0.1.0`.
 - PackageId: `PoshMcp`, Authors: `Steven Murawski`, License: `MIT` (needs LICENSE file at repo root).
 
-### 2026-04-10: Config doctor MCP exposure review
-
-**Context:** Reviewed the architecture and MCP contract for exposing doctor-style diagnostics through the MCP tool surface without making it universally available.
+### 2026-04-10: Recovery guidance for out-of-process runtime and doctor tooling
 
 **Key learnings:**
-- The existing runtime doctor command already centralizes config, transport, and tool expectation diagnostics inside `PoshMcp.Server/Program.cs`, so MCP exposure should reuse that contract instead of creating a second diagnostic path.
-- Diagnostic MCP exposure belongs behind the same configuration gate used for dynamic reload tooling so normal production surfaces stay minimal by default.
-- Contract review for this feature should stay anchored to `GetExpectedToolNames(...)` and the doctor command's resolved-settings flow, because those are the stable points that define what "healthy" means for config-aware tooling.
+- Out-of-process end-to-end tests should stay as documented stubs until `Program.cs` and `InProcessMcpServer` expose a supported `--runtime-mode` surface.
+- Recovery work should normalize all live startup helpers to `POSHMCP_TRANSPORT`; `POSHMCP_MODE` is retired architectural residue.
+- If the out-of-process design resumes, a persistent `pwsh` subprocess over localhost TCP remains the lowest-complexity cross-platform direction.
+- Troubleshooting surfaces should stay read-only and explicitly gated even when exposed as built-in MCP tools.
