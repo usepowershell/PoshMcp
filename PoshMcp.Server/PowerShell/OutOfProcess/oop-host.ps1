@@ -8,6 +8,10 @@
 
 $ErrorActionPreference = 'Stop'
 
+# Suppress ANSI escape codes — stdout is for ndjson only.
+$env:NO_COLOR = '1'
+if ($PSStyle) { $PSStyle.OutputRendering = 'PlainText' }
+
 # Common parameters that should be excluded from discovery schemas.
 $script:CommonParameters = @(
     'Verbose', 'Debug', 'ErrorAction', 'WarningAction', 'InformationAction',
@@ -536,7 +540,7 @@ function Invoke-InvokeHandler {
             $hadErrors = $true
         }
 
-        $jsonOutput = $result | ConvertTo-Json -Depth 4 -Compress
+        $jsonOutput = $result | ConvertTo-Json -Depth 4 -Compress -WarningAction SilentlyContinue 3>$null
         if ($null -eq $jsonOutput) {
             $jsonOutput = 'null'
         }

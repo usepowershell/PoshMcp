@@ -84,10 +84,65 @@ We use a simple request/response JSON-RPC-like protocol over the subprocess's st
 
 | Method | Direction | Purpose |
 |--------|-----------|---------|
+| `ping` | server → pwsh | Health check (subprocess alive?) |
+| `setup` | server → pwsh | Apply environment customization (module paths, install/import modules, startup scripts) |
 | `discover` | server → pwsh | Import configured modules, return command schemas |
 | `invoke` | server → pwsh | Execute a command with parameters, return results |
-| `ping` | server → pwsh | Health check (subprocess alive?) |
 | `shutdown` | server → pwsh | Graceful termination |
+
+### `setup` Method
+
+Called after `ping` succeeds and before `discover`. Applies `EnvironmentConfiguration` settings to the OOP subprocess, mirroring the ordering in `PowerShellEnvironmentSetup.ApplyEnvironmentConfiguration()`:
+
+1. Configure `$env:PSModulePath` with additional paths
+2. Trust PSGallery if configured
+3. Install modules (with version constraints, skip if already installed)
+4. Import pre-installed modules
+5. Execute startup script from file path
+6. Execute inline startup script
+
+**Request params:**
+
+```jsonc
+{
+  "modulePaths": ["string"],           // paths to prepend to $env:PSModulePath
+  "trustPSGallery": true,              // trust PSGallery repository
+  "installModules": [                  // modules to install
+    {
+      "name": "Az.Accounts",
+      "version": null,                 // exact version (optional)
+      "minimumVersion": "2.0.0",       // minimum version (optional)
+      "maximumVersion": null,          // maximum version (optional)
+      "repository": "PSGallery",
+      "scope": "CurrentUser",
+      "force": false,
+      "skipPublisherCheck": true,
+      "allowPrerelease": false
+    }
+  ],
+  "importModules": ["string"],         // module names to Import-Module
+  "startupScriptPath": "string",       // path to .ps1 startup script
+  "startupScript": "string",           // inline PowerShell to execute
+  "skipPublisherCheck": true,          // global skip publisher check default
+  "allowClobber": false,               // allow clobber on Import-Module
+  "installTimeoutSeconds": 300         // timeout for module installations
+}
+```
+
+**Response:**
+
+```jsonc
+{
+  "success": true,
+  "installedModules": ["Az.Accounts"],
+  "importedModules": ["Microsoft.PowerShell.Utility"],
+  "configuredModulePaths": ["/mnt/shared-modules"],
+  "startupScriptExecuted": false,
+  "inlineScriptExecuted": false,
+  "errors": [],
+  "warnings": []
+}
+```
 
 ## Complete Type Inventory
 

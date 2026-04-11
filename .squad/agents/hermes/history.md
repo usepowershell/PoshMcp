@@ -116,3 +116,26 @@
 - Unknown method: error response with code -1
 - Unhandled exceptions in handlers: caught by outer try/catch, error response returned
 - EOF on stdin: clean exit
+
+### 2026-04-11: OOP environment customization (issue #67)
+
+**Context:** Added `setup` protocol method to oop-host.ps1 so OOP subprocess gets the same environment customization as in-process host.
+
+**Key design decisions:**
+- `setup` method called after `ping`, before `discover` — mirrors PowerShellEnvironmentSetup.ApplyEnvironmentConfiguration() ordering
+- Setup is optional: only sent when EnvironmentConfiguration has content (module paths, install/import modules, startup scripts, or PSGallery trust)
+- Setup errors throw InvalidOperationException, failing server startup — fail-fast is correct for environment misconfiguration
+- `SetupAsync()` is a concrete method on OutOfProcessCommandExecutor (not on ICommandExecutor interface) since it's OOP-specific
+
+**Key files modified:**
+- `PoshMcp.Server/PowerShell/OutOfProcess/oop-host.ps1` — Added Invoke-SetupHandler function and `setup` dispatch
+- `PoshMcp.Server/PowerShell/OutOfProcess/OutOfProcessCommandExecutor.cs` — Added SetupAsync() method
+- `PoshMcp.Server/Program.cs` — Updated StartOutOfProcessExecutorIfNeededAsync() to call SetupAsync
+- `specs/out-of-process-execution.md` — Updated protocol docs with setup method
+
+**PowerShell patterns used:**
+- `[System.Environment]::ExpandEnvironmentVariables()` for path expansion
+- `[System.IO.Path]::PathSeparator` for cross-platform PSModulePath construction
+- `Install-Module` with version constraint params (RequiredVersion, MinimumVersion, MaximumVersion)
+- `Get-Module -ListAvailable` to skip already-installed modules
+- `Invoke-Expression` for startup scripts (consistent with in-process host behavior)
