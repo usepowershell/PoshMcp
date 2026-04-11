@@ -2,6 +2,17 @@
 
 `integration/Modules` is a **vendored test-asset corpus** used **locally** to validate module loading and out-of-process hosting scenarios. This directory is **NOT part of the product runtime** and should not be used in production deployments.
 
+If `./integration/Modules` (from the projecte root) does not exist:
+
+```powershell
+if (-not (Test-Path './integration/Modules/')) {
+  mkdir integration/Modules
+  push-location ./integration/Modules
+  Save-Module Az -Force
+  Save-Module Microsoft.Graph -Force
+}
+```
+
 ---
 
 ## Scope & Usage Rules
