@@ -52,3 +52,23 @@ Current Priorities:
 - Recovery work should normalize all live startup helpers to `POSHMCP_TRANSPORT`; `POSHMCP_MODE` is retired architectural residue.
 - If the out-of-process design resumes, a persistent `pwsh` subprocess over localhost TCP remains the lowest-complexity cross-platform direction.
 - Troubleshooting surfaces should stay read-only and explicitly gated even when exposed as built-in MCP tools.
+
+### 2026-04-11: Out-of-process execution comprehensive plan
+
+**Key architecture decisions:**
+- Communication protocol changed from localhost TCP (2026-04-10 note) to **stdin/stdout ndjson** — simpler, no port/firewall concerns, native `Process` stream redirection.
+- 6-phase plan: stubs (fix 13 build errors) → subprocess lifecycle → discovery → invocation → IL assembly gen → integration tests.
+- `oop-host.ps1` PowerShell script runs inside persistent `pwsh` subprocess, handles discover/invoke/ping/shutdown via ndjson.
+- Crash recovery: auto-restart with exponential backoff (3 retries/5 min), re-discovery after restart.
+- No mixed mode in v1 — RuntimeMode is server-wide. Per-function routing deferred.
+- 5 new types in `PoshMcp.Server.PowerShell.OutOfProcess` namespace: `RuntimeMode` enum, `ICommandExecutor`, `RemoteToolSchema`+`RemoteParameterSchema`, `OutOfProcessCommandExecutor`, `OutOfProcessToolAssemblyGenerator`.
+- Full spec: `specs/out-of-process-execution.md`
+- Key files already referencing OOP: `Program.cs` (lines 13, 934, 945, 1928, 2029, 2375-2389), `McpToolFactoryV2.cs` (lines 15, 39, 72, 314-355), `PowerShellConfiguration.cs` (line 15).
+
+### 2026-04-11: CLIXML evaluation for OOP transport
+
+**Decision:** Rejected CLIXML in favor of keeping ndjson/JSON for OOP subprocess communication.
+**Core reasoning:** MCP output is JSON — CLIXML would add a triple conversion pipeline (CLIXML→PSObject→FlattenPSObject→JSON) replacing a direct JSON path. The server has the PS SDK loaded so CLIXML is technically parseable, but the type fidelity it provides is lost at the JSON output boundary. CLIXML is also 5-10x larger on the wire, adding performance penalty for large result sets (already flagged as Risk #4 in spec).
+**Key insight:** OOP isolation targets heavy module loading, not the SDK. The SDK can deserialize CLIXML, but doing so reconstructs full PSObject graphs that we immediately flatten — waste of CPU/memory for throwaway fidelity.
+**If types prove problematic:** Handle surgically in `oop-host.ps1` with per-type handlers rather than switching transport format. ConvertTo-Json -Depth 4 -Compress remains the correct approach.
+**Decision file:** `.squad/decisions/inbox/farnsworth-clixml-evaluation.md`
