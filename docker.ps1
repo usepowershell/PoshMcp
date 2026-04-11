@@ -165,7 +165,7 @@ switch ($Command) {
             Write-Host "   Template:     $Template" -ForegroundColor Gray
             Write-Host ""
             Write-Host "🚀 Run the custom image:" -ForegroundColor Cyan
-            Write-Host "   docker run -d -p 8080:8080 -e POSHMCP_MODE=web $customImageTag" -ForegroundColor White
+            Write-Host "   docker run -d -p 8080:8080 -e POSHMCP_TRANSPORT=http $customImageTag" -ForegroundColor White
             Write-Host ""
             Write-Host "🔍 Inspect modules installed:" -ForegroundColor Cyan
             Write-Host "   docker run --rm $customImageTag pwsh -Command 'Get-Module -ListAvailable'" -ForegroundColor White

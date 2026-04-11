@@ -1,6 +1,11 @@
-# Environment customization guide
+# Environment Customization Guide
 
 This guide explains how to customize the PowerShell environment in PoshMcp through startup scripts and module management.
+
+## Before You Start
+
+- **Module conflicts?** If you're experiencing issues with incompatible modules, see [OUT-OF-PROCESS.md](OUT-OF-PROCESS.md) — PoshMcp offers optional out-of-process PowerShell runtime for module isolation.
+- **Production modules?** Pre-install PowerShell Gallery modules at container build time to reduce startup time. See [../DOCKER.md](../DOCKER.md) for container examples.
 
 ## Overview
 

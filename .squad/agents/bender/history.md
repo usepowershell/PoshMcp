@@ -171,18 +171,6 @@
 - `dotnet run --no-build --configuration {Debug|Release}` needs to match the test run configuration to avoid Debug/Release drift
 - File-lock failures during web integration startup were a harness issue separate from the serializer regression itself
 
-### 2026-04-10: Doctor troubleshooting surfaced as a gated MCP tool
-
-**Context:** Steven requested exposing the existing doctor/configuration troubleshooting path as an MCP tool, but only when explicitly enabled.
-
-**Implementation approach:**
-- Added `PowerShellConfiguration.EnableConfigurationTroubleshootingTool` with a safe default of `false`
-- Applied `POSHMCP_ENABLE_CONFIGURATION_TROUBLESHOOTING_TOOL` as an environment override during configuration load/binding
-- Registered the new `get-configuration-troubleshooting` tool in `Program.cs` alongside the other built-in tools instead of pushing it into command discovery
-- Switched `doctor --format json` to compute tool names from the fully registered tool list so the output matches the actual runtime MCP surface
-
-**Key insight:** Special MCP tools in this repo already live outside `McpToolFactoryV2`, so keeping the troubleshooting tool on that same path avoids unnecessary abstractions and keeps doctor output honest about what the server really exposes.
-
 ---
 
 ### 2026-04-09: Phase 2 + Phase 2.5 implementation — conditional Tee-Object and runtime toggle
@@ -231,15 +219,6 @@
 - Focused integration tests passed with no lingering `PoshMcp.Web.csproj` or `PoshMcp.csproj` processes after completion.
 - This reduces process leak risk that can accumulate and slow subsequent test runs.
 
-### 2026-04-10: Config-gated doctor MCP tool exposure
-
-**Context:** Implemented a configuration-gated path for exposing doctor diagnostics through MCP tooling.
-
-**Key learnings:**
-- The doctor tooling contract already lives in `PoshMcp.Server/Program.cs`, so the safest implementation point is the existing expected-tool registration flow rather than a parallel registration path.
-- Gating doctor exposure with the dynamic reload tools flag keeps advanced config mutation/diagnostic surfaces opt-in and consistent with the server's current configuration model.
-- This feature should stay paired with focused unit coverage rather than broad integration-only validation because the interesting behavior is tool registration and gating, not transport startup.
-
 ### 2026-04-09: Added CLI configuration management commands
 
 **Context:** Implemented TODO items to add CLI-driven configuration creation and mutation flows in `PoshMcp.Server/Program.cs`.
@@ -255,3 +234,11 @@
 - Added `--non-interactive` mode for automation workflows
 
 **Key insight:** Reusing existing configuration resolution logic (`ResolveCommandSettingsAsync`) keeps CLI behavior consistent and avoids drift between diagnostics (`doctor`) and mutation commands.
+
+### 2026-04-10: Recovery learnings for doctor tooling and harness parity
+
+**Key learnings:**
+- Shared diagnostics payload builders matter: CLI doctor output and MCP troubleshooting tools should stay on one `BuildDoctorJson(...)` path.
+- Special built-in tools belong in the existing `Program.cs` registration seam rather than the PowerShell discovery path.
+- Out-of-process recovery fixes were safest when they restored harness parity first: explicit config args, stderr capture, and compile-safe startup expectations.
+- Avoid activating tests against a runtime mode the executable and shared harness cannot actually start yet.

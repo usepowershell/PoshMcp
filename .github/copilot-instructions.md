@@ -122,13 +122,13 @@ podman build -t poshmcp:latest .
 
 **Run as web server (HTTP on port 8080):**
 ```bash
-podman run -d -p 8080:8080 -e POSHMCP_MODE=web --name poshmcp-web poshmcp:latest
+podman run -d -p 8080:8080 -e POSHMCP_TRANSPORT=http --name poshmcp-web poshmcp:latest
 curl http://localhost:8080/health
 ```
 
 **Run as stdio server:**
 ```bash
-podman run -it -e POSHMCP_MODE=stdio poshmcp:latest
+podman run -it -e POSHMCP_TRANSPORT=stdio poshmcp:latest
 ```
 
 **Using docker-compose:**
@@ -163,12 +163,12 @@ USER appuser
 Build with:
 ```bash
 podman build -f examples/Dockerfile.user -t poshmcp-custom:latest .
-podman run -d -p 8080:8080 -e POSHMCP_MODE=web poshmcp-custom:latest
+podman run -d -p 8080:8080 -e POSHMCP_TRANSPORT=http poshmcp-custom:latest
 ```
 
 ### Environment Variables
-- `POSHMCP_MODE=web` — Run HTTP server (default)
-- `POSHMCP_MODE=stdio` — Run stdio MCP server
+- `POSHMCP_TRANSPORT=http` — Run HTTP server (default)
+- `POSHMCP_TRANSPORT=stdio` — Run stdio MCP server
 - `ASPNETCORE_ENVIRONMENT=Production` — Production mode
 - `INSTALL_PS_MODULES` — Space-separated module names with optional version constraints (e.g., `"Pester@>=5.0.0 Az.Accounts"`)
 

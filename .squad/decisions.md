@@ -287,36 +287,6 @@ When asked for tenant IDs or domain names, use `C:\Users\stmuraws\source\gim-hom
 
 After any code change, `dotnet format` and `dotnet test` should be run to verify formatting and tests pass.
 
-### Runtime Caching Toggle via MCP Tool
-
-**Author:** Farnsworth (Lead / Architect)
-**Date:** 2025-07-17
-**Status:** Proposed
-**Spec:** `specs/large-result-performance.md` (section 3.6)
-
-Add a `set-result-caching` MCP tool that sets runtime overrides for result caching without restarting the server.
-
-**Key design choices:**
-1. **Runtime overrides take highest priority** in the resolution chain — above per-function config and global config.
-2. **Scope: global + per-function.** The tool accepts a `scope` parameter (`global` or `function`). Per-function runtime overrides take priority over global runtime override.
-3. **Ephemeral state.** Runtime overrides do not persist across server restarts. Runtime = session intent; config = operational defaults.
-4. **Thread-safe via `ConcurrentDictionary` + `volatile`.** No locks needed for simple flag reads/writes.
-5. **Immediate effect on next command.** Toggling caching does not retroactively cache previous output.
-6. **Gating.** Recommend gating behind `EnableDynamicReloadTools` for consistency with other runtime configuration tools.
-
-**Rationale:**
-- Steven requested runtime toggleability without restart for developer iteration
-- Single-client stdio server model makes session-scoped state unnecessary
-- Per-function + global hierarchy mirrors static config, reducing cognitive load
-
-**Impact:**
-- New file: `RuntimeCachingState.cs`
-- New DI registration in `Program.cs`
-- New MCP tool registered in `McpToolFactoryV2`
-- Updated resolution logic in `ExecutePowerShellCommandTyped`
-- New Phase 2.5 in implementation plan (between Phase 2 and Phase 3)
-- Additional unit and integration tests
-
 
 ### 2026-04-09T17:18Z: User directive — aggressive commit strategy
 **By:** Steven Murawski (via Copilot)
@@ -490,4 +460,81 @@ Use `PoshMcp.Server/PoshMcp.csproj` as the package source of truth, bump `Versio
 4. `dotnet tool list -g`
 
 **Outcome:** Version bumped from 0.3.0 to 0.3.1, package built, and global tool updated to 0.3.1.
+
+## 2026-04-10
+
+### Doctor troubleshooting MCP surface stays read-only, shared, and explicitly gated
+
+**Author:** Steven Murawski (via Farnsworth/Bender/Fry)
+**Date:** 2026-04-10
+**Status:** Implemented
+
+Keep configuration troubleshooting exposed only through the existing special-tool registration path in `Program.cs`, have it return the same structured payload as `poshmcp doctor --format json`, and require both runtime configuration enablement and an explicit environment opt-in before the tool appears.
+
+**Rationale:**
+- Reusing the shared doctor JSON builder keeps CLI and MCP diagnostics aligned
+- The troubleshooting surface is operationally sensitive and should remain disabled by default
+- Focused tests can assert the public JSON contract without coupling to internal registration details
+
+**Impact:** The doctor/configuration troubleshooting flow now has one canonical payload builder, one registration seam, and default-hidden exposure semantics.
+
+### Import configured modules before discovery and pin startup ordering with focused tests
+
+**Author:** Steven Murawski (via Hermes/Fry)
+**Date:** 2026-04-10
+**Status:** Implemented
+
+Explicitly import modules from configuration before any by-name `Get-Command` or tool discovery pass, and keep regression tests that prove discovery fails before startup setup and succeeds after module import or startup script execution.
+
+**Rationale:**
+- Discovery-before-import silently drops module-exported functions when autoloading is disabled or constrained
+- Configuration semantics already promise that listed modules are part of the tool surface
+- Narrow startup-order tests are faster and less brittle than full server boot validation
+
+**Impact:** Startup ordering around module import is now a pinned contract rather than an incidental implementation detail.
+
+### Out-of-process runtime work remains scaffolded until startup and harness support exist
+
+**Author:** Steven Murawski (via Farnsworth/Bender/Fry)
+**Date:** 2026-04-10
+**Status:** Decided
+
+Treat the current out-of-process MCP path as incomplete until `Program.cs` and the shared `InProcessMcpServer` harness expose a supported `--runtime-mode` startup path with matching config/stderr handling. Keep subprocess and module-isolation tests, but leave end-to-end server tests as documented stubs until that runtime surface is real.
+
+**Rationale:**
+- The branch had tests that advanced ahead of the implemented CLI/runtime surface
+- Shared harness parity is a prerequisite for trustworthy end-to-end coverage
+- Compile-safe stubs preserve intent without letting speculative wiring break the solution build
+
+**Impact:** Recovery work should prioritize supported startup/harness seams before reactivating live out-of-process end-to-end tests.
+
+### Split vendored module layout and `POSHMCP_TRANSPORT` are the recovery baselines
+
+**Author:** Steven Murawski (via Farnsworth/Hermes)
+**Date:** 2026-04-10
+**Status:** Implemented
+
+Treat the split `integration/Modules/*` layout as canonical, remove partial merge-fallout vendored content such as `integration/Modules/Az.AppConfiguration/2.0.1`, and normalize live helpers, infrastructure, and docs from `POSHMCP_MODE` to `POSHMCP_TRANSPORT` to match the single-entry-point `poshmcp serve --transport ...` architecture.
+
+**Rationale:**
+- The partial Az.AppConfiguration tree was incomplete and not importable
+- Current integration assets are organized by concrete module name, not umbrella paths
+- Old transport environment-variable names encode a retired startup contract
+
+**Impact:** Recovery and future test work should assume split module paths and `POSHMCP_TRANSPORT` as the only supported transport selector.
+
+### Preferred MVP direction for out-of-process hosting is a persistent `pwsh` subprocess over localhost TCP
+
+**Author:** Farnsworth and Hermes
+**Date:** 2026-04-10
+**Status:** Proposed
+
+If out-of-process hosting proceeds, prefer a single persistent `pwsh` child process that speaks a JSON request/response protocol over localhost TCP, with host-script safeguards that resolve commands through `Get-Command` plus `& $CommandInfo`, keep diagnostics on stderr only, filter null parameters from the splat, and expand umbrella modules into child-module discovery.
+
+**Rationale:**
+- Localhost TCP gives one cross-platform transport and the lowest implementation complexity for an isolated subprocess model
+- Persistent subprocess state preserves module/session behavior while isolating assembly and module conflicts from the main server
+- Protocol-safe host-script rules prevent stdout corruption and reduce injection risk
+
+**Impact:** Future out-of-process implementation work should treat persistent subprocess hosting and protocol-safe host-script behavior as the default design direction.
 

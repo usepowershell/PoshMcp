@@ -244,7 +244,43 @@ Load modules from local directories or mounted volumes:
 
 ---
 
-## Architecture
+## Out-of-Process PowerShell Runtime (Advanced)
+
+For scenarios where PowerShell modules have incompatible dependencies or conflict with each other, PoshMcp provides optional **out-of-process hosting** — PowerShell runs in an isolated subprocess instead of the main server process.
+
+### When to Use Out-of-Process
+
+- **Module conflicts:** Modules with incompatible version requirements
+- **Platform-specific issues:** Windows-only modules failing on Linux (Group Policy, WMI)
+- **Type pollution:** AppDomain incompatibilities between modules
+- **Initialization conflicts:** Modules with incompatible authentication or state setup
+
+### Quick Start
+
+```bash
+# Start in out-of-process mode
+dotnet run --project PoshMcp.Server -- serve --runtime-mode out-of-process
+
+# Or with environment variable
+export POSHMCP_RUNTIME_MODE=out-of-process
+dotnet run --project PoshMcp.Server
+
+# In appsettings.json
+# Set PowerShellConfiguration.RuntimeMode to "OutOfProcess"
+```
+
+### Trade-offs
+
+| Aspect | In-Process (Default) | Out-of-Process |
+|--------|----------------------|-----------------|
+| Latency | ~5 ms | ~120 ms |
+| Memory | ~250 MB | ~330–370 MB |
+| Module isolation | Shared (one failure affects all) | Isolated |
+| Complexity | Simpler | More complex |
+
+**For complete documentation, see [docs/OUT-OF-PROCESS.md](docs/OUT-OF-PROCESS.md).**
+
+---
 
 PoshMcp is organized into two main projects:
 
@@ -294,6 +330,13 @@ For architectural details, see [DESIGN.md](DESIGN.md).
   - Contributing test guidelines
 - **[docs/IMPLEMENTATION-GUIDE.md](docs/IMPLEMENTATION-GUIDE.md)** — Developer integration guide
 - **[.github/copilot-instructions.md](.github/copilot-instructions.md)** — Development guidelines and conventions
+
+### Runtime Modes
+- **[docs/OUT-OF-PROCESS.md](docs/OUT-OF-PROCESS.md)** — Out-of-process PowerShell runtime mode
+  - Module isolation and conflict resolution
+  - Configuration via CLI, environment variables, or appsettings.json
+  - Performance characteristics and trade-offs
+  - Troubleshooting and best practices
 
 ### Advanced Topics
 - **[docs/AZURE-INTEGRATION-TEST-SCENARIO.md](docs/AZURE-INTEGRATION-TEST-SCENARIO.md)** — Azure integration test documentation

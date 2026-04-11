@@ -1,11 +1,4 @@
 {
-  "timestamp": "2026-04-10T15:51:02Z",
-  "inboxCountStart": 0,
-  "decisionsSizeStart": 28814,
-  "historyFilesOverThreshold": [
-    {
-      "agent": "amy",
-      "bytes": 17390
-    }
-  ]
+  "inboxCountStart": 13,
+  "decisionsSizeStart": 28814
 }

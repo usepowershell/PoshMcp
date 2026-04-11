@@ -66,12 +66,10 @@
 - DiscoverAll() shares a single runspace across all commands for startup efficiency.
 - IDictionary vs IEnumerable split in shallow path: dictionaries are safe JSON maps; enumerables may trigger OS calls.
 
-### 2026-04-10: Module discovery order during tool generation
-
-**Context:** Validated startup/tool-generation ordering for configured modules and fixed discovery order.
+### 2026-04-10: Recovery learnings for module layout and host-script safety
 
 **Key learnings:**
-- `McpToolFactoryV2.GetAvailableCommandsWithMetadata` previously attempted `Get-Command -Name` discovery before any explicit `Import-Module` call.
-- `PowerShellEnvironmentSetup` exists but is not part of the current startup/tool-generation path, so environment-level module imports are not automatically applied during discovery.
-- For reliable by-name discovery when auto-loading is disabled, configured modules must be imported first in the same runspace used by tool generation.
-- Safe behavior is best-effort import (warn and continue on import failure) so one bad module does not block all discovery.
+- The split `integration/Modules/*` layout is the canonical integration-module shape; umbrella-module path assumptions are stale.
+- Partial vendored trees like `integration/Modules/Az.AppConfiguration/2.0.1` are likely merge fallout and should be removed rather than patched around.
+- Module discovery needs explicit import-before-discovery ordering when autoloading cannot be trusted.
+- If the host script work resumes, keep stdout protocol-only, route diagnostics to stderr, and resolve commands through `Get-Command` plus `CommandInfo` invocation instead of string evaluation.

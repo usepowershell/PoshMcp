@@ -188,7 +188,7 @@ The deployment automatically configures these environment variables in the Conta
 
 - `ASPNETCORE_ENVIRONMENT`: Production
 - `ASPNETCORE_URLS`: http://+:8080
-- `POSHMCP_MODE`: web
+- `POSHMCP_TRANSPORT`: http
 - `PowerShellConfiguration__FunctionNames__0`: Your configured functions
 - `PowerShellConfiguration__EnableDynamicReloadTools`: true/false
 - `APPLICATIONINSIGHTS_CONNECTION_STRING`: Auto-configured for Application Insights
@@ -539,7 +539,7 @@ The deployment automatically configures these environment variables:
 
 - `ASPNETCORE_ENVIRONMENT`: Production
 - `ASPNETCORE_URLS`: http://+:8080
-- `POSHMCP_MODE`: web
+- `POSHMCP_TRANSPORT`: http
 - `PowerShellConfiguration__FunctionNames__0`: Your configured functions
 - `PowerShellConfiguration__EnableDynamicReloadTools`: true/false
 - `APPLICATIONINSIGHTS_CONNECTION_STRING`: Auto-configured

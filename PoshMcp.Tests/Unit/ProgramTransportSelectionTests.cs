@@ -10,6 +10,8 @@ namespace PoshMcp.Tests.Unit;
 public class ProgramTransportSelectionTests
 {
     private const string TransportEnvVar = "POSHMCP_TRANSPORT";
+    private const string SessionModeEnvVar = "POSHMCP_SESSION_MODE";
+    private const string McpPathEnvVar = "POSHMCP_MCP_PATH";
 
     [Fact]
     public async Task DoctorCommand_WithNoTransportInputs_ShouldDefaultToStdio()
@@ -74,6 +76,53 @@ public class ProgramTransportSelectionTests
         Assert.Equal("cli", payload["effectiveTransportSource"]?.GetValue<string>());
     }
 
+    [Fact]
+    public async Task DoctorCommand_WithSessionModeAndMcpPathEnvironmentVariables_ShouldUseEnvironmentValues()
+    {
+        using var configFile = new TemporaryConfigFile();
+        using var capture = new ConsoleCapture();
+        using var transportScope = new EnvironmentVariableScope(TransportEnvVar, null);
+        using var sessionModeScope = new EnvironmentVariableScope(SessionModeEnvVar, "multi");
+        using var mcpPathScope = new EnvironmentVariableScope(McpPathEnvVar, "/env-mcp");
+
+        var result = await Program.Main(new[] { "doctor", "--config", configFile.Path, "--format", "json" });
+
+        Assert.Equal(0, result);
+        var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
+        Assert.NotNull(payload);
+        Assert.Equal("multi", payload!["effectiveSessionMode"]?.GetValue<string>());
+        Assert.Equal("env", payload["effectiveSessionModeSource"]?.GetValue<string>());
+        Assert.Equal("/env-mcp", payload["effectiveMcpPath"]?.GetValue<string>());
+        Assert.Equal("env", payload["effectiveMcpPathSource"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task DoctorCommand_WithCliSessionModeAndMcpPath_ShouldOverrideEnvironmentValues()
+    {
+        using var configFile = new TemporaryConfigFile();
+        using var capture = new ConsoleCapture();
+        using var transportScope = new EnvironmentVariableScope(TransportEnvVar, null);
+        using var sessionModeScope = new EnvironmentVariableScope(SessionModeEnvVar, "single");
+        using var mcpPathScope = new EnvironmentVariableScope(McpPathEnvVar, "/env-mcp");
+
+        var result = await Program.Main(new[]
+        {
+            "doctor",
+            "--config", configFile.Path,
+            "--session-mode", "multi",
+            "--mcp-path", "/cli-mcp",
+            "--format", "json"
+        });
+
+        Assert.Equal(0, result);
+        var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
+        Assert.NotNull(payload);
+        Assert.Equal("multi", payload!["effectiveSessionMode"]?.GetValue<string>());
+        Assert.Equal("cli", payload["effectiveSessionModeSource"]?.GetValue<string>());
+        Assert.Equal("/cli-mcp", payload["effectiveMcpPath"]?.GetValue<string>());
+        Assert.Equal("cli", payload["effectiveMcpPathSource"]?.GetValue<string>());
+    }
+
     private sealed class TemporaryConfigFile : IDisposable
     {
         public string Path { get; }
@@ -82,16 +131,14 @@ public class ProgramTransportSelectionTests
         {
             Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"poshmcp-transport-tests-{Guid.NewGuid():N}.json");
 
-            var json = """
-{
-  "PowerShellConfiguration": {
-    "FunctionNames": ["Get-Date"],
-    "Modules": [],
-    "ExcludePatterns": [],
-    "IncludePatterns": []
+            var json = @"{
+  ""PowerShellConfiguration"": {
+    ""FunctionNames"": [""Get-Date""],
+    ""Modules"": [],
+    ""ExcludePatterns"": [],
+    ""IncludePatterns"": []
   }
-}
-""";
+}";
 
             File.WriteAllText(Path, json);
         }

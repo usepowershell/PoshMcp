@@ -65,7 +65,7 @@ This directory contains production-ready Infrastructure-as-Code (IaC) templates 
 - **Name:** poshmcp (configurable)
 - **Image:** Pulled from Azure Container Registry
 - **Port:** 8080 (HTTP internally, HTTPS externally)
-- **Environment:** POSHMCP_MODE=web (ASP.NET Core)
+- **Environment:** POSHMCP_TRANSPORT=http (ASP.NET Core)
 - **Health Checks:** 
   - Startup: `/health` (150s max tolerance)
   - Liveness: `/health/ready` (30s interval)

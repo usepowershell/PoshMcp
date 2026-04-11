@@ -16,6 +16,7 @@ public class ConfigurationTroubleshootingTools
     private readonly string _configurationPath;
     private readonly string _effectiveTransport;
     private readonly string? _effectiveSessionMode;
+    private readonly string? _effectiveRuntimeMode;
     private readonly string? _effectiveMcpPath;
     private readonly Func<List<McpServerTool>> _registeredToolsProvider;
     private readonly ILogger<ConfigurationTroubleshootingTools> _logger;
@@ -24,6 +25,7 @@ public class ConfigurationTroubleshootingTools
         string configurationPath,
         string effectiveTransport,
         string? effectiveSessionMode,
+        string? effectiveRuntimeMode,
         string? effectiveMcpPath,
         Func<List<McpServerTool>> registeredToolsProvider,
         ILogger<ConfigurationTroubleshootingTools> logger)
@@ -31,6 +33,7 @@ public class ConfigurationTroubleshootingTools
         _configurationPath = configurationPath ?? throw new ArgumentNullException(nameof(configurationPath));
         _effectiveTransport = effectiveTransport ?? throw new ArgumentNullException(nameof(effectiveTransport));
         _effectiveSessionMode = effectiveSessionMode;
+        _effectiveRuntimeMode = effectiveRuntimeMode;
         _effectiveMcpPath = effectiveMcpPath;
         _registeredToolsProvider = registeredToolsProvider ?? throw new ArgumentNullException(nameof(registeredToolsProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -45,7 +48,7 @@ public class ConfigurationTroubleshootingTools
         {
             _logger.LogInformation("Processing configuration troubleshooting request");
 
-            var config = Program.LoadPowerShellConfiguration(_configurationPath, _logger);
+            var config = Program.LoadPowerShellConfiguration(_configurationPath, _logger, _effectiveRuntimeMode);
             var tools = _registeredToolsProvider();
             var logLevel = InferEffectiveLogLevel();
 
@@ -58,6 +61,8 @@ public class ConfigurationTroubleshootingTools
                 effectiveTransportSource: "runtime",
                 effectiveSessionMode: _effectiveSessionMode,
                 effectiveSessionModeSource: "runtime",
+                effectiveRuntimeMode: _effectiveRuntimeMode,
+                effectiveRuntimeModeSource: "runtime",
                 effectiveMcpPath: _effectiveMcpPath,
                 effectiveMcpPathSource: "runtime",
                 config: config,
