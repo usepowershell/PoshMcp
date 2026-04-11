@@ -27,6 +27,14 @@ public interface ICommandExecutor : IAsyncDisposable
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Send environment configuration (module installs, imports, startup scripts, etc.)
+    /// to the executor. Must be called after StartAsync and before DiscoverCommandsAsync.
+    /// </summary>
+    Task SetupAsync(
+        EnvironmentConfiguration config,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Execute a PowerShell command by name with the given parameters
     /// in the remote process and return the JSON-serialized result.
     /// </summary>
