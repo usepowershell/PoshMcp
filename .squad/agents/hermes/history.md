@@ -84,3 +84,35 @@
 - `oop-host.ps1` uses the host-script safety rules Hermes helped define: stdout protocol-only, stderr for diagnostics, `Get-Command` + `CommandInfo` invocation
 - Phase 6 (integration testing) will use modules from `integration/Modules/` — the canonical split layout Hermes helped establish
 - Crash recovery with automatic subprocess restart and exponential backoff
+
+### 2026-04-11: Created oop-host.ps1 — OOP subprocess host script (Issue #57, Phases 2-4)
+
+**File:** `PoshMcp.Server/PowerShell/OutOfProcess/oop-host.ps1`
+
+**What was built:**
+- Full ndjson protocol host script implementing all 4 methods: `ping`, `shutdown`, `discover`, `invoke`
+- Strict stdout/stderr separation: only ndjson on stdout, diagnostics on stderr with `[oop-host]` prefix
+- `[Console]::ReadLine()` for stdin (not Read-Host), `[Console]::Out.WriteLine()` + Flush for stdout
+
+**Discovery handler design decisions:**
+- Module import uses `Import-Module -Name -ErrorAction Stop` — fails fast on bad modules with error response (doesn't crash host)
+- Commands discovered via explicit `functionNames` list AND module+pattern matching, then deduplicated by name
+- Common parameters excluded via hardcoded allowlist (14 params)
+- Description sourced from `Get-Help` synopsis, best-effort (empty on failure)
+- Each ParameterSet gets its own RemoteToolSchema entry with `Name`, `Description`, `ParameterSetName`, `Parameters`
+- Parameter fields: `Name`, `TypeName` (ParameterType.FullName), `IsMandatory`, `Position`
+
+**Invoke handler design decisions:**
+- PSCustomObject from `ConvertFrom-Json` converted to hashtable via `.PSObject.Properties` enumeration for splatting
+- SwitchParameter detection: inspects `CommandInfo.ParameterSets` for SwitchParameter types, converts true→`[switch]$true`, removes false entries
+- Results serialized with `ConvertTo-Json -Depth 4 -Compress`
+- Non-terminating errors tracked via `$Error.Count` → `hadErrors` field
+- Terminating errors caught and returned as error response
+
+**Error handling patterns:**
+- Malformed JSON: logged to stderr, skipped (no response — no id to respond to)
+- Missing `id`: logged to stderr, skipped
+- Missing `method`: error response with code -1
+- Unknown method: error response with code -1
+- Unhandled exceptions in handlers: caught by outer try/catch, error response returned
+- EOF on stdin: clean exit

@@ -58,6 +58,26 @@
 - Unreachable code adds confusion even if not functional
 - DRY principle applies even to dead code (maintainability matters)
 - Code review catches issues that static analysis might miss
+
+---
+
+### 2026-04-11: OOP Phase 1 — Created stub types for out-of-process execution
+
+**Context:** Issue #55. The codebase had references to `RuntimeMode`, `ICommandExecutor`, `RemoteToolSchema`, `OutOfProcessCommandExecutor`, and `OutOfProcessToolAssemblyGenerator` in Program.cs and McpToolFactoryV2.cs, but the types didn't exist yet — build was broken.
+
+**Files Created:**
+- `PoshMcp.Server/PowerShell/OutOfProcess/RuntimeMode.cs` — Enum (InProcess, OutOfProcess, Unsupported)
+- `PoshMcp.Server/PowerShell/OutOfProcess/ICommandExecutor.cs` — Interface (StartAsync, DiscoverCommandsAsync, InvokeAsync)
+- `PoshMcp.Server/PowerShell/OutOfProcess/RemoteToolSchema.cs` — DTOs (RemoteToolSchema + RemoteParameterSchema)
+- `PoshMcp.Server/PowerShell/OutOfProcess/OutOfProcessCommandExecutor.cs` — Stub impl, all methods throw NotImplementedException
+- `PoshMcp.Server/PowerShell/OutOfProcess/OutOfProcessToolAssemblyGenerator.cs` — Stub impl, throws NotImplementedException (ClearCache is no-op)
+
+**Files Modified:**
+- `PoshMcp.Server/PowerShell/PowerShellConfiguration.cs` — Added `using PoshMcp.Server.PowerShell.OutOfProcess;` (needed because ImplicitUsings=disable and RuntimeMode is in child namespace)
+
+**Key Insight:** ImplicitUsings is disabled in this project. Every file needs explicit usings for System, System.Collections.Generic, System.Threading, etc. Child namespaces don't auto-resolve from parent namespace files.
+
+**Result:** Build succeeds (0 errors), all 279 tests pass.
 - Quick fixes demonstrate value of thorough review process
 
 **Future Prevention:**
@@ -80,7 +100,64 @@
 **Shared Team Update:**
 - Keep the web failure investigation anchored to serialization-related regressions in `PoshMcp.Web`
 - Preserve enough context in future handoffs to distinguish assignment scope from verified outcomes
+
+---
+
+### 2026-04-11: OOP Phase 2 — Implemented OutOfProcessCommandExecutor subprocess lifecycle
+
+**Context:** Issue #56. Replaced NotImplementedException stubs with full subprocess management in `OutOfProcessCommandExecutor.cs`.
+
+**What was built:**
+- `StartAsync()`: Locates `pwsh` via PATH/common locations, launches process with stdin/stdout/stderr redirection, starts background ndjson reader tasks, sends ping health check to confirm subprocess is alive.
+- `SendRequestAsync<T>()`: Core ndjson request/response infrastructure using `ConcurrentDictionary<string, TaskCompletionSource<JsonElement>>`, `SemaphoreSlim` for serialized writes, GUID-based request IDs, configurable timeout via `CancellationToken` + `Task`.
+- `ReadLoopAsync()`: Background stdout reader that parses ndjson lines, matches `id` field to `_pending` dictionary, completes or faults the `TaskCompletionSource`. Handles error responses from subprocess.
+- `StderrLoopAsync()`: Background stderr reader that logs diagnostic output from oop-host.ps1.
+- `DisposeAsync()`: Sends shutdown request, waits up to 5s for graceful exit, kills process tree if needed, completes all pending TCS with cancellation, disposes streams.
+- `ResolvePwshPath()`: Static helper that searches PATH dirs then common install locations.
+- `ResolveHostScriptPath()`: Static helper using `AppContext.BaseDirectory` then `AppDomain.CurrentDomain.BaseDirectory`.
+- `DiscoverCommandsAsync` / `InvokeAsync`: Left as stubs throwing `NotImplementedException` with updated Phase 3/Phase 4 messages.
+
+**Files Modified:**
+- `PoshMcp.Server/PowerShell/OutOfProcess/OutOfProcessCommandExecutor.cs` — Full implementation
+- `PoshMcp.Server/PoshMcp.csproj` — Added `<None Include="oop-host.ps1" CopyToOutputDirectory>` for script deployment
+- `PoshMcp.Tests/Unit/OutOfProcess/OutOfProcessCommandExecutorTests.cs` — Updated tests: removed 2 old StartAsync stub tests, added Constructor_WithCustomTimeout, ResolvePwshPath_FindsPwshOnPath, StartAsync_ThenDisposeAsync_FullLifecycle
+
+**Key Patterns:**
+- System.Text.Json (not Newtonsoft) for ndjson protocol — `JsonSerializer.Serialize()` and `JsonDocument.Parse()`
+- `ConcurrentDictionary` + `TaskCompletionSource` for async request/response matching
+- `SemaphoreSlim(1,1)` for serialized stdin writes
+- `CancellationTokenSource.CreateLinkedTokenSource` + `CancelAfter` for timeout
+- `Process.EnableRaisingEvents` + `Exited` event for crash detection
+- CA2024 compliance: using `ReadLineAsync()` null-return instead of `EndOfStream` in async loops
+
+**Result:** Build: 0 errors. All 280 tests pass (52 OOP unit tests, up from 51).
 - Team directive now requires `dotnet format` and `dotnet test` after code changes
+
+### 2026-04-11: OOP Phase 3+4 — Wired DiscoverCommandsAsync and InvokeAsync
+
+**Context:** Issues #58 and #59. Replaced the NotImplementedException stubs for `DiscoverCommandsAsync` and `InvokeAsync` with real implementations that communicate with the oop-host.ps1 subprocess.
+
+**DiscoverCommandsAsync implementation:**
+- Builds discover params from `PowerShellConfiguration` (modules, functionNames, includePatterns, excludePatterns)
+- Calls `SendRequestAsync<JsonElement>("discover", params, ct)`
+- Parses `result.commands` array into `List<RemoteToolSchema>` using `System.Text.Json` with `PropertyNameCaseInsensitive = true`
+- Caches result in `_cachedSchemas` field — subsequent calls return cache without subprocess roundtrip
+- Handles missing `commands` property gracefully (returns empty list with warning log)
+
+**InvokeAsync implementation:**
+- Builds invoke params `{ command, parameters }`
+- Calls `SendRequestAsync<JsonElement>("invoke", params, ct)`
+- Extracts `output` string from result
+- Logs warning if `hadErrors` is true but still returns output (some commands produce both)
+
+**Test updates:**
+- Changed 4 tests from expecting `NotImplementedException` → `InvalidOperationException` (subprocess not running)
+
+**Files Modified:**
+- `PoshMcp.Server/PowerShell/OutOfProcess/OutOfProcessCommandExecutor.cs` — Added `_cachedSchemas` field, implemented both methods
+- `PoshMcp.Tests/Unit/OutOfProcess/OutOfProcessCommandExecutorTests.cs` — Updated 4 tests
+
+**Result:** Build: 0 errors. All 280 tests pass.
 
 ### 2026-04-08: Implemented dotnet tool packaging for PoshMcp.Server
 
