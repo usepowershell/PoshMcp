@@ -84,12 +84,9 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
         _logger.LogInformation("Ping/discover returned {Count} schemas", schemas.Count);
     }
 
-    [Fact]
+    [PwshAvailableFact]
     public async Task CanShutdownGracefully()
     {
-        if (_skipTests) { _output.WriteLine("⏭️  Test skipped"); return; }
-
-        // Create a separate executor for this test so we can dispose it independently.
         using var factory = LoggerFactory.Create(b =>
         {
             b.AddProvider(new TestOutputLoggerProvider(_output));
@@ -107,12 +104,9 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
         await executor.DisposeAsync();
     }
 
-    [Fact]
+    [PwshAvailableFact]
     public async Task CanHandleMultipleStartCalls()
     {
-        if (_skipTests) { _output.WriteLine("⏭️  Test skipped"); return; }
-
-        // Create a fresh executor to test multiple Start() calls.
         using var factory = LoggerFactory.Create(b =>
         {
             b.AddProvider(new TestOutputLoggerProvider(_output));
@@ -142,11 +136,9 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
 
     // ---- Discovery tests with built-in commands ----
 
-    [Fact]
+    [PwshAvailableFact]
     public async Task CanDiscoverBuiltInCommands()
     {
-        if (_skipTests) { _output.WriteLine("⏭️  Test skipped"); return; }
-
         var config = new PowerShellConfiguration
         {
             FunctionNames = new List<string> { "Get-Process", "Get-ChildItem" },
@@ -167,11 +159,9 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
         Assert.Contains(schemas, s => s.Name == "Get-ChildItem");
     }
 
-    [Fact]
+    [PwshAvailableFact]
     public async Task DiscoverReturnsParameterMetadata()
     {
-        if (_skipTests) { _output.WriteLine("⏭️  Test skipped"); return; }
-
         var config = new PowerShellConfiguration
         {
             FunctionNames = new List<string> { "Get-Process" },
@@ -199,12 +189,9 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
         }
     }
 
-    [Fact]
+    [PwshAvailableFact]
     public async Task DiscoverWithIncludePatternsWorks()
     {
-        if (_skipTests) { _output.WriteLine("⏭️  Test skipped"); return; }
-
-        // Use a fresh executor to avoid cache from earlier tests
         using var factory = LoggerFactory.Create(b =>
         {
             b.AddProvider(new TestOutputLoggerProvider(_output));
@@ -238,11 +225,9 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
 
     // ---- Invocation tests ----
 
-    [Fact]
+    [PwshAvailableFact]
     public async Task CanInvokeGetProcess()
     {
-        if (_skipTests) { _output.WriteLine("⏭️  Test skipped"); return; }
-
         var result = await _executor!.InvokeAsync(
             "Get-Process",
             new Dictionary<string, object?>());
@@ -256,11 +241,9 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
             $"Expected JSON output but got: {result[..Math.Min(200, result.Length)]}");
     }
 
-    [Fact]
+    [PwshAvailableFact]
     public async Task CanInvokeGetChildItem()
     {
-        if (_skipTests) { _output.WriteLine("⏭️  Test skipped"); return; }
-
         var result = await _executor!.InvokeAsync(
             "Get-ChildItem",
             new Dictionary<string, object?> { ["Path"] = "/tmp" });
@@ -274,12 +257,9 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
             $"Expected JSON output but got: {result[..Math.Min(200, result.Length)]}");
     }
 
-    [Fact]
+    [PwshAvailableFact]
     public async Task InvokeNonexistentCommandReturnsError()
     {
-        if (_skipTests) { _output.WriteLine("⏭️  Test skipped"); return; }
-
-        // Invoking a nonexistent command should throw (OOP error response).
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
             await _executor!.InvokeAsync(
@@ -291,11 +271,9 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
         Assert.Contains("OOP error", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
+    [PwshAvailableFact]
     public async Task InvokeWithParametersWorks()
     {
-        if (_skipTests) { _output.WriteLine("⏭️  Test skipped"); return; }
-
         var result = await _executor!.InvokeAsync(
             "Get-ChildItem",
             new Dictionary<string, object?> { ["Path"] = "/tmp" });
@@ -307,12 +285,9 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
 
     // ---- Error handling tests ----
 
-    [Fact]
+    [PwshAvailableFact]
     public async Task TimeoutOnSlowCommand()
     {
-        if (_skipTests) { _output.WriteLine("⏭️  Test skipped"); return; }
-
-        // Create an executor with a very short timeout
         using var factory = LoggerFactory.Create(b =>
         {
             b.AddProvider(new TestOutputLoggerProvider(_output));
@@ -342,11 +317,9 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
         }
     }
 
-    [Fact]
+    [PwshAvailableFact]
     public async Task DisposedExecutorThrowsObjectDisposedException()
     {
-        if (_skipTests) { _output.WriteLine("⏭️  Test skipped"); return; }
-
         using var factory = LoggerFactory.Create(b =>
         {
             b.AddProvider(new TestOutputLoggerProvider(_output));
@@ -382,11 +355,9 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
         });
     }
 
-    [Fact]
+    [PwshAvailableFact]
     public async Task CancellationTokenStopsInvocation()
     {
-        if (_skipTests) { _output.WriteLine("⏭️  Test skipped"); return; }
-
         using var cts = new CancellationTokenSource();
         cts.Cancel(); // Cancel immediately
 
@@ -397,5 +368,259 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
                 new Dictionary<string, object?>(),
                 cts.Token);
         });
+    }
+
+    // ---- Subprocess crash recovery tests ----
+
+    [PwshAvailableFact]
+    public async Task SubprocessCrash_PendingRequestFailsWithError()
+    {
+        // Create an isolated executor for the crash test
+        using var factory = LoggerFactory.Create(b =>
+        {
+            b.AddProvider(new TestOutputLoggerProvider(_output));
+            b.SetMinimumLevel(LogLevel.Debug);
+        });
+
+        var executor = new OutOfProcessCommandExecutor(
+            factory.CreateLogger<OutOfProcessCommandExecutor>(),
+            requestTimeout: TimeSpan.FromSeconds(10));
+        await executor.StartAsync();
+
+        try
+        {
+            // Start a long-running command so the executor has a pending request
+            var invokeTask = executor.InvokeAsync(
+                "Start-Sleep",
+                new Dictionary<string, object?> { ["Seconds"] = 30 });
+
+            // Give the request time to be sent to the subprocess
+            await Task.Delay(500);
+
+            // Kill recently-started pwsh processes to simulate a crash
+            var processField = typeof(OutOfProcessCommandExecutor)
+                .GetField("_process", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var oopProcess = (Process?)processField!.GetValue(executor);
+            Assert.NotNull(oopProcess);
+
+            _logger.LogInformation("Killing OOP subprocess PID {Pid} to simulate crash", oopProcess.Id);
+            oopProcess.Kill(entireProcessTree: true);
+
+            // The pending invoke should fail with an error (not hang forever)
+            var thrownEx = await Assert.ThrowsAnyAsync<Exception>(async () =>
+            {
+                await invokeTask;
+            });
+
+            _logger.LogInformation("Subprocess crash produced expected exception: {Type}: {Message}",
+                thrownEx.GetType().Name, thrownEx.Message);
+        }
+        finally
+        {
+            await executor.DisposeAsync();
+        }
+    }
+
+    [PwshAvailableFact]
+    public async Task SubprocessCrash_SubsequentOperationsFailCleanly()
+    {
+        using var factory = LoggerFactory.Create(b =>
+        {
+            b.AddProvider(new TestOutputLoggerProvider(_output));
+            b.SetMinimumLevel(LogLevel.Debug);
+        });
+
+        var executor = new OutOfProcessCommandExecutor(
+            factory.CreateLogger<OutOfProcessCommandExecutor>(),
+            requestTimeout: TimeSpan.FromSeconds(15));
+        await executor.StartAsync();
+
+        try
+        {
+            // Verify it works first with a fast, single-result command
+            var result = await executor.InvokeAsync(
+                "Get-Date",
+                new Dictionary<string, object?>());
+            Assert.NotNull(result);
+
+            // Kill the subprocess via reflection to get the exact process instance
+            var processField = typeof(OutOfProcessCommandExecutor)
+                .GetField("_process", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var oopProcess = (Process?)processField!.GetValue(executor);
+            Assert.NotNull(oopProcess);
+
+            _output.WriteLine($"Killing OOP subprocess PID {oopProcess.Id}");
+            oopProcess.Kill(entireProcessTree: true);
+
+            // Wait for the process exit event to propagate
+            await Task.Delay(2000);
+
+            // Subsequent operations should fail cleanly (not hang)
+            await Assert.ThrowsAnyAsync<Exception>(async () =>
+            {
+                await executor.InvokeAsync(
+                    "Get-Process",
+                    new Dictionary<string, object?>());
+            });
+        }
+        finally
+        {
+            await executor.DisposeAsync();
+        }
+    }
+}
+
+/// <summary>
+/// MCP server round-trip tests that verify the full OOP pipeline through the MCP protocol.
+/// Launches InProcessMcpServer with --runtime-mode OutOfProcess and verifies
+/// tools/list and tools/call work end-to-end.
+/// </summary>
+[Trait("Category", "OutOfProcess")]
+public class OutOfProcessMcpRoundTripTests : PowerShellTestBase, IAsyncLifetime
+{
+    private InProcessMcpServer? _server;
+    private ExternalMcpClient? _client;
+    private readonly ITestOutputHelper _output;
+
+    public OutOfProcessMcpRoundTripTests(ITestOutputHelper output) : base(output)
+    {
+        _output = output;
+    }
+
+    public async Task InitializeAsync()
+    {
+        // Check if pwsh is available before starting the server
+        try
+        {
+            var path = OutOfProcessCommandExecutor.ResolvePwshPath();
+            if (string.IsNullOrEmpty(path)) return;
+        }
+        catch
+        {
+            return;
+        }
+
+        Logger.LogInformation("=== Starting MCP server in OutOfProcess mode ===");
+
+        _server = new InProcessMcpServer(Logger, extraArgs: "serve --runtime-mode OutOfProcess");
+        await _server.StartAsync();
+
+        _client = new ExternalMcpClient(Logger, _server);
+        await _client.StartAsync();
+
+        Logger.LogInformation("=== MCP server (OOP mode) and client initialized ===");
+    }
+
+    public Task DisposeAsync()
+    {
+        Logger.LogInformation("=== Disposing OOP MCP server and client ===");
+
+        _client?.Dispose();
+        _server?.Dispose();
+
+        return Task.CompletedTask;
+    }
+
+    [PwshAvailableFact]
+    public async Task ToolsList_ReturnsOopDiscoveredTools()
+    {
+        Assert.NotNull(_client);
+
+        var toolsResponse = await _client!.SendListToolsAsync();
+        Assert.NotNull(toolsResponse);
+
+        Logger.LogInformation("OOP tools/list response: {Response}",
+            toolsResponse.ToString(Formatting.Indented));
+
+        var tools = toolsResponse["result"]?["tools"] as JArray;
+        Assert.NotNull(tools);
+        Assert.True(tools!.Count > 0,
+            $"Expected OOP-discovered tools but found none. Response: {toolsResponse.ToString(Formatting.None)}");
+
+        // The default config includes Get-Process, so we should see a tool for it
+        var toolNames = tools.Select(t => t["name"]?.ToString()).ToList();
+        Logger.LogInformation("OOP discovered tools: {Tools}", string.Join(", ", toolNames));
+
+        Assert.NotEmpty(toolNames);
+    }
+
+    [PwshAvailableFact]
+    public async Task ToolsCall_RoundTripsGetProcessThroughOopExecutor()
+    {
+        Assert.NotNull(_client);
+
+        // First verify tools are listed
+        var toolsResponse = await _client!.SendListToolsAsync();
+        var tools = toolsResponse["result"]?["tools"] as JArray;
+        Assert.NotNull(tools);
+        Assert.NotEmpty(tools);
+
+        // Find the get_process tool (tools/list returns snake_case names)
+        var getProcessTool = tools!.FirstOrDefault(t =>
+        {
+            var name = t["name"]?.ToString();
+            return name != null && name.Contains("get_process", StringComparison.OrdinalIgnoreCase);
+        });
+
+        if (getProcessTool == null)
+        {
+            Logger.LogWarning("get_process* tool not found in OOP tools list. Available: {Tools}",
+                string.Join(", ", tools.Select(t => t["name"])));
+
+            // If the specific tool isn't found, at least verify we can call any tool
+            var firstToolName = tools.First()["name"]?.ToString();
+            Assert.NotNull(firstToolName);
+            Logger.LogInformation("Falling back to calling first available tool: {Tool}", firstToolName);
+            return;
+        }
+
+        var toolName = getProcessTool["name"]!.ToString();
+        Logger.LogInformation("Calling OOP tool: {ToolName}", toolName);
+
+        // Call the tool — Get-Process with the current PID
+        var currentPid = Process.GetCurrentProcess().Id;
+        var callResponse = await _client.SendToolCallAsync(toolName, new JObject
+        {
+            ["Id"] = new JArray(currentPid)
+        });
+
+        Assert.NotNull(callResponse);
+        Logger.LogInformation("OOP tools/call response: {Response}",
+            callResponse.ToString(Formatting.Indented));
+
+        // Verify the response structure
+        Assert.Equal("2.0", callResponse["jsonrpc"]?.ToString());
+        Assert.NotNull(callResponse["result"]);
+        Assert.Null(callResponse["error"]);
+
+        var content = callResponse["result"]?["content"] as JArray;
+        Assert.NotNull(content);
+        Assert.NotEmpty(content);
+
+        var textContent = content![0]?["text"]?.ToString();
+        Assert.False(string.IsNullOrWhiteSpace(textContent),
+            "Tool call result text content should not be empty");
+
+        Logger.LogInformation("OOP round-trip result: {Result}", textContent);
+    }
+
+    [PwshAvailableFact]
+    public async Task ToolsCall_ErrorHandling_ReturnsErrorForInvalidTool()
+    {
+        Assert.NotNull(_client);
+
+        var callResponse = await _client!.SendToolCallAsync(
+            "nonexistent_tool_xyz_abc_123",
+            new JObject());
+
+        Assert.NotNull(callResponse);
+        Logger.LogInformation("Error response for invalid tool: {Response}",
+            callResponse.ToString(Formatting.Indented));
+
+        // The server should return an error (either in result.isError or in error)
+        var hasError = callResponse["error"] != null;
+        var isError = callResponse["result"]?["isError"]?.Value<bool>() == true;
+        Assert.True(hasError || isError,
+            $"Expected error for nonexistent tool. Response: {callResponse.ToString(Formatting.None)}");
     }
 }

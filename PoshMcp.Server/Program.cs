@@ -503,6 +503,8 @@ public class Program
                 var updateRequest = new ConfigUpdateRequest(
                     addFunctions ?? Array.Empty<string>(),
                     removeFunctions ?? Array.Empty<string>(),
+                    Array.Empty<string>(),
+                    Array.Empty<string>(),
                     addModules ?? Array.Empty<string>(),
                     removeModules ?? Array.Empty<string>(),
                     addIncludePatterns ?? Array.Empty<string>(),
@@ -998,7 +1000,7 @@ public class Program
         }
 
         Console.WriteLine($"Configuration: {finalConfigPath}");
-        Console.WriteLine($"Runtime mode: {config.RuntimeMode}");
+    Console.WriteLine($"Runtime mode: {config.RuntimeMode}");
         Console.WriteLine($"Discovered tools: {tools.Count}");
         Console.WriteLine("Configured function names:");
         foreach (var functionName in config.FunctionNames)
@@ -1356,6 +1358,8 @@ public class Program
     private sealed record ConfigUpdateRequest(
         IEnumerable<string> AddFunctions,
         IEnumerable<string> RemoveFunctions,
+        IEnumerable<string> AddCommands,
+        IEnumerable<string> RemoveCommands,
         IEnumerable<string> AddModules,
         IEnumerable<string> RemoveModules,
         IEnumerable<string> AddIncludePatterns,
@@ -1477,9 +1481,18 @@ public class Program
 
         var powerShellConfiguration = GetOrCreateObject(root, "PowerShellConfiguration");
 
+        // CommandNames is the preferred target for --add-command/--remove-command
+        var commandNames = GetOrCreateArray(powerShellConfiguration, "CommandNames");
+        var addedCommands = AddUniqueValues(commandNames, request.AddCommands, out var addedCommandNames);
+        var removedCommands = RemoveValues(commandNames, request.RemoveCommands);
+
+        // FunctionNames is the legacy target for --add-function/--remove-function
         var functionNames = GetOrCreateArray(powerShellConfiguration, "FunctionNames");
         var addedFunctions = AddUniqueValues(functionNames, request.AddFunctions, out var addedFunctionNames);
         var removedFunctions = RemoveValues(functionNames, request.RemoveFunctions);
+
+        // Combine for advanced prompts
+        var allAddedNames = addedCommandNames.Concat(addedFunctionNames).ToList();
 
         var addedModules = AddUniqueValues(GetOrCreateArray(powerShellConfiguration, "Modules"), request.AddModules, out _);
         var removedModules = RemoveValues(GetOrCreateArray(powerShellConfiguration, "Modules"), request.RemoveModules);
@@ -1503,7 +1516,8 @@ public class Program
             advancedPromptedFunctionCount = PromptForAdvancedFunctionConfiguration(powerShellConfiguration, addedFunctionNames);
         }
 
-        var changed = addedFunctions > 0 || removedFunctions > 0 ||
+        var changed = addedCommands > 0 || removedCommands > 0 ||
+            addedFunctions > 0 || removedFunctions > 0 ||
             addedModules > 0 || removedModules > 0 ||
             addedIncludePatterns > 0 || removedIncludePatterns > 0 ||
             addedExcludePatterns > 0 || removedExcludePatterns > 0 ||
@@ -2376,21 +2390,6 @@ public class Program
         var executor = new OutOfProcessCommandExecutor(executorLogger);
         await executor.StartAsync();
         logger.LogInformation("Started out-of-process PowerShell executor");
-
-        // Apply environment customization if configured
-        var envConfig = config.Environment;
-        if (envConfig.ModulePaths.Count > 0
-            || envConfig.InstallModules.Count > 0
-            || envConfig.ImportModules.Count > 0
-            || !string.IsNullOrWhiteSpace(envConfig.StartupScriptPath)
-            || !string.IsNullOrWhiteSpace(envConfig.StartupScript)
-            || envConfig.TrustPSGallery)
-        {
-            logger.LogInformation("Sending environment setup to OOP subprocess");
-            await executor.SetupAsync(envConfig);
-            logger.LogInformation("OOP environment setup completed");
-        }
-
         return new OutOfProcessExecutorLease(executor);
     }
 
