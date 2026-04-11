@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using PoshMcp.Server.PowerShell;
 using PoshMcp.Server.PowerShell.OutOfProcess;
 using Xunit;
@@ -13,7 +16,7 @@ namespace PoshMcp.Tests.Integration;
 
 /// <summary>
 /// Integration tests that exercise the real OOP pipeline with an actual pwsh subprocess.
-/// Requires pwsh on PATH.
+/// Requires pwsh on PATH — tests skip automatically via <see cref="PwshAvailableFactAttribute"/>.
 /// </summary>
 [Trait("Category", "OutOfProcess")]
 public class OutOfProcessIntegrationTests : IAsyncLifetime
@@ -22,7 +25,6 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private readonly ITestOutputHelper _output;
-    private readonly bool _skipTests;
 
     public OutOfProcessIntegrationTests(ITestOutputHelper output)
     {
@@ -33,26 +35,21 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
             builder.SetMinimumLevel(LogLevel.Debug);
         });
         _logger = _loggerFactory.CreateLogger<OutOfProcessIntegrationTests>();
-
-        try
-        {
-            var path = OutOfProcessCommandExecutor.ResolvePwshPath();
-            _skipTests = string.IsNullOrEmpty(path);
-        }
-        catch
-        {
-            _skipTests = true;
-        }
-
-        if (_skipTests)
-        {
-            _output.WriteLine("⚠️  Skipping OOP integration tests — pwsh is not available on PATH");
-        }
     }
 
     public async Task InitializeAsync()
     {
-        if (_skipTests) return;
+        // Only start if pwsh is available — tests using PwshAvailableFactAttribute won't
+        // reach here when pwsh is missing, but guard for safety.
+        try
+        {
+            var path = OutOfProcessCommandExecutor.ResolvePwshPath();
+            if (string.IsNullOrEmpty(path)) return;
+        }
+        catch
+        {
+            return;
+        }
 
         _executor = new OutOfProcessCommandExecutor(
             _loggerFactory.CreateLogger<OutOfProcessCommandExecutor>());
@@ -68,17 +65,12 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
 
     // ---- Subprocess lifecycle tests ----
 
-    [Fact]
+    [PwshAvailableFact]
     public async Task CanStartAndPingSubprocess()
     {
-        if (_skipTests) { _output.WriteLine("⏭️  Test skipped"); return; }
-
-        // StartAsync already pings during InitializeAsync.
-        // Verify the executor is alive by sending another ping via discover with empty config.
         Assert.NotNull(_executor);
 
-        // If we got here, StartAsync succeeded (which includes a ping).
-        // Exercise DiscoverCommandsAsync as a secondary liveness check.
+        // StartAsync already includes a ping. Exercise DiscoverCommandsAsync as a secondary liveness check.
         var config = new PowerShellConfiguration
         {
             FunctionNames = new List<string> { "Get-Process" },
