@@ -992,7 +992,7 @@ public class Program
                 configurationPath = finalConfigPath,
                 runtimeMode = config.RuntimeMode.ToString(),
                 toolCount = tools.Count,
-                functionNames = config.FunctionNames,
+                commandNames = config.GetEffectiveCommandNames(),
                 generatedAtUtc = DateTime.UtcNow
             };
             Console.WriteLine(JsonSerializer.Serialize(payload));
@@ -1000,12 +1000,12 @@ public class Program
         }
 
         Console.WriteLine($"Configuration: {finalConfigPath}");
-    Console.WriteLine($"Runtime mode: {config.RuntimeMode}");
+        Console.WriteLine($"Runtime mode: {config.RuntimeMode}");
         Console.WriteLine($"Discovered tools: {tools.Count}");
-        Console.WriteLine("Configured function names:");
-        foreach (var functionName in config.FunctionNames)
+        Console.WriteLine("Configured command names:");
+        foreach (var commandName in config.GetEffectiveCommandNames())
         {
-            Console.WriteLine($"- {functionName}");
+            Console.WriteLine($"- {commandName}");
         }
     }
 
@@ -1024,7 +1024,7 @@ public class Program
                 valid = true,
                 configurationPath = finalConfigPath,
                 runtimeMode = config.RuntimeMode.ToString(),
-                functionCount = config.FunctionNames.Count,
+                commandCount = config.GetEffectiveCommandNames().Count,
                 moduleCount = config.Modules.Count,
                 toolCount = tools.Count
             };
@@ -1035,7 +1035,7 @@ public class Program
         Console.WriteLine("Configuration validation succeeded.");
         Console.WriteLine($"Configuration: {finalConfigPath}");
         Console.WriteLine($"Runtime mode: {config.RuntimeMode}");
-        Console.WriteLine($"Functions: {config.FunctionNames.Count} | Modules: {config.Modules.Count} | Tools: {tools.Count}");
+        Console.WriteLine($"Commands: {config.GetEffectiveCommandNames().Count} | Modules: {config.Modules.Count} | Tools: {tools.Count}");
     }
 
     private static async Task RunDoctorAsync(ResolvedCommandSettings settings, string format)
@@ -1047,7 +1047,7 @@ public class Program
         var config = LoadPowerShellConfiguration(settings.FinalConfigPath, logger, settings.RuntimeMode.Value);
         var tools = await DiscoverToolsAsync(config, loggerFactory, logger, settings.FinalConfigPath);
         var discoveredToolNames = GetDiscoveredToolNames(tools);
-        var configuredFunctionStatus = BuildConfiguredFunctionStatus(config.FunctionNames, discoveredToolNames);
+        var configuredFunctionStatus = BuildConfiguredFunctionStatus(config.GetEffectiveCommandNames(), discoveredToolNames);
         var toolNames = discoveredToolNames.Count > 0
             ? discoveredToolNames
             : GetExpectedToolNames(configuredFunctionStatus, config.EnableDynamicReloadTools);
@@ -1056,6 +1056,8 @@ public class Program
 
         var foundFunctions = configuredFunctionStatus.Where(f => f.Found).Select(f => f.FunctionName).ToList();
         var missingFunctions = configuredFunctionStatus.Where(f => !f.Found).Select(f => f.FunctionName).ToList();
+
+        var warnings = BuildConfigurationWarnings(config);
 
         if (format == "json")
         {
@@ -1126,6 +1128,14 @@ public class Program
                 Console.WriteLine($"- {modulePath}");
             }
         }
+        if (warnings.Count > 0)
+        {
+            Console.WriteLine("Warnings:");
+            foreach (var warning in warnings)
+            {
+                Console.WriteLine($"  ⚠ {warning}");
+            }
+        }
     }
 
     internal static string BuildDoctorJson(
@@ -1145,7 +1155,7 @@ public class Program
         List<McpServerTool> tools)
     {
         var discoveredToolNames = GetDiscoveredToolNames(tools);
-        var configuredFunctionStatus = BuildConfiguredFunctionStatus(config.FunctionNames, discoveredToolNames);
+        var configuredFunctionStatus = BuildConfiguredFunctionStatus(config.GetEffectiveCommandNames(), discoveredToolNames);
         var toolNames = discoveredToolNames.Count > 0
             ? discoveredToolNames
             : GetExpectedToolNames(configuredFunctionStatus, config.EnableDynamicReloadTools);
@@ -1153,6 +1163,7 @@ public class Program
         var effectivePowerShellConfiguration = JsonNode.Parse(SerializeEffectivePowerShellConfiguration(config));
         var foundFunctions = configuredFunctionStatus.Where(f => f.Found).Select(f => f.FunctionName).ToList();
         var missingFunctions = configuredFunctionStatus.Where(f => !f.Found).Select(f => f.FunctionName).ToList();
+        var warnings = BuildConfigurationWarnings(config);
 
         var payload = new
         {
@@ -1175,6 +1186,7 @@ public class Program
             configuredFunctionsFound = foundFunctions,
             configuredFunctionsMissing = missingFunctions,
             configuredFunctionStatus,
+            warnings,
             powershellVersion = diagnostics.PowerShellVersion,
             modulePathEntries = diagnostics.ModulePathEntries,
             modulePaths = diagnostics.ModulePaths,
@@ -1182,6 +1194,20 @@ public class Program
         };
 
         return JsonSerializer.Serialize(payload);
+    }
+
+    private static List<string> BuildConfigurationWarnings(PowerShellConfiguration config)
+    {
+        var warnings = new List<string>();
+        if (config.HasBothCommandAndFunctionNames)
+        {
+            warnings.Add("Both CommandNames and FunctionNames are configured. CommandNames takes precedence; FunctionNames entries are ignored.");
+        }
+        else if (config.HasLegacyFunctionNames)
+        {
+            warnings.Add("FunctionNames is deprecated. Migrate to CommandNames in your appsettings.json (rename the \"FunctionNames\" array to \"CommandNames\").");
+        }
+        return warnings;
     }
 
     internal static string SerializeEffectivePowerShellConfiguration(PowerShellConfiguration config, bool writeIndented = false)
@@ -1929,7 +1955,7 @@ public class Program
     private static void LogConfigurationDetails(PowerShellConfiguration config, ILogger logger)
     {
         logger.LogDebug("Configuration loaded successfully");
-        logger.LogTrace($"Function names: {string.Join(", ", config.FunctionNames)}");
+        logger.LogTrace($"Command names: {string.Join(", ", config.GetEffectiveCommandNames())}");
         logger.LogTrace($"Modules: {string.Join(", ", config.Modules)}");
         logger.LogTrace($"Include patterns: {string.Join(", ", config.IncludePatterns)}");
         logger.LogTrace($"Exclude patterns: {string.Join(", ", config.ExcludePatterns)}");
