@@ -6,7 +6,7 @@
     }
   },
   "PowerShellConfiguration": {
-    "FunctionNames": [
+    "CommandNames": [
       "Get-Process",
       "Get-Service",
       "Get-Location",

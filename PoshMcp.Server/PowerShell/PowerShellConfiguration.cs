@@ -16,12 +16,18 @@ public class PowerShellConfiguration
     public RuntimeMode RuntimeMode { get; set; } = RuntimeMode.InProcess;
 
     /// <summary>
-    /// Specific function names to import
+    /// Specific command names to expose as MCP tools.
+    /// This is the preferred property; use instead of FunctionNames.
+    /// </summary>
+    public List<string> CommandNames { get; set; } = new();
+
+    /// <summary>
+    /// Specific function names to import (deprecated — use CommandNames instead)
     /// </summary>
     public List<string> FunctionNames { get; set; } = new();
 
     /// <summary>
-    /// Additional commands to import (alternative to FunctionNames)
+    /// Additional commands to import (alternative to CommandNames)
     /// </summary>
     public List<string> Commands { get; set; } = new();
 
@@ -67,14 +73,30 @@ public class PowerShellConfiguration
     public Dictionary<string, FunctionOverride> FunctionOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Gets all function names from all configuration sources
+    /// Gets the effective command names from all configuration sources.
+    /// Prefers CommandNames over FunctionNames when both are present.
     /// </summary>
-    public List<string> GetAllFunctionNames()
+    public List<string> GetEffectiveCommandNames()
     {
-        var allNames = new List<string>(FunctionNames);
-
+        // If CommandNames is populated, it takes precedence over FunctionNames
+        var primarySource = CommandNames.Count > 0 ? CommandNames : FunctionNames;
+        var allNames = new List<string>(primarySource);
         allNames.AddRange(Commands);
-
         return allNames.Distinct().ToList();
     }
+
+    /// <summary>
+    /// Whether the deprecated FunctionNames property has values.
+    /// </summary>
+    public bool HasLegacyFunctionNames => FunctionNames.Count > 0;
+
+    /// <summary>
+    /// Whether both CommandNames and FunctionNames have values (config conflict).
+    /// </summary>
+    public bool HasBothCommandAndFunctionNames => CommandNames.Count > 0 && FunctionNames.Count > 0;
+
+    /// <summary>
+    /// Gets all function names from all configuration sources (deprecated — use GetEffectiveCommandNames())
+    /// </summary>
+    public List<string> GetAllFunctionNames() => GetEffectiveCommandNames();
 }
