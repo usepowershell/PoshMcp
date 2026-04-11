@@ -99,14 +99,28 @@ public class Program
 
         var addFunctionOption = new Option<string[]>(
             aliases: new[] { "--add-function" },
-            description: "Add one or more function names to PowerShellConfiguration.FunctionNames")
+            description: "[Deprecated: use --add-command] Add function names to FunctionNames")
         {
             Arity = ArgumentArity.ZeroOrMore
         };
 
         var removeFunctionOption = new Option<string[]>(
             aliases: new[] { "--remove-function" },
-            description: "Remove one or more function names from PowerShellConfiguration.FunctionNames")
+            description: "[Deprecated: use --remove-command] Remove function names from FunctionNames")
+        {
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var addCommandOption = new Option<string[]>(
+            aliases: new[] { "--add-command" },
+            description: "Add one or more command names to PowerShellConfiguration.CommandNames")
+        {
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var removeCommandOption = new Option<string[]>(
+            aliases: new[] { "--remove-command" },
+            description: "Remove one or more command names from PowerShellConfiguration.CommandNames")
         {
             Arity = ArgumentArity.ZeroOrMore
         };
@@ -214,6 +228,8 @@ public class Program
         updateConfigCommand.AddOption(formatOption);
         updateConfigCommand.AddOption(addFunctionOption);
         updateConfigCommand.AddOption(removeFunctionOption);
+        updateConfigCommand.AddOption(addCommandOption);
+        updateConfigCommand.AddOption(removeCommandOption);
         updateConfigCommand.AddOption(addModuleOption);
         updateConfigCommand.AddOption(removeModuleOption);
         updateConfigCommand.AddOption(addIncludePatternOption);
@@ -480,6 +496,8 @@ public class Program
             var format = context.ParseResult.GetValueForOption(formatOption);
             var addFunctions = context.ParseResult.GetValueForOption(addFunctionOption);
             var removeFunctions = context.ParseResult.GetValueForOption(removeFunctionOption);
+            var addCommands = context.ParseResult.GetValueForOption(addCommandOption);
+            var removeCommands = context.ParseResult.GetValueForOption(removeCommandOption);
             var addModules = context.ParseResult.GetValueForOption(addModuleOption);
             var removeModules = context.ParseResult.GetValueForOption(removeModuleOption);
             var addIncludePatterns = context.ParseResult.GetValueForOption(addIncludePatternOption);
@@ -503,8 +521,8 @@ public class Program
                 var updateRequest = new ConfigUpdateRequest(
                     addFunctions ?? Array.Empty<string>(),
                     removeFunctions ?? Array.Empty<string>(),
-                    Array.Empty<string>(),
-                    Array.Empty<string>(),
+                    addCommands ?? Array.Empty<string>(),
+                    removeCommands ?? Array.Empty<string>(),
                     addModules ?? Array.Empty<string>(),
                     removeModules ?? Array.Empty<string>(),
                     addIncludePatterns ?? Array.Empty<string>(),
@@ -525,6 +543,8 @@ public class Program
                         changed = result.Changed,
                         addedFunctions = result.AddedFunctions,
                         removedFunctions = result.RemovedFunctions,
+                        addedCommands = result.AddedCommands,
+                        removedCommands = result.RemovedCommands,
                         advancedPromptedFunctionCount = result.AdvancedPromptedFunctionCount
                     };
                     Console.WriteLine(JsonSerializer.Serialize(payload));
@@ -534,6 +554,7 @@ public class Program
                     Console.WriteLine(result.Changed
                         ? $"Updated configuration: {result.ConfigurationPath}"
                         : $"No changes applied to configuration: {result.ConfigurationPath}");
+                    Console.WriteLine($"Added commands: {result.AddedCommands} | Removed commands: {result.RemovedCommands}");
                     Console.WriteLine($"Added functions: {result.AddedFunctions} | Removed functions: {result.RemovedFunctions}");
                     if (result.AdvancedPromptedFunctionCount > 0)
                     {
@@ -1135,6 +1156,10 @@ public class Program
             {
                 Console.WriteLine($"  ⚠ {warning}");
             }
+            if (config.HasLegacyFunctionNames)
+            {
+                Console.WriteLine("  💡 To migrate: poshmcp update-config --add-command Get-Process --remove-function Get-Process");
+            }
         }
     }
 
@@ -1400,6 +1425,8 @@ public class Program
         bool Changed,
         int AddedFunctions,
         int RemovedFunctions,
+        int AddedCommands,
+        int RemovedCommands,
         int AdvancedPromptedFunctionCount);
 
     private sealed record ResolvedSetting(string? Value, string Source);
@@ -1564,6 +1591,8 @@ public class Program
             changed,
             addedFunctions,
             removedFunctions,
+            addedCommands,
+            removedCommands,
             advancedPromptedFunctionCount);
     }
 
@@ -2416,6 +2445,13 @@ public class Program
         var executor = new OutOfProcessCommandExecutor(executorLogger);
         await executor.StartAsync();
         logger.LogInformation("Started out-of-process PowerShell executor");
+
+        if (config.Environment is not null)
+        {
+            await executor.SetupAsync(config.Environment);
+            logger.LogInformation("Applied environment configuration to out-of-process executor");
+        }
+
         return new OutOfProcessExecutorLease(executor);
     }
 
