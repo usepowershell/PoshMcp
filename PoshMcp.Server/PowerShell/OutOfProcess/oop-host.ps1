@@ -70,6 +70,251 @@ function Invoke-ShutdownHandler {
     exit 0
 }
 
+function Invoke-SetupHandler {
+    <#
+    .SYNOPSIS
+        Apply environment customization: module paths, PSGallery trust,
+        module installation, module import, and startup scripts.
+        Mirrors the ordering from PowerShellEnvironmentSetup.ApplyEnvironmentConfiguration().
+    #>
+    param(
+        [string]$Id,
+        [object]$Params
+    )
+
+    $errors = [System.Collections.ArrayList]::new()
+    $warnings = [System.Collections.ArrayList]::new()
+    $installedModules = [System.Collections.ArrayList]::new()
+    $importedModules = [System.Collections.ArrayList]::new()
+    $configuredPaths = [System.Collections.ArrayList]::new()
+    $startupScriptExecuted = $false
+    $inlineScriptExecuted = $false
+
+    Write-Diag 'Starting environment setup'
+
+    # Step 1: Configure PSModulePath with additional paths
+    $modulePaths = @()
+    if ($null -ne $Params.modulePaths) {
+        $modulePaths = @($Params.modulePaths) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    }
+    if ($modulePaths.Count -gt 0) {
+        Write-Diag "Configuring PSModulePath with $($modulePaths.Count) additional path(s)"
+        $validPaths = [System.Collections.ArrayList]::new()
+        foreach ($p in $modulePaths) {
+            $expanded = [System.Environment]::ExpandEnvironmentVariables($p)
+            if (Test-Path -Path $expanded -PathType Container) {
+                $null = $validPaths.Add($expanded)
+                Write-Diag "  Added module path: $expanded"
+            }
+            else {
+                $msg = "Module path does not exist: $expanded"
+                Write-Diag "  WARNING: $msg"
+                $null = $warnings.Add($msg)
+            }
+        }
+        if ($validPaths.Count -gt 0) {
+            $separator = [System.IO.Path]::PathSeparator
+            $env:PSModulePath = ($validPaths -join $separator) + $separator + $env:PSModulePath
+            $null = $configuredPaths.AddRange($validPaths)
+        }
+    }
+
+    # Step 2: Trust PSGallery if configured
+    $trustPSGallery = $false
+    if ($null -ne $Params.trustPSGallery) {
+        $trustPSGallery = [bool]$Params.trustPSGallery
+    }
+    if ($trustPSGallery) {
+        Write-Diag 'Configuring PSGallery as trusted repository'
+        try {
+            if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) {
+                Register-PSRepository -Default -ErrorAction SilentlyContinue
+            }
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction Stop
+            Write-Diag '  PSGallery configured as trusted'
+        }
+        catch {
+            $msg = "Failed to trust PSGallery: $_"
+            Write-Diag "  WARNING: $msg"
+            $null = $warnings.Add($msg)
+        }
+    }
+
+    # Step 3: Install modules from PSGallery or other repositories
+    $installModules = @()
+    if ($null -ne $Params.installModules) {
+        $installModules = @($Params.installModules)
+    }
+    $skipPublisherCheck = $true
+    if ($null -ne $Params.skipPublisherCheck) {
+        $skipPublisherCheck = [bool]$Params.skipPublisherCheck
+    }
+    $installTimeoutSeconds = 300
+    if ($null -ne $Params.installTimeoutSeconds) {
+        $installTimeoutSeconds = [int]$Params.installTimeoutSeconds
+    }
+    foreach ($mod in $installModules) {
+        $modName = $mod.name
+        if ([string]::IsNullOrWhiteSpace($modName)) { continue }
+
+        Write-Diag "Installing module: $modName"
+        try {
+            # Check if already installed (skip unless force)
+            $forceInstall = $false
+            if ($null -ne $mod.force) {
+                $forceInstall = [bool]$mod.force
+            }
+            if (-not $forceInstall) {
+                $existing = Get-Module -ListAvailable -Name $modName -ErrorAction SilentlyContinue
+                if ($existing) {
+                    Write-Diag "  Module $modName already installed. Skipping."
+                    continue
+                }
+            }
+
+            $installParams = @{
+                Name        = $modName
+                ErrorAction = 'Stop'
+                Force       = $true
+            }
+
+            # Repository
+            if (-not [string]::IsNullOrWhiteSpace($mod.repository)) {
+                $installParams['Repository'] = $mod.repository
+            }
+            else {
+                $installParams['Repository'] = 'PSGallery'
+            }
+
+            # Scope
+            if (-not [string]::IsNullOrWhiteSpace($mod.scope)) {
+                $installParams['Scope'] = $mod.scope
+            }
+            else {
+                $installParams['Scope'] = 'CurrentUser'
+            }
+
+            # Version constraints
+            if (-not [string]::IsNullOrWhiteSpace($mod.version)) {
+                $installParams['RequiredVersion'] = $mod.version
+            }
+            elseif (-not [string]::IsNullOrWhiteSpace($mod.minimumVersion)) {
+                $installParams['MinimumVersion'] = $mod.minimumVersion
+                if (-not [string]::IsNullOrWhiteSpace($mod.maximumVersion)) {
+                    $installParams['MaximumVersion'] = $mod.maximumVersion
+                }
+            }
+
+            # SkipPublisherCheck — per-module setting overrides global
+            $modSkipPublisher = $skipPublisherCheck
+            if ($null -ne $mod.skipPublisherCheck) {
+                $modSkipPublisher = [bool]$mod.skipPublisherCheck
+            }
+            if ($modSkipPublisher) {
+                $installParams['SkipPublisherCheck'] = $true
+            }
+
+            # AllowPrerelease
+            if ($null -ne $mod.allowPrerelease -and [bool]$mod.allowPrerelease) {
+                $installParams['AllowPrerelease'] = $true
+            }
+
+            Install-Module @installParams
+            $null = $installedModules.Add($modName)
+            Write-Diag "  Successfully installed module: $modName"
+        }
+        catch {
+            $msg = "Error installing module $modName`: $_"
+            Write-Diag "  ERROR: $msg"
+            $null = $errors.Add($msg)
+        }
+    }
+
+    # Step 4: Import pre-installed modules
+    $importModulesList = @()
+    if ($null -ne $Params.importModules) {
+        $importModulesList = @($Params.importModules) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    }
+    $allowClobber = $false
+    if ($null -ne $Params.allowClobber) {
+        $allowClobber = [bool]$Params.allowClobber
+    }
+    foreach ($modName in $importModulesList) {
+        Write-Diag "Importing module: $modName"
+        try {
+            $importParams = @{
+                Name        = $modName
+                ErrorAction = 'Stop'
+                PassThru    = $true
+            }
+            if ($allowClobber) {
+                $importParams['Force'] = $true
+            }
+            Import-Module @importParams
+            $null = $importedModules.Add($modName)
+            Write-Diag "  Successfully imported module: $modName"
+        }
+        catch {
+            $msg = "Error importing module $modName`: $_"
+            Write-Diag "  ERROR: $msg"
+            $null = $errors.Add($msg)
+        }
+    }
+
+    # Step 5: Execute startup script from file
+    if (-not [string]::IsNullOrWhiteSpace($Params.startupScriptPath)) {
+        $scriptPath = [System.Environment]::ExpandEnvironmentVariables($Params.startupScriptPath)
+        Write-Diag "Executing startup script file: $scriptPath"
+        if (Test-Path -Path $scriptPath -PathType Leaf) {
+            try {
+                $scriptContent = Get-Content -Path $scriptPath -Raw
+                Invoke-Expression $scriptContent
+                $startupScriptExecuted = $true
+                Write-Diag '  Successfully executed startup script file'
+            }
+            catch {
+                $msg = "Error executing startup script file: $_"
+                Write-Diag "  ERROR: $msg"
+                $null = $errors.Add($msg)
+            }
+        }
+        else {
+            $msg = "Startup script file not found: $scriptPath"
+            Write-Diag "  ERROR: $msg"
+            $null = $errors.Add($msg)
+        }
+    }
+
+    # Step 6: Execute inline startup script
+    if (-not [string]::IsNullOrWhiteSpace($Params.startupScript)) {
+        Write-Diag "Executing inline startup script ($($Params.startupScript.Length) characters)"
+        try {
+            Invoke-Expression $Params.startupScript
+            $inlineScriptExecuted = $true
+            Write-Diag '  Successfully executed inline startup script'
+        }
+        catch {
+            $msg = "Error executing inline startup script: $_"
+            Write-Diag "  ERROR: $msg"
+            $null = $errors.Add($msg)
+        }
+    }
+
+    $success = $errors.Count -eq 0
+    Write-Diag "Environment setup completed. Success=$success, Installed=$($installedModules.Count), Imported=$($importedModules.Count), Errors=$($errors.Count)"
+
+    Write-NdjsonResponse -Id $Id -Result @{
+        success                = $success
+        installedModules       = @($installedModules)
+        importedModules        = @($importedModules)
+        configuredModulePaths  = @($configuredPaths)
+        startupScriptExecuted  = $startupScriptExecuted
+        inlineScriptExecuted   = $inlineScriptExecuted
+        errors                 = @($errors)
+        warnings               = @($warnings)
+    }
+}
+
 function Invoke-DiscoverHandler {
     <#
     .SYNOPSIS
@@ -358,6 +603,9 @@ while ($true) {
         switch ($method) {
             'ping' {
                 Invoke-PingHandler -Id $id
+            }
+            'setup' {
+                Invoke-SetupHandler -Id $id -Params $params
             }
             'shutdown' {
                 Invoke-ShutdownHandler -Id $id

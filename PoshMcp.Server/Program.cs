@@ -998,7 +998,7 @@ public class Program
         }
 
         Console.WriteLine($"Configuration: {finalConfigPath}");
-    Console.WriteLine($"Runtime mode: {config.RuntimeMode}");
+        Console.WriteLine($"Runtime mode: {config.RuntimeMode}");
         Console.WriteLine($"Discovered tools: {tools.Count}");
         Console.WriteLine("Configured function names:");
         foreach (var functionName in config.FunctionNames)
@@ -2376,6 +2376,21 @@ public class Program
         var executor = new OutOfProcessCommandExecutor(executorLogger);
         await executor.StartAsync();
         logger.LogInformation("Started out-of-process PowerShell executor");
+
+        // Apply environment customization if configured
+        var envConfig = config.Environment;
+        if (envConfig.ModulePaths.Count > 0
+            || envConfig.InstallModules.Count > 0
+            || envConfig.ImportModules.Count > 0
+            || !string.IsNullOrWhiteSpace(envConfig.StartupScriptPath)
+            || !string.IsNullOrWhiteSpace(envConfig.StartupScript)
+            || envConfig.TrustPSGallery)
+        {
+            logger.LogInformation("Sending environment setup to OOP subprocess");
+            await executor.SetupAsync(envConfig);
+            logger.LogInformation("OOP environment setup completed");
+        }
+
         return new OutOfProcessExecutorLease(executor);
     }
 

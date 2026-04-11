@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -150,6 +151,81 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
         _logger.LogInformation("Discovered {Count} commands via OOP subprocess.", schemas.Count);
         _cachedSchemas = schemas;
         return _cachedSchemas;
+    }
+
+    /// <summary>
+    /// Sends environment customization to the OOP subprocess.
+    /// Must be called after StartAsync() and before DiscoverCommandsAsync().
+    /// Mirrors the ordering from PowerShellEnvironmentSetup.ApplyEnvironmentConfiguration().
+    /// </summary>
+    public async Task SetupAsync(
+        EnvironmentConfiguration config,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        var setupParams = new
+        {
+            modulePaths = config.ModulePaths,
+            trustPSGallery = config.TrustPSGallery,
+            installModules = config.InstallModules.Select(m => new
+            {
+                name = m.Name,
+                version = m.Version,
+                minimumVersion = m.MinimumVersion,
+                maximumVersion = m.MaximumVersion,
+                repository = m.Repository,
+                scope = m.Scope,
+                force = m.Force,
+                skipPublisherCheck = m.SkipPublisherCheck,
+                allowPrerelease = m.AllowPrerelease,
+            }).ToArray(),
+            importModules = config.ImportModules,
+            startupScriptPath = config.StartupScriptPath,
+            startupScript = config.StartupScript,
+            skipPublisherCheck = config.SkipPublisherCheck,
+            allowClobber = config.AllowClobber,
+            installTimeoutSeconds = config.InstallTimeoutSeconds,
+        };
+
+        _logger.LogInformation("Sending environment setup to OOP subprocess.");
+
+        var result = await SendRequestAsync<JsonElement>("setup", setupParams, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (result.TryGetProperty("success", out var successProp) && successProp.GetBoolean())
+        {
+            var installed = 0;
+            var imported = 0;
+            if (result.TryGetProperty("installedModules", out var installedProp))
+                installed = installedProp.GetArrayLength();
+            if (result.TryGetProperty("importedModules", out var importedProp))
+                imported = importedProp.GetArrayLength();
+
+            _logger.LogInformation(
+                "OOP environment setup succeeded. Installed: {Installed}, Imported: {Imported}",
+                installed, imported);
+        }
+        else
+        {
+            var errors = new List<string>();
+            if (result.TryGetProperty("errors", out var errorsProp))
+            {
+                foreach (var err in errorsProp.EnumerateArray())
+                {
+                    var errStr = err.GetString();
+                    if (errStr is not null)
+                        errors.Add(errStr);
+                }
+            }
+
+            var errorMessage = errors.Count > 0
+                ? string.Join("; ", errors)
+                : result.GetRawText();
+
+            _logger.LogError("OOP environment setup failed: {Errors}", errorMessage);
+            throw new InvalidOperationException($"OOP environment setup failed: {errorMessage}");
+        }
     }
 
     /// <inheritdoc />
