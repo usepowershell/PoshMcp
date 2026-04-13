@@ -2123,25 +2123,30 @@ public class Program
             .WithHttpTransport()
             .WithTools(tools);
 
+        ToolAuthorizationFilter? callToolFilter = null;
+        ToolListAuthorizationFilter? listToolFilter = null;
+
         if (authConfigValue.Enabled)
         {
-            var sharedMetrics = new McpMetrics();
-            builder.Services.AddSingleton(sharedMetrics);
-            var callToolFilter = new PoshMcp.Server.Authentication.ToolAuthorizationFilter(
-                authConfigValue,
-                config,
-                sharedHttpContextAccessor,
-                sharedMetrics,
-                bootstrapLoggerFactory.CreateLogger<PoshMcp.Server.Authentication.ToolAuthorizationFilter>());
-            var listToolFilter = new PoshMcp.Server.Authentication.ToolListAuthorizationFilter(
-                authConfigValue,
-                config,
-                sharedHttpContextAccessor,
-                bootstrapLoggerFactory.CreateLogger<PoshMcp.Server.Authentication.ToolListAuthorizationFilter>());
+            builder.Services.AddSingleton<ToolAuthorizationFilter>(sp =>
+                new ToolAuthorizationFilter(
+                    authConfigValue,
+                    config,
+                    sp.GetRequiredService<IHttpContextAccessor>(),
+                    sp.GetRequiredService<McpMetrics>(),
+                    sp.GetRequiredService<ILogger<ToolAuthorizationFilter>>()));
+            builder.Services.AddSingleton<ToolListAuthorizationFilter>(sp =>
+                new ToolListAuthorizationFilter(
+                    authConfigValue,
+                    config,
+                    sp.GetRequiredService<IHttpContextAccessor>(),
+                    sp.GetRequiredService<ILogger<ToolListAuthorizationFilter>>()));
             mcpBuilder.WithRequestFilters(fb =>
             {
-                fb.AddCallToolFilter(callToolFilter.AsFilter());
-                fb.AddListToolsFilter(listToolFilter.AsFilter());
+                fb.AddCallToolFilter((next) => async (context, ct) =>
+                    await callToolFilter!.AsFilter()(next)(context, ct));
+                fb.AddListToolsFilter((next) => async (context, ct) =>
+                    await listToolFilter!.AsFilter()(next)(context, ct));
             });
         }
 
@@ -2166,6 +2171,8 @@ public class Program
         var authConfigForMiddleware = app.Services.GetRequiredService<IOptions<AuthenticationConfiguration>>();
         if (authConfigForMiddleware.Value.Enabled)
         {
+            callToolFilter = app.Services.GetRequiredService<ToolAuthorizationFilter>();
+            listToolFilter = app.Services.GetRequiredService<ToolListAuthorizationFilter>();
             app.UseAuthentication();
             app.UseAuthorization();
         }
