@@ -4,6 +4,8 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -50,4 +52,27 @@ public class ApiKeyAuthenticationHandler(
 
         return Task.FromResult(AuthenticateResult.Success(ticket));
     }
+
+    protected override async Task HandleChallengeAsync(AuthenticationProperties properties)
+    {
+        Response.StatusCode = 401;
+
+        // Add WWW-Authenticate header pointing to resource metadata if configured
+        var authConfig = Context.RequestServices
+            .GetRequiredService<IOptions<AuthenticationConfiguration>>();
+
+        if (authConfig.Value.ProtectedResource?.Resource is not null)
+        {
+            var metadataUrl = $"{authConfig.Value.ProtectedResource.Resource}/.well-known/oauth-protected-resource";
+            Response.Headers["WWW-Authenticate"] =
+                $"Bearer resource_metadata=\"{metadataUrl}\"";
+        }
+        else
+        {
+            Response.Headers["WWW-Authenticate"] = "ApiKey";
+        }
+
+        await base.HandleChallengeAsync(properties);
+    }
 }
+

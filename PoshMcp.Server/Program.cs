@@ -2191,19 +2191,43 @@ public class Program
             mcpEndpoint.RequireAuthorization("McpAccess");
         }
 
+        // RFC 9728 Protected Resource Metadata
+        var authConfigForEndpoints = app.Services
+            .GetRequiredService<IOptions<AuthenticationConfiguration>>();
+        app.MapProtectedResourceMetadata(authConfigForEndpoints.Value);
+
         await app.RunAsync();
     }
 
     private static void ConfigureCorsForMcp(WebApplicationBuilder builder)
     {
+        var authConfig = builder.Configuration.GetSection("Authentication").Get<AuthenticationConfiguration>()
+            ?? new AuthenticationConfiguration();
+
         builder.Services.AddCors(options =>
         {
             options.AddDefaultPolicy(policy =>
             {
-                policy.AllowAnyOrigin()
-                    .AllowAnyMethod()
-                    .AllowAnyHeader()
-                    .WithExposedHeaders("Mcp-Session-Id");
+                if (authConfig.Enabled && authConfig.Cors?.AllowedOrigins.Count > 0)
+                {
+                    policy.WithOrigins(authConfig.Cors.AllowedOrigins.ToArray());
+                    if (authConfig.Cors.AllowCredentials)
+                        policy.AllowCredentials();
+                    else
+                        policy.DisallowCredentials();
+                }
+                else if (authConfig.Enabled)
+                {
+                    // Auth enabled but no origins configured — same-origin only (no wildcard)
+                    // ASP.NET Core doesn't support "same-origin only" via CORS policy directly,
+                    // so we just don't add AllowAnyOrigin — this effectively blocks cross-origin
+                }
+                else
+                {
+                    // Auth disabled — keep wide-open for dev/stdio use
+                    policy.AllowAnyOrigin();
+                }
+                policy.AllowAnyMethod().AllowAnyHeader().WithExposedHeaders("Mcp-Session-Id");
             });
         });
     }
