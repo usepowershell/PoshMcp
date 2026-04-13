@@ -683,3 +683,54 @@ If specific types prove problematic during implementation, the `oop-host.ps1` sc
 
 No changes to `specs/out-of-process-execution.md`. The existing ndjson protocol remains the correct approach.
 
+
+
+# Decision: MCP Authentication Architecture
+
+**Author:** Farnsworth (Lead/Architect)
+**Date:** 2026-07-14
+**Status:** Proposed
+
+## Context
+
+PoshMcp has no authentication or authorization. For HTTP deployments, any client can connect and invoke any tool — including destructive ones like `Stop-Process`. The MCP protocol spec (2025-06-18) defines an optional OAuth 2.1-based authorization model for HTTP transports.
+
+## Decision
+
+Implement a **two-layer authentication architecture** for PoshMcp's HTTP transport:
+
+1. **ASP.NET Core authentication middleware** validates caller identity (JWT Bearer tokens and API keys), populating `HttpContext.User` which the MCP SDK automatically propagates to `RequestContext.User`.
+
+2. **MCP SDK `CallToolFilters`** enforce per-tool authorization by matching tool names against configuration-driven scope and role requirements in `FunctionOverrides`.
+
+Authentication is **disabled by default** (`Authentication.Enabled = false`) to preserve backward compatibility.
+
+## Key Architectural Choices
+
+- **`McpRequestFilters.CallToolFilters`** for per-tool auth — not `DelegatingMcpServerTool` wrappers. Filters are cross-cutting, have direct access to `User` and tool name, and pair with `ListToolsFilters` for consistent tool visibility.
+- **Standard ASP.NET Core auth stack** for token validation — not custom MCP-layer parsing. The SDK's `MessageContext.User` (`ClaimsPrincipal`) proves this is the intended integration point.
+- **Per-tool overrides via `FunctionOverrides`** — extends the existing pattern (`RequiredScopes`, `RequiredRoles`, `AllowAnonymous`) rather than creating a parallel config section.
+- **Multi-scheme support** (JWT Bearer + API Key) — JWT for spec compliance and enterprise, API Key for simplicity.
+- **Stdio transport**: Skips HTTP auth per MCP spec, but `CallToolFilters` still run for tool-level policy enforcement.
+
+## Consequences
+
+- Existing deployments are unaffected (auth off by default)
+- New `Authentication` config section in `appsettings.json` with `Enabled`, `Schemes`, `DefaultPolicy`
+- `FunctionOverride` class gets three new properties
+- `Program.cs` HTTP pipeline gains auth middleware conditionally
+- RFC 9728 Protected Resource Metadata endpoint at `/.well-known/oauth-protected-resource`
+- New NuGet dependency: `Microsoft.AspNetCore.Authentication.JwtBearer`
+
+## Alternatives Considered
+
+1. **Auth at MCP filter layer only** (parse tokens in `CallToolFilters`): Rejected — reinvents ASP.NET Core's auth stack, misses session-init protection, fragile JWT handling.
+2. **`DelegatingMcpServerTool` per-tool wrappers**: Rejected — requires wrapping every tool individually, no cleaner than a single filter, and doesn't pair with tool-list filtering.
+3. **Auth enabled by default**: Rejected — would break all existing deployments immediately.
+
+## References
+
+- MCP Spec Authorization: https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization
+- C# MCP SDK v1.2.0 API: https://csharp.sdk.modelcontextprotocol.io/
+- Full implementation plan: Session workspace `plan.md`
+

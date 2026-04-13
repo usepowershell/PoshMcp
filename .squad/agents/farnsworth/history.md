@@ -72,3 +72,26 @@ Current Priorities:
 **Key insight:** OOP isolation targets heavy module loading, not the SDK. The SDK can deserialize CLIXML, but doing so reconstructs full PSObject graphs that we immediately flatten — waste of CPU/memory for throwaway fidelity.
 **If types prove problematic:** Handle surgically in `oop-host.ps1` with per-type handlers rather than switching transport format. ConvertTo-Json -Depth 4 -Compress remains the correct approach.
 **Decision file:** `.squad/decisions/inbox/farnsworth-clixml-evaluation.md`
+
+### 2026-07-14: MCP authentication architecture design
+
+**Decision:** Implement two-layer authentication for HTTP transport:
+1. **ASP.NET Core middleware** validates identity (JWT Bearer tokens, API keys) → populates `HttpContext.User`
+2. **MCP SDK `CallToolFilters`** enforce per-tool authorization via `FunctionOverrides` config (scopes, roles, anonymous bypass)
+
+**Architecture rationale:**
+- Use `McpRequestFilters.CallToolFilters` (not `DelegatingMcpServerTool` wrappers) — cross-cutting, direct access to `User` and tool names, pairs with `ListToolsFilters` for consistent visibility
+- Standard ASP.NET Core auth stack (not custom MCP-layer parsing) — SDK's `MessageContext.User` proves this is the intended integration point
+- Multi-scheme support: JWT Bearer (spec compliance, enterprise) + API Key (simplicity)
+- Disabled by default (`Authentication.Enabled = false`) for backward compatibility
+- Stdio transport skips HTTP auth per MCP spec, but `CallToolFilters` still enforce tool-level policy
+
+**Implementation scope:**
+- New `Authentication` config section with `Enabled`, `Schemes`, `DefaultPolicy`
+- `FunctionOverride` extends existing pattern with `RequiredScopes`, `RequiredRoles`, `AllowAnonymous`
+- `Program.cs` gains conditional auth middleware in HTTP pipeline
+- RFC 9728 protected resource metadata endpoint: `/.well-known/oauth-protected-resource`
+- New dependency: `Microsoft.AspNetCore.Authentication.JwtBearer`
+
+**Full plan:** Session workspace `plan.md`
+**Decision file:** `.squad/decisions.md` entry 2026-07-14
