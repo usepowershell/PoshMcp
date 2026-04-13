@@ -95,3 +95,21 @@ Current Priorities:
 
 **Full plan:** Session workspace `plan.md`
 **Decision file:** `.squad/decisions.md` entry 2026-07-14
+
+### 2026-04-13: PR #85 merged — extend update-config all settings
+
+**PR:** #85 (Amy) — `feat: extend update-config to support all configuration settings`
+**Outcome:** Squash merged to `main`. Branch `squad/76-update-config-all-settings` deleted. Fixes #76.
+
+**What was in the PR:**
+- 4 new `update-config` CLI flags: `--runtime-mode`, `--enable-result-caching`, `--enable-configuration-troubleshooting-tool`, `--set-auth-enabled`
+- Extended `ConfigUpdateRequest`/`ConfigUpdateResult` records
+- Interactive prompts extended with `AllowAnonymous`, `RequiredScopes`, `RequiredRoles` per added function/command
+- Fix: interactive prompts now run for `allAddedNames` (both `--add-command` and `--add-function`) not just `addedFunctionNames`
+- `boolUpdateApplied` upgraded bool->int counter; `SettingsChanged` field in JSON output
+- Correct JSON nesting: `Performance` under `powerShellConfiguration`, `Authentication` at root level
+
+**Issues filed (non-blocking observations):**
+- #86: Enhancement — add `--use-default-display-properties` global flag (consistency with other Performance bool flags)
+- #87: Tech debt — warn when `--set-auth-enabled true` used with empty `Authentication.Schemes`
+- #88: Tests — add unit tests for all 4 new flags and `settingsChanged` counter in `ProgramCliConfigCommandsTests`
