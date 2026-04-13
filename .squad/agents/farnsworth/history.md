@@ -113,3 +113,9 @@ Current Priorities:
 - #86: Enhancement — add `--use-default-display-properties` global flag (consistency with other Performance bool flags)
 - #87: Tech debt — warn when `--set-auth-enabled true` used with empty `Authentication.Schemes`
 - #88: Tests — add unit tests for all 4 new flags and `settingsChanged` counter in `ProgramCliConfigCommandsTests`
+### 2026-07-15: PR #83 re-review (auth metrics Phase 6)
+
+**Verdict:** APPROVED
+**Issue resolved:** McpMetrics dual-instance bug fixed by Bender. Auth filters now registered as DI singletons with factory lambdas resolving `McpMetrics` via `sp.GetRequiredService<McpMetrics>()`. No manual `new McpMetrics()` construction in auth path. Deferred capture pattern for filter variables (assigned post-`app.Build()`) is safe — lambdas execute only at request time.
+**Non-blocking nit:** Redundant LINQ lookup in `ApiKeyAuthenticationHandler` (`Options.Keys.FirstOrDefault(k => k.Key == apiKey).Key` after `TryGetValue` already succeeded).
+**Build:** 0 errors on branch.

@@ -424,6 +424,15 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
 
                 _logger.LogDebug("OOP stdout: {Line}", line);
 
+                // PowerShell warning/info/verbose/debug streams can leak to stdout from
+                // modules that call Write-Warning (or similar) directly. These lines are
+                // not JSON — skip them gracefully without an alarming log entry.
+                if (IsNonJsonPowerShellStreamLine(line))
+                {
+                    _logger.LogDebug("OOP subprocess non-JSON stream output (suppressed): {Line}", line);
+                    continue;
+                }
+
                 try
                 {
                     using var doc = JsonDocument.Parse(line);
@@ -466,9 +475,11 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
                             "OOP response has neither 'result' nor 'error'."));
                     }
                 }
-                catch (JsonException ex)
+                catch (JsonException)
                 {
-                    _logger.LogWarning(ex, "Failed to parse OOP stdout JSON: {Line}", line);
+                    // Log at Debug — unexpected non-JSON output is not actionable for
+                    // operators and should not flood logs at Warning level.
+                    _logger.LogDebug("OOP stdout: skipping non-JSON line: {Line}", line);
                 }
             }
         }
@@ -511,6 +522,27 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
         }
 
         _logger.LogDebug("OOP stderr read loop exited.");
+    }
+
+    /// <summary>
+    /// Returns <see langword="true"/> when <paramref name="line"/> looks like output from a
+    /// PowerShell informational stream (WARNING:, VERBOSE:, DEBUG:, INFORMATION:) rather than
+    /// a JSON object.  Some modules write directly to these streams — or even to
+    /// <see cref="Console.Out"/> — which can corrupt the ndjson protocol channel.
+    /// </summary>
+    private static bool IsNonJsonPowerShellStreamLine(string line)
+    {
+        // Fast path: JSON must start with '{' or '[' after optional whitespace.
+        var trimmed = line.AsSpan().TrimStart();
+        if (trimmed.IsEmpty) return false;
+        if (trimmed[0] == '{' || trimmed[0] == '[' || trimmed[0] == '"') return false;
+
+        // Known PowerShell stream prefixes emitted by the default console host.
+        return line.StartsWith("WARNING:", StringComparison.OrdinalIgnoreCase)
+            || line.StartsWith("VERBOSE:", StringComparison.OrdinalIgnoreCase)
+            || line.StartsWith("DEBUG:", StringComparison.OrdinalIgnoreCase)
+            || line.StartsWith("INFORMATION:", StringComparison.OrdinalIgnoreCase)
+            || line.StartsWith("ERROR:", StringComparison.OrdinalIgnoreCase);
     }
 
     private void OnProcessExited(object? sender, EventArgs e)

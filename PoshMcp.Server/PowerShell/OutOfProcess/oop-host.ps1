@@ -223,7 +223,8 @@ function Invoke-SetupHandler {
                 $installParams['AllowPrerelease'] = $true
             }
 
-            Install-Module @installParams
+            Install-Module @installParams -WarningAction SilentlyContinue -WarningVariable installWarnings
+            foreach ($w in $installWarnings) { Write-Diag "  Module install warning: $w" }
             $null = $installedModules.Add($modName)
             Write-Diag "  Successfully installed module: $modName"
         }
@@ -247,14 +248,17 @@ function Invoke-SetupHandler {
         Write-Diag "Importing module: $modName"
         try {
             $importParams = @{
-                Name        = $modName
-                ErrorAction = 'Stop'
-                PassThru    = $true
+                Name            = $modName
+                ErrorAction     = 'Stop'
+                PassThru        = $true
+                WarningAction   = 'SilentlyContinue'
+                WarningVariable = 'importWarnings'
             }
             if ($allowClobber) {
                 $importParams['Force'] = $true
             }
             Import-Module @importParams
+            foreach ($w in $importWarnings) { Write-Diag "  Module warning: $w" }
             $null = $importedModules.Add($modName)
             Write-Diag "  Successfully imported module: $modName"
         }
@@ -339,7 +343,8 @@ function Invoke-DiscoverHandler {
     foreach ($moduleName in $modules) {
         try {
             Write-Diag "Importing module: $moduleName"
-            Import-Module -Name $moduleName -ErrorAction Stop
+            Import-Module -Name $moduleName -ErrorAction Stop -WarningAction SilentlyContinue -WarningVariable discoverImportWarnings
+            foreach ($w in $discoverImportWarnings) { Write-Diag "  Module warning: $w" }
             Write-Diag "Imported module: $moduleName"
         }
         catch {
