@@ -62,7 +62,7 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
         var psi = new ProcessStartInfo
         {
             FileName = pwshPath,
-            Arguments = $"-NoProfile -NonInteractive -File \"{scriptPath}\"",
+            Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{scriptPath}\"",
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,

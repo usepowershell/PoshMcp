@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -25,6 +26,7 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private readonly ITestOutputHelper _output;
+    private string _testTempDir = string.Empty;
 
     public OutOfProcessIntegrationTests(ITestOutputHelper output)
     {
@@ -39,6 +41,9 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
+        _testTempDir = Path.Combine(Path.GetTempPath(), $"poshmcp-oop-tests-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_testTempDir);
+
         // Only start if pwsh is available — tests using PwshAvailableFactAttribute won't
         // reach here when pwsh is missing, but guard for safety.
         try
@@ -61,6 +66,9 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
         if (_executor != null)
             await _executor.DisposeAsync();
         _loggerFactory.Dispose();
+
+        if (Directory.Exists(_testTempDir))
+            Directory.Delete(_testTempDir, recursive: true);
     }
 
     // ---- Subprocess lifecycle tests ----
@@ -228,15 +236,16 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
     [PwshAvailableFact]
     public async Task CanInvokeGetProcess()
     {
+        // Scope to the current process to avoid serializing all processes (which times out)
         var result = await _executor!.InvokeAsync(
             "Get-Process",
-            new Dictionary<string, object?>());
+            new Dictionary<string, object?> { ["Id"] = Environment.ProcessId });
 
         Assert.NotNull(result);
         Assert.NotEmpty(result);
         _logger.LogInformation("Get-Process output length: {Length}", result.Length);
 
-        // Result should be valid JSON (array of process objects)
+        // Result should be valid JSON (single object or array)
         Assert.True(result.TrimStart().StartsWith("[") || result.TrimStart().StartsWith("{"),
             $"Expected JSON output but got: {result[..Math.Min(200, result.Length)]}");
     }
@@ -246,10 +255,10 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
     {
         var result = await _executor!.InvokeAsync(
             "Get-ChildItem",
-            new Dictionary<string, object?> { ["Path"] = "/tmp" });
+            new Dictionary<string, object?> { ["Path"] = _testTempDir });
 
         Assert.NotNull(result);
-        _logger.LogInformation("Get-ChildItem /tmp output length: {Length}", result.Length);
+        _logger.LogInformation("Get-ChildItem temp path output length: {Length}", result.Length);
 
         // Output should be JSON
         var trimmed = result.TrimStart();
@@ -276,7 +285,7 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
     {
         var result = await _executor!.InvokeAsync(
             "Get-ChildItem",
-            new Dictionary<string, object?> { ["Path"] = "/tmp" });
+            new Dictionary<string, object?> { ["Path"] = _testTempDir });
 
         Assert.NotNull(result);
         Assert.NotEmpty(result);

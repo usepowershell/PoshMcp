@@ -411,6 +411,25 @@ function Invoke-DiscoverHandler {
         }
     }
 
+    # When no modules are specified, discover include patterns globally (same behaviour as in-process)
+    if ($modules.Count -eq 0 -and $commands.Count -eq 0 -and $includePatterns.Count -gt 0) {
+        foreach ($pattern in $includePatterns) {
+            try {
+                $cmds = @(Get-Command -Name $pattern -ErrorAction SilentlyContinue)
+                foreach ($cmd in $cmds) {
+                    $excluded = $false
+                    foreach ($ep in $excludePatterns) {
+                        if ($cmd.Name -like $ep) { $excluded = $true; break }
+                    }
+                    if (-not $excluded) { $null = $commands.Add($cmd) }
+                }
+            }
+            catch {
+                Write-Diag "Warning: Get-Command failed for global pattern '$pattern': $_"
+            }
+        }
+    }
+
     # Deduplicate by name (same command may appear from explicit + pattern)
     $seen = @{}
     $uniqueCommands = [System.Collections.ArrayList]::new()
