@@ -1,3 +1,5 @@
+# Bender History
+
 # Bender Work History
 
 ## Project Context
@@ -331,3 +333,4 @@
 - `oop-host.ps1` is the subprocess host script — handles discover/invoke/ping/shutdown via ndjson
 - Crash recovery uses exponential backoff (3 retries in 5 min)
 - RuntimeMode is server-wide in v1 (InProcess or OutOfProcess), no per-function routing
+
