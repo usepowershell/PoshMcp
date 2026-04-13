@@ -14,6 +14,15 @@
 
 ## Recent Learnings
 
+### 2026-04-12: v0.5.1 patch release
+
+- Bumped `PoshMcp.Server/PoshMcp.csproj` version from `0.5.0` → `0.5.1` (patch increment following "Bump version to 0.5.0" commit).
+- Pack command: `dotnet pack .\PoshMcp.Server\PoshMcp.csproj -c Release -o .\artifacts\nupkg` → produces `poshmcp.0.5.1.nupkg` (~25 MB).
+- Update command: `dotnet tool update -g poshmcp --version 0.5.1 --add-source .\artifacts\nupkg --ignore-failed-sources`
+- Verified: `poshmcp --version` → `0.5.1+fad23f66007916f0c2145e7c5e0eb8a20925c8dd`
+- `dotnet tool update` handles both first-time install and upgrades; no need to uninstall first.
+- No running poshmcp.exe processes were present; process-stop guard was a no-op but remains required as a pre-check.
+
 ### 2026-04-09 to 2026-04-10: Release and operational hygiene
 
 - `PoshMcp.Server/PoshMcp.csproj` is the source of truth for global tool versioning.
