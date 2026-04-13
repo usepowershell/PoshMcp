@@ -2086,6 +2086,14 @@ public class Program
         builder.Services.Configure<PowerShellConfiguration>(
             builder.Configuration.GetSection("PowerShellConfiguration"));
 
+        builder.Services
+            .AddOptions<PoshMcp.Server.Authentication.AuthenticationConfiguration>()
+            .BindConfiguration("Authentication")
+            .ValidateOnStart();
+
+        builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<PoshMcp.Server.Authentication.AuthenticationConfiguration>,
+            PoshMcp.Server.Authentication.AuthenticationConfigurationValidator>();
+
         ConfigureJsonSerializerOptions(builder);
         ConfigureCorsForMcp(builder);
         RegisterHealthChecks(builder);
@@ -2268,6 +2276,15 @@ public class Program
         builder.Configuration.AddJsonFile(finalConfigPath, optional: false, reloadOnChange: true);
         builder.Services.Configure<PowerShellConfiguration>(
             builder.Configuration.GetSection("PowerShellConfiguration"));
+
+        builder.Services
+            .AddOptions<PoshMcp.Server.Authentication.AuthenticationConfiguration>()
+            .BindConfiguration("Authentication")
+            .ValidateOnStart();
+
+        builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<PoshMcp.Server.Authentication.AuthenticationConfiguration>,
+            PoshMcp.Server.Authentication.AuthenticationConfigurationValidator>();
+
         return finalConfigPath;
     }
 
