@@ -1,4 +1,7 @@
 # Decisions Log
+Canonical record of decisions, actions, and outcomes.
+
+# Decisions Log
 
 Canonical record of decisions, actions, and outcomes.
 
@@ -563,4 +566,120 @@ Comprehensive plan for out-of-process PowerShell execution written to `specs/out
 **Impact:** Unblocks `dotnet build` (Phase 1 is immediate priority) and enables PoshMcp to serve modules from the `integration/Modules/` test corpus.
 
 **Full spec:** `specs/out-of-process-execution.md`
+
+
+
+
+# Decision: PoshMcp Release Packaging Workflow (v0.5.1)
+
+**Date:** 2026-04-12
+**Author:** Amy (DevOps / Platform Engineer)
+**Status:** Confirmed
+
+## Context
+
+Steven requested a new release of PoshMcp be packaged and installed globally. This is the first release from the `main` branch after the `0.5.0` bump commit.
+
+## Decision
+
+Use a **patch version increment** (`0.5.0` → `0.5.1`) for this release. The change set since `0.5.0` is purely operational (embedded oop-host.ps1 resource, CLI wiring) with no breaking changes or new features warranting a minor bump.
+
+## Established Workflow (canonical steps)
+
+1. **Stop any running poshmcp process** — prevents update lock failures on Windows.
+2. **Bump version** in `PoshMcp.Server/PoshMcp.csproj` (`<Version>` property).
+3. **Pack:** `dotnet pack .\PoshMcp.Server\PoshMcp.csproj -c Release -o .\artifacts\nupkg`
+4. **Install/Update:** `dotnet tool update -g poshmcp --version <newVersion> --add-source .\artifacts\nupkg --ignore-failed-sources`
+5. **Verify:** `poshmcp --version` should report `<newVersion>+<git-sha>`
+
+## Outcomes
+
+- Package: `artifacts/nupkg/poshmcp.0.5.1.nupkg` (~25 MB)
+- Global tool verified: `poshmcp --version` → `0.5.1+fad23f66007916f0c2145e7c5e0eb8a20925c8dd`
+- `dotnet tool update` works for both initial install and upgrade; no need to uninstall first.
+
+## Notes
+
+- `artifacts/nupkg/` is the local feed folder; not committed to source control.
+- Version bump commit should be made after packaging to keep git history clean.
+- NU1510 warnings (redundant explicit package refs) are pre-existing and non-blocking.
+
+
+
+### 2026-04-11: CLIXML vs ndjson for OOP subprocess communication
+
+**Author:** Farnsworth (Lead / Architect)
+**Date:** 2026-04-11
+**Status:** Proposed
+**Requested by:** Steven Murawski
+
+## Decision
+
+**Stick with ndjson (newline-delimited JSON) for OOP subprocess communication. Do not adopt CLIXML.**
+
+## Context
+
+Steven asked whether CLIXML (`Export-Clixml`/`Import-Clixml`, PowerShell's native serialization format used by PS Remoting) should replace or complement the ndjson protocol defined in `specs/out-of-process-execution.md`. The current spec has `oop-host.ps1` returning results via `ConvertTo-Json -Depth 4 -Compress` over stdin/stdout.
+
+## Analysis
+
+### The fundamental constraint: MCP output is JSON
+
+The entire pipeline terminates at a JSON string delivered to the MCP client. Any type fidelity gained from CLIXML is necessarily lost when the server converts results back to JSON for MCP transport. This makes CLIXML a detour, not a shortcut.
+
+### Can the server deserialize CLIXML?
+
+Yes — the server already loads `Microsoft.PowerShell.SDK`. The OOP architecture isolates **heavy module loading** (Az.\*, Microsoft.Graph.\*), not the SDK itself. `[System.Management.Automation.PSSerializer]::Deserialize()` would work fine on the server side. This is not a technical blocker — but it's also not a free benefit, because the resulting `PSObject` still needs to go through `PowerShellObjectSerializer.FlattenPSObject()` and then `System.Text.Json` serialization to reach MCP-compatible JSON.
+
+### CLIXML advantages (real but insufficient)
+
+| Advantage | Severity | Assessment |
+|-----------|----------|------------|
+| Round-trip type fidelity (DateTime Kind, TimeSpan, enums) | Medium | Lost at the JSON output boundary. MCP clients receive JSON strings regardless of internal transport format. |
+| ErrorRecord preservation (full exception chain, InvocationInfo) | Medium | Already solved differently: the spec uses a separate `error` response field for PowerShell errors, not serialized ErrorRecord objects in the result set. |
+| PSTypeName metadata | Low | The in-process path already strips this via `PowerShellObjectSerializer`. MCP tool schemas, not runtime type names, drive client behavior. |
+| SecureString/PSCredential handling | Low | These should never transit the subprocess boundary — security-sensitive types should be handled in-process or via environment variables. |
+| Battle-tested by PS Remoting | Neutral | PS Remoting sends CLIXML between two PowerShell endpoints. Our architecture is PowerShell→C#→JSON — different shape. |
+
+### CLIXML disadvantages (concrete)
+
+| Disadvantage | Impact |
+|-------------|--------|
+| **Triple conversion pipeline:** CLIXML serialize (pwsh) → CLIXML deserialize to PSObject (server) → FlattenPSObject → JSON serialize (server). Current path: JSON serialize (pwsh) → pass-through or parse (server). | Significant complexity and CPU overhead. |
+| **Wire size inflation:** CLIXML/XML is 5-10x larger than compressed JSON for equivalent data. The spec already flags large result serialization as Risk #4. CLIXML makes this worse. | Direct performance regression for large result sets. |
+| **Parsing cost:** XML parsing is heavier than JSON parsing. `PSSerializer.Deserialize()` reconstructs full PSObject graphs with type metadata — work we then discard. | Unnecessary CPU/memory for throwaway fidelity. |
+| **ConvertTo-Json is the simpler, tested path:** `ConvertTo-Json -Depth 4 -Compress` produces output close to what MCP needs. Minimal transformation required on the server side. | Current approach is already nearly optimal. |
+| **Subprocess simplicity:** `oop-host.ps1` stays lean with `ConvertTo-Json`. Adding `Export-Clixml` requires temp files or `[PSSerializer]::Serialize()` (string API) and careful stream handling. | Adding CLIXML complicates the host script for no user-visible benefit. |
+
+### Hybrid approach evaluation
+
+A hybrid (JSON for commands, CLIXML for results) was considered. The command direction (server→pwsh) is simple JSON — no type fidelity needed. The result direction (pwsh→server) is where CLIXML would theoretically help. But:
+
+- The server must still produce JSON for MCP clients, so CLIXML→PSObject→JSON adds steps
+- The existing `PowerShellObjectSerializer` normalizes PSObjects to JSON-safe shapes — this pipeline already exists and works
+- Net effect: CLIXML adds serialization + deserialization + normalization, replacing a direct JSON-to-JSON path
+
+### Where CLIXML genuinely helps (and what to do instead)
+
+The real types that `ConvertTo-Json` handles poorly: deeply nested objects, circular references, types without public properties. The spec already mitigates these:
+
+- **Depth:** `-Depth 4` matches the in-process `MaxDepth = 4` in `PowerShellObjectSerializer`
+- **Circular refs:** `ConvertTo-Json` handles this with depth limits; the host script can add `-WarningAction SilentlyContinue`
+- **Large result sets:** `_MaxResults` framework parameter and `Select-Object` injection (from the performance spec) cap output before serialization
+
+If specific types prove problematic during implementation, the `oop-host.ps1` script can add targeted handling (e.g., custom serialization for ErrorRecord) without switching the entire transport to CLIXML.
+
+## Recommendation
+
+1. **Keep ndjson/JSON as specified.** The current `ConvertTo-Json -Depth 4 -Compress` approach matches the MCP output format, minimizes conversion steps, and keeps the subprocess host script simple.
+
+2. **Do not add CLIXML support in OOP v1.** The complexity-to-benefit ratio is unfavorable when the pipeline ends at JSON regardless.
+
+3. **If type fidelity becomes a real problem during implementation** (not theoretical), address it surgically in `oop-host.ps1` with per-type handlers rather than switching transport format.
+
+4. **Document this decision** so the team doesn't revisit it without new evidence.
+
+## Impact
+
+No changes to `specs/out-of-process-execution.md`. The existing ndjson protocol remains the correct approach.
 
