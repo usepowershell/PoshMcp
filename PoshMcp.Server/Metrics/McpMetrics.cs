@@ -28,6 +28,10 @@ public class McpMetrics
     public Counter<long> ToolUsageTotal { get; }
     public Counter<long> ToolUsageByAgentTotal { get; }
 
+    // Authentication Metrics
+    public Counter<long> AuthAttempts { get; }
+    public Counter<long> AuthToolDenials { get; }
+
     // Tool Registration & Lifecycle
     public Counter<long> ToolRegistrationTotal { get; }
     public Counter<long> ToolUpdateTotal { get; }
@@ -80,6 +84,15 @@ public class McpMetrics
         ToolUsageByAgentTotal = _meter.CreateCounter<long>(
             "mcp_tool_usage_by_agent_total",
             description: "Count of invocations by AI agent vs. human user");
+
+        // Authentication Metrics
+        AuthAttempts = _meter.CreateCounter<long>(
+            "poshmcp.auth.attempts",
+            description: "Number of authentication attempts");
+
+        AuthToolDenials = _meter.CreateCounter<long>(
+            "poshmcp.auth.tool_denials",
+            description: "Number of tool invocation denials due to authorization failure");
 
         // Tool Registration & Lifecycle
         ToolRegistrationTotal = _meter.CreateCounter<long>(

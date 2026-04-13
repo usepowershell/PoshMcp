@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using PoshMcp.Server.Authentication;
 using PoshMcp.Server.PowerShell;
 
 namespace PoshMcp.Server.Health;
@@ -15,13 +16,16 @@ namespace PoshMcp.Server.Health;
 public class ConfigurationHealthCheck : IHealthCheck
 {
     private readonly IOptions<PowerShellConfiguration> _configuration;
+    private readonly IOptions<AuthenticationConfiguration> _authConfiguration;
     private readonly ILogger<ConfigurationHealthCheck> _logger;
 
     public ConfigurationHealthCheck(
         IOptions<PowerShellConfiguration> configuration,
+        IOptions<AuthenticationConfiguration> authConfiguration,
         ILogger<ConfigurationHealthCheck> logger)
     {
         _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+        _authConfiguration = authConfiguration ?? throw new ArgumentNullException(nameof(authConfiguration));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -58,6 +62,14 @@ public class ConfigurationHealthCheck : IHealthCheck
                 ["IncludePatternCount"] = config.IncludePatterns?.Count ?? 0,
                 ["ExcludePatternCount"] = config.ExcludePatterns?.Count ?? 0
             };
+
+            var authConfig = _authConfiguration.Value;
+            data["AuthEnabled"] = authConfig?.Enabled ?? false;
+            data["AuthSchemes"] = authConfig?.Enabled == true && authConfig.Schemes.Count > 0
+                ? string.Join(", ", authConfig.Schemes.Keys)
+                : "none";
+            data["ToolsWithAuthOverrides"] = config.FunctionOverrides.Values
+                .Count(o => (o.RequiredScopes?.Count > 0) || (o.RequiredRoles?.Count > 0));
 
             _logger.LogDebug("Configuration health check passed");
             return Task.FromResult(HealthCheckResult.Healthy("Configuration is valid", data));
