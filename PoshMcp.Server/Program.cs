@@ -2125,10 +2125,13 @@ public class Program
 
         if (authConfigValue.Enabled)
         {
+            var sharedMetrics = new McpMetrics();
+            builder.Services.AddSingleton(sharedMetrics);
             var callToolFilter = new PoshMcp.Server.Authentication.ToolAuthorizationFilter(
                 authConfigValue,
                 config,
                 sharedHttpContextAccessor,
+                sharedMetrics,
                 bootstrapLoggerFactory.CreateLogger<PoshMcp.Server.Authentication.ToolAuthorizationFilter>());
             var listToolFilter = new PoshMcp.Server.Authentication.ToolListAuthorizationFilter(
                 authConfigValue,

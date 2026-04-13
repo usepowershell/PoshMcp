@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
+using PoshMcp.Server.Metrics;
 using PoshMcp.Server.PowerShell;
 
 namespace PoshMcp.Server.Authentication;
@@ -18,6 +19,7 @@ public class ToolAuthorizationFilter(
     AuthenticationConfiguration authConfig,
     PowerShellConfiguration psConfig,
     IHttpContextAccessor httpContextAccessor,
+    McpMetrics metrics,
     ILogger<ToolAuthorizationFilter> logger)
 {
     private readonly string _scopeClaim = AuthorizationHelpers.GetScopeClaim(authConfig);
@@ -42,7 +44,7 @@ public class ToolAuthorizationFilter(
 
         if (toolOverride?.AllowAnonymous == true)
         {
-            logger.LogDebug("Tool '{ToolName}' allows anonymous access — bypassing authorization", toolName);
+            logger.LogDebug("Auth skipped for tool {ToolName} (AllowAnonymous)", toolName);
             return await next(context, ct);
         }
 
@@ -50,21 +52,35 @@ public class ToolAuthorizationFilter(
 
         if (authConfig.DefaultPolicy.RequireAuthentication && user?.Identity?.IsAuthenticated != true)
         {
-            logger.LogWarning("Unauthenticated request to tool '{ToolName}' denied", toolName);
+            logger.LogWarning("Authorization denied for tool {ToolName}: {Reason}", toolName, "unauthenticated");
+            metrics.AuthToolDenials.Add(1,
+                new KeyValuePair<string, object?>("tool_name", toolName),
+                new KeyValuePair<string, object?>("reason", "unauthenticated"));
             return ErrorResult($"Authentication required to call tool '{toolName}'");
         }
 
         var requiredScopes = toolOverride?.RequiredScopes ?? authConfig.DefaultPolicy.RequiredScopes;
         var requiredRoles = toolOverride?.RequiredRoles ?? authConfig.DefaultPolicy.RequiredRoles;
 
-        if (!AuthorizationHelpers.HasRequiredScopes(user, requiredScopes, _scopeClaim) ||
-            !AuthorizationHelpers.HasRequiredRoles(user, requiredRoles))
+        if (!AuthorizationHelpers.HasRequiredScopes(user, requiredScopes, _scopeClaim))
         {
-            logger.LogWarning("Insufficient permissions for user calling tool '{ToolName}'", toolName);
+            logger.LogWarning("Authorization denied for tool {ToolName}: {Reason}", toolName, "insufficient_scope");
+            metrics.AuthToolDenials.Add(1,
+                new KeyValuePair<string, object?>("tool_name", toolName),
+                new KeyValuePair<string, object?>("reason", "insufficient_scope"));
             return ErrorResult($"Insufficient permissions to call tool '{toolName}'");
         }
 
-        logger.LogDebug("Authorization passed for tool '{ToolName}'", toolName);
+        if (!AuthorizationHelpers.HasRequiredRoles(user, requiredRoles))
+        {
+            logger.LogWarning("Authorization denied for tool {ToolName}: {Reason}", toolName, "insufficient_role");
+            metrics.AuthToolDenials.Add(1,
+                new KeyValuePair<string, object?>("tool_name", toolName),
+                new KeyValuePair<string, object?>("reason", "insufficient_role"));
+            return ErrorResult($"Insufficient permissions to call tool '{toolName}'");
+        }
+
+        logger.LogDebug("Authorization granted for tool {ToolName}", toolName);
         return await next(context, ct);
     }
 
