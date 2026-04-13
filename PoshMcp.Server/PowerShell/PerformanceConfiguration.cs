@@ -46,4 +46,20 @@ public class FunctionOverride
     /// Null means fall through to the global setting.
     /// </summary>
     public bool? UseDefaultDisplayProperties { get; set; }
+
+    /// <summary>
+    /// Scopes required to invoke this function. Overrides the default policy when set.
+    /// </summary>
+    public List<string>? RequiredScopes { get; set; }
+
+    /// <summary>
+    /// Roles required to invoke this function. Overrides the default policy when set.
+    /// </summary>
+    public List<string>? RequiredRoles { get; set; }
+
+    /// <summary>
+    /// When true, this function can be invoked without authentication even if the global
+    /// policy requires it.
+    /// </summary>
+    public bool? AllowAnonymous { get; set; }
 }
