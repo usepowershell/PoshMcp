@@ -25,14 +25,156 @@ This guide walks you through installing, configuring, and deploying PoshMcp. Whe
 
 ### Prerequisites
 
-- **.NET 10 SDK** — download from [dotnet.microsoft.com](https://dotnet.microsoft.com/download/dotnet/10.0)
-- **PowerShell 7.x** — included automatically via `Microsoft.PowerShell.SDK` NuGet package
-- **Docker** (optional, for containerized deployments) — [docker.com](https://docker.com)
-- **Git** — [git-scm.com](https://git-scm.com)
+**Required:**
+- **.NET 10 Runtime** — download from [dotnet.microsoft.com](https://dotnet.microsoft.com/download/dotnet/10.0)
 
-### First 5 Minutes
+**Optional:**
+- **PowerShell 7** — for out-of-process PowerShell support (see [Transport Modes](#transport-modes))
+  - Enables running PowerShell in a separate process rather than in-process, providing better module isolation and preventing namespace conflicts
+- **.NET 10 SDK** — only needed if building from source
+- **Docker** — only needed for containerized deployments
+- **Git** — only needed if cloning the repository
 
-Start the MCP server locally and test a command in 5 minutes.
+**Note:** PowerShell 7.x is included automatically via the `Microsoft.PowerShell.SDK` NuGet package for in-process mode.
+
+### Quickstart: dotnet tool install (5 minutes)
+
+Install PoshMcp as a global .NET tool and start exposing PowerShell commands in seconds.
+
+#### 1. Install the tool
+
+```bash
+dotnet tool install --global PoshMcp \
+  --add-source https://nuget.pkg.github.com/usepowershell/index.json
+```
+
+This installs `poshmcp` command globally. You're done with prerequisites.
+
+#### 2. Create a configuration file
+
+Generate your initial configuration with the CLI command:
+
+```bash
+poshmcp create-config
+```
+
+This creates `appsettings.json` in your current directory with a sensible default configuration.
+
+You can customize it later using:
+
+```bash
+poshmcp update-config --add-function Get-Process --add-function Get-Service
+```
+
+#### 3. Start the server
+
+```bash
+# Stdio mode (for MCP clients like GitHub Copilot)
+poshmcp serve --transport stdio
+
+# Or HTTP mode (for testing/integration)
+poshmcp serve --transport http --port 8080
+```
+
+You should see:
+
+```
+info: PoshMcp.Program[0]
+      Starting MCP server on stdio...
+```
+
+#### 4. Point your MCP client at it
+
+For **GitHub Copilot in VS Code**, add to `.vscode/cline_mcp_settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "poshmcp": {
+      "command": "poshmcp",
+      "args": ["serve", "--transport", "stdio"]
+    }
+  }
+}
+```
+
+Restart Copilot, and your PowerShell tools are now available as MCP tools.
+
+### Test Your Installation (Optional)
+
+To verify the server is running, start it in HTTP mode and test with curl:
+
+```bash
+# Terminal 1: Start the server
+poshmcp serve --transport http --port 8080
+
+# Terminal 2: Test a tool call
+curl -X POST http://localhost:8080/mcp/v1/tools/call \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Get-Process",
+    "arguments": {}
+  }'
+```
+
+You should see JSON output with running processes.
+
+---
+
+## Installation
+
+The recommended installation method is `dotnet tool install` (see **Quickstart** above). Choose an alternative below based on your use case.
+
+### Docker Container
+
+Best for: consistent environments, CI/CD pipelines, cloud deployment.
+
+#### Build a Docker image
+
+```bash
+# Clone the repository first
+git clone https://github.com/microsoft/poshmcp.git
+cd poshmcp
+
+# Build a base image
+docker build -t poshmcp:latest .
+```
+
+#### Run the container
+
+```bash
+# HTTP mode (default)
+docker run -p 8080:8080 poshmcp:latest
+
+# Stdio mode (for MCP clients)
+docker run -it poshmcp:latest poshmcp serve --transport stdio
+```
+
+#### Pre-install PowerShell modules (optional)
+
+Faster startup by installing modules at build time:
+
+```bash
+docker build \
+  --build-arg MODULES="Az.Accounts Az.Resources Az.Storage" \
+  -t poshmcp:azure-ready .
+```
+
+Or using environment variables at runtime:
+
+```bash
+docker run -e POSHMCP_MODULES="Az.Accounts Az.Resources" -p 8080:8080 poshmcp:latest
+```
+
+### Building from Source
+
+Best for: contributors, early adopters, custom extensions.
+
+**Prerequisites:**
+- .NET 10 SDK (not just runtime)
+- Git
+
+#### Clone and build
 
 ```bash
 # Clone the repository
@@ -42,22 +184,13 @@ cd poshmcp
 # Build the project
 dotnet build
 
-# Start stdio server (for MCP clients like Copilot)
-dotnet run --project PoshMcp.Server
+# Start the server locally
+dotnet run --project PoshMcp.Server --config ./appsettings.json
 ```
 
-You should see output like:
+#### Test with the Interactive Client
 
-```
-info: PoshMcp.Program[0]
-      Starting MCP server...
-```
-
-The server is now listening for MCP tool requests. Press `Ctrl+C` to stop.
-
-### Test with the Interactive Client
-
-In a new terminal:
+In a separate terminal:
 
 ```bash
 # Start the test client
@@ -70,75 +203,7 @@ dotnet run --project TestClient
 # call Get-Process - Run the tool
 ```
 
-You should see output like:
-
-```
-[Tool] Get-Process
-[Tool] Get-Service
-[Tool] ... (more tools)
-```
-
-Now your first MCP server is running.
-
----
-
-## Installation
-
-### Local Development
-
-Best for: testing, development, debugging locally.
-
-```bash
-# Clone and build
-git clone https://github.com/microsoft/poshmcp.git
-cd poshmcp
-dotnet build
-
-# Run stdio server
-dotnet run --project PoshMcp.Server
-```
-
-### Docker Container
-
-Best for: consistent environments, CI/CD pipelines, cloud deployment.
-
-#### Build a base image
-
-```bash
-# From the repository root
-docker build -t poshmcp:latest .
-```
-
-#### Run the container
-
-```bash
-# HTTP mode (default)
-docker run -p 8080:8080 poshmcp:latest
-
-# Stdio mode (tty)
-docker run -it poshmcp:latest poshmcp serve --transport stdio
-```
-
-#### Pre-install PowerShell modules
-
-Faster startup (reduces ~30s to <1s by installing modules at build time):
-
-```bash
-docker build \
-  --build-arg MODULES="Az.Accounts Az.Resources Az.Storage" \
-  -t poshmcp:azure-ready .
-```
-
-Or using the poshmcp CLI:
-
-```bash
-# Build with modules pre-installed
-poshmcp build --modules "Az.Accounts Az.Resources" --tag myorg/poshmcp:prod
-
-# Run with custom config
-poshmcp run --mode http --port 8080 --tag myorg/poshmcp:prod \
-  --config /config/appsettings.json
-```
+You should see available PowerShell tools listed.
 
 ### Azure Container Apps
 
@@ -157,9 +222,43 @@ cd infrastructure/azure
 
 ## Configuration
 
+### Creating and Managing Configuration
+
+PoshMcp provides CLI commands to generate and modify your configuration without manual file editing.
+
+#### Generate Initial Configuration
+
+```bash
+poshmcp create-config
+```
+
+This creates a default `appsettings.json` with sensible defaults. You can specify a custom path:
+
+```bash
+poshmcp create-config --path ./my-config.json
+```
+
+#### Update Configuration via CLI
+
+Modify your configuration without editing JSON manually:
+
+```bash
+# Add specific commands to expose
+poshmcp update-config --add-function Get-Process --add-function Get-Service
+
+# Add a module
+poshmcp update-config --add-module Az.Accounts
+
+# Add module paths
+poshmcp update-config --add-module-path /mnt/shared-modules
+
+# Non-interactive mode (for scripting)
+poshmcp update-config --non-interactive --add-module Az.Accounts
+```
+
 ### appsettings.json Reference
 
-The default configuration file controls which PowerShell commands are exposed and how the server behaves.
+The configuration file controls which PowerShell commands are exposed and how the server behaves. While you should use the CLI commands above to modify it, here's what the configuration structure looks like for reference.
 
 #### Basic Configuration
 
@@ -217,7 +316,7 @@ export POSHMCP_CONFIGURATION=/config/appsettings.json
 
 ### Startup Scripts
 
-Run PowerShell code at server startup to configure the session:
+Run PowerShell code at server startup to configure the session. Create or edit the configuration file directly for startup scripts (these aren't yet available via CLI commands):
 
 ```json
 {
@@ -261,7 +360,28 @@ Write-Host "✓ Environment initialized" -ForegroundColor Green
 
 ### Module Installation & Paths
 
-Install modules from the PowerShell Gallery at startup:
+Install modules from the PowerShell Gallery at startup using CLI commands:
+
+```bash
+# Add modules to install
+poshmcp update-config --add-install-module Az.Accounts --minimum-version 2.0.0
+poshmcp update-config --add-install-module Az.Accounts --repository PSGallery --scope CurrentUser
+
+# Import modules
+poshmcp update-config --add-import-module Microsoft.PowerShell.Management
+poshmcp update-config --add-import-module Az.Accounts
+
+# Add module paths
+poshmcp update-config --add-module-path /mnt/shared-modules
+poshmcp update-config --add-module-path ./custom-modules
+
+# Configure PowerShell Gallery settings
+poshmcp update-config --trust-psgallery
+poshmcp update-config --skip-publisher-check
+poshmcp update-config --install-timeout-seconds 600
+```
+
+**Configuration reference** (what the resulting `appsettings.json` looks like):
 
 ```json
 {
@@ -294,7 +414,23 @@ Install modules from the PowerShell Gallery at startup:
 
 ### CLI Configuration Commands
 
-Manage configuration files without manual editing:
+Manage configuration files using the `poshmcp` CLI without manual editing:
+
+```bash
+# Create default appsettings.json
+poshmcp create-config
+
+# Add a specific command
+poshmcp update-config --add-function Get-Process
+
+# Add a module
+poshmcp update-config --add-module Az.Accounts
+
+# Non-interactive mode (skip prompts)
+poshmcp update-config --non-interactive --add-module Az.Accounts
+```
+
+**For developers building from source:**
 
 ```bash
 # Create default appsettings.json
@@ -329,7 +465,23 @@ Example: `Get-Process` becomes an MCP tool with parameters like `-Name`, `-Id`, 
 
 ### Pattern-Based Filtering
 
-Use patterns to expose groups of commands without listing each one:
+Use patterns to expose groups of commands without listing each one. Manage with CLI commands:
+
+```bash
+# Add include patterns
+poshmcp update-config --add-include-pattern "Get-*"
+poshmcp update-config --add-include-pattern "Set-Service"
+poshmcp update-config --add-include-pattern "Restart-*"
+
+# Add exclude patterns
+poshmcp update-config --add-exclude-pattern "Get-Dangerous*"
+poshmcp update-config --add-exclude-pattern "*-Credential"
+poshmcp update-config --add-exclude-pattern "Remove-*"
+```
+
+This exposes all `Get-*` commands except those matching `Get-Dangerous*`, excludes anything with "Credential" in the name, and blocks all `Remove-*` commands.
+
+**Configuration reference** (what the resulting `appsettings.json` looks like):
 
 ```json
 {
@@ -348,11 +500,19 @@ Use patterns to expose groups of commands without listing each one:
 }
 ```
 
-This exposes all `Get-*` commands except those matching `Get-Dangerous*`, excludes anything with "Credential" in the name, and blocks all `Remove-*` commands.
-
 ### Allowlists (Whitelist Pattern)
 
-Expose only specific commands:
+Expose only specific commands using CLI commands:
+
+```bash
+# Add specific commands to expose
+poshmcp update-config --add-function Get-Service
+poshmcp update-config --add-function Restart-Service
+poshmcp update-config --add-function Get-Process
+poshmcp update-config --add-function Stop-Process
+```
+
+**Configuration reference** (what the resulting `appsettings.json` looks like):
 
 ```json
 {
@@ -369,7 +529,20 @@ Expose only specific commands:
 
 ### Module Paths
 
-Load modules from custom directories:
+Load modules from custom directories using CLI commands:
+
+```bash
+# Add module paths
+poshmcp update-config --add-module-path "/mnt/shared-modules"
+poshmcp update-config --add-module-path "C:\\CustomModules"
+poshmcp update-config --add-module-path "./local-modules"
+
+# Import modules at startup
+poshmcp update-config --add-import-module MyCustomModule
+poshmcp update-config --add-import-module Az.Accounts
+```
+
+**Configuration reference** (what the resulting `appsettings.json` looks like):
 
 ```json
 {
@@ -425,7 +598,17 @@ Each session gets its own PowerShell runspace. Variables and functions persist w
 
 ### Command Filtering
 
-Restrict dangerous commands via configuration:
+Restrict dangerous commands via CLI configuration:
+
+```bash
+# Exclude dangerous patterns
+poshmcp update-config --add-exclude-pattern "Remove-*"
+poshmcp update-config --add-exclude-pattern "Disable-*"
+poshmcp update-config --add-exclude-pattern "*-Credential"
+poshmcp update-config --add-exclude-pattern "Format-*"
+```
+
+**Configuration reference** (what the resulting `appsettings.json` looks like):
 
 ```json
 {
@@ -508,31 +691,35 @@ Best for: local development, Copilot integration, single-connection scenarios.
 - One runspace per connection
 - Minimal overhead
 
-**Start stdio server:**
+**Start stdio server (using installed tool):**
 
 ```bash
-dotnet run --project PoshMcp.Server -- serve --transport stdio
+poshmcp serve --transport stdio
 ```
 
-**Configure in VS Code (`settings.json`):**
+Or with custom config:
+
+```bash
+poshmcp serve --transport stdio --config ./appsettings.json
+```
+
+**Configure in VS Code or MCP client:**
 
 ```json
 {
   "mcpServers": {
     "poshmcp": {
-      "command": "dotnet",
-      "args": [
-        "run",
-        "--project",
-        "C:\\path\\to\\poshmcp\\PoshMcp.Server",
-        "--",
-        "serve",
-        "--transport",
-        "stdio"
-      ]
+      "command": "poshmcp",
+      "args": ["serve", "--transport", "stdio"]
     }
   }
 }
+```
+
+**For developers building from source:**
+
+```bash
+dotnet run --project PoshMcp.Server -- serve --transport stdio
 ```
 
 ### HTTP Mode
@@ -545,7 +732,19 @@ Best for: multi-user deployments, web integration, cloud infrastructure.
 - Horizontal scaling capable
 - Built-in health checks
 
-**Start HTTP server:**
+**Start HTTP server (using installed tool):**
+
+```bash
+poshmcp serve --transport http --port 8080
+```
+
+Or with custom config:
+
+```bash
+poshmcp serve --transport http --port 8080 --config ./appsettings.json
+```
+
+**For developers building from source:**
 
 ```bash
 dotnet run --project PoshMcp.Server -- serve --transport http --port 8080
@@ -575,6 +774,13 @@ curl http://localhost:8080/health/ready
 ### Environment Variable Override
 
 Set transport via environment variable:
+
+```bash
+export POSHMCP_TRANSPORT=http
+poshmcp serve
+```
+
+Or for developers:
 
 ```bash
 export POSHMCP_TRANSPORT=http
@@ -657,47 +863,91 @@ Write-Host "Session started: $($Global:SessionStartTime)"
 
 Configure PoshMcp as an MCP server for GitHub Copilot.
 
-**1. Create/edit `.vscode/settings.json`:**
+**1. Install PoshMcp (if not already installed):**
+
+```bash
+dotnet tool install --global PoshMcp \
+  --add-source https://nuget.pkg.github.com/usepowershell/index.json
+```
+
+**2. Create/edit `.vscode/cline_mcp_settings.json` (or your MCP client config):**
 
 ```json
 {
-  "github.copilot.advanced": {
-    "mcpServers": {
-      "poshmcp": {
-        "command": "dotnet",
-        "args": [
-          "run",
-          "--project",
-          "C:\\Users\\YourUsername\\source\\poshmcp\\PoshMcp.Server",
-          "--",
-          "serve",
-          "--transport",
-          "stdio"
-        ],
-        "env": {
-          "DOTNET_ENVIRONMENT": "Development"
-        }
+  "mcpServers": {
+    "poshmcp": {
+      "command": "poshmcp",
+      "args": ["serve", "--transport", "stdio"]
+    }
+  }
+}
+```
+
+If you prefer to use a custom configuration file:
+
+```json
+{
+  "mcpServers": {
+    "poshmcp": {
+      "command": "poshmcp",
+      "args": [
+        "serve",
+        "--transport", "stdio",
+        "--config", "/path/to/appsettings.json"
+      ]
+    }
+  }
+}
+```
+
+**3. Open Copilot Chat:**
+
+- Press `Ctrl+Shift+I` (or `Cmd+Shift+I` on macOS)
+- Ask a question: "What services are running on this computer?"
+- Copilot now has access to PoshMcp tools
+
+**For developers building from source:**
+
+If you're working in the poshmcp repository and want to test changes locally, use:
+
+```json
+{
+  "mcpServers": {
+    "poshmcp": {
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "C:\\Users\\YourUsername\\source\\poshmcp\\PoshMcp.Server",
+        "--",
+        "serve",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "DOTNET_ENVIRONMENT": "Development"
       }
     }
   }
 }
 ```
 
-**2. Start VS Code:**
-
-```bash
-cd C:\Users\YourUsername\source\poshmcp
-code .
-```
-
-**3. Open the Copilot Chat panel:**
-- Press `Ctrl+Shift+I` (or `Cmd+Shift+I` on macOS)
-- Ask a question: "What services are running on this computer?"
-- Copilot now has access to PoshMcp tools
-
 ### Other MCP Clients
 
 PoshMcp works with any MCP-compatible client. Configure the client to connect to the stdio server:
+
+```json
+{
+  "mcpServers": {
+    "poshmcp": {
+      "command": "poshmcp",
+      "args": ["serve", "--transport", "stdio"]
+    }
+  }
+}
+```
+
+Or if building from source:
 
 ```json
 {
@@ -744,9 +994,23 @@ const result = await fetch('http://localhost:8080/call', {
 
 ### Server Won't Start
 
-**Problem:** `dotnet run` fails immediately.
+**Problem:** Server fails to start or crashes immediately.
 
-**Solution:**
+**Solution (using installed tool):**
+
+```bash
+# Check installation
+poshmcp --version
+
+# Start with debug logging
+poshmcp serve --transport stdio --log-level debug
+
+# View your configuration file
+cat ./appsettings.json
+```
+
+**For developers (building from source):**
+
 ```bash
 # Check .NET installation
 dotnet --version
@@ -757,59 +1021,102 @@ dotnet --list-sdks
 # Clean and rebuild
 dotnet clean
 dotnet build
+
+# Start with debug output
+dotnet run --project PoshMcp.Server -- serve --transport stdio --log-level debug
 ```
 
 ### No Tools Discovered
 
-**Problem:** `list-tools` returns empty list.
+**Problem:** `list-tools` returns empty list or no tools are available.
 
-**Solution:**
+**Solution (using installed tool):**
+
+```bash
+# View your configuration file
+cat ./appsettings.json
+
+# Verify PowerShell can access the commands
+pwsh -Command "Get-Command Get-Process"
+
+# Use CLI to add commands
+poshmcp update-config --add-function Get-Process
+```
+
+**For developers (building from source):**
 
 ```bash
 # Evaluate tools with verbose output
 dotnet run --project PoshMcp.Server -- evaluate-tools --verbose
 
-# Check the configuration file
+# View the configuration file
 cat PoshMcp.Server/appsettings.json
 
 # Verify CommandNames are correct
 # (PowerShell is case-insensitive, but config must match)
+
+# Use CLI to add commands
+dotnet run --project PoshMcp.Server -- update-config --add-function Get-Process
 ```
 
 ### Tool Call Fails
 
 **Problem:** Calling a tool returns an error.
 
-**Solution:**
+**Solution (using installed tool):**
+
+```bash
+# Enable debug logging
+poshmcp serve --transport http --port 8080 --log-level debug
+
+# View exclude patterns in configuration
+cat ./appsettings.json
+
+# Test the command manually
+pwsh -Command "Get-Process"
+
+# Use CLI to check/adjust exclude patterns
+poshmcp update-config --remove-exclude-pattern "Get-*"
+```
+
+**For developers (building from source):**
 
 ```bash
 # Enable debug logging
 export POSHMCP_LOG_LEVEL=debug
 dotnet run --project PoshMcp.Server
 
-# Check for excluded patterns
+# Check for excluded patterns in configuration
 # Verify the command isn't in ExcludePatterns in appsettings.json
 
 # Test the command manually
 pwsh -Command "Get-Process"
+
+# Use CLI to adjust patterns
+dotnet run --project PoshMcp.Server -- update-config --remove-exclude-pattern "Get-*"
 ```
 
 ### Module Installation Fails
 
 **Problem:** Modules don't install at startup.
 
-**Solution:**
+**Solution (using installed tool or building from source):**
 
 ```bash
-# Check the startup logs
+# Check the startup logs with debug level
+poshmcp serve --transport stdio --log-level debug
+# or
 export POSHMCP_LOG_LEVEL=debug
 dotnet run --project PoshMcp.Server
 
 # Test module installation manually
 pwsh -Command "Install-Module Az.Accounts -Force"
 
-# Increase the installation timeout
-# Set InstallTimeoutSeconds in appsettings.json to 600+
+# Use CLI to configure module installation
+poshmcp update-config --add-install-module Az.Accounts
+
+# Increase the installation timeout using CLI
+poshmcp update-config --install-timeout-seconds 600
 ```
 
 ### Slow Performance
@@ -818,7 +1125,12 @@ pwsh -Command "Install-Module Az.Accounts -Force"
 
 **Solution:**
 
-- **Enable result caching:**
+- **Enable result caching using CLI:**
+  ```bash
+  poshmcp update-config --enable-result-caching true
+  ```
+
+- **Configuration reference** (what gets written to `appsettings.json`):
   ```json
   {
     "Performance": {
@@ -827,22 +1139,38 @@ pwsh -Command "Install-Module Az.Accounts -Force"
   }
   ```
 
-- **Pre-install modules in Docker:**
+- **Pre-install modules in Docker (for containerized deployments):**
   ```bash
   docker build --build-arg MODULES="Az.Accounts Az.Resources" -t poshmcp:fast .
   ```
 
-- **Use out-of-process mode for module isolation:**
+- **Use out-of-process mode for module isolation (requires PowerShell 7):**
   ```bash
   export POSHMCP_RUNTIME_MODE=out-of-process
-  dotnet run --project PoshMcp.Server
+  poshmcp serve
   ```
+  Out-of-process mode runs PowerShell in a separate process, preventing module namespace conflicts and providing better isolation between sessions.
 
 ### Connection Issues
 
 **Problem:** Client can't connect to the server.
 
-**Solution:**
+**Solution (using installed tool):**
+
+```bash
+# Check server is running on the specified port
+Get-NetTCPConnection -LocalPort 8080  # Windows
+# or
+lsof -i :8080  # Linux/Mac
+
+# Start HTTP server and test
+poshmcp serve --transport http --port 8080
+
+# Test connectivity
+curl http://localhost:8080/health
+```
+
+**For developers (building from source):**
 
 ```bash
 # Check server is running
@@ -881,7 +1209,21 @@ poshmcp serve --transport http --log-level debug
 
 Create a tool that reports service status.
 
-**Configuration (`appsettings.json`):**
+**Setup using CLI commands:**
+
+```bash
+# Create initial configuration
+poshmcp create-config
+
+# Add commands to expose
+poshmcp update-config --add-function Get-Service
+poshmcp update-config --add-function Restart-Service
+
+# Add exclude patterns for safety
+poshmcp update-config --add-exclude-pattern "*-Dangerous*"
+```
+
+**What this writes to `appsettings.json`:**
 
 ```json
 {
@@ -915,7 +1257,27 @@ Create a tool that reports service status.
 
 Expose Azure resource management commands.
 
-**Configuration (`appsettings.json`):**
+**Setup using CLI commands:**
+
+```bash
+# Create initial configuration
+poshmcp create-config
+
+# Add Azure commands
+poshmcp update-config --add-function Get-AzResource
+poshmcp update-config --add-function Get-AzResourceGroup
+poshmcp update-config --add-function Get-AzVM
+
+# Install Azure modules
+poshmcp update-config --add-install-module Az.Accounts --minimum-version 2.0.0
+poshmcp update-config --add-install-module Az.Resources --minimum-version 6.0.0
+
+# Import modules
+poshmcp update-config --add-import-module Az.Accounts
+poshmcp update-config --add-import-module Az.Resources
+```
+
+**What this writes to `appsettings.json`:**
 
 ```json
 {
@@ -1009,7 +1371,24 @@ function Get-SystemInfo {
 Write-Host "✓ Custom utilities loaded" -ForegroundColor Green
 ```
 
-**Configuration (`appsettings.json`):**
+**Setup using CLI commands:**
+
+```bash
+# Create initial configuration
+poshmcp create-config
+
+# Add custom functions to expose
+poshmcp update-config --add-function Get-HealthCheck
+poshmcp update-config --add-function Get-SystemInfo
+poshmcp update-config --add-function Get-Process
+poshmcp update-config --add-function Get-Service
+
+# Configure startup script path (must edit appsettings.json or use file-based config)
+# In appsettings.json, add:
+# "Environment": { "StartupScriptPath": "./startup.ps1" }
+```
+
+**What this writes to `appsettings.json`:**
 
 ```json
 {
@@ -1047,7 +1426,47 @@ Write-Host "✓ Custom utilities loaded" -ForegroundColor Green
 
 Expose tools from multiple modules with module-specific settings.
 
-**Configuration (`appsettings.modules.json`):**
+**Setup using CLI commands:**
+
+```bash
+# Create initial configuration
+poshmcp create-config
+
+# Add include patterns
+poshmcp update-config --add-include-pattern "Get-AzVM"
+poshmcp update-config --add-include-pattern "Get-AzResource"
+poshmcp update-config --add-include-pattern "Get-AzStorageAccount"
+poshmcp update-config --add-include-pattern "Get-Service"
+poshmcp update-config --add-include-pattern "Get-Process"
+poshmcp update-config --add-include-pattern "Restart-Computer"
+
+# Add exclude patterns for safety
+poshmcp update-config --add-exclude-pattern "Remove-*"
+poshmcp update-config --add-exclude-pattern "*-Credential"
+poshmcp update-config --add-exclude-pattern "Invoke-*"
+
+# Install modules
+poshmcp update-config --add-install-module Az.Accounts --minimum-version 2.0.0 --scope CurrentUser
+poshmcp update-config --add-install-module Az.Compute --minimum-version 8.0.0 --scope CurrentUser
+poshmcp update-config --add-install-module Az.Storage --repository PSGallery --scope CurrentUser
+
+# Import modules
+poshmcp update-config --add-import-module Microsoft.PowerShell.Management
+poshmcp update-config --add-import-module Microsoft.PowerShell.Utility
+poshmcp update-config --add-import-module Az.Accounts
+poshmcp update-config --add-import-module Az.Compute
+poshmcp update-config --add-import-module Az.Storage
+
+# Configure module discovery
+poshmcp update-config --trust-psgallery
+poshmcp update-config --skip-publisher-check
+poshmcp update-config --install-timeout-seconds 900
+
+# Enable result caching for performance
+poshmcp update-config --enable-result-caching true
+```
+
+**What this writes to `appsettings.modules.json`:**
 
 ```json
 {
