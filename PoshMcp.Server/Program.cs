@@ -28,6 +28,8 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Options;
+using PoshMcp.Server.Authentication;
 
 namespace PoshMcp;
 
@@ -2122,6 +2124,8 @@ public class Program
 
         RegisterCleanupServices(builder);
 
+        builder.Services.AddPoshMcpAuthentication(builder.Configuration);
+
         var app = builder.Build();
 
         app.Use(async (context, next) =>
@@ -2136,23 +2140,35 @@ public class Program
 
         app.UseCors();
 
+        var authConfigForMiddleware = app.Services.GetRequiredService<IOptions<AuthenticationConfiguration>>();
+        if (authConfigForMiddleware.Value.Enabled)
+        {
+            app.UseAuthentication();
+            app.UseAuthorization();
+        }
+
         app.MapHealthChecks("/health", new HealthCheckOptions
         {
             ResponseWriter = WriteHealthCheckResponseAsync
-        });
+        }).AllowAnonymous();
         app.MapHealthChecks("/health/ready", new HealthCheckOptions
         {
             Predicate = _ => true
-        });
+        }).AllowAnonymous();
 
         var normalizedMcpPath = NormalizeMcpPath(mcpPath);
+        IEndpointConventionBuilder mcpEndpoint;
         if (string.IsNullOrWhiteSpace(normalizedMcpPath))
         {
-            app.MapMcp();
+            mcpEndpoint = app.MapMcp();
         }
         else
         {
-            app.MapMcp(normalizedMcpPath);
+            mcpEndpoint = app.MapMcp(normalizedMcpPath);
+        }
+        if (authConfigForMiddleware.Value.Enabled)
+        {
+            mcpEndpoint.RequireAuthorization("McpAccess");
         }
 
         await app.RunAsync();
