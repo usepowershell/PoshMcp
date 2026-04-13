@@ -31,7 +31,7 @@ public static class PowerShellRunspaceInitializer
         // Build the common initialization script
         var baseScript = @"
             # Set execution policy for this session if on Windows
-            if ($PSVersionTable.Platform -eq 'Windows') {
+            if ($IsWindows) {
                 Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
             }";
 

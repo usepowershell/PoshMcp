@@ -653,13 +653,24 @@ public class McpToolFactoryV2
                 logger.LogDebug("No modules specified in configuration");
             }
 
-            // Apply include patterns if specified to filter configured commands
+            // Apply include patterns: when other sources (functionNames/modules) produced commands,
+            // filter to those matching the patterns. When no other sources, discover globally by pattern.
             if (config.IncludePatterns.Any())
             {
-                var beforeCount = commands.Count;
-                logger.LogDebug($"Applying {config.IncludePatterns.Count} include patterns to {beforeCount} commands...");
-                commands = ApplyIncludePatterns(commands, config.IncludePatterns, logger);
-                logger.LogInformation($"Included {commands.Count - beforeCount} commands based on include patterns");
+                if (commands.Any())
+                {
+                    var beforeCount = commands.Count;
+                    logger.LogDebug($"Applying {config.IncludePatterns.Count} include patterns to {beforeCount} commands...");
+                    commands = ApplyIncludePatterns(commands, config.IncludePatterns, logger);
+                    logger.LogInformation($"Include patterns retained {commands.Count} of {beforeCount} commands");
+                }
+                else
+                {
+                    logger.LogDebug($"No prior commands — discovering {config.IncludePatterns.Count} include pattern(s) globally...");
+                    var patternCommands = GetCommandsByPattern(config.IncludePatterns, config.ExcludePatterns, powerShell, logger);
+                    commands.AddRange(patternCommands);
+                    logger.LogInformation($"Discovered {patternCommands.Count} commands via include patterns");
+                }
             }
             else
             {

@@ -315,7 +315,7 @@ public class PowerShellEnvironmentSetup
                 powerShell.Commands.Clear();
                 powerShell.AddCommand("Import-Module")
                     .AddParameter("Name", moduleName)
-                    .AddParameter("ErrorAction", "Stop")
+                    .AddParameter("ErrorAction", "SilentlyContinue")
                     .AddParameter("PassThru");
 
                 if (allowClobber)
@@ -323,12 +323,18 @@ public class PowerShellEnvironmentSetup
                     powerShell.AddParameter("Force");
                 }
 
-                await Task.Run(() => powerShell.Invoke(), cancellationToken);
+                var results = await Task.Run(() => powerShell.Invoke(), cancellationToken);
 
-                if (powerShell.HadErrors)
+                // Verify the module was actually imported by checking the PassThru result
+                bool imported = results != null && results.Count > 0;
+
+                if (!imported)
                 {
+                    // Collect any errors as context
                     var errors = powerShell.Streams.Error.ReadAll();
-                    var error = $"Error importing module {moduleName}: {string.Join("; ", errors.Select(e => e.ToString()))}";
+                    var error = errors.Count > 0
+                        ? $"Error importing module {moduleName}: {string.Join("; ", errors.Select(e => e.ToString()))}"
+                        : $"Error importing module {moduleName}: module was not loaded (no output from Import-Module -PassThru)";
                     _logger.LogError(error);
                     result.Errors.Add(error);
                 }
@@ -376,15 +382,13 @@ public class PowerShellEnvironmentSetup
             if (powerShell.HadErrors)
             {
                 var errors = powerShell.Streams.Error.ReadAll();
-                var error = $"Error executing startup script file: {string.Join("; ", errors.Select(e => e.ToString()))}";
-                _logger.LogError(error);
-                result.Errors.Add(error);
+                var warning = $"Warning during startup script execution: {string.Join("; ", errors.Select(e => e.ToString()))}";
+                _logger.LogWarning(warning);
+                result.Warnings.Add(warning);
             }
-            else
-            {
-                result.StartupScriptExecuted = true;
-                _logger.LogInformation("Successfully executed startup script from file");
-            }
+
+            result.StartupScriptExecuted = true;
+            _logger.LogInformation("Successfully executed startup script from file");
         }
         catch (Exception ex)
         {
