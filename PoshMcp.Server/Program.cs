@@ -2117,10 +2117,30 @@ public class Program
         logger.LogInformation("Using configuration file: {ConfigurationPath}", finalConfigPath);
 
         var tools = await SetupHttpMcpToolsAsync(bootstrapLoggerFactory, config, logger, finalConfigPath, sharedSessionRunspace, executorLease?.Executor);
-        builder.Services
+        var authConfigValue = builder.Configuration.GetSection("Authentication").Get<PoshMcp.Server.Authentication.AuthenticationConfiguration>() ?? new();
+        var mcpBuilder = builder.Services
             .AddMcpServer()
             .WithHttpTransport()
             .WithTools(tools);
+
+        if (authConfigValue.Enabled)
+        {
+            var callToolFilter = new PoshMcp.Server.Authentication.ToolAuthorizationFilter(
+                authConfigValue,
+                config,
+                sharedHttpContextAccessor,
+                bootstrapLoggerFactory.CreateLogger<PoshMcp.Server.Authentication.ToolAuthorizationFilter>());
+            var listToolFilter = new PoshMcp.Server.Authentication.ToolListAuthorizationFilter(
+                authConfigValue,
+                config,
+                sharedHttpContextAccessor,
+                bootstrapLoggerFactory.CreateLogger<PoshMcp.Server.Authentication.ToolListAuthorizationFilter>());
+            mcpBuilder.WithRequestFilters(fb =>
+            {
+                fb.AddCallToolFilter(callToolFilter.AsFilter());
+                fb.AddListToolsFilter(listToolFilter.AsFilter());
+            });
+        }
 
         RegisterCleanupServices(builder);
 
