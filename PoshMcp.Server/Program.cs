@@ -173,6 +173,18 @@ public class Program
             aliases: new[] { "--enable-dynamic-reload-tools" },
             description: "Set PowerShellConfiguration.EnableDynamicReloadTools to true or false");
 
+        var enableConfigurationTroubleshootingToolOption = new Option<string?>(
+            aliases: new[] { "--enable-configuration-troubleshooting-tool" },
+            description: "Set PowerShellConfiguration.EnableConfigurationTroubleshootingTool to true or false");
+
+        var enableResultCachingOption = new Option<string?>(
+            aliases: new[] { "--enable-result-caching" },
+            description: "Set PowerShellConfiguration.Performance.EnableResultCaching to true or false");
+
+        var setAuthEnabledOption = new Option<string?>(
+            aliases: new[] { "--set-auth-enabled" },
+            description: "Set Authentication.Enabled to true or false");
+
         var sessionModeOption = new Option<string?>(
             aliases: new[] { "--session-mode" },
             description: "Session mode hint: stateful|stateless (reserved for hosted transports)");
@@ -239,6 +251,10 @@ public class Program
         updateConfigCommand.AddOption(addExcludePatternOption);
         updateConfigCommand.AddOption(removeExcludePatternOption);
         updateConfigCommand.AddOption(enableDynamicReloadToolsOption);
+        updateConfigCommand.AddOption(enableConfigurationTroubleshootingToolOption);
+        updateConfigCommand.AddOption(enableResultCachingOption);
+        updateConfigCommand.AddOption(setAuthEnabledOption);
+        updateConfigCommand.AddOption(runtimeModeOption);
         updateConfigCommand.AddOption(nonInteractiveOption);
 
         var psModulePathCommand = new Command("psmodulepath", "Start a PowerShell runspace and report the value of $env:PSModulePath");
@@ -507,6 +523,10 @@ public class Program
             var addExcludePatterns = context.ParseResult.GetValueForOption(addExcludePatternOption);
             var removeExcludePatterns = context.ParseResult.GetValueForOption(removeExcludePatternOption);
             var enableDynamicReloadTools = context.ParseResult.GetValueForOption(enableDynamicReloadToolsOption);
+            var enableConfigurationTroubleshootingTool = context.ParseResult.GetValueForOption(enableConfigurationTroubleshootingToolOption);
+            var enableResultCaching = context.ParseResult.GetValueForOption(enableResultCachingOption);
+            var setAuthEnabled = context.ParseResult.GetValueForOption(setAuthEnabledOption);
+            var runtimeMode = context.ParseResult.GetValueForOption(runtimeModeOption);
             var nonInteractive = context.ParseResult.GetValueForOption(nonInteractiveOption);
 
             var resolvedSettings = await ResolveCommandSettingsAsync(args, configPath, logLevelText, null, null, null, null);
@@ -532,6 +552,10 @@ public class Program
                     addExcludePatterns ?? Array.Empty<string>(),
                     removeExcludePatterns ?? Array.Empty<string>(),
                     TryParseRequiredBoolean(enableDynamicReloadTools),
+                    TryParseRequiredBoolean(enableConfigurationTroubleshootingTool),
+                    TryParseRequiredBoolean(enableResultCaching),
+                    TryParseRequiredBoolean(setAuthEnabled),
+                    NormalizeRuntimeMode(runtimeMode),
                     nonInteractive);
 
                 var result = await UpdateConfigurationFileAsync(resolvedSettings.FinalConfigPath, updateRequest);
@@ -547,7 +571,8 @@ public class Program
                         removedFunctions = result.RemovedFunctions,
                         addedCommands = result.AddedCommands,
                         removedCommands = result.RemovedCommands,
-                        advancedPromptedFunctionCount = result.AdvancedPromptedFunctionCount
+                        advancedPromptedFunctionCount = result.AdvancedPromptedFunctionCount,
+                        settingsChanged = result.SettingsChanged
                     };
                     Console.WriteLine(JsonSerializer.Serialize(payload));
                 }
@@ -558,6 +583,10 @@ public class Program
                         : $"No changes applied to configuration: {result.ConfigurationPath}");
                     Console.WriteLine($"Added commands: {result.AddedCommands} | Removed commands: {result.RemovedCommands}");
                     Console.WriteLine($"Added functions: {result.AddedFunctions} | Removed functions: {result.RemovedFunctions}");
+                    if (result.SettingsChanged > 0)
+                    {
+                        Console.WriteLine($"Settings changed: {result.SettingsChanged}");
+                    }
                     if (result.AdvancedPromptedFunctionCount > 0)
                     {
                         Console.WriteLine($"Advanced prompts completed for {result.AdvancedPromptedFunctionCount} function(s).");
@@ -821,6 +850,21 @@ public class Program
         }
 
         throw new ArgumentException($"Expected 'true' or 'false' but received '{value}'.");
+    }
+
+    private static string? NormalizeRuntimeMode(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return value.Trim().ToLowerInvariant() switch
+        {
+            "in-process" or "inprocess" => "InProcess",
+            "out-of-process" or "outofprocess" => "OutOfProcess",
+            _ => throw new ArgumentException($"Expected 'in-process' or 'out-of-process' but received '{value}'.")
+        };
     }
 
     private static ResolvedSetting ResolveEffectiveLogLevel(string[] args, string? logLevelText)
@@ -1420,6 +1464,10 @@ public class Program
         IEnumerable<string> AddExcludePatterns,
         IEnumerable<string> RemoveExcludePatterns,
         bool? EnableDynamicReloadTools,
+        bool? EnableConfigurationTroubleshootingTool,
+        bool? EnableResultCaching,
+        bool? SetAuthEnabled,
+        string? SetRuntimeMode,
         bool NonInteractive);
 
     private sealed record ConfigUpdateResult(
@@ -1429,7 +1477,8 @@ public class Program
         int RemovedFunctions,
         int AddedCommands,
         int RemovedCommands,
-        int AdvancedPromptedFunctionCount);
+        int AdvancedPromptedFunctionCount,
+        int SettingsChanged);
 
     private sealed record ResolvedSetting(string? Value, string Source);
 
@@ -1558,17 +1607,43 @@ public class Program
         var addedExcludePatterns = AddUniqueValues(GetOrCreateArray(powerShellConfiguration, "ExcludePatterns"), request.AddExcludePatterns, out _);
         var removedExcludePatterns = RemoveValues(GetOrCreateArray(powerShellConfiguration, "ExcludePatterns"), request.RemoveExcludePatterns);
 
-        var boolUpdateApplied = false;
+        var boolUpdateApplied = 0;
         if (request.EnableDynamicReloadTools.HasValue)
         {
             powerShellConfiguration["EnableDynamicReloadTools"] = request.EnableDynamicReloadTools.Value;
-            boolUpdateApplied = true;
+            boolUpdateApplied++;
+        }
+
+        if (request.EnableConfigurationTroubleshootingTool.HasValue)
+        {
+            powerShellConfiguration["EnableConfigurationTroubleshootingTool"] = request.EnableConfigurationTroubleshootingTool.Value;
+            boolUpdateApplied++;
+        }
+
+        if (request.EnableResultCaching.HasValue)
+        {
+            var performance = GetOrCreateObject(powerShellConfiguration, "Performance");
+            performance["EnableResultCaching"] = request.EnableResultCaching.Value;
+            boolUpdateApplied++;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.SetRuntimeMode))
+        {
+            powerShellConfiguration["RuntimeMode"] = request.SetRuntimeMode;
+            boolUpdateApplied++;
+        }
+
+        if (request.SetAuthEnabled.HasValue)
+        {
+            var authentication = GetOrCreateObject(root, "Authentication");
+            authentication["Enabled"] = request.SetAuthEnabled.Value;
+            boolUpdateApplied++;
         }
 
         var advancedPromptedFunctionCount = 0;
-        if (!request.NonInteractive && addedFunctionNames.Count > 0)
+        if (!request.NonInteractive && allAddedNames.Count > 0)
         {
-            advancedPromptedFunctionCount = PromptForAdvancedFunctionConfiguration(powerShellConfiguration, addedFunctionNames);
+            advancedPromptedFunctionCount = PromptForAdvancedFunctionConfiguration(powerShellConfiguration, allAddedNames);
         }
 
         var changed = addedCommands > 0 || removedCommands > 0 ||
@@ -1576,7 +1651,7 @@ public class Program
             addedModules > 0 || removedModules > 0 ||
             addedIncludePatterns > 0 || removedIncludePatterns > 0 ||
             addedExcludePatterns > 0 || removedExcludePatterns > 0 ||
-            boolUpdateApplied || advancedPromptedFunctionCount > 0;
+            boolUpdateApplied > 0 || advancedPromptedFunctionCount > 0;
 
         if (changed)
         {
@@ -1595,7 +1670,8 @@ public class Program
             removedFunctions,
             addedCommands,
             removedCommands,
-            advancedPromptedFunctionCount);
+            advancedPromptedFunctionCount,
+            boolUpdateApplied);
     }
 
     private static int PromptForAdvancedFunctionConfiguration(JsonObject powerShellConfiguration, IEnumerable<string> addedFunctionNames)
@@ -1639,6 +1715,46 @@ public class Program
                 if (propertyValues.Count > 0)
                 {
                     functionOverride["DefaultProperties"] = new JsonArray(propertyValues.Select(value => (JsonNode?)value).ToArray());
+                }
+            }
+
+            var allowAnonymousOverride = PromptForNullableBoolean($"Set AllowAnonymous for {functionName} (true/false/skip): ");
+            if (allowAnonymousOverride.HasValue)
+            {
+                functionOverride["AllowAnonymous"] = allowAnonymousOverride.Value;
+            }
+
+            Console.Write($"Set RequiredScopes for {functionName} (space-separated, blank to skip): ");
+            var requiredScopesText = Console.ReadLine();
+            if (!string.IsNullOrWhiteSpace(requiredScopesText))
+            {
+                var scopeValues = requiredScopesText
+                    .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(value => value.Trim())
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (scopeValues.Count > 0)
+                {
+                    functionOverride["RequiredScopes"] = new JsonArray(scopeValues.Select(value => (JsonNode?)value).ToArray());
+                }
+            }
+
+            Console.Write($"Set RequiredRoles for {functionName} (space-separated, blank to skip): ");
+            var requiredRolesText = Console.ReadLine();
+            if (!string.IsNullOrWhiteSpace(requiredRolesText))
+            {
+                var roleValues = requiredRolesText
+                    .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(value => value.Trim())
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (roleValues.Count > 0)
+                {
+                    functionOverride["RequiredRoles"] = new JsonArray(roleValues.Select(value => (JsonNode?)value).ToArray());
                 }
             }
 
