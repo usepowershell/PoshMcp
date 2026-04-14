@@ -77,6 +77,15 @@
 - No failing tests identified across any iteration. One test (`PoshMcp.Tests.Functional.ReturnType.GeneratedMethod.ShouldHandleGetChildItemCorrectly`) consistently skipped.
 - Verdict: No evidence of intermittent failures in test suite.
 
+### 2026-04-14: v0.5.4 tool update (local nupkg install)
+
+- Verified latest nupkg in `./nupkg/`: `poshmcp.0.5.4.nupkg`
+- Current global tool version: 0.5.3
+- PackageId and ToolCommandName both: `poshmcp` (confirmed in .csproj)
+- Update command: `dotnet tool update -g poshmcp --add-source ./nupkg --version 0.5.4`
+- Verified: `dotnet tool list -g | Select-String poshmcp` → `poshmcp         0.5.4        poshmcp`
+- Local .nupkg directory is specified with `--add-source ./nupkg` (relative path from working directory)
+
 ## Archive Note
 
 Detailed session history was archived to `history-archive.md` on 2026-04-10 when this file exceeded the 15 KB Scribe threshold.
