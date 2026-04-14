@@ -181,6 +181,10 @@ public class Program
             aliases: new[] { "--enable-result-caching" },
             description: "Set PowerShellConfiguration.Performance.EnableResultCaching to true or false");
 
+        var useDefaultDisplayPropertiesOption = new Option<string?>(
+            aliases: new[] { "--use-default-display-properties" },
+            description: "Set PowerShellConfiguration.Performance.UseDefaultDisplayProperties to true or false");
+
         var setAuthEnabledOption = new Option<string?>(
             aliases: new[] { "--set-auth-enabled" },
             description: "Set Authentication.Enabled to true or false");
@@ -253,6 +257,7 @@ public class Program
         updateConfigCommand.AddOption(enableDynamicReloadToolsOption);
         updateConfigCommand.AddOption(enableConfigurationTroubleshootingToolOption);
         updateConfigCommand.AddOption(enableResultCachingOption);
+        updateConfigCommand.AddOption(useDefaultDisplayPropertiesOption);
         updateConfigCommand.AddOption(setAuthEnabledOption);
         updateConfigCommand.AddOption(runtimeModeOption);
         updateConfigCommand.AddOption(nonInteractiveOption);
@@ -525,6 +530,7 @@ public class Program
             var enableDynamicReloadTools = context.ParseResult.GetValueForOption(enableDynamicReloadToolsOption);
             var enableConfigurationTroubleshootingTool = context.ParseResult.GetValueForOption(enableConfigurationTroubleshootingToolOption);
             var enableResultCaching = context.ParseResult.GetValueForOption(enableResultCachingOption);
+            var useDefaultDisplayProperties = context.ParseResult.GetValueForOption(useDefaultDisplayPropertiesOption);
             var setAuthEnabled = context.ParseResult.GetValueForOption(setAuthEnabledOption);
             var runtimeMode = context.ParseResult.GetValueForOption(runtimeModeOption);
             var nonInteractive = context.ParseResult.GetValueForOption(nonInteractiveOption);
@@ -554,6 +560,7 @@ public class Program
                     TryParseRequiredBoolean(enableDynamicReloadTools),
                     TryParseRequiredBoolean(enableConfigurationTroubleshootingTool),
                     TryParseRequiredBoolean(enableResultCaching),
+                    TryParseRequiredBoolean(useDefaultDisplayProperties),
                     TryParseRequiredBoolean(setAuthEnabled),
                     NormalizeRuntimeMode(runtimeMode),
                     nonInteractive);
@@ -1466,6 +1473,7 @@ public class Program
         bool? EnableDynamicReloadTools,
         bool? EnableConfigurationTroubleshootingTool,
         bool? EnableResultCaching,
+        bool? UseDefaultDisplayProperties,
         bool? SetAuthEnabled,
         string? SetRuntimeMode,
         bool NonInteractive);
@@ -1624,6 +1632,13 @@ public class Program
         {
             var performance = GetOrCreateObject(powerShellConfiguration, "Performance");
             performance["EnableResultCaching"] = request.EnableResultCaching.Value;
+            boolUpdateApplied++;
+        }
+
+        if (request.UseDefaultDisplayProperties.HasValue)
+        {
+            var performance = GetOrCreateObject(powerShellConfiguration, "Performance");
+            performance["UseDefaultDisplayProperties"] = request.UseDefaultDisplayProperties.Value;
             boolUpdateApplied++;
         }
 
