@@ -34,12 +34,12 @@
       "_appTitle": "PoshMcp Documentation",
       "_appFooter": "© 2026 Microsoft. PoshMcp transforms PowerShell into AI-consumable tools.",
       "_gitContribute": {
-        "repo": "https://github.com/microsoft/poshmcp",
+        "repo": "https://github.com/usepowershell/poshmcp",
         "branch": "main",
         "apiSpecFolder": "docs"
       },
       "_enableNewTab": true
     },
-    "template": ["default"]
+    "template": ["default", "modern"]
   }
 }

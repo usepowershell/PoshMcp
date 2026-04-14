@@ -88,9 +88,9 @@ graph LR
 
 ## Community & Support
 
-- **GitHub Issues** — [Report bugs or request features](https://github.com/microsoft/poshmcp/issues)
-- **GitHub Discussions** — [Ask questions and share ideas](https://github.com/microsoft/poshmcp/discussions)
-- **Contributing** — [Contribute to PoshMcp](https://github.com/microsoft/poshmcp/blob/main/CONTRIBUTING.md)
+- **GitHub Issues** — [Report bugs or request features](https://github.com/usepowershell/poshmcp/issues)
+- **GitHub Discussions** — [Ask questions and share ideas](https://github.com/usepowershell/poshmcp/discussions)
+- **Contributing** — [Contribute to PoshMcp](https://github.com/usepowershell/poshmcp/blob/main/CONTRIBUTING.md)
 
 ---
 
