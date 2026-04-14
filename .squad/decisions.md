@@ -734,3 +734,373 @@ Authentication is **disabled by default** (`Authentication.Enabled = false`) to 
 - C# MCP SDK v1.2.0 API: https://csharp.sdk.modelcontextprotocol.io/
 - Full implementation plan: Session workspace `plan.md`
 
+
+
+# Merge Session Decisions — PRs #92–#95
+
+**Author:** Amy (DevOps/Platform)
+**Date:** 2026-04-12
+**Status:** Informational
+
+## Summary
+
+Sequential squash-merge of four approved PRs into main. All passed tests before merging.
+
+| PR | Branch | Description | Tests Before | Tests After |
+|----|--------|-------------|-------------|-------------|
+| #92 | squad/86-use-default-display-properties-flag | `--use-default-display-properties` CLI flag | 343 passed | 343 passed |
+| #93 | squad/87-warn-set-auth-enabled-no-schemes | Advisory warning when auth enabled with no schemes | 343 passed | 343 passed |
+| #94 | squad/88-unit-tests-update-config-flags | 12 new unit tests for update-config CLI flags | 348 passed | 355 passed |
+| #95 | squad/89-unserializable-parameter-types | Skip unserializable param types in MCP schema gen | 381 passed | 388 passed |
+
+## Notable Operational Decisions
+
+### `gh pr merge --delete-branch` exit code in worktrees
+The `--delete-branch` flag on `gh pr merge` exits non-zero in a worktree environment because the local branch-delete step fails (`fatal: 'main' is already used by worktree`). The GitHub-side squash merge **succeeds**. This is expected behavior in a git worktree setup — the remote branch is deleted by GitHub; the local worktree ref cleanup fails harmlessly. No action needed; treat exit code 1 as a false failure when the merge confirmation line is present in stdout.
+
+### `dotnet restore` required for cold worktrees
+Worktrees that have not been previously built do not have `project.assets.json` present. `dotnet test --no-restore` fails with `NETSDK1004`. Always run `dotnet restore` first when testing a worktree that hasn't been built in the current session.
+
+### Force-push requires explicit remote branch when upstream is not configured
+`git push --force-with-lease` fails without an upstream tracking ref. Use `git push --force-with-lease origin <branch-name>` explicitly in worktrees.
+
+
+# Decision: --use-default-display-properties CLI flag pattern
+
+**Date:** 2026-04-14
+**Author:** Amy
+**Issue:** #86
+**PR:** #92 (https://github.com/usepowershell/PoshMcp/pull/92)
+
+## Decision
+
+Added `--use-default-display-properties <true|false>` to `update-config`, following the exact same pattern as `--enable-result-caching` (PR #85). No new patterns were introduced.
+
+## Rationale
+
+Consistency: every scalar `Performance.*` setting in `PowerShellConfiguration` should be directly settable as a top-level CLI flag without requiring interactive prompts. `UseDefaultDisplayProperties` was the only one missing this treatment.
+
+## Pattern Confirmed
+
+All scalar boolean flags in `update-config` follow this four-step pattern in `Program.cs`:
+1. `Option<string?>` declaration near line 180
+2. `updateConfigCommand.AddOption(...)` near line 255
+3. `GetValueForOption` + `TryParseRequiredBoolean` in handler, passed positionally to `ConfigUpdateRequest`
+4. `if (request.X.HasValue)` block in `UpdateConfigurationFileAsync`, using `GetOrCreateObject` for the correct parent object and incrementing `boolUpdateApplied`
+
+## Scope
+
+Single file change: `PoshMcp.Server/Program.cs`, 15 lines added, 0 deleted.
+
+
+# Decision: Advisory warnings in CLI commands go to stderr
+
+**Date:** 2026-04-14
+**Author:** Bender
+**Issue:** #87
+
+## Context
+
+When `--set-auth-enabled true` is passed to `update-config` without any `Authentication.Schemes` configured, the server would fail at startup with `AuthenticationConfigurationValidator` but the user received no signal at config-write time.
+
+## Decision
+
+CLI advisory warnings that do not block an operation should be written to `Console.Error` (stderr), **not** stdout. This keeps stdout clean for structured output (e.g., `--output json`) while still surfacing important information to interactive users and CI pipelines that capture stderr separately.
+
+## Pattern
+
+```csharp
+Console.Error.WriteLine("WARNING: <message>. Run 'poshmcp validate-config' to verify your configuration.");
+```
+
+Always prefix with `WARNING:` for easy grepping/filtering.
+
+## Rationale
+
+- Stdout may be parsed programmatically (`--output json`); mixing warnings there breaks parsers.
+- Stderr is the conventional channel for diagnostic/advisory output in CLI tools.
+- The write must not be blocked — the advisory is informational only.
+
+
+# Decision: Cache DiagnoseMissingCommands Results in Doctor Output
+
+**Author:** Bender  
+**Date:** 2025-07-15  
+**PR:** #96 (Issue #91 — doctor command resolution)
+
+## Decision
+
+`DiagnoseMissingCommands` must be executed at most once per doctor invocation. Its results must be cached and shared between the text output path and the JSON output path in `Program.cs`.
+
+## Context
+
+`RunDoctorAsync` and `BuildDoctorJson` both previously called `DiagnoseMissingCommands` independently. Each call creates an `IsolatedPowerShellRunspace` and runs `Get-Command`/`Import-Module` for every missing command. When `format == "json"`, both calls executed — doubling the cost with no benefit.
+
+## Fix Applied
+
+- `BuildDoctorJson` now accepts `List<ConfiguredFunctionStatus>? precomputedFunctionStatus = null`
+- A guard in `BuildDoctorJson` skips `DiagnoseMissingCommands` if `ResolutionReason` is already populated
+- `RunDoctorAsync` passes its resolved `configuredFunctionStatus` to `BuildDoctorJson` for the JSON path
+- `ConfiguredFunctionStatus` accessibility changed from `private` to `internal` to satisfy C# accessibility rules
+
+## Outcome
+
+- 336 tests pass, 0 failures
+- Build succeeds with no new warnings
+- PR #96 re-reviewed and ready for Farnsworth's approval
+
+
+### 2026-04-13T08:50:30Z: User directive
+**By:** Steven Murawski (via Copilot)
+**What:** Whenever an agent creates a comment, issue, or PR on GitHub, sign it at the end with the agent's name (e.g., — Bender, — Farnsworth).
+**Why:** Without signatures, GitHub activity looks like the repo owner talking to themselves. Agent attribution makes conversations legible.
+
+
+# Decision: Guard against duplicate DiagnoseMissingCommands calls
+
+**Author:** Farnsworth
+**Date:** 2026-07-15
+**Status:** Required (PR #96 rejection condition)
+
+## Context
+
+PR #96 adds `DiagnoseMissingCommands` for doctor command resolution diagnosis. The method creates an `IsolatedPowerShellRunspace` and runs `Get-Command`/`Import-Module` for each missing command — expensive operations.
+
+## Problem
+
+Both `RunDoctorAsync` and `BuildDoctorJson` independently call `DiagnoseMissingCommands`. When doctor runs in JSON format, introspection executes twice per missing command.
+
+## Decision
+
+`BuildDoctorJson` must guard the call: only invoke `DiagnoseMissingCommands` when `configuredFunctionStatus` entries with `Found=false` have `ResolutionReason is null`. This preserves standalone correctness (tests calling `BuildDoctorJson` directly) while avoiding double work from `RunDoctorAsync`.
+
+## Impact
+
+- PR #96 must be revised before merge
+- Assigned to Bender (rejection lockout on Hermes)
+- Pattern applies to any future expensive diagnostic that appears in both runtime and builder paths
+
+
+# PR #84 Action Required — Rebase onto main
+
+**Date:** 2026-07-15
+**Author:** Farnsworth
+**PR:** [#84 — fix: handle warning stream content during OOP server startup](https://github.com/usepowershell/PoshMcp/pull/84)
+
+---
+
+## Status
+
+GitHub reports `mergeable: false / dirty`. **This is almost certainly a transient compute-lag, not a real conflict.**
+
+`git merge-tree origin/main origin/squad/78-fix-oop-warning-stream` exits 0 with a clean tree — no conflicts.
+
+---
+
+## Files Changed in PR #84
+
+| File | What PR #84 Does |
+|---|---|
+| `PoshMcp.Server/PowerShell/OutOfProcess/oop-host.ps1` | Adds `-WarningAction SilentlyContinue -WarningVariable` to all `Install-Module` and `Import-Module` calls; forwards captured warnings to `Write-Diag` (stderr) |
+| `PoshMcp.Server/PowerShell/OutOfProcess/OutOfProcessCommandExecutor.cs` | Adds `IsNonJsonPowerShellStreamLine()` fast-path helper; skips non-JSON PowerShell stream lines at Debug level; demotes `catch(JsonException)` from LogWarning to LogDebug |
+| `.squad/agents/farnsworth/history.md` | Appends PR #83 review note |
+
+---
+
+## Overlap With Already-Merged Work
+
+All three files were also touched by commit `728b108` (#90 "Fixing tests") which landed on main after the PR branch was last synced.
+
+| File | What #90 Changed | Conflict? |
+|---|---|---|
+| `OutOfProcessCommandExecutor.cs` | Line 62: added `-ExecutionPolicy Bypass` to `ProcessStartInfo.Arguments` | **None** — PR #84 edits lines 424-550 (ReadLoopAsync + helper method) |
+| `oop-host.ps1` | Lines ~411+: added global include-pattern discovery block inside `Invoke-DiscoverHandler` | **None** — PR #84 edits lines 223, 247-264, 339-345 (Install/Import-Module params) |
+| `history.md` | Appended PR #85 merge note | **None** — PR #84 appends different entry (PR #83 review) |
+
+The PR's `PassThru = $true` (ImportModules success detection, already on main) is correctly reflected in the PR diff context — no duplication issue.
+
+---
+
+## Required Action
+
+1. **Author** (`usepowershell` / Steven Murawski): update the PR branch to include main's latest commits:
+   ```bash
+   git checkout squad/78-fix-oop-warning-stream
+   git merge origin/main   # or: git rebase origin/main
+   git push origin squad/78-fix-oop-warning-stream
+   ```
+2. GitHub will recompute mergeability — it should flip to `true`.
+3. **No code changes are needed** — the PR changes are correct, non-overlapping, and CI passes.
+4. **Safe to merge immediately after the branch update.**
+
+---
+
+## Review Assessment
+
+The fix is sound and the approach is appropriate for the current scope:
+- Primary fix is at the source (oop-host.ps1 suppresses warnings before they hit stdout).
+- Defensive C# fix (`IsNonJsonPowerShellStreamLine`) is a cheap fast-path guard against third-party modules that bypass WarningAction.
+- Demoting `JsonException` catch from LogWarning to LogDebug eliminates alarm fatigue without hiding real errors.
+- CLIXML and in-process-runspace alternatives acknowledged and deferred appropriately (tracked issue open if needed).
+
+**Verdict: Approve and merge after rebase.**
+
+
+# Decision: Approve and merge PR #85 — extend update-config all settings
+
+**Date:** 2026-04-13
+**Decision maker:** Farnsworth (Lead / Architect)
+**PR:** https://github.com/usepowershell/PoshMcp/pull/85
+**Author:** Amy
+**Fixes:** Issue #76
+
+## Approval Decision
+
+**APPROVED and MERGED** (squash merge to `main`).
+
+## Summary of Changes
+
+PR #85 extends the `poshmcp update-config` CLI command to expose all remaining scalar configuration settings as top-level flags:
+
+| Flag | Config Path |
+|------|-------------|
+| `--runtime-mode <in-process\|out-of-process>` | `PowerShellConfiguration.RuntimeMode` |
+| `--enable-result-caching <true\|false>` | `PowerShellConfiguration.Performance.EnableResultCaching` |
+| `--enable-configuration-troubleshooting-tool <true\|false>` | `PowerShellConfiguration.EnableConfigurationTroubleshootingTool` |
+| `--set-auth-enabled <true\|false>` | `Authentication.Enabled` |
+
+Additionally:
+- Interactive per-function prompts extended with `AllowAnonymous`, `RequiredScopes`, `RequiredRoles`
+- Interactive prompts now correctly cover `--add-command` entries (was functions-only bug)
+- `boolUpdateApplied` counter upgraded bool → int; `SettingsChanged` exposed in text and JSON output
+
+## Notable Patterns
+
+### Correct JSON nesting
+`Performance.EnableResultCaching` is nested under `powerShellConfiguration` (correct), while `Authentication.Enabled` is at the config root (correct). The `GetOrCreateObject` helper handles both levels cleanly.
+
+### `NormalizeRuntimeMode` validation
+New helper follows the same defensive pattern as `NormalizeFormat` and `TryParseRequiredBoolean` — normalizes casing variants (`in-process`, `inprocess` → `InProcess`) and throws `ArgumentException` for invalid input. Good pattern to continue.
+
+### Complex auth config stays as direct JSON editing
+JWT authorities, API keys, CORS — these deeply nested settings are intentionally NOT exposed as CLI flags. Direct JSON editing via `--config-path` is the right call. This is the correct long-term design: CLI flags for scalar toggles, direct JSON for structured config.
+
+### Counter vs bool for settings-changed tracking
+Upgrading `boolUpdateApplied` from `bool` to `int` is a strictly better design — it allows `settingsChanged: 3` in JSON output rather than a boolean, which is more informative and composable with future audit/logging.
+
+## Non-blocking Observations (filed as issues)
+
+- **#86** — Add `--use-default-display-properties` global flag for `Performance.UseDefaultDisplayProperties` (consistency)
+- **#87** — Warn when `--set-auth-enabled true` used with empty `Authentication.Schemes` (UX improvement, not blocking)
+- **#88** — Add unit tests for all 4 new flags in `ProgramCliConfigCommandsTests` (test coverage gap, Fry's queue)
+
+
+# Decision: update-config flag test patterns (Issue #88)
+
+**Author:** Fry  
+**Date:** 2026-04-14  
+**PR:** #94
+
+## Summary
+
+Closed the test coverage gap for the four CLI flags and interactive prompt extensions added in PR #85.
+
+## Decisions Made
+
+### 1. Structural assertions over raw file comparison
+When asserting that a config file was NOT modified after an error, parse it as JSON and check specific keys rather than comparing raw strings. `UpgradeConfigWithMissingDefaultsAsync` normalizes line endings (`\n` → `\r\n`) as a side effect of config resolution on Windows, making raw string comparison brittle.
+
+### 2. Assert stderr content for error paths
+For `--runtime-mode invalid-value`, assert that `capture.StandardError` contains the invalid value string. This is more direct than checking `Environment.ExitCode` vs the `InvokeAsync` return value (which always returns 0 for Task handlers).
+
+### 3. Authentication.Enabled placement assertion
+The `--set-auth-enabled` test explicitly asserts both that `Authentication.Enabled` is set at the JSON root AND that `PowerShellConfiguration["Authentication"]` is null. This prevents accidental wrong-level placement by future refactors.
+
+### 4. Existing interactive test extended, not duplicated
+Rather than a separate test for AllowAnonymous/RequiredScopes/RequiredRoles, the new test `UpdateConfigCommand_WhenAddingFunction_InteractivePromptsCanSetAllowAnonymousRequiredScopesAndRoles` uses `Get-Service` (different function) with a full stdin sequence. The original `Get-Process` test was updated to supply blank-skip lines for the new prompts to avoid hanging on the extra `Console.ReadLine()` calls.
+
+### 5. settingsChanged = boolUpdateApplied
+The `settingsChanged` JSON field increments once per flag that writes a value (`boolUpdateApplied` in `UpdateConfigurationFileAsync`). It does NOT count function add/remove operations — those appear in separate fields (`addedFunctions`, `removedFunctions`).
+
+
+# Decision: Doctor command resolution diagnostics pattern
+
+**Author:** Hermes  
+**Issue:** #91  
+**PR:** https://github.com/usepowershell/PoshMcp/pull/96  
+**Date:** 2026-07
+
+## Decision
+
+When `poshmcp doctor` reports a configured command as [MISSING], it now runs PowerShell introspection via `IsolatedPowerShellRunspace` and surfaces a human-readable reason explaining why the command was not resolved.
+
+## Rationale
+
+The doctor command exists for troubleshooting. Reporting [MISSING] with no context forces users to manually investigate PSModulePath, module exports, and parameter type issues. The fix surfaces actionable diagnostics directly.
+
+## Pattern established
+
+- Use `IsolatedPowerShellRunspace` (never the singleton) for any diagnostic introspection that runs outside the normal tool execution path
+- Share ONE isolated runspace across all diagnostics in a single doctor call
+- Use local functions inside `ExecuteThreadSafe` lambdas to avoid needing `System.Management.Automation.PowerShell` type references in Program.cs
+- Diagnostic enrichment is additive: the `ConfiguredFunctionStatus` record gets a nullable `ResolutionReason` field, null when found or not diagnosed
+
+## Diagnostic resolution order
+
+1. `Get-Command <name>` in isolated session → found = unserializable param types skipped tool generation
+2. Per configured module: `Get-Module -ListAvailable` → missing = not in PSModulePath
+3. Per configured module: `Import-Module; Get-Command -Module <module> -Name <name>` → missing = module doesn't export command
+4. Command in module → import order / discovery timing issue
+5. No modules + not found → command not installed
+
+## Scope
+
+This pattern applies to any future doctor/diagnostic subcommands that need to explain why something is missing. Keep introspection in `IsolatedPowerShellRunspace`, keep it best-effort (catch and report errors), and surface reasons in both text and JSON output.
+
+
+# Decision: Unserializable Parameter Type Filtering
+
+**Author:** Hermes
+**Date:** 2026-07
+**Issue:** #89
+**Status:** Implemented — PR #95
+
+## Decision
+
+When a PowerShell parameter type cannot be meaningfully represented as a JSON schema value, the MCP tool schema generator should filter it out rather than exposing a broken or misleading parameter entry.
+
+### Rules
+
+| Scenario | Action |
+|---|---|
+| Optional parameter with unserializable type | Drop from schema silently |
+| Mandatory parameter with unserializable type (in a specific parameter set) | Skip that entire parameter set |
+| All parameter sets skipped for a command | No MCP tool emitted; warning logged |
+
+### Unserializable Type Criteria
+
+A type is considered unserializable if it belongs to any of these categories:
+
+- **Pointer/by-ref** — `IntPtr`, `UIntPtr`, `T*`, `T&`
+- **Opaque PS types** — `PSObject`, `ScriptBlock`
+- **Too generic** — `System.Object`
+- **Delegate-derived** — `Delegate`, `Action`, `Func<>`, …
+- **Binary streams** — `Stream` and any derived type
+- **OS sync primitives** — `WaitHandle` and derived
+- **Reflection handles** — `System.Reflection.Assembly`
+- **PS runtime handles** — `System.Management.Automation.PowerShell`
+- **Runspace types** — any type in `System.Management.Automation.Runspaces.*`
+- **Arrays** — when the element type is itself unserializable
+
+## Rationale
+
+- JSON has no representation for OS handles, streams, callbacks, or opaque object wrappers.
+- Including such parameters in the MCP schema would mislead callers about what values are acceptable.
+- Skipping only the affected parameter sets (rather than the whole command) preserves reachability of overloads that use only serializable types.
+
+## Implementation Location
+
+- `PowerShellParameterUtils.IsUnserializableType(Type)` — predicate, can be reused anywhere parameter types are evaluated
+- `PowerShellAssemblyGenerator.GenerateMethodForCommand` — filtering applied before IL generation
+- `PowerShellAssemblyGenerator.GenerateAssembly` — per-command tracking + warning log when all parameter sets are skipped
+

@@ -119,3 +119,44 @@ Current Priorities:
 **Issue resolved:** McpMetrics dual-instance bug fixed by Bender. Auth filters now registered as DI singletons with factory lambdas resolving `McpMetrics` via `sp.GetRequiredService<McpMetrics>()`. No manual `new McpMetrics()` construction in auth path. Deferred capture pattern for filter variables (assigned post-`app.Build()`) is safe — lambdas execute only at request time.
 **Non-blocking nit:** Redundant LINQ lookup in `ApiKeyAuthenticationHandler` (`Options.Keys.FirstOrDefault(k => k.Key == apiKey).Key` after `TryGetValue` already succeeded).
 **Build:** 0 errors on branch.
+
+### 2026-07-15: Batch PR review session (PRs #92–#96)
+
+**Reviewed 5 PRs, 4 approved, 1 rejected:**
+
+| PR | Author | Verdict | Summary |
+|----|--------|---------|---------|
+| #92 | Amy | ✅ APPROVED | `--use-default-display-properties` flag — clean pattern adherence |
+| #93 | Bender | ✅ APPROVED | Auth-enabled warning — minimal, advisory-only, stderr |
+| #94 | Fry | ✅ APPROVED | 12 unit tests for update-config flags — comprehensive coverage |
+| #95 | Hermes | ✅ APPROVED | Unserializable type filtering — solid 3-tier handling with 33 tests |
+| #96 | Hermes | ❌ REJECTED | Doctor resolution diagnosis — `DiagnoseMissingCommands` called twice in JSON path |
+
+**PR #96 rejection rationale:** `RunDoctorAsync` enriches `configuredFunctionStatus` with resolution reasons, then passes the list to `BuildDoctorJson` which independently calls `DiagnoseMissingCommands` again. Each call creates an `IsolatedPowerShellRunspace` and runs `Get-Command`/`Import-Module` per missing command. Fix: guard in `BuildDoctorJson` to skip when `ResolutionReason` is already populated. Assigned to Bender per rejection lockout.
+
+**Cross-PR observations:**
+- PRs #92, #93, #96 all modify `Program.cs` from same base (`bb35363`). Different line ranges — no merge conflicts expected but must merge sequentially.
+- No PR touches `PoshMcp.Server.csproj` — no compatibility concerns with recent csproj edits.
+- PR #94 depends on PR #85's flags being on `main` (already merged) — no ordering concern.
+- PR #95 is self-contained (new files + `PowerShellAssemblyGenerator.cs`) — can merge independently.
+
+### 2026-07-15: PR #96 re-review — approved and merged
+
+**PR:** #96 (Hermes original, Bender fix) — `feat: surface resolution reasons for missing commands in poshmcp doctor`
+**Outcome:** Squash merged to `main`. Branch `squad/91-doctor-commands-resolved` deleted (remote). Fixes #91.
+
+**Fix pattern (Bender's second commit):**
+- `RunDoctorAsync` now calls `DiagnoseMissingCommands` once, enriches `configuredFunctionStatus` records with `ResolutionReason`, then passes the list to `BuildDoctorJson` via new optional `precomputedFunctionStatus` parameter.
+- `BuildDoctorJson` uses `precomputedFunctionStatus ?? BuildConfiguredFunctionStatus(...)` to skip re-computation when data is provided.
+- Belt-and-suspenders guard: `BuildDoctorJson` independently checks `configuredFunctionStatus.All(s => s.Found || s.ResolutionReason is null)` before calling `DiagnoseMissingCommands`, so standalone callers still get diagnosis but the `RunDoctorAsync` path doesn't double-execute.
+- `ConfiguredFunctionStatus` promoted from `private` to `internal` — necessary for the type to appear in `BuildDoctorJson`'s parameter list. Safe: sealed record, assembly-scoped.
+
+**Rejection lockout pattern validated:** Hermes wrote the bug, was locked out, Bender delivered the fix cleanly. Pattern works — fresh eyes caught what the original author missed.
+
+**Non-blocking nit filed verbally:** The `.All()` guard uses double-negation logic that requires a moment of thought. A simple `bool diagnosisAlreadyDone` parameter would be more immediately readable. Not worth a revision cycle.
+
+### 2026-07-15: Authored 4 new team skills from history review
+
+Skills created: worktree-pr-merge, precomputed-optional-parameter, unserializable-type-handling, cli-bool-flag-pattern.
+All at confidence: medium (except unserializable-type-handling: high — 33 tests).
+Source: earned patterns from PRs #92–#96 and agent histories.
