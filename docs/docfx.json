@@ -1,0 +1,45 @@
+{
+  "metadata": [
+    {
+      "src": [
+        {
+          "files": ["../PoshMcp.Server/PoshMcp.csproj"],
+          "exclude": ["**/bin/**", "**/obj/**"]
+        }
+      ],
+      "dest": "api"
+    }
+  ],
+  "build": {
+    "content": [
+      {
+        "files": ["articles/**/*.md", "articles/**/toc.yml", "index.md", "toc.yml"]
+      },
+      {
+        "files": ["api/**.yml", "api/**/toc.yml"]
+      }
+    ],
+    "resource": [
+      {
+        "files": ["images/**"]
+      }
+    ],
+    "overwrite": [
+      {
+        "files": ["apidoc/**.md"]
+      }
+    ],
+    "dest": "_site",
+    "globalMetadata": {
+      "_appTitle": "PoshMcp Documentation",
+      "_appFooter": "© 2026 Microsoft. PoshMcp transforms PowerShell into AI-consumable tools.",
+      "_gitContribute": {
+        "repo": "https://github.com/microsoft/poshmcp",
+        "branch": "main",
+        "apiSpecFolder": "docs"
+      },
+      "_enableNewTab": true
+    },
+    "template": ["default"]
+  }
+}

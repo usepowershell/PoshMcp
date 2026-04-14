@@ -39,16 +39,21 @@ This guide walks you through installing, configuring, and deploying PoshMcp. Whe
 
 ### Quickstart: dotnet tool install (5 minutes)
 
-Install PoshMcp as a global .NET tool and start exposing PowerShell commands in seconds.
+Install PoshMcp as a global .NET tool from nuget.org and start exposing PowerShell commands in seconds.
 
 #### 1. Install the tool
 
 ```bash
-dotnet tool install --global PoshMcp \
-  --add-source https://nuget.pkg.github.com/usepowershell/index.json
+dotnet tool install -g poshmcp
 ```
 
-This installs `poshmcp` command globally. You're done with prerequisites.
+This installs `poshmcp` command globally. No GitHub authentication needed—nuget.org is the default source.
+
+For a specific version:
+
+```bash
+dotnet tool install -g poshmcp --version 0.5.5
+```
 
 #### 2. Create a configuration file
 
@@ -866,8 +871,7 @@ Configure PoshMcp as an MCP server for GitHub Copilot.
 **1. Install PoshMcp (if not already installed):**
 
 ```bash
-dotnet tool install --global PoshMcp \
-  --add-source https://nuget.pkg.github.com/usepowershell/index.json
+dotnet tool install -g poshmcp
 ```
 
 **2. Create/edit `.vscode/cline_mcp_settings.json` (or your MCP client config):**

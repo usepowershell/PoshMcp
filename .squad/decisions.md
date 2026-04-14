@@ -735,6 +735,54 @@ Authentication is **disabled by default** (`Authentication.Enabled = false`) to 
 - Full implementation plan: Session workspace `plan.md`
 
 
+## 2026-04-14
+
+### Deploy docs to GitHub Pages from prebuilt `docs/_site`
+
+**Author:** Amy
+**Date:** 2026-04-14
+**Status:** Implemented
+
+Deploy documentation to GitHub Pages from the prebuilt `docs/_site` directory using a dedicated workflow at `.github/workflows/docs-pages.yml`.
+
+**Rationale:**
+- Keeps CI simple and low risk by avoiding DocFX installation/build in workflow runtime.
+- Matches the current repository state where `docs/_site` is already available.
+- Uses official GitHub Pages actions with least-required permissions.
+- Restricts deployments to documentation changes with `paths: docs/**`.
+
+**Implementation notes:**
+- Trigger: `push` on `main` with `paths: docs/**`, plus `workflow_dispatch`.
+- Permissions: `contents: read`, `pages: write`, `id-token: write`.
+- Concurrency: `group: pages`, `cancel-in-progress: true`.
+- Actions: `actions/configure-pages@v5`, `actions/upload-pages-artifact@v3`, `actions/deploy-pages@v4`.
+
+**Follow-up:** If docs source changes are committed without regenerating `docs/_site`, deployment can publish stale output. Consider adding DocFX build-in-CI later if this occurs.
+
+### Build DocFX in CI before GitHub Pages deploy
+
+**Author:** Amy
+**Date:** 2026-04-14
+**Status:** Implemented
+
+Update docs deployment workflow (`.github/workflows/docs-pages.yml`) to run a DocFX build in CI before uploading and deploying Pages artifacts.
+
+**Rationale:**
+- Ensures deployed docs always match committed source content under `docs/`.
+- Removes dependence on prebuilt `docs/_site` being manually regenerated.
+- Keeps existing trigger scope, Pages permissions, concurrency, and deploy target unchanged.
+
+**Implementation notes:**
+- Keep trigger behavior: `push` on `main` with `paths: docs/**`, plus `workflow_dispatch`.
+- Install DocFX via dotnet global tool in workflow runtime.
+- Run `docfx build docs/docfx.json` from repository root.
+- Upload generated `docs/_site` and deploy via existing GitHub Pages actions.
+
+**Impact:**
+- Slightly longer workflow runtime due to tool install/build.
+- Lower risk of stale docs publication.
+
+
 
 # Merge Session Decisions — PRs #92–#95
 
