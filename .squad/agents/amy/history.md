@@ -14,6 +14,21 @@
 
 ## Recent Learnings
 
+### 2026-04-14: GitHub Pages docs deployment workflow
+
+- Added `.github/workflows/docs-pages.yml` to deploy the DocFX site from `docs/_site`.
+- Triggered on `push` to `main` with `paths: docs/**`, plus optional `workflow_dispatch`.
+- Used official GitHub Pages actions: `actions/configure-pages@v5`, `actions/upload-pages-artifact@v3`, and `actions/deploy-pages@v4`.
+- Set workflow permissions to `contents: read`, `pages: write`, and `id-token: write`.
+- Added workflow-level concurrency guard (`group: pages`, `cancel-in-progress: true`) to avoid overlapping deployments.
+
+### 2026-04-14: GitHub Pages docs now build DocFX in CI
+
+- Updated `.github/workflows/docs-pages.yml` to build docs in CI before Pages upload/deploy.
+- Kept trigger scope (`push` to `main` on `docs/**`) and existing Pages deploy actions/permissions/concurrency unchanged.
+- Added `actions/setup-dotnet@v4` and installed DocFX as a global dotnet tool, then ran `docfx build docs/docfx.json` from repo root.
+- Continued publishing `docs/_site` via `actions/upload-pages-artifact@v3` to preserve existing deployment contract.
+
 ### 2026-04-14: v0.5.3 patch release
 
 - Bumped `PoshMcp.Server/PoshMcp.csproj` version from `0.5.2` → `0.5.3` (patch increment).
@@ -85,6 +100,8 @@
 - Update command: `dotnet tool update -g poshmcp --add-source ./nupkg --version 0.5.4`
 - Verified: `dotnet tool list -g | Select-String poshmcp` → `poshmcp         0.5.4        poshmcp`
 - Local .nupkg directory is specified with `--add-source ./nupkg` (relative path from working directory)
+
+📌 Team update (2026-04-14T00:00:00Z): Docs deployment workflow decision has been merged into `.squad/decisions.md` and inbox entry closed by Scribe.
 
 ## Archive Note
 

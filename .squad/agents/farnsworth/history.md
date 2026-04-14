@@ -160,3 +160,5 @@ Current Priorities:
 Skills created: worktree-pr-merge, precomputed-optional-parameter, unserializable-type-handling, cli-bool-flag-pattern.
 All at confidence: medium (except unserializable-type-handling: high — 33 tests).
 Source: earned patterns from PRs #92–#96 and agent histories.
+
+📌 Team update (2026-04-14T00:00:00Z): Docs publishing now uses a dedicated GitHub Pages workflow with docs-only path trigger and prebuilt `docs/_site` artifact strategy — decided by Amy.
