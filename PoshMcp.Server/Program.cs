@@ -1653,6 +1653,15 @@ public class Program
             var authentication = GetOrCreateObject(root, "Authentication");
             authentication["Enabled"] = request.SetAuthEnabled.Value;
             boolUpdateApplied++;
+
+            if (request.SetAuthEnabled.Value)
+            {
+                var schemes = authentication["Schemes"]?.AsArray();
+                if (schemes == null || schemes.Count == 0)
+                {
+                    Console.Error.WriteLine("WARNING: Authentication.Enabled set to true but Authentication.Schemes is empty. Run 'poshmcp validate-config' to verify your configuration.");
+                }
+            }
         }
 
         var advancedPromptedFunctionCount = 0;
