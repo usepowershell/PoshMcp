@@ -2885,7 +2885,7 @@ public class Program
         var setupTimeout = config.Environment?.SetupTimeoutSeconds is > 0
             ? TimeSpan.FromSeconds(config.Environment.SetupTimeoutSeconds)
             : TimeSpan.FromSeconds(120);
-        var executor = new OutOfProcessCommandExecutor(executorLogger, requestTimeout: setupTimeout);
+        var executor = new OutOfProcessCommandExecutor(executorLogger);
         await executor.StartAsync();
         logger.LogInformation("Started out-of-process PowerShell executor");
 

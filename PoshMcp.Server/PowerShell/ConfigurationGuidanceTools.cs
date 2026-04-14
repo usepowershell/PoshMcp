@@ -40,6 +40,12 @@ public class ConfigurationGuidanceTools
 
     public Task<string> GetConfigurationGuidance(CancellationToken cancellationToken = default)
     {
+        // Check cancellation early
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled<string>(cancellationToken);
+        }
+
         try
         {
             _logger.LogInformation("Processing configuration guidance request");
@@ -60,22 +66,27 @@ public class ConfigurationGuidanceTools
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
+            // Build runtime context. Note: configurationPath and mcpPath may expose sensitive information
+            // (file paths, deployment structure). Only share this tool with trusted clients or gate it
+            // behind authentication. In HTTP mode with untrusted networks, consider redacting these fields.
+            var runtimeContext = new
+            {
+                configurationPath = _configurationPath,
+                transport = _effectiveTransport,
+                runtimeMode = _effectiveRuntimeMode,
+                mcpPath = _effectiveMcpPath,
+                commandCount = powerShellConfiguration.GetEffectiveCommandNames().Count,
+                moduleCount = powerShellConfiguration.Modules.Count,
+                authenticationEnabled = authenticationConfiguration.Enabled,
+                dynamicReloadToolsEnabled = powerShellConfiguration.EnableDynamicReloadTools,
+                configurationTroubleshootingToolEnabled = powerShellConfiguration.EnableConfigurationTroubleshootingTool,
+                environmentCustomizationConfigured = IsEnvironmentCustomizationConfigured(powerShellConfiguration)
+            };
+
             return Task.FromResult(JsonSerializer.Serialize(new
             {
                 success = true,
-                runtimeContext = new
-                {
-                    configurationPath = _configurationPath,
-                    transport = _effectiveTransport,
-                    runtimeMode = _effectiveRuntimeMode,
-                    mcpPath = _effectiveMcpPath,
-                    commandCount = powerShellConfiguration.GetEffectiveCommandNames().Count,
-                    moduleCount = powerShellConfiguration.Modules.Count,
-                    authenticationEnabled = authenticationConfiguration.Enabled,
-                    dynamicReloadToolsEnabled = powerShellConfiguration.EnableDynamicReloadTools,
-                    configurationTroubleshootingToolEnabled = powerShellConfiguration.EnableConfigurationTroubleshootingTool,
-                    environmentCustomizationConfigured = IsEnvironmentCustomizationConfigured(powerShellConfiguration)
-                },
+                runtimeContext,
                 runtimeHints = BuildRuntimeHints(powerShellConfiguration, authenticationConfiguration),
                 sections,
                 suggestedNextSteps = BuildSuggestedNextSteps(powerShellConfiguration, authenticationConfiguration),
