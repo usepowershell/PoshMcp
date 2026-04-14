@@ -1150,7 +1150,8 @@ public class Program
                 effectiveMcpPath: settings.McpPath.Value,
                 effectiveMcpPathSource: settings.McpPath.Source,
                 config: config,
-                tools: tools));
+                tools: tools,
+                precomputedFunctionStatus: configuredFunctionStatus));
             return;
         }
 
@@ -1235,10 +1236,12 @@ public class Program
         string? effectiveMcpPath,
         string effectiveMcpPathSource,
         PowerShellConfiguration config,
-        List<McpServerTool> tools)
+        List<McpServerTool> tools,
+        List<ConfiguredFunctionStatus>? precomputedFunctionStatus = null)
     {
         var discoveredToolNames = GetDiscoveredToolNames(tools);
-        var configuredFunctionStatus = BuildConfiguredFunctionStatus(config.GetEffectiveCommandNames(), discoveredToolNames);
+        var configuredFunctionStatus = precomputedFunctionStatus
+            ?? BuildConfiguredFunctionStatus(config.GetEffectiveCommandNames(), discoveredToolNames);
         var toolNames = discoveredToolNames.Count > 0
             ? discoveredToolNames
             : GetExpectedToolNames(configuredFunctionStatus, config.EnableDynamicReloadTools);
@@ -1247,7 +1250,9 @@ public class Program
         var foundFunctions = configuredFunctionStatus.Where(f => f.Found).Select(f => f.FunctionName).ToList();
         var missingFunctions = configuredFunctionStatus.Where(f => !f.Found).Select(f => f.FunctionName).ToList();
 
-        if (missingFunctions.Count > 0)
+        // Only diagnose missing commands if ResolutionReason has not already been populated
+        // (e.g., by RunDoctorAsync pre-computing and passing precomputedFunctionStatus).
+        if (missingFunctions.Count > 0 && configuredFunctionStatus.All(s => s.Found || s.ResolutionReason is null))
         {
             var resolutionReasons = DiagnoseMissingCommands(missingFunctions, config);
             configuredFunctionStatus = configuredFunctionStatus
@@ -1563,7 +1568,7 @@ public class Program
         return normalized.ToLowerInvariant();
     }
 
-    private sealed record ConfiguredFunctionStatus(
+    internal sealed record ConfiguredFunctionStatus(
         string FunctionName,
         string ExpectedToolName,
         bool Found,
