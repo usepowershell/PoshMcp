@@ -32,9 +32,10 @@ All customization is configured through the `Environment` section in `appsetting
       "ModulePaths": [],
       "StartupScript": "",
       "StartupScriptPath": "",
-      "TrustPSGallery": true,
+      "TrustPSGallery": false,
       "AllowClobber": false,
-      "InstallTimeoutSeconds": 300
+      "InstallTimeoutSeconds": 300,
+      "SetupTimeoutSeconds": 120
     }
   }
 }
@@ -49,9 +50,10 @@ All customization is configured through the `Environment` section in `appsetting
 | `ModulePaths` | Array | Additional paths to add to `$env:PSModulePath` | `[]` |
 | `StartupScript` | String | Inline PowerShell script to execute | `null` |
 | `StartupScriptPath` | String | Path to PowerShell script file | `null` |
-| `TrustPSGallery` | Boolean | Automatically trust PSGallery | `true` |
+| `TrustPSGallery` | Boolean | Automatically trust PSGallery | `false` |
 | `AllowClobber` | Boolean | Allow module imports to overwrite existing commands | `false` |
 | `InstallTimeoutSeconds` | Integer | Timeout for module installation operations | `300` |
+| `SetupTimeoutSeconds` | Integer | Timeout for out-of-process setup request (module imports/startup scripts) | `120` |
 
 ---
 

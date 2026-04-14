@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Logging;
 using PoshMcp.Server.PowerShell;
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Xunit;
@@ -463,5 +465,52 @@ public class ProgramTests : PowerShellTestBase
         Assert.Equal("Name", root["FunctionOverrides"]?["Get-Process"]?["DefaultProperties"]?[0]?.GetValue<string>());
         Assert.False(root["FunctionOverrides"]?["Get-Process"]?["EnableResultCaching"]?.GetValue<bool>());
         Assert.True(root["FunctionOverrides"]?["Get-Process"]?["UseDefaultDisplayProperties"]?.GetValue<bool>());
+    }
+
+    [Fact]
+    public void BuildDoctorJson_WithEnvironmentModulePaths_IncludesResolvedOopModulePaths()
+    {
+        // Arrange
+        var configPath = Path.Combine(Path.GetTempPath(), $"poshmcp-doctor-json-{Guid.NewGuid():N}", "appsettings.json");
+        var relativeModulePath = ".\\Modules\\Custom";
+        var config = new PowerShellConfiguration
+        {
+            FunctionNames = new() { "Get-Date" },
+            Environment = new EnvironmentConfiguration
+            {
+                ModulePaths = new() { relativeModulePath }
+            }
+        };
+
+        // Act
+        var json = Program.BuildDoctorJson(
+            configurationPath: configPath,
+            configurationPathSource: "test",
+            effectiveLogLevel: "Information",
+            effectiveLogLevelSource: "test",
+            effectiveTransport: "stdio",
+            effectiveTransportSource: "test",
+            effectiveSessionMode: null,
+            effectiveSessionModeSource: "test",
+            effectiveRuntimeMode: "InProcess",
+            effectiveRuntimeModeSource: "test",
+            effectiveMcpPath: null,
+            effectiveMcpPathSource: "test",
+            config: config,
+            tools: new List<ModelContextProtocol.Server.McpServerTool>());
+        var root = JsonNode.Parse(json)?.AsObject();
+
+        // Assert
+        Assert.NotNull(root);
+        var oopModulePaths = root!["oopModulePaths"]?.AsArray()
+            .Select(node => node?.GetValue<string>())
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Cast<string>()
+            .ToArray()
+            ?? Array.Empty<string>();
+
+        var expectedResolvedPath = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(configPath))!, relativeModulePath));
+        Assert.Contains(expectedResolvedPath, oopModulePaths);
+        Assert.Equal(oopModulePaths.Length, root["oopModulePathEntries"]?.GetValue<int>());
     }
 }

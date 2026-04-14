@@ -34,9 +34,10 @@ public class EnvironmentConfiguration
     public string? StartupScriptPath { get; set; }
 
     /// <summary>
-    /// Whether to trust PowerShell Gallery repository automatically
+    /// Whether to trust PowerShell Gallery repository automatically.
+    /// Defaults to false.
     /// </summary>
-    public bool TrustPSGallery { get; set; } = true;
+    public bool TrustPSGallery { get; set; } = false;
 
     /// <summary>
     /// Whether to skip module installation if already installed
@@ -52,6 +53,15 @@ public class EnvironmentConfiguration
     /// Timeout in seconds for module installation operations
     /// </summary>
     public int InstallTimeoutSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// Timeout in seconds for the out-of-process setup request.
+    /// This only applies when RuntimeMode is OutOfProcess and controls the setup call
+    /// (module imports, startup scripts, and related environment initialization).
+    /// Separate from <see cref="InstallTimeoutSeconds"/>, which only controls module install operations.
+    /// Defaults to 120 seconds.
+    /// </summary>
+    public int SetupTimeoutSeconds { get; set; } = 120;
 }
 
 /// <summary>

@@ -14,6 +14,24 @@
 
 ## Recent Learnings
 
+### 2026-04-14: v0.5.3 patch release
+
+- Bumped `PoshMcp.Server/PoshMcp.csproj` version from `0.5.2` → `0.5.3` (patch increment).
+- Pack command: `dotnet pack .\PoshMcp.Server\PoshMcp.csproj -c Release -o .\artifacts\nupkg` → produces `poshmcp.0.5.3.nupkg` (~25 MB).
+- Update command: `dotnet tool update -g poshmcp --version 0.5.3 --add-source .\artifacts\nupkg --ignore-failed-sources`
+- Verified: `poshmcp --version` → `0.5.3+1e96a436e71e0872f53a99c98d0a14f46f60fd42`
+- Amended git commit: `chore: bump version to 0.5.3` with Copilot co-author trailer.
+- Pushed amended commit with `--force-with-lease`.
+
+### 2026-04-14: v0.5.2 patch release
+
+- Bumped `PoshMcp.Server/PoshMcp.csproj` version from `0.5.1` → `0.5.2` (patch increment).
+- Pack command: `dotnet pack .\PoshMcp.Server\PoshMcp.csproj -c Release -o .\artifacts\nupkg` → produces `poshmcp.0.5.2.nupkg` (~25 MB).
+- Update command: `dotnet tool update -g poshmcp --version 0.5.2 --add-source .\artifacts\nupkg --ignore-failed-sources`
+- Verified: `poshmcp --version` → `0.5.2+948d196ecc1cda94e45684e239269c382cce662a`
+- No running poshmcp.exe processes present; process-stop guard was a no-op.
+- Commit: `chore: bump version to 0.5.2` with Copilot co-author trailer.
+
 ### 2026-04-12: v0.5.1 patch release
 
 - Bumped `PoshMcp.Server/PoshMcp.csproj` version from `0.5.0` → `0.5.1` (patch increment following "Bump version to 0.5.0" commit).
@@ -50,6 +68,23 @@
 - Test counts grew across the session: 343 → 343 → 355 → 388 (PR #94 added 12 tests for update-config flags; PR #95 added 33 tests for unserializable type handling).
 - All 4 PRs merged cleanly with zero conflicts. The `Program.cs` changes were additive (new CLI flags, advisory warning) and non-overlapping.
 - Force-push must specify the remote branch name explicitly (`git push --force-with-lease origin <branch>`) when the worktree branch has no upstream tracking configured.
+
+### 2026-04-13: Intermittent test failure investigation
+
+- Ran 5 sequential iterations of `dotnet clean` + `dotnet test --configuration Release` to diagnose reported flaky tests.
+- **Result: STABLE** — All 5 iterations passed with consistent test counts: 387 passed, 1 skipped, 0 failed (total 388).
+- Iteration times: 338.9s, 291.9s, 379.9s, 520.9s, 340s (variable duration due to system load, no correlation with failures).
+- No failing tests identified across any iteration. One test (`PoshMcp.Tests.Functional.ReturnType.GeneratedMethod.ShouldHandleGetChildItemCorrectly`) consistently skipped.
+- Verdict: No evidence of intermittent failures in test suite.
+
+### 2026-04-14: v0.5.4 tool update (local nupkg install)
+
+- Verified latest nupkg in `./nupkg/`: `poshmcp.0.5.4.nupkg`
+- Current global tool version: 0.5.3
+- PackageId and ToolCommandName both: `poshmcp` (confirmed in .csproj)
+- Update command: `dotnet tool update -g poshmcp --add-source ./nupkg --version 0.5.4`
+- Verified: `dotnet tool list -g | Select-String poshmcp` → `poshmcp         0.5.4        poshmcp`
+- Local .nupkg directory is specified with `--add-source ./nupkg` (relative path from working directory)
 
 ## Archive Note
 

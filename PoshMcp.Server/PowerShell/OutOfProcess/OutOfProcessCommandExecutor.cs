@@ -126,7 +126,7 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
         var discoverParams = new
         {
             modules = config.Modules,
-            functionNames = config.FunctionNames,
+            functionNames = config.GetEffectiveCommandNames(),
             includePatterns = config.IncludePatterns,
             excludePatterns = config.ExcludePatterns
         };
@@ -162,13 +162,21 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
     /// </summary>
     public async Task SetupAsync(
         EnvironmentConfiguration config,
+        string? configFilePath = null,
+        TimeSpan? setupRequestTimeout = null,
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
+        var baseDir = configFilePath is not null
+            ? Path.GetDirectoryName(Path.GetFullPath(configFilePath))!
+            : Directory.GetCurrentDirectory();
+
+        var resolvedModulePaths = ResolveModulePaths(config.ModulePaths, baseDir);
+
         var setupParams = new
         {
-            modulePaths = config.ModulePaths,
+            modulePaths = resolvedModulePaths,
             trustPSGallery = config.TrustPSGallery,
             installModules = config.InstallModules.Select(m => new
             {
@@ -192,7 +200,7 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
 
         _logger.LogInformation("Sending environment setup to OOP subprocess.");
 
-        var result = await SendRequestAsync<JsonElement>("setup", setupParams, cancellationToken)
+        var result = await SendRequestAsync<JsonElement>("setup", setupParams, cancellationToken, setupRequestTimeout)
             .ConfigureAwait(false);
 
         if (result.TryGetProperty("success", out var successProp) && successProp.GetBoolean())
@@ -339,7 +347,8 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
     internal async Task<T> SendRequestAsync<T>(
         string method,
         object? parameters,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? requestTimeoutOverride = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -378,12 +387,13 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
 
             // Await with timeout
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(_requestTimeout);
+            var requestTimeout = requestTimeoutOverride ?? _requestTimeout;
+            timeoutCts.CancelAfter(requestTimeout);
 
             var registration = timeoutCts.Token.Register(() =>
             {
                 tcs.TrySetException(new TimeoutException(
-                    $"Request {id} (method={method}) timed out after {_requestTimeout.TotalSeconds}s."));
+                    $"Request {id} (method={method}) timed out after {requestTimeout.TotalSeconds}s."));
             });
 
             try
@@ -543,6 +553,29 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
             || line.StartsWith("DEBUG:", StringComparison.OrdinalIgnoreCase)
             || line.StartsWith("INFORMATION:", StringComparison.OrdinalIgnoreCase)
             || line.StartsWith("ERROR:", StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static string[] ResolveModulePaths(IEnumerable<string?>? configuredModulePaths, string baseDir)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(baseDir);
+
+        var resolved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var configuredPath in configuredModulePaths ?? Array.Empty<string>())
+        {
+            if (string.IsNullOrWhiteSpace(configuredPath))
+            {
+                continue;
+            }
+
+            var trimmedPath = configuredPath.Trim();
+            var absolutePath = Path.IsPathRooted(trimmedPath)
+                ? Path.GetFullPath(trimmedPath)
+                : Path.GetFullPath(Path.Combine(baseDir, trimmedPath));
+
+            resolved.Add(absolutePath);
+        }
+
+        return resolved.ToArray();
     }
 
     private void OnProcessExited(object? sender, EventArgs e)

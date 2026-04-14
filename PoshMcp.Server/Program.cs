@@ -1126,6 +1126,7 @@ public class Program
             ? discoveredToolNames
             : GetExpectedToolNames(configuredFunctionStatus, config.EnableDynamicReloadTools);
         var diagnostics = CollectPowerShellDiagnostics();
+        var oopModulePaths = ResolveConfiguredModulePathsForOop(config, settings.FinalConfigPath);
         var effectivePowerShellConfiguration = JsonNode.Parse(SerializeEffectivePowerShellConfiguration(config));
 
         var foundFunctions = configuredFunctionStatus.Where(f => f.Found).Select(f => f.FunctionName).ToList();
@@ -1215,6 +1216,15 @@ public class Program
                 Console.WriteLine($"- {modulePath}");
             }
         }
+        Console.WriteLine($"Configured OOP module path entries: {oopModulePaths.Length}");
+        if (oopModulePaths.Length > 0)
+        {
+            Console.WriteLine("Configured OOP module path values:");
+            foreach (var modulePath in oopModulePaths)
+            {
+                Console.WriteLine($"- {modulePath}");
+            }
+        }
         if (warnings.Count > 0)
         {
             Console.WriteLine("Warnings:");
@@ -1253,6 +1263,7 @@ public class Program
             ? discoveredToolNames
             : GetExpectedToolNames(configuredFunctionStatus, config.EnableDynamicReloadTools);
         var diagnostics = CollectPowerShellDiagnostics();
+        var oopModulePaths = ResolveConfiguredModulePathsForOop(config, configurationPath);
         var effectivePowerShellConfiguration = JsonNode.Parse(SerializeEffectivePowerShellConfiguration(config));
         var foundFunctions = configuredFunctionStatus.Where(f => f.Found).Select(f => f.FunctionName).ToList();
         var missingFunctions = configuredFunctionStatus.Where(f => !f.Found).Select(f => f.FunctionName).ToList();
@@ -1294,6 +1305,8 @@ public class Program
             powershellVersion = diagnostics.PowerShellVersion,
             modulePathEntries = diagnostics.ModulePathEntries,
             modulePaths = diagnostics.ModulePaths,
+            oopModulePathEntries = oopModulePaths.Length,
+            oopModulePaths,
             generatedAtUtc = DateTime.UtcNow
         };
 
@@ -1343,6 +1356,28 @@ public class Program
         });
 
         return result;
+    }
+
+    private static string[] ResolveConfiguredModulePathsForOop(PowerShellConfiguration config, string? configurationPath)
+    {
+        var configuredModulePaths = config.Environment?.ModulePaths;
+        if (configuredModulePaths is null || configuredModulePaths.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        var baseDir = !string.IsNullOrWhiteSpace(configurationPath)
+            ? Path.GetDirectoryName(Path.GetFullPath(configurationPath))
+            : null;
+        baseDir ??= Directory.GetCurrentDirectory();
+
+        return configuredModulePaths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => Path.IsPathRooted(path)
+                ? path
+                : Path.GetFullPath(Path.Combine(baseDir, path)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private static List<ConfiguredFunctionStatus> BuildConfiguredFunctionStatus(List<string> functionNames, List<string> discoveredToolNames)
@@ -2261,7 +2296,7 @@ public class Program
     private static async Task<List<McpServerTool>> DiscoverToolsAsync(PowerShellConfiguration config, ILoggerFactory loggerFactory, ILogger logger, string configurationPath)
     {
         logger.LogInformation("Discovering PowerShell tools...");
-        await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger);
+        await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger, configurationPath);
         var toolFactory = CreateToolFactory(config, executorLease?.Executor);
         var tools = await toolFactory.GetToolsListAsync(config, logger);
         AddConfigurationTroubleshootingToolToList(tools, config, configurationPath, "stdio", null, config.RuntimeMode.ToString(), null, logger);
@@ -2322,7 +2357,7 @@ public class Program
         var logger = loggerFactory.CreateLogger("PoshMcpLogger");
         logger.LogInformation("Using configuration file: {ConfigurationPath}", finalConfigPath);
         var config = LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
-        await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger);
+        await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger, finalConfigPath);
         var tools = await SetupMcpToolsAsync(loggerFactory, config, logger, finalConfigPath, executorLease?.Executor);
         ConfigureServerServices(builder, tools);
         await builder.Build().RunAsync();
@@ -2370,7 +2405,7 @@ public class Program
         using var bootstrapLoggerFactory = CreateLoggerFactory(logLevel);
         var logger = bootstrapLoggerFactory.CreateLogger("PoshMcpHttpLogger");
         var config = LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
-        await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, bootstrapLoggerFactory, logger);
+        await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, bootstrapLoggerFactory, logger, finalConfigPath);
 
         var sharedHttpContextAccessor = new HttpContextAccessor();
         var sharedRunspaceLogger = bootstrapLoggerFactory.CreateLogger<SessionAwarePowerShellRunspace>();
@@ -2786,7 +2821,7 @@ public class Program
         return runspace is null ? new McpToolFactoryV2() : new McpToolFactoryV2(runspace);
     }
 
-    private static async Task<OutOfProcessExecutorLease?> StartOutOfProcessExecutorIfNeededAsync(PowerShellConfiguration config, ILoggerFactory loggerFactory, ILogger logger)
+    private static async Task<OutOfProcessExecutorLease?> StartOutOfProcessExecutorIfNeededAsync(PowerShellConfiguration config, ILoggerFactory loggerFactory, ILogger logger, string? configFilePath = null)
     {
         if (config.RuntimeMode != RuntimeMode.OutOfProcess)
         {
@@ -2794,13 +2829,17 @@ public class Program
         }
 
         var executorLogger = loggerFactory.CreateLogger<OutOfProcessCommandExecutor>();
+        var setupTimeout = config.Environment?.SetupTimeoutSeconds is > 0
+            ? TimeSpan.FromSeconds(config.Environment.SetupTimeoutSeconds)
+            : TimeSpan.FromSeconds(120);
         var executor = new OutOfProcessCommandExecutor(executorLogger);
         await executor.StartAsync();
         logger.LogInformation("Started out-of-process PowerShell executor");
 
         if (config.Environment is not null)
         {
-            await executor.SetupAsync(config.Environment);
+            using var setupCts = new CancellationTokenSource(setupTimeout);
+            await executor.SetupAsync(config.Environment, configFilePath, setupTimeout, setupCts.Token);
             logger.LogInformation("Applied environment configuration to out-of-process executor");
         }
 
