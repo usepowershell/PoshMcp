@@ -1131,6 +1131,14 @@ public class Program
         var foundFunctions = configuredFunctionStatus.Where(f => f.Found).Select(f => f.FunctionName).ToList();
         var missingFunctions = configuredFunctionStatus.Where(f => !f.Found).Select(f => f.FunctionName).ToList();
 
+        if (missingFunctions.Count > 0)
+        {
+            var resolutionReasons = DiagnoseMissingCommands(missingFunctions, config);
+            configuredFunctionStatus = configuredFunctionStatus
+                .Select(s => s.Found ? s : s with { ResolutionReason = resolutionReasons.GetValueOrDefault(s.FunctionName) })
+                .ToList();
+        }
+
         var warnings = BuildConfigurationWarnings(config);
 
         if (format == "json")
@@ -1149,7 +1157,8 @@ public class Program
                 effectiveMcpPath: settings.McpPath.Value,
                 effectiveMcpPathSource: settings.McpPath.Source,
                 config: config,
-                tools: tools));
+                tools: tools,
+                precomputedFunctionStatus: configuredFunctionStatus));
             return;
         }
 
@@ -1174,6 +1183,10 @@ public class Program
                     ? $"matched tools: {string.Join(", ", functionStatus.MatchedToolNames)}"
                     : "configured, but no generated tool matched";
                 Console.WriteLine($"- {functionStatus.FunctionName} -> {functionStatus.ExpectedToolName} [{statusText}] {detail}");
+                if (!functionStatus.Found && functionStatus.ResolutionReason is not null)
+                {
+                    Console.WriteLine($"  reason: {functionStatus.ResolutionReason}");
+                }
             }
         }
         if (missingFunctions.Count > 0)
@@ -1230,10 +1243,12 @@ public class Program
         string? effectiveMcpPath,
         string effectiveMcpPathSource,
         PowerShellConfiguration config,
-        List<McpServerTool> tools)
+        List<McpServerTool> tools,
+        List<ConfiguredFunctionStatus>? precomputedFunctionStatus = null)
     {
         var discoveredToolNames = GetDiscoveredToolNames(tools);
-        var configuredFunctionStatus = BuildConfiguredFunctionStatus(config.GetEffectiveCommandNames(), discoveredToolNames);
+        var configuredFunctionStatus = precomputedFunctionStatus
+            ?? BuildConfiguredFunctionStatus(config.GetEffectiveCommandNames(), discoveredToolNames);
         var toolNames = discoveredToolNames.Count > 0
             ? discoveredToolNames
             : GetExpectedToolNames(configuredFunctionStatus, config.EnableDynamicReloadTools);
@@ -1241,6 +1256,17 @@ public class Program
         var effectivePowerShellConfiguration = JsonNode.Parse(SerializeEffectivePowerShellConfiguration(config));
         var foundFunctions = configuredFunctionStatus.Where(f => f.Found).Select(f => f.FunctionName).ToList();
         var missingFunctions = configuredFunctionStatus.Where(f => !f.Found).Select(f => f.FunctionName).ToList();
+
+        // Only diagnose missing commands if ResolutionReason has not already been populated
+        // (e.g., by RunDoctorAsync pre-computing and passing precomputedFunctionStatus).
+        if (missingFunctions.Count > 0 && configuredFunctionStatus.All(s => s.Found || s.ResolutionReason is null))
+        {
+            var resolutionReasons = DiagnoseMissingCommands(missingFunctions, config);
+            configuredFunctionStatus = configuredFunctionStatus
+                .Select(s => s.Found ? s : s with { ResolutionReason = resolutionReasons.GetValueOrDefault(s.FunctionName) })
+                .ToList();
+        }
+
         var warnings = BuildConfigurationWarnings(config);
 
         var payload = new
@@ -1335,6 +1361,104 @@ public class Program
             })
             .ToList();
     }
+
+    /// <summary>
+    /// For each missing command, runs PowerShell introspection to explain why it wasn't resolved.
+    /// </summary>
+    private static Dictionary<string, string> DiagnoseMissingCommands(
+        IReadOnlyList<string> missingCommandNames,
+        PowerShellConfiguration config)
+    {
+        var reasons = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (missingCommandNames.Count == 0)
+            return reasons;
+
+        try
+        {
+            using var runspace = new IsolatedPowerShellRunspace();
+            runspace.ExecuteThreadSafe(ps =>
+            {
+                foreach (var commandName in missingCommandNames)
+                {
+                    try
+                    {
+                        reasons[commandName] = DiagnoseOneCommand(commandName);
+                    }
+                    catch (Exception ex)
+                    {
+                        reasons[commandName] = $"Diagnostic introspection failed: {ex.Message}";
+                    }
+                }
+
+                string DiagnoseOneCommand(string name)
+                {
+                    var safeName = EscapeForPowerShell(name);
+
+                    // Step 1: Is the command visible in the current session at all?
+                    ps.Commands.Clear();
+                    ps.AddScript($"Get-Command -Name {safeName} -ErrorAction SilentlyContinue | Select-Object -First 1");
+                    var cmdResults = ps.Invoke();
+                    ps.Commands.Clear();
+
+                    if (cmdResults.Count > 0)
+                    {
+                        // The command exists but no tool was generated — all parameter sets were likely skipped.
+                        return "Command found in PowerShell session but no tool was generated — " +
+                               "all parameter sets may have been skipped due to unserializable parameter types";
+                    }
+
+                    // Step 2: For each configured module, check availability then command membership.
+                    foreach (var moduleName in config.Modules)
+                    {
+                        var safeModuleName = EscapeForPowerShell(moduleName);
+
+                        ps.Commands.Clear();
+                        ps.AddScript($"Get-Module -Name {safeModuleName} -ListAvailable -ErrorAction SilentlyContinue | Select-Object -First 1");
+                        var moduleAvailableResults = ps.Invoke();
+                        ps.Commands.Clear();
+
+                        if (moduleAvailableResults.Count == 0)
+                        {
+                            return $"Module '{moduleName}' not found in PSModulePath — " +
+                                   "ensure the module is installed or its path is added to PSModulePath";
+                        }
+
+                        // Module is available — check whether it exports the command.
+                        ps.Commands.Clear();
+                        ps.AddScript(
+                            $"Import-Module -Name {safeModuleName} -ErrorAction SilentlyContinue; " +
+                            $"Get-Command -Module {safeModuleName} -Name {safeName} -ErrorAction SilentlyContinue | Select-Object -First 1");
+                        var cmdInModuleResults = ps.Invoke();
+                        ps.Commands.Clear();
+
+                        if (cmdInModuleResults.Count == 0)
+                        {
+                            return $"Module '{moduleName}' is available but does not export command '{name}'";
+                        }
+
+                        return $"Command '{name}' found in module '{moduleName}' but was not loaded during tool discovery — " +
+                               "check module import order or environment setup";
+                    }
+
+                    // No modules configured — bare command not found.
+                    return $"Command '{name}' not found in PowerShell session — " +
+                           "ensure the command exists and its module is installed and available in PSModulePath";
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            foreach (var name in missingCommandNames)
+            {
+                if (!reasons.ContainsKey(name))
+                    reasons[name] = $"Diagnostic introspection failed: {ex.Message}";
+            }
+        }
+
+        return reasons;
+    }
+
+    private static string EscapeForPowerShell(string value) => "'" + value.Replace("'", "''") + "'";
 
     private static List<string> GetDiscoveredToolNames(List<McpServerTool> tools)
     {
@@ -1451,11 +1575,12 @@ public class Program
         return normalized.ToLowerInvariant();
     }
 
-    private sealed record ConfiguredFunctionStatus(
+    internal sealed record ConfiguredFunctionStatus(
         string FunctionName,
         string ExpectedToolName,
         bool Found,
-        List<string> MatchedToolNames);
+        List<string> MatchedToolNames,
+        string? ResolutionReason = null);
 
     private sealed record CreateDefaultConfigResult(bool WasOverwritten);
 
