@@ -54,9 +54,11 @@ public class EnvironmentConfiguration
     public int InstallTimeoutSeconds { get; set; } = 300;
 
     /// <summary>
-    /// Timeout in seconds for the overall environment setup operation (module imports, startup scripts).
-    /// Increase this when importing heavy modules like Az or Microsoft.Graph.
-    /// Defaults to 120 seconds.
+    /// Timeout in seconds for the overall environment setup operation after installation completes.
+    /// This applies to module imports and execution of startup scripts, and is separate from
+    /// <see cref="InstallTimeoutSeconds"/>, which only controls module installation operations.
+    /// Increase this when importing heavy modules like Az or Microsoft.Graph, or when startup
+    /// scripts perform additional initialization work. Defaults to 120 seconds.
     /// </summary>
     public int SetupTimeoutSeconds { get; set; } = 120;
 }
