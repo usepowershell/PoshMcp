@@ -91,7 +91,7 @@ public class ProgramCliConfigCommandsTests
     {
         using var tempDirectory = new TemporaryDirectory();
         using var currentDirectoryScope = new CurrentDirectoryScope(tempDirectory.Path);
-        using var capture = new ConsoleCapture("y\ntrue\nfalse\nId,Name\n");
+        using var capture = new ConsoleCapture("y\ntrue\nfalse\nId,Name\n\n\n");
 
         var configPath = System.IO.Path.Combine(tempDirectory.Path, "appsettings.json");
         await File.WriteAllTextAsync(configPath, @"{
@@ -125,6 +125,305 @@ public class ProgramCliConfigCommandsTests
         Assert.Equal(2, defaultProperties!.Count);
         Assert.Equal("Id", defaultProperties[0]?.GetValue<string>());
         Assert.Equal("Name", defaultProperties[1]?.GetValue<string>());
+    }
+
+    [Theory]
+    [InlineData("in-process", "InProcess")]
+    [InlineData("out-of-process", "OutOfProcess")]
+    public async Task UpdateConfigCommand_WithRuntimeMode_SetsRuntimeModeInPowerShellConfiguration(string cliValue, string expectedJsonValue)
+    {
+        using var tempDirectory = new TemporaryDirectory();
+        using var currentDirectoryScope = new CurrentDirectoryScope(tempDirectory.Path);
+        using var capture = new ConsoleCapture();
+
+        var configPath = System.IO.Path.Combine(tempDirectory.Path, "appsettings.json");
+        await File.WriteAllTextAsync(configPath, @"{
+  ""PowerShellConfiguration"": {
+    ""FunctionNames"": [],
+    ""Modules"": [],
+    ""IncludePatterns"": [],
+    ""ExcludePatterns"": []
+  }
+}");
+
+        var result = await Program.Main(new[]
+        {
+            "update-config",
+            "--non-interactive",
+            "--runtime-mode", cliValue,
+            "--format", "json"
+        });
+
+        Assert.Equal(0, result);
+
+        var updatedRoot = JsonNode.Parse(await File.ReadAllTextAsync(configPath))?.AsObject();
+        var powerShellConfig = updatedRoot!["PowerShellConfiguration"]?.AsObject();
+        Assert.Equal(expectedJsonValue, powerShellConfig!["RuntimeMode"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task UpdateConfigCommand_WithInvalidRuntimeMode_ReportsErrorAndDoesNotModifyConfig()
+    {
+        using var tempDirectory = new TemporaryDirectory();
+        using var currentDirectoryScope = new CurrentDirectoryScope(tempDirectory.Path);
+        using var capture = new ConsoleCapture();
+
+        var configPath = System.IO.Path.Combine(tempDirectory.Path, "appsettings.json");
+        await File.WriteAllTextAsync(configPath, @"{
+  ""PowerShellConfiguration"": {
+    ""FunctionNames"": [],
+    ""Modules"": [],
+    ""IncludePatterns"": [],
+    ""ExcludePatterns"": []
+  }
+}");
+
+        await Program.Main(new[]
+        {
+            "update-config",
+            "--non-interactive",
+            "--runtime-mode", "invalid-value",
+            "--format", "json"
+        });
+
+        // Invalid runtime mode should produce an error message
+        Assert.Contains("invalid-value", capture.StandardError, StringComparison.OrdinalIgnoreCase);
+
+        // RuntimeMode should not have been written to the config
+        var configAfter = JsonNode.Parse(await File.ReadAllTextAsync(configPath))?.AsObject();
+        var powerShellConfigAfter = configAfter!["PowerShellConfiguration"]?.AsObject();
+        Assert.Null(powerShellConfigAfter!["RuntimeMode"]);
+    }
+
+    [Theory]
+    [InlineData("true", true)]
+    [InlineData("false", false)]
+    public async Task UpdateConfigCommand_WithEnableResultCaching_SetsPerformanceEnableResultCaching(string cliValue, bool expectedValue)
+    {
+        using var tempDirectory = new TemporaryDirectory();
+        using var currentDirectoryScope = new CurrentDirectoryScope(tempDirectory.Path);
+        using var capture = new ConsoleCapture();
+
+        var configPath = System.IO.Path.Combine(tempDirectory.Path, "appsettings.json");
+        await File.WriteAllTextAsync(configPath, @"{
+  ""PowerShellConfiguration"": {
+    ""FunctionNames"": [],
+    ""Modules"": [],
+    ""IncludePatterns"": [],
+    ""ExcludePatterns"": []
+  }
+}");
+
+        var result = await Program.Main(new[]
+        {
+            "update-config",
+            "--non-interactive",
+            "--enable-result-caching", cliValue,
+            "--format", "json"
+        });
+
+        Assert.Equal(0, result);
+
+        var updatedRoot = JsonNode.Parse(await File.ReadAllTextAsync(configPath))?.AsObject();
+        var performance = updatedRoot!["PowerShellConfiguration"]?["Performance"]?.AsObject();
+        Assert.NotNull(performance);
+        Assert.Equal(expectedValue, performance!["EnableResultCaching"]?.GetValue<bool>());
+    }
+
+    [Theory]
+    [InlineData("true", true)]
+    [InlineData("false", false)]
+    public async Task UpdateConfigCommand_WithEnableConfigurationTroubleshootingTool_SetsFieldInPowerShellConfiguration(string cliValue, bool expectedValue)
+    {
+        using var tempDirectory = new TemporaryDirectory();
+        using var currentDirectoryScope = new CurrentDirectoryScope(tempDirectory.Path);
+        using var capture = new ConsoleCapture();
+
+        var configPath = System.IO.Path.Combine(tempDirectory.Path, "appsettings.json");
+        await File.WriteAllTextAsync(configPath, @"{
+  ""PowerShellConfiguration"": {
+    ""FunctionNames"": [],
+    ""Modules"": [],
+    ""IncludePatterns"": [],
+    ""ExcludePatterns"": []
+  }
+}");
+
+        var result = await Program.Main(new[]
+        {
+            "update-config",
+            "--non-interactive",
+            "--enable-configuration-troubleshooting-tool", cliValue,
+            "--format", "json"
+        });
+
+        Assert.Equal(0, result);
+
+        var updatedRoot = JsonNode.Parse(await File.ReadAllTextAsync(configPath))?.AsObject();
+        var powerShellConfig = updatedRoot!["PowerShellConfiguration"]?.AsObject();
+        Assert.Equal(expectedValue, powerShellConfig!["EnableConfigurationTroubleshootingTool"]?.GetValue<bool>());
+    }
+
+    [Theory]
+    [InlineData("true", true)]
+    [InlineData("false", false)]
+    public async Task UpdateConfigCommand_WithSetAuthEnabled_SetsAuthenticationEnabledAtRoot(string cliValue, bool expectedValue)
+    {
+        using var tempDirectory = new TemporaryDirectory();
+        using var currentDirectoryScope = new CurrentDirectoryScope(tempDirectory.Path);
+        using var capture = new ConsoleCapture();
+
+        var configPath = System.IO.Path.Combine(tempDirectory.Path, "appsettings.json");
+        await File.WriteAllTextAsync(configPath, @"{
+  ""PowerShellConfiguration"": {
+    ""FunctionNames"": [],
+    ""Modules"": [],
+    ""IncludePatterns"": [],
+    ""ExcludePatterns"": []
+  }
+}");
+
+        var result = await Program.Main(new[]
+        {
+            "update-config",
+            "--non-interactive",
+            "--set-auth-enabled", cliValue,
+            "--format", "json"
+        });
+
+        Assert.Equal(0, result);
+
+        var updatedRoot = JsonNode.Parse(await File.ReadAllTextAsync(configPath))?.AsObject();
+
+        // Authentication.Enabled lives at root, not under PowerShellConfiguration
+        var authentication = updatedRoot!["Authentication"]?.AsObject();
+        Assert.NotNull(authentication);
+        Assert.Equal(expectedValue, authentication!["Enabled"]?.GetValue<bool>());
+
+        // Verify it was NOT placed under PowerShellConfiguration
+        var powerShellConfig = updatedRoot["PowerShellConfiguration"]?.AsObject();
+        Assert.Null(powerShellConfig!["Authentication"]);
+    }
+
+    [Fact]
+    public async Task UpdateConfigCommand_WithSingleNewFlag_ReportsSettingsChangedOfOne()
+    {
+        using var tempDirectory = new TemporaryDirectory();
+        using var currentDirectoryScope = new CurrentDirectoryScope(tempDirectory.Path);
+        using var capture = new ConsoleCapture();
+
+        var configPath = System.IO.Path.Combine(tempDirectory.Path, "appsettings.json");
+        await File.WriteAllTextAsync(configPath, @"{
+  ""PowerShellConfiguration"": {
+    ""FunctionNames"": [],
+    ""Modules"": [],
+    ""IncludePatterns"": [],
+    ""ExcludePatterns"": []
+  }
+}");
+
+        var result = await Program.Main(new[]
+        {
+            "update-config",
+            "--non-interactive",
+            "--enable-result-caching", "true",
+            "--format", "json"
+        });
+
+        Assert.Equal(0, result);
+
+        var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
+        Assert.NotNull(payload);
+        Assert.Equal(1, payload!["settingsChanged"]?.GetValue<int>());
+    }
+
+    [Fact]
+    public async Task UpdateConfigCommand_WithMultipleNewFlags_AccumulatesSettingsChangedCount()
+    {
+        using var tempDirectory = new TemporaryDirectory();
+        using var currentDirectoryScope = new CurrentDirectoryScope(tempDirectory.Path);
+        using var capture = new ConsoleCapture();
+
+        var configPath = System.IO.Path.Combine(tempDirectory.Path, "appsettings.json");
+        await File.WriteAllTextAsync(configPath, @"{
+  ""PowerShellConfiguration"": {
+    ""FunctionNames"": [],
+    ""Modules"": [],
+    ""IncludePatterns"": [],
+    ""ExcludePatterns"": []
+  }
+}");
+
+        // Three independent flag-based settings in a single invocation
+        var result = await Program.Main(new[]
+        {
+            "update-config",
+            "--non-interactive",
+            "--runtime-mode", "out-of-process",
+            "--enable-result-caching", "true",
+            "--set-auth-enabled", "false",
+            "--format", "json"
+        });
+
+        Assert.Equal(0, result);
+
+        var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
+        Assert.NotNull(payload);
+        Assert.Equal(3, payload!["settingsChanged"]?.GetValue<int>());
+    }
+
+    [Fact]
+    public async Task UpdateConfigCommand_WhenAddingFunction_InteractivePromptsCanSetAllowAnonymousRequiredScopesAndRoles()
+    {
+        using var tempDirectory = new TemporaryDirectory();
+        using var currentDirectoryScope = new CurrentDirectoryScope(tempDirectory.Path);
+
+        // Prompt answers in order:
+        // 1. Configure advanced settings for 'Get-Service'? -> y
+        // 2. Override EnableResultCaching? -> skip (empty)
+        // 3. Override UseDefaultDisplayProperties? -> skip (empty)
+        // 4. Set DefaultProperties? -> skip (empty)
+        // 5. Set AllowAnonymous? -> true
+        // 6. Set RequiredScopes? -> read:users write:config
+        // 7. Set RequiredRoles? -> admin operator
+        using var capture = new ConsoleCapture("y\n\n\n\ntrue\nread:users write:config\nadmin operator\n");
+
+        var configPath = System.IO.Path.Combine(tempDirectory.Path, "appsettings.json");
+        await File.WriteAllTextAsync(configPath, @"{
+  ""PowerShellConfiguration"": {
+    ""FunctionNames"": [],
+    ""Modules"": [],
+    ""IncludePatterns"": [],
+    ""ExcludePatterns"": []
+  }
+}");
+
+        var result = await Program.Main(new[]
+        {
+            "update-config",
+            "--add-function", "Get-Service",
+            "--format", "json"
+        });
+
+        Assert.Equal(0, result);
+
+        var updatedRoot = JsonNode.Parse(await File.ReadAllTextAsync(configPath))?.AsObject();
+        var functionOverride = updatedRoot!["PowerShellConfiguration"]?["FunctionOverrides"]?["Get-Service"]?.AsObject();
+        Assert.NotNull(functionOverride);
+
+        Assert.True(functionOverride!["AllowAnonymous"]?.GetValue<bool>());
+
+        var requiredScopes = functionOverride["RequiredScopes"]?.AsArray();
+        Assert.NotNull(requiredScopes);
+        Assert.Equal(2, requiredScopes!.Count);
+        Assert.Contains(requiredScopes, s => s?.GetValue<string>() == "read:users");
+        Assert.Contains(requiredScopes, s => s?.GetValue<string>() == "write:config");
+
+        var requiredRoles = functionOverride["RequiredRoles"]?.AsArray();
+        Assert.NotNull(requiredRoles);
+        Assert.Equal(2, requiredRoles!.Count);
+        Assert.Contains(requiredRoles, r => r?.GetValue<string>() == "admin");
+        Assert.Contains(requiredRoles, r => r?.GetValue<string>() == "operator");
     }
 
     private sealed class ConsoleCapture : IDisposable
