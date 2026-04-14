@@ -1126,6 +1126,7 @@ public class Program
             ? discoveredToolNames
             : GetExpectedToolNames(configuredFunctionStatus, config.EnableDynamicReloadTools);
         var diagnostics = CollectPowerShellDiagnostics();
+        var oopModulePaths = ResolveConfiguredModulePathsForOop(config, settings.FinalConfigPath);
         var effectivePowerShellConfiguration = JsonNode.Parse(SerializeEffectivePowerShellConfiguration(config));
 
         var foundFunctions = configuredFunctionStatus.Where(f => f.Found).Select(f => f.FunctionName).ToList();
@@ -1215,6 +1216,15 @@ public class Program
                 Console.WriteLine($"- {modulePath}");
             }
         }
+        Console.WriteLine($"Configured OOP module path entries: {oopModulePaths.Length}");
+        if (oopModulePaths.Length > 0)
+        {
+            Console.WriteLine("Configured OOP module path values:");
+            foreach (var modulePath in oopModulePaths)
+            {
+                Console.WriteLine($"- {modulePath}");
+            }
+        }
         if (warnings.Count > 0)
         {
             Console.WriteLine("Warnings:");
@@ -1253,6 +1263,7 @@ public class Program
             ? discoveredToolNames
             : GetExpectedToolNames(configuredFunctionStatus, config.EnableDynamicReloadTools);
         var diagnostics = CollectPowerShellDiagnostics();
+        var oopModulePaths = ResolveConfiguredModulePathsForOop(config, configurationPath);
         var effectivePowerShellConfiguration = JsonNode.Parse(SerializeEffectivePowerShellConfiguration(config));
         var foundFunctions = configuredFunctionStatus.Where(f => f.Found).Select(f => f.FunctionName).ToList();
         var missingFunctions = configuredFunctionStatus.Where(f => !f.Found).Select(f => f.FunctionName).ToList();
@@ -1294,6 +1305,8 @@ public class Program
             powershellVersion = diagnostics.PowerShellVersion,
             modulePathEntries = diagnostics.ModulePathEntries,
             modulePaths = diagnostics.ModulePaths,
+            oopModulePathEntries = oopModulePaths.Length,
+            oopModulePaths,
             generatedAtUtc = DateTime.UtcNow
         };
 
@@ -1343,6 +1356,28 @@ public class Program
         });
 
         return result;
+    }
+
+    private static string[] ResolveConfiguredModulePathsForOop(PowerShellConfiguration config, string? configurationPath)
+    {
+        var configuredModulePaths = config.Environment?.ModulePaths;
+        if (configuredModulePaths is null || configuredModulePaths.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        var baseDir = !string.IsNullOrWhiteSpace(configurationPath)
+            ? Path.GetDirectoryName(Path.GetFullPath(configurationPath))
+            : null;
+        baseDir ??= Directory.GetCurrentDirectory();
+
+        return configuredModulePaths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => Path.IsPathRooted(path)
+                ? path
+                : Path.GetFullPath(Path.Combine(baseDir, path)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private static List<ConfiguredFunctionStatus> BuildConfiguredFunctionStatus(List<string> functionNames, List<string> discoveredToolNames)

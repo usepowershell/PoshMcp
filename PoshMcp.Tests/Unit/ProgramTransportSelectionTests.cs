@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Xunit;
@@ -123,22 +124,112 @@ public class ProgramTransportSelectionTests
         Assert.Equal("cli", payload["effectiveMcpPathSource"]?.GetValue<string>());
     }
 
+    [Fact]
+    public async Task DoctorCommand_WithOutOfProcessRuntimeAndConfiguredModulePath_ShouldReportConfiguredPathInDiagnostics()
+    {
+        using var moduleDirectory = new TemporaryDirectory("poshmcp-oop-module-path-tests");
+        using var configFile = new TemporaryConfigFile(runtimeMode: "OutOfProcess", modulePaths: new[] { moduleDirectory.Path });
+        using var capture = new ConsoleCapture();
+        using var transportScope = new EnvironmentVariableScope(TransportEnvVar, null);
+
+        var result = await Program.Main(new[] { "doctor", "--config", configFile.Path, "--format", "json" });
+
+        Assert.Equal(0, result);
+        var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
+        Assert.NotNull(payload);
+        Assert.Equal("OutOfProcess", payload!["effectiveRuntimeMode"]?.GetValue<string>());
+        Assert.True(
+            PayloadContainsConfiguredModulePath(payload, moduleDirectory.Path),
+            $"Expected doctor output to include configured OOP module path '{moduleDirectory.Path}' in diagnostics output.");
+    }
+
+    [Fact]
+    public async Task DoctorCommand_WithOutOfProcessRuntimeOverrideAndConfiguredModulePath_ShouldReportConfiguredPathInDiagnostics()
+    {
+        using var moduleDirectory = new TemporaryDirectory("poshmcp-oop-module-path-tests");
+        using var configFile = new TemporaryConfigFile(modulePaths: new[] { moduleDirectory.Path });
+        using var capture = new ConsoleCapture();
+        using var transportScope = new EnvironmentVariableScope(TransportEnvVar, null);
+
+        var result = await Program.Main(new[]
+        {
+            "doctor",
+            "--config", configFile.Path,
+            "--runtime-mode", "out-of-process",
+            "--format", "json"
+        });
+
+        Assert.Equal(0, result);
+        var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
+        Assert.NotNull(payload);
+        Assert.Equal("OutOfProcess", payload!["effectiveRuntimeMode"]?.GetValue<string>());
+        Assert.Equal("cli", payload["effectiveRuntimeModeSource"]?.GetValue<string>());
+        Assert.True(
+            PayloadContainsConfiguredModulePath(payload, moduleDirectory.Path),
+            $"Expected doctor output to include configured OOP module path '{moduleDirectory.Path}' in diagnostics output.");
+    }
+
+    private static bool PayloadContainsConfiguredModulePath(JsonObject payload, string expectedPath)
+    {
+        var normalizedExpected = NormalizePath(expectedPath);
+
+        var configuredModulePaths = payload["effectivePowerShellConfiguration"]?["Environment"]?["ModulePaths"]?.AsArray()
+            ?.Select(n => n?.GetValue<string>())
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Cast<string>()
+            .Select(NormalizePath)
+            .ToList()
+            ?? new();
+
+        var oopModulePaths = payload["oopModulePaths"]?.AsArray()
+            ?.Select(n => n?.GetValue<string>())
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Cast<string>()
+            .Select(NormalizePath)
+            .ToList()
+            ?? new();
+
+        if (!configuredModulePaths.Contains(normalizedExpected))
+        {
+            return false;
+        }
+
+        return oopModulePaths.Contains(normalizedExpected);
+    }
+
+    private static string NormalizePath(string path)
+    {
+        return path.Trim().Replace('\\', '/').TrimEnd('/').ToLowerInvariant();
+    }
+
     private sealed class TemporaryConfigFile : IDisposable
     {
         public string Path { get; }
 
-        public TemporaryConfigFile()
+        public TemporaryConfigFile(string? runtimeMode = null, string[]? modulePaths = null)
         {
             Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"poshmcp-transport-tests-{Guid.NewGuid():N}.json");
 
-            var json = @"{
-  ""PowerShellConfiguration"": {
+            var runtimeModeJson = string.IsNullOrWhiteSpace(runtimeMode)
+                ? string.Empty
+                : $",\n    \"RuntimeMode\": \"{runtimeMode}\"";
+
+            var modulePathEntries = (modulePaths ?? Array.Empty<string>())
+                .Select(p => $"\"{p.Replace("\\", "\\\\")}\"")
+                .ToArray();
+            var modulePathsJson = string.Join(", ", modulePathEntries);
+
+            var json = $@"{{
+  ""PowerShellConfiguration"": {{
     ""FunctionNames"": [""Get-Date""],
     ""Modules"": [],
     ""ExcludePatterns"": [],
-    ""IncludePatterns"": []
-  }
-}";
+    ""IncludePatterns"": []{runtimeModeJson},
+    ""Environment"": {{
+      ""ModulePaths"": [{modulePathsJson}]
+    }}
+  }}
+}}";
 
             File.WriteAllText(Path, json);
         }
@@ -148,6 +239,25 @@ public class ProgramTransportSelectionTests
             if (File.Exists(Path))
             {
                 File.Delete(Path);
+            }
+        }
+    }
+
+    private sealed class TemporaryDirectory : IDisposable
+    {
+        public string Path { get; }
+
+        public TemporaryDirectory(string namePrefix)
+        {
+            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{namePrefix}-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(Path);
+        }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(Path))
+            {
+                Directory.Delete(Path, recursive: true);
             }
         }
     }
