@@ -59,6 +59,7 @@ public class EnvironmentConfiguration
     /// This only applies when RuntimeMode is OutOfProcess and controls the setup call
     /// (module imports, startup scripts, and related environment initialization).
     /// Separate from <see cref="InstallTimeoutSeconds"/>, which only controls module install operations.
+    /// Increase this when importing heavy modules like Az or Microsoft.Graph.
     /// Defaults to 120 seconds.
     /// </summary>
     public int SetupTimeoutSeconds { get; set; } = 120;
