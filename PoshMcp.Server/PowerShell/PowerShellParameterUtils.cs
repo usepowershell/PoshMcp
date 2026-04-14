@@ -170,6 +170,71 @@ public static class PowerShellParameterUtils
     }
 
     /// <summary>
+    /// Returns true when a PowerShell parameter type cannot be meaningfully represented as a JSON
+    /// schema value and therefore should not be exposed as an MCP tool parameter.
+    ///
+    /// Unserializable categories:
+    ///   - Pointer / by-ref types (IntPtr, UIntPtr, T*)
+    ///   - PSObject — opaque wrapper with no fixed schema
+    ///   - ScriptBlock — executable code, not data
+    ///   - System.Object — too generic to produce a useful schema
+    ///   - Delegate-derived types — callbacks / function references
+    ///   - Stream-derived types — binary data channels
+    ///   - WaitHandle-derived types — OS synchronisation primitives
+    ///   - System.Reflection.Assembly — reflection handle
+    ///   - System.Management.Automation.PowerShell — runspace instance
+    ///   - Any type in the Runspaces namespace (Runspace, RunspacePool, …)
+    ///   - Arrays whose element type is unserializable
+    /// </summary>
+    public static bool IsUnserializableType(Type type)
+    {
+        var t = Nullable.GetUnderlyingType(type) ?? type;
+
+        if (t.IsPointer || t.IsByRef)
+            return true;
+
+        if (t == typeof(IntPtr) || t == typeof(UIntPtr))
+            return true;
+
+        if (t == typeof(PSObject))
+            return true;
+
+        if (t == typeof(ScriptBlock))
+            return true;
+
+        if (t == typeof(object))
+            return true;
+
+        if (typeof(Delegate).IsAssignableFrom(t))
+            return true;
+
+        if (typeof(System.IO.Stream).IsAssignableFrom(t))
+            return true;
+
+        if (typeof(System.Threading.WaitHandle).IsAssignableFrom(t))
+            return true;
+
+        if (typeof(System.Reflection.Assembly).IsAssignableFrom(t))
+            return true;
+
+        if (t == typeof(System.Management.Automation.PowerShell))
+            return true;
+
+        var fullName = t.FullName ?? string.Empty;
+        if (fullName.StartsWith("System.Management.Automation.Runspaces.", StringComparison.Ordinal))
+            return true;
+
+        if (t.IsArray)
+        {
+            var elementType = t.GetElementType();
+            if (elementType != null && IsUnserializableType(elementType))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Gets the default value for a given type
     /// </summary>
     public static object? GetDefaultValueForType(Type type)
