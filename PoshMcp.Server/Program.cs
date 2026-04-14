@@ -2299,6 +2299,7 @@ public class Program
         await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger, configurationPath);
         var toolFactory = CreateToolFactory(config, executorLease?.Executor);
         var tools = await toolFactory.GetToolsListAsync(config, logger);
+        AddConfigurationGuidanceToolToList(tools, config, configurationPath, "stdio", config.RuntimeMode.ToString(), null, loggerFactory);
         AddConfigurationTroubleshootingToolToList(tools, config, configurationPath, "stdio", null, config.RuntimeMode.ToString(), null, logger);
         return tools;
     }
@@ -2622,6 +2623,7 @@ public class Program
         tools.Add(setResultCachingTool);
         logger.LogInformation("Registered set-result-caching tool (always enabled)");
 
+        AddConfigurationGuidanceToolToList(tools, config, finalConfigPath, "http", config.RuntimeMode.ToString(), null, loggerFactory);
         AddConfigurationTroubleshootingToolToList(tools, config, finalConfigPath, "http", null, config.RuntimeMode.ToString(), null, logger);
 
         return tools;
@@ -2693,9 +2695,32 @@ public class Program
         tools.Add(setResultCachingTool);
         logger.LogInformation("Registered set-result-caching tool (always enabled)");
 
+        AddConfigurationGuidanceToolToList(tools, config, finalConfigPath, "stdio", config.RuntimeMode.ToString(), null, loggerFactory);
         AddConfigurationTroubleshootingToolToList(tools, config, finalConfigPath, "stdio", null, config.RuntimeMode.ToString(), null, logger);
 
         return tools;
+    }
+
+    private static void AddConfigurationGuidanceToolToList(
+        List<McpServerTool> tools,
+        PowerShellConfiguration config,
+        string configurationPath,
+        string effectiveTransport,
+        string? effectiveRuntimeMode,
+        string? effectiveMcpPath,
+        ILoggerFactory loggerFactory)
+    {
+        if (!config.EnableConfigurationTroubleshootingTool)
+        {
+            return;
+        }
+
+        tools.Add(CreateConfigurationGuidanceToolInstance(
+            configurationPath,
+            effectiveTransport,
+            effectiveRuntimeMode,
+            effectiveMcpPath,
+            loggerFactory));
     }
 
     private static void AddConfigurationTroubleshootingToolToList(
@@ -2771,6 +2796,34 @@ public class Program
             Name = "get-configuration-troubleshooting",
             Description = "Returns doctor-style configuration diagnostics for the running server",
             Title = "Get Configuration Troubleshooting",
+            ReadOnly = true,
+            Destructive = false,
+            Idempotent = true,
+            OpenWorld = false,
+            UseStructuredContent = true
+        });
+    }
+
+    private static McpServerTool CreateConfigurationGuidanceToolInstance(
+        string configurationPath,
+        string effectiveTransport,
+        string? effectiveRuntimeMode,
+        string? effectiveMcpPath,
+        ILoggerFactory loggerFactory)
+    {
+        var guidanceLogger = loggerFactory.CreateLogger<ConfigurationGuidanceTools>();
+        var guidanceTools = new ConfigurationGuidanceTools(
+            configurationPath,
+            effectiveTransport,
+            effectiveRuntimeMode,
+            effectiveMcpPath,
+            guidanceLogger);
+
+        return McpServerTool.Create(guidanceTools.GetConfigurationGuidance, new McpServerToolCreateOptions
+        {
+            Name = "get-configuration-guidance",
+            Description = "Returns configuration guidance for creating and updating appsettings.json, including environment customization and authentication recommendations based on the current runtime transport.",
+            Title = "Get Configuration Guidance",
             ReadOnly = true,
             Destructive = false,
             Idempotent = true,
