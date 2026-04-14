@@ -207,16 +207,24 @@ public class PowerShellAssemblyGenerator
                 var commandList = commands.ToList();
                 foreach (var command in commandList)
                 {
+                    var anyParameterSetGenerated = false;
                     foreach (var parameterSet in command.ParameterSets)
                     {
                         try
                         {
-                            GenerateMethodForCommand(typeBuilder, command, loggerField, runspaceField, logger, parameterSet);
+                            var generated = GenerateMethodForCommand(typeBuilder, command, loggerField, runspaceField, logger, parameterSet);
+                            if (generated)
+                                anyParameterSetGenerated = true;
                         }
                         catch (Exception ex)
                         {
                             logger.LogError(ex, $"Failed to generate method for command {command.Name}: {ex.Message}");
                         }
+                    }
+
+                    if (!anyParameterSetGenerated)
+                    {
+                        logger.LogWarning($"Skipping command '{command.Name}' — all parameter sets were skipped due to unserializable mandatory parameter types");
                     }
                 }
 
@@ -340,7 +348,11 @@ public class PowerShellAssemblyGenerator
         il.Emit(OpCodes.Ret);
     }
 
-    private static void GenerateMethodForCommand(TypeBuilder typeBuilder, CommandInfo commandInfo, FieldBuilder loggerField, FieldBuilder runspaceField, ILogger logger, CommandParameterSetInfo parameterSet)
+    /// <returns>
+    /// <c>true</c> if the method was generated; <c>false</c> if the parameter set was skipped
+    /// because one or more mandatory parameters have unserializable types.
+    /// </returns>
+    private static bool GenerateMethodForCommand(TypeBuilder typeBuilder, CommandInfo commandInfo, FieldBuilder loggerField, FieldBuilder runspaceField, ILogger logger, CommandParameterSetInfo parameterSet)
     {
         // Get command parameters for this specific parameter set (excluding common parameters) and order by position
         var parameters = commandInfo.Parameters
@@ -366,6 +378,34 @@ public class PowerShellAssemblyGenerator
             })
             .ThenBy(p => p.Key) // Secondary sort by name for stable ordering
             .ToList();
+
+        // Skip the parameter set if any mandatory parameter has an unserializable type.
+        var mandatoryUnserializable = parameters
+            .Where(p => p.Value.Attributes.OfType<ParameterAttribute>().Any(attr => attr.Mandatory)
+                     && PowerShellParameterUtils.IsUnserializableType(p.Value.ParameterType))
+            .ToList();
+
+        if (mandatoryUnserializable.Count > 0)
+        {
+            logger.LogDebug(
+                $"Skipping parameter set '{parameterSet.Name}' of '{commandInfo.Name}' — mandatory parameters with unserializable types: " +
+                string.Join(", ", mandatoryUnserializable.Select(p => $"{p.Key} ({p.Value.ParameterType.Name})")));
+            return false;
+        }
+
+        // Drop optional parameters whose types cannot be serialized to JSON.
+        var skippedOptional = parameters
+            .Where(p => !p.Value.Attributes.OfType<ParameterAttribute>().Any(attr => attr.Mandatory)
+                     && PowerShellParameterUtils.IsUnserializableType(p.Value.ParameterType))
+            .ToList();
+
+        if (skippedOptional.Count > 0)
+        {
+            logger.LogDebug(
+                $"Dropping optional parameters with unserializable types from '{commandInfo.Name}' ({parameterSet.Name}): " +
+                string.Join(", ", skippedOptional.Select(p => $"{p.Key} ({p.Value.ParameterType.Name})")));
+            parameters = parameters.Except(skippedOptional).ToList();
+        }
 
         // Create method name (sanitized) - append parameter set name unless it's __AllParameterSets
         var methodName = PowerShellAssemblyGenerator.SanitizeMethodName(commandInfo.Name, parameterSet.Name);
@@ -494,6 +534,7 @@ public class PowerShellAssemblyGenerator
 
         // Generate method body
         GenerateMethodBody(methodBuilder, commandInfo, parameters, loggerField, runspaceField);
+        return true;
     }
 
     private static void GenerateMethodBody(MethodBuilder methodBuilder, CommandInfo commandInfo, List<KeyValuePair<string, ParameterMetadata>> parameters, FieldBuilder loggerField, FieldBuilder runspaceField)
