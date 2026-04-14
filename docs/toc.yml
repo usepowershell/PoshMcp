@@ -1,0 +1,46 @@
+- name: Home
+  href: index.md
+  
+- name: Getting Started
+  href: articles/getting-started.md
+  
+- name: User Guide
+  items:
+  - name: Configuration
+    href: articles/configuration.md
+  - name: Exposing Tools
+    href: articles/exposing-tools.md
+  - name: Transport Modes
+    href: articles/transport-modes.md
+  - name: Session Management
+    href: articles/session-management.md
+    
+- name: Authentication & Security
+  items:
+  - name: Entra ID Authentication
+    href: articles/authentication.md
+  - name: Security Best Practices
+    href: articles/security.md
+    
+- name: Deployment
+  items:
+  - name: Docker Deployment
+    href: articles/docker.md
+  - name: Environment Customization
+    href: articles/environment.md
+  - name: Azure Integration
+    href: articles/azure-integration.md
+    
+- name: Advanced Topics
+  items:
+  - name: Advanced Configuration
+    href: articles/advanced.md
+  - name: AI Assistant Integration
+    href: articles/ai-integration.md
+  - name: Examples & Recipes
+    href: articles/examples.md
+    
+- name: Support
+  items:
+  - name: FAQ & Troubleshooting
+    href: articles/troubleshooting.md
