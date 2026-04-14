@@ -172,7 +172,9 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
             ? Path.GetDirectoryName(Path.GetFullPath(configFilePath))!
             : Directory.GetCurrentDirectory();
 
-        var resolvedModulePaths = ResolveModulePaths(config.ModulePaths, baseDir);
+        var resolvedModulePaths = config.ModulePaths
+            .Select(p => Path.IsPathRooted(p) ? p : Path.GetFullPath(Path.Combine(baseDir, p)))
+            .ToArray();
 
         var setupParams = new
         {
