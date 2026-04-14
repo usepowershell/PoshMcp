@@ -17,6 +17,8 @@ PoshMcp bridges the gap between traditional PowerShell automation and modern AI 
 
 **Perfect for:** DevOps engineers, system administrators, and PowerShell toolmakers who want to democratize access to their automation scripts.
 
+Full documentation at https://usepowershell.github.io/PoshMcp/
+
 ---
 
 ## Quick Example
