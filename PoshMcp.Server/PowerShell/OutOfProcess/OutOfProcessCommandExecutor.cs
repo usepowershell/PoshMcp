@@ -387,8 +387,8 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
 
             // Await with timeout
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                var requestTimeout = requestTimeoutOverride ?? _requestTimeout;
-                timeoutCts.CancelAfter(requestTimeout);
+            var requestTimeout = requestTimeoutOverride ?? _requestTimeout;
+            timeoutCts.CancelAfter(requestTimeout);
 
             var registration = timeoutCts.Token.Register(() =>
             {
