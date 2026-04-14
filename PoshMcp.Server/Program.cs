@@ -2832,13 +2832,14 @@ public class Program
         var setupTimeout = config.Environment?.SetupTimeoutSeconds is > 0
             ? TimeSpan.FromSeconds(config.Environment.SetupTimeoutSeconds)
             : TimeSpan.FromSeconds(120);
-        var executor = new OutOfProcessCommandExecutor(executorLogger, requestTimeout: setupTimeout);
+        var executor = new OutOfProcessCommandExecutor(executorLogger);
         await executor.StartAsync();
         logger.LogInformation("Started out-of-process PowerShell executor");
 
         if (config.Environment is not null)
         {
-            await executor.SetupAsync(config.Environment, configFilePath);
+            using var setupCts = new CancellationTokenSource(setupTimeout);
+            await executor.SetupAsync(config.Environment, configFilePath, setupTimeout, setupCts.Token);
             logger.LogInformation("Applied environment configuration to out-of-process executor");
         }
 

@@ -33,6 +33,7 @@ public interface ICommandExecutor : IAsyncDisposable
     Task SetupAsync(
         EnvironmentConfiguration config,
         string? configFilePath = null,
+        TimeSpan? setupRequestTimeout = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

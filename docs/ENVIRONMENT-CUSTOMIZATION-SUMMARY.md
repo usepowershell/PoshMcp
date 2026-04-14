@@ -13,6 +13,8 @@ PoshMcp supports comprehensive environment customization through `appsettings.js
 
 All configuration is declarative and happens during PowerShell runspace initialization.
 
+Defaults: `TrustPSGallery` is `false` (opt-in) and `SetupTimeoutSeconds` is `120` for out-of-process setup.
+
 ## Feature Files Overview
 
 | Category | Files | Description |
@@ -238,6 +240,7 @@ docker logs <container-id> | grep -i "environment"
 ### Startup timeout exceeds container readiness probe
 
 - Reduce `InstallTimeoutSeconds` in configuration (default: 300s)
+- Increase `SetupTimeoutSeconds` when using out-of-process runtime and heavy setup steps
 - Pre-install modules at build time instead of runtime
 - Optimize startup script (remove unnecessary operations)
 

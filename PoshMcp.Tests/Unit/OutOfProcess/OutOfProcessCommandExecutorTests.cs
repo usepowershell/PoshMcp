@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -164,5 +165,36 @@ public class OutOfProcessCommandExecutorTests
 
         // If we get here, subprocess started and ping succeeded
         await executor.DisposeAsync();
+    }
+
+    [Fact]
+    public void ResolveModulePaths_FiltersNullOrWhitespaceEntries()
+    {
+        var baseDir = Path.GetTempPath();
+        string?[] configuredPaths =
+        {
+            null,
+            "   ",
+            string.Empty,
+            "./Modules/Custom"
+        };
+
+        var resolved = OutOfProcessCommandExecutor.ResolveModulePaths(configuredPaths, baseDir);
+
+        Assert.Single(resolved);
+        Assert.Equal(Path.GetFullPath(Path.Combine(baseDir, "./Modules/Custom")), resolved[0]);
+    }
+
+    [Fact]
+    public void ResolveModulePaths_DeduplicatesCaseInsensitively()
+    {
+        var baseDir = Path.Combine(Path.GetTempPath(), "PoshMcp-ResolveModulePaths");
+        var duplicateA = Path.Combine(baseDir, "Modules");
+        var duplicateB = duplicateA.ToUpperInvariant();
+
+        var resolved = OutOfProcessCommandExecutor.ResolveModulePaths(new[] { duplicateA, duplicateB }, baseDir);
+
+        Assert.Single(resolved);
+        Assert.Equal(Path.GetFullPath(duplicateA), resolved.Single());
     }
 }

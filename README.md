@@ -223,6 +223,10 @@ Install modules from PowerShell Gallery at startup:
 }
 ```
 
+Notes:
+- `TrustPSGallery` defaults to `false` and must be explicitly enabled if you want automatic PSGallery trust.
+- `SetupTimeoutSeconds` defaults to `120` and applies to out-of-process setup initialization.
+
 ### Custom Module Paths
 
 Load modules from local directories or mounted volumes:
