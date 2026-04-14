@@ -41,6 +41,16 @@
 - Azure Container Apps plus managed identity, scale-to-zero, and layered docs remain the deployment baseline.
 - Multi-tenant deployment safety depends on tenant switching plus subscription-to-tenant validation.
 
+### 2026-04-12: Sequential PR merge session (#92–#95)
+
+- Processed PRs #92, #93, #94, #95 in order — all touching `Program.cs` and related CLI/schema areas.
+- Rebase pattern: worktrees start at an already-up-to-date state for the first PR; subsequent PRs require a live rebase after each preceding merge lands on main.
+- `dotnet restore` is required before `dotnet test --no-restore` when worktrees haven't been built yet; the `--no-restore` flag fails with `NETSDK1004` on a cold worktree.
+- `gh pr merge --delete-branch` produces a non-zero exit code in worktree setups (`fatal: 'main' is already used by worktree`) but the squash merge itself succeeds — the exit code is a false failure from the local branch-delete step, not from the GitHub merge.
+- Test counts grew across the session: 343 → 343 → 355 → 388 (PR #94 added 12 tests for update-config flags; PR #95 added 33 tests for unserializable type handling).
+- All 4 PRs merged cleanly with zero conflicts. The `Program.cs` changes were additive (new CLI flags, advisory warning) and non-overlapping.
+- Force-push must specify the remote branch name explicitly (`git push --force-with-lease origin <branch>`) when the worktree branch has no upstream tracking configured.
+
 ## Archive Note
 
 Detailed session history was archived to `history-archive.md` on 2026-04-10 when this file exceeded the 15 KB Scribe threshold.

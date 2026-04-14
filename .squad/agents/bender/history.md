@@ -16,6 +16,29 @@
 
 ## Learnings
 
+### PR #96 Fix: Caching DiagnoseMissingCommands Results (Double-Execution Pattern)
+
+**Context:** PR #96 (issue #91, doctor command resolution) was rejected by Farnsworth because `DiagnoseMissingCommands` was called twice when doctor outputs JSON — once in `RunDoctorAsync` (lines ~1129) for the text path, then again inside `BuildDoctorJson` (lines ~1252) for the JSON path. Each call spins up an isolated PowerShell runspace (`IsolatedPowerShellRunspace`) and runs `Get-Command`/`Import-Module` per missing command — expensive and redundant.
+
+**Key Files:**
+- `PoshMcp.Server/Program.cs` — `RunDoctorAsync` (~line 1108), `BuildDoctorJson` (~line 1224), `DiagnoseMissingCommands` (~line 1356), `ConfiguredFunctionStatus` record (~line 1566)
+
+**Fix Pattern:**
+1. Added optional `List<ConfiguredFunctionStatus>? precomputedFunctionStatus = null` parameter to `BuildDoctorJson`
+2. Added guard in `BuildDoctorJson`: only calls `DiagnoseMissingCommands` if `ResolutionReason` is not already populated (`configuredFunctionStatus.All(s => s.Found || s.ResolutionReason is null)`)
+3. Changed `ConfiguredFunctionStatus` from `private` to `internal` to satisfy C# accessibility rules (method is `internal static`, parameter type must be at least as accessible)
+4. In `RunDoctorAsync`, when format is JSON, passes already-computed `configuredFunctionStatus` to `BuildDoctorJson` via `precomputedFunctionStatus:` named argument — skipping the redundant runspace creation entirely
+
+**The Double-Execution Pattern:**
+- `RunDoctorAsync` computed diagnostics, merged into `configuredFunctionStatus`
+- Then called `BuildDoctorJson` with only `config` and `tools`
+- `BuildDoctorJson` rebuilt `configuredFunctionStatus` from scratch and called `DiagnoseMissingCommands` again
+- Fix: pass the pre-computed result and guard against re-execution
+
+**Lesson:** When a function computes expensive data and then delegates to a sub-function that recomputes the same data, pass the result as an optional parameter with a guard. This pattern avoids redundant work while maintaining backward compatibility for callers that don't pre-compute.
+
+---
+
 ### 2026-03-27: Removed Duplicate Code in Program.cs
 
 **Context:** Farnsworth's Phase 1 review identified duplicate code at lines 157-160 in `PoshMcp.Web/Program.cs`. The duplicate block included `app.MapMcp()` and `app.Run()` calls that were unreachable due to the blocking nature of the first `app.Run()` call.

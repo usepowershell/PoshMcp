@@ -139,3 +139,60 @@
 - `Install-Module` with version constraint params (RequiredVersion, MinimumVersion, MaximumVersion)
 - `Get-Module -ListAvailable` to skip already-installed modules
 - `Invoke-Expression` for startup scripts (consistent with in-process host behavior)
+
+### 2026-07: Unserializable parameter type filtering (Issue #89)
+
+**Context:** Commands with parameters whose types can't be serialized to JSON need to be handled gracefully.
+
+**Key files modified:**
+- `PoshMcp.Server/PowerShell/PowerShellParameterUtils.cs` — Added `IsUnserializableType(Type)` static method
+- `PoshMcp.Server/PowerShell/PowerShellAssemblyGenerator.cs` — `GenerateMethodForCommand` changed from `void` to `bool`; filtering logic added
+- `PoshMcp.Tests/Unit/UnserializableTypeTests.cs` — 33 unit tests for the new method
+
+**Filtering rules implemented:**
+1. Optional parameter with unserializable type → drop the parameter silently from the schema
+2. Mandatory parameter with unserializable type in a parameter set → skip the entire parameter set (return false)
+3. All parameter sets skipped for a command → command gets no MCP tool (emergent), logged as warning
+
+**Unserializable type set:**
+- `PSObject`, `ScriptBlock`, `System.Object`
+- `IntPtr`, `UIntPtr`, pointer and by-ref types
+- `Delegate` and all derived types (Action, Func<>, …)
+- `Stream` and derived (FileStream, MemoryStream, …)
+- `WaitHandle` and derived
+- `System.Reflection.Assembly`
+- `System.Management.Automation.PowerShell` (the automation class, not the language)
+- All `System.Management.Automation.Runspaces.*` types (Runspace, RunspacePool, …)
+- Arrays whose element type is unserializable
+
+**Design decisions:**
+- `IsUnserializableType` lives in `PowerShellParameterUtils` alongside the other parameter helpers
+- `GenerateMethodForCommand` returns bool (false = skipped) rather than throwing, to preserve clean caller control flow
+- Common parameter exclusion (`IsCommonParameter`) still runs first; unserializable check runs second on the already-filtered list
+- Arrays of unserializable types are also unserializable (recursive check on element type)
+
+### 2026-07: doctor command resolution diagnostics (Issue #91)
+
+**Context:** `poshmcp doctor` showed [MISSING] for configured commands with no explanation of why.
+
+**Changes made (Program.cs):**
+- `ConfiguredFunctionStatus` record: added nullable `ResolutionReason` field (default `null`)
+- New `DiagnoseMissingCommands(IReadOnlyList<string>, PowerShellConfiguration)` method: runs PS introspection via `IsolatedPowerShellRunspace` for each missing command
+- New `EscapeForPowerShell(string)` helper: single-quote escaping for safe PS script injection
+- `RunDoctorAsync`: enriches status list with reasons before text/JSON output
+- `BuildDoctorJson`: same enrichment so JSON payload includes `resolutionReason` per `configuredFunctionStatus` entry
+- Text output: adds indented `reason:` line under each [MISSING] entry
+
+**Diagnostic logic (DiagnoseMissingCommands):**
+1. `Get-Command -Name <name>` in isolated runspace → if found, report "all parameter sets skipped due to unserializable types"
+2. For each configured module: `Get-Module -Name <module> -ListAvailable` → if missing, report "module not in PSModulePath"
+3. If module available: `Import-Module; Get-Command -Module <module> -Name <name>` → if not found, report "module does not export command"
+4. If found in module → report "command in module but not loaded at discovery time"
+5. No modules configured and command not found → report "command not found in PS session"
+
+**Design decisions:**
+- Uses `IsolatedPowerShellRunspace` (not singleton) to avoid interfering with server state
+- All diagnostics for a doctor call share ONE isolated runspace for efficiency
+- Local function `DiagnoseOneCommand` inside the `ExecuteThreadSafe` lambda avoids explicit `System.Management.Automation.PowerShell` type reference in Program.cs
+- For JSON format, diagnostics run in both `RunDoctorAsync` (wasted) and `BuildDoctorJson` (used) — acceptable for a non-hot diagnostic command path
+- `ConfiguredFunctionStatus` uses positional record syntax with `ResolutionReason = null` default for backwards compatibility
