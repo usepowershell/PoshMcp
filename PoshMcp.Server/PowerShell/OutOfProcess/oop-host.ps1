@@ -123,12 +123,13 @@ function Invoke-SetupHandler {
         }
     }
 
-    # Step 2: Trust PSGallery if configured
+    # Step 2: Trust PSGallery if configured — only needed when modules will be installed
     $trustPSGallery = $false
     if ($null -ne $Params.trustPSGallery) {
         $trustPSGallery = [bool]$Params.trustPSGallery
     }
-    if ($trustPSGallery) {
+    $hasModulesToInstall = $null -ne $Params.installModules -and @($Params.installModules).Count -gt 0
+    if ($trustPSGallery -and $hasModulesToInstall) {
         Write-Diag 'Configuring PSGallery as trusted repository'
         try {
             if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) {

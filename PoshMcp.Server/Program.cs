@@ -2261,7 +2261,7 @@ public class Program
     private static async Task<List<McpServerTool>> DiscoverToolsAsync(PowerShellConfiguration config, ILoggerFactory loggerFactory, ILogger logger, string configurationPath)
     {
         logger.LogInformation("Discovering PowerShell tools...");
-        await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger);
+        await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger, configurationPath);
         var toolFactory = CreateToolFactory(config, executorLease?.Executor);
         var tools = await toolFactory.GetToolsListAsync(config, logger);
         AddConfigurationTroubleshootingToolToList(tools, config, configurationPath, "stdio", null, config.RuntimeMode.ToString(), null, logger);
@@ -2322,7 +2322,7 @@ public class Program
         var logger = loggerFactory.CreateLogger("PoshMcpLogger");
         logger.LogInformation("Using configuration file: {ConfigurationPath}", finalConfigPath);
         var config = LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
-        await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger);
+        await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger, finalConfigPath);
         var tools = await SetupMcpToolsAsync(loggerFactory, config, logger, finalConfigPath, executorLease?.Executor);
         ConfigureServerServices(builder, tools);
         await builder.Build().RunAsync();
@@ -2370,7 +2370,7 @@ public class Program
         using var bootstrapLoggerFactory = CreateLoggerFactory(logLevel);
         var logger = bootstrapLoggerFactory.CreateLogger("PoshMcpHttpLogger");
         var config = LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
-        await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, bootstrapLoggerFactory, logger);
+        await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, bootstrapLoggerFactory, logger, finalConfigPath);
 
         var sharedHttpContextAccessor = new HttpContextAccessor();
         var sharedRunspaceLogger = bootstrapLoggerFactory.CreateLogger<SessionAwarePowerShellRunspace>();
@@ -2786,7 +2786,7 @@ public class Program
         return runspace is null ? new McpToolFactoryV2() : new McpToolFactoryV2(runspace);
     }
 
-    private static async Task<OutOfProcessExecutorLease?> StartOutOfProcessExecutorIfNeededAsync(PowerShellConfiguration config, ILoggerFactory loggerFactory, ILogger logger)
+    private static async Task<OutOfProcessExecutorLease?> StartOutOfProcessExecutorIfNeededAsync(PowerShellConfiguration config, ILoggerFactory loggerFactory, ILogger logger, string? configFilePath = null)
     {
         if (config.RuntimeMode != RuntimeMode.OutOfProcess)
         {
@@ -2794,13 +2794,16 @@ public class Program
         }
 
         var executorLogger = loggerFactory.CreateLogger<OutOfProcessCommandExecutor>();
-        var executor = new OutOfProcessCommandExecutor(executorLogger);
+        var setupTimeout = config.Environment?.SetupTimeoutSeconds is > 0
+            ? TimeSpan.FromSeconds(config.Environment.SetupTimeoutSeconds)
+            : TimeSpan.FromSeconds(120);
+        var executor = new OutOfProcessCommandExecutor(executorLogger, requestTimeout: setupTimeout);
         await executor.StartAsync();
         logger.LogInformation("Started out-of-process PowerShell executor");
 
         if (config.Environment is not null)
         {
-            await executor.SetupAsync(config.Environment);
+            await executor.SetupAsync(config.Environment, configFilePath);
             logger.LogInformation("Applied environment configuration to out-of-process executor");
         }
 

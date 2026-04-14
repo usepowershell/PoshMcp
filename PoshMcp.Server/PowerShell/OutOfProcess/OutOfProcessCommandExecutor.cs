@@ -126,7 +126,7 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
         var discoverParams = new
         {
             modules = config.Modules,
-            functionNames = config.FunctionNames,
+            functionNames = config.GetEffectiveCommandNames(),
             includePatterns = config.IncludePatterns,
             excludePatterns = config.ExcludePatterns
         };
@@ -162,13 +162,22 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
     /// </summary>
     public async Task SetupAsync(
         EnvironmentConfiguration config,
+        string? configFilePath = null,
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
+        var baseDir = configFilePath is not null
+            ? Path.GetDirectoryName(Path.GetFullPath(configFilePath))!
+            : Directory.GetCurrentDirectory();
+
+        var resolvedModulePaths = config.ModulePaths
+            .Select(p => Path.IsPathRooted(p) ? p : Path.GetFullPath(Path.Combine(baseDir, p)))
+            .ToArray();
+
         var setupParams = new
         {
-            modulePaths = config.ModulePaths,
+            modulePaths = resolvedModulePaths,
             trustPSGallery = config.TrustPSGallery,
             installModules = config.InstallModules.Select(m => new
             {

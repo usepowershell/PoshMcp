@@ -36,7 +36,7 @@ public class EnvironmentConfiguration
     /// <summary>
     /// Whether to trust PowerShell Gallery repository automatically
     /// </summary>
-    public bool TrustPSGallery { get; set; } = true;
+    public bool TrustPSGallery { get; set; } = false;
 
     /// <summary>
     /// Whether to skip module installation if already installed
@@ -52,6 +52,13 @@ public class EnvironmentConfiguration
     /// Timeout in seconds for module installation operations
     /// </summary>
     public int InstallTimeoutSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// Timeout in seconds for the overall environment setup operation (module imports, startup scripts).
+    /// Increase this when importing heavy modules like Az or Microsoft.Graph.
+    /// Defaults to 120 seconds.
+    /// </summary>
+    public int SetupTimeoutSeconds { get; set; } = 120;
 }
 
 /// <summary>
