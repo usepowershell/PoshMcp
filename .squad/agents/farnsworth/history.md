@@ -162,3 +162,13 @@ All at confidence: medium (except unserializable-type-handling: high — 33 test
 Source: earned patterns from PRs #92–#96 and agent histories.
 
 📌 Team update (2026-04-14T00:00:00Z): Docs publishing now uses a dedicated GitHub Pages workflow with docs-only path trigger and prebuilt `docs/_site` artifact strategy — decided by Amy.
+
+### 2026-04-15: DESIGN.md architecture consistency pass
+
+**Key learnings:**
+- Design docs drift first in boundary descriptions: AI intent mapping belongs to MCP clients, while PoshMcp responsibilities are discovery/schema/execution/transport.
+- Transport descriptions must mirror executable reality (`stdio` and `http`), including HTTP-only operational features (health/auth).
+- Runtime architecture now needs explicit mention of both in-process and out-of-process PowerShell modes to stay aligned with implementation.
+- Local doc links in architecture docs should target active docs paths (for environment customization: `docs/articles/environment.md`, not archived docs).
+
+**Outcome:** Updated `DESIGN.md` with minimal corrections while preserving original intent and structure.

@@ -2,7 +2,7 @@
 
 ## Overview
 
-PoshMcp containerizes using the `poshmcp` CLI. The same commands work locally or in CI/CD pipelines.
+PoshMcp containerization is CLI-first (`poshmcp build` / `poshmcp run`) with equivalent Docker/Podman workflows also supported. The same patterns work locally or in CI/CD pipelines.
 
 ## Quick Start
 
@@ -18,6 +18,13 @@ poshmcp build --help
 poshmcp run --help
 ```
 
+Docker-native equivalent:
+
+```bash
+docker build -t myorg/poshmcp:latest .
+docker run -d -p 8080:8080 -e POSHMCP_TRANSPORT=http myorg/poshmcp:latest
+```
+
 ## Architecture
 
 Single-application containerization using the PoshMcp.Server binary. HTTP transport is integrated into the CLI's `serve` command---no separate web app binary is needed in containers.
@@ -28,7 +35,8 @@ Single-application containerization using the PoshMcp.Server binary. HTTP transp
 - `poshmcp` binary (CLI tool)
 
 ### Entry point
-Direct invocation: `poshmcp serve --transport http` (or `--transport stdio`)
+Container entrypoint is `docker-entrypoint.sh`, which launches:
+`/app/server/poshmcp serve --transport "$POSHMCP_TRANSPORT"`
 
 ---
 
@@ -37,9 +45,9 @@ Direct invocation: `poshmcp serve --transport http` (or `--transport stdio`)
 Run the same image in Azure Container Apps or App Service:
 
 ```bash
-# Build and push to Azure Container Registry
+# Build locally and push to Azure Container Registry
 poshmcp build --tag myregistry.azurecr.io/poshmcp:latest
-az acr build -r {registry-name} -t poshmcp:latest .
+docker push myregistry.azurecr.io/poshmcp:latest
 
 # Create container app
 az containerapp create \
@@ -80,20 +88,21 @@ USER root
 COPY install-modules.ps1 /tmp/
 ENV INSTALL_PS_MODULES="YourModule1 YourModule2"
 RUN pwsh /tmp/install-modules.ps1 && rm /tmp/install-modules.ps1
-COPY my-appsettings.json /app/appsettings.json
+COPY my-appsettings.json /app/server/appsettings.json
 USER appuser
 ```
 
 See [examples/](examples/) for reference Dockerfile patterns.
 
 ### Using docker-compose (legacy approach)
-If you prefer docker-compose, have services run `poshmcp serve --transport http`:
+If you prefer docker-compose, set `POSHMCP_TRANSPORT` per service:
 
 ```yaml
 services:
   poshmcp:
     image: poshmcp:latest
-    command: ["poshmcp", "serve", "--transport", "http"]
+    environment:
+      POSHMCP_TRANSPORT: http
     ports:
       - "8080:8080"
 ```
@@ -170,4 +179,4 @@ curl http://localhost:8080/health/ready
 - `poshmcp serve --help` --- Server transport modes
 - [infrastructure/azure/](infrastructure/azure/) --- Azure deployment guide
 - [examples/](examples/) --- Sample Dockerfiles and configurations
-- [docs/ENVIRONMENT-CUSTOMIZATION.md](docs/ENVIRONMENT-CUSTOMIZATION.md) --- PowerShell environment setup
+- [docs/articles/environment.md](docs/articles/environment.md) --- PowerShell environment setup

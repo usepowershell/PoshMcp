@@ -2,9 +2,9 @@
 
 ## Overview
 
-The **Model Protocol (MCP) Server** is a platform that empowers PowerShell experts to become AI toolmakers. It dynamically transforms PowerShell scripts, cmdlets, and modules into secure, discoverable, and governable tools that can be invoked by AI agents or exposed as dedicated administrative endpoints.
+The **Model Context Protocol (MCP) Server** is a platform that empowers PowerShell experts to become AI toolmakers. It dynamically transforms PowerShell scripts, cmdlets, and modules into secure, discoverable, and governable tools that can be invoked by AI agents or exposed via MCP-compatible transports.
 
-This project bridges traditional scripting with modern AI interfaces—extending the reach of PowerShell automation to non-scripters and operational AI consumers.
+This project bridges traditional scripting with modern AI interfaces, extending the reach of PowerShell automation to operational AI consumers. Intent understanding and natural-language mapping are provided by MCP clients; PoshMcp focuses on tool discovery, schema generation, and execution.
 
 ---
 
@@ -22,7 +22,7 @@ This project bridges traditional scripting with modern AI interfaces—extending
 ### Tool registration and metadata
 - Auto-discovery of PowerShell commands via introspection (`Get-Command`, `Get-Help`)
 - Metadata extraction: name, synopsis, parameters, output types, examples
-- Programatic manifest generation for tool registration
+- JSON schema generation for MCP tool registration (dynamic tool factory)
 
 ### AI intent mapping (provided by the MCP client)
 - Natural language interface for users
@@ -31,32 +31,33 @@ This project bridges traditional scripting with modern AI interfaces—extending
 
 ### Execution engine
 - Isolated PowerShell runspace per session for resource isolation
+- Runtime mode support: in-process (default) and out-of-process PowerShell execution
 - Input/output translation for AI consumption
 - Azure Managed Identity support when deployed as a container in Azure (no code changes required)
 
 ### Endpoint exposure
+- Transport modes: `stdio` (MCP client integration) and `http` (hosted/web integration)
+- Health endpoints in HTTP mode (`/health`, `/health/ready`)
+- Optional HTTP authentication/authorization configuration
 - Comprehensive logging for traceability and debugging
 
 ### Observability and metrics (implemented)
 - OpenTelemetry integration for monitoring
 - Tool execution metrics and performance tracking
-- Session-level metrics in web mode
+- Session-level metrics for hosted HTTP usage
 
 ---
 
 ## Architecture
 
 ```text
-+------------------+     +------------------+     +------------------+
-|  User Interface  | --> |  AI Intent Layer | --> | PowerShell Runner|
-| (Chat, Web, CLI) |     | (Intent Mapping) |     | (Sandboxed Exec) |
-+------------------+     +------------------+     +------------------+
-        ^                        ^                        ^
-        |                        |                        |
-+------------------+     +------------------+     +-------------------+
-| Tool Catalog     | <-- | Tool Metadata    | <-- | PowerShell Modules|
-| & Documentation  |     | & Registration   |     | (Auto Discovery)  |
-+------------------+     +------------------+     +-------------------+
++------------------------------+      +-------------------------------------------+      +----------------------+
+| MCP Client / AI Assistant    | ---> | PoshMcp Server                            | ---> | PowerShell Runtime   |
+| (intent mapping in client)   |      | - Tool discovery + schema generation      |      | (runspaces/sessions) |
++------------------------------+      | - Command execution + serialization        |      +----------------------+
+                                      | - Transport: stdio or http                |
+                                      | - Auth (http), health checks, observability|
+                                      +-------------------------------------------+
 ```
 
 ## Security and governance
@@ -85,10 +86,9 @@ This project bridges traditional scripting with modern AI interfaces—extending
 
 ## Next steps
 
-- Finalize manifest schema and auto-registration logic
-- Build MVP with AI intent mapping and secure execution
-- Pilot with PowerShell experts and AI agent consumers
-- Integrate with Azure Copilot and GitHub Copilot for enhanced DevOps workflows
+- Continue hardening out-of-process execution and large-result performance
+- Expand transport/authentication operational guidance and validation tooling
+- Keep docs and examples aligned with current CLI and configuration surface
 
 ---
 
@@ -96,5 +96,5 @@ This project bridges traditional scripting with modern AI interfaces—extending
 
 - [README.md](README.md) — project overview, getting started, and configuration
 - [DOCKER.md](DOCKER.md) — Docker deployment guide
-- [Environment customization guide](docs/ENVIRONMENT-CUSTOMIZATION.md) — runtime environment setup
+- [Environment customization guide](docs/articles/environment.md) — runtime environment setup
 - [Azure deployment](infrastructure/azure/README.md) — Azure Container Apps deployment
