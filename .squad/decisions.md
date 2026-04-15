@@ -596,6 +596,21 @@ Use the published API landing URL `https://usepowershell.github.io/PoshMcp/api/P
 - `docfx build .\\docs\\docfx.json` no longer reports `docs/index.md` invalid link warnings for the previous API link locations.
 - Any remaining build warnings are unrelated to this API link change.
 
+### Team intro framing for conference audiences
+
+**Author:** Leela
+**Requested by:** Steven Murawski
+**Date:** 2026-04-14
+**Status:** Implemented
+
+Use a concise role-to-achievement mapping for team introductions, with 1-2 audience-friendly sentences per team member in `docs/articles/talk-team-introductions.md`.
+
+**Rationale:**
+- Keeps live delivery short and clear.
+- Anchors each intro to verifiable project contributions.
+
+**Impact:** Team-intro content for talk prep is now concise, consistent, and externally legible.
+
 
 
 # Merge Session Decisions — PRs #92–#95
