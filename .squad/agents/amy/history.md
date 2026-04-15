@@ -101,6 +101,16 @@
 - Verified: `dotnet tool list -g | Select-String poshmcp` → `poshmcp         0.5.4        poshmcp`
 - Local .nupkg directory is specified with `--add-source ./nupkg` (relative path from working directory)
 
+### 2026-04-14: v0.5.6 patch release and GitHub Packages publish
+
+- Version source remains `PoshMcp.Server/PoshMcp.csproj` `<Version>`; bumped `0.5.5` → `0.5.6` as patch increment.
+- Packaging command: `dotnet pack .\PoshMcp.Server\PoshMcp.csproj -c Release -o .\nupkg`
+- Produced artifact: `nupkg/poshmcp.0.5.6.nupkg` (25,843,399 bytes).
+- GitHub Packages publish command used existing source alias and gh token: `dotnet nuget push .\nupkg\poshmcp.0.5.6.nupkg --api-key (gh auth token) --source github-poshmcp --skip-duplicate`.
+- Publish succeeded to `https://nuget.pkg.github.com/usepowershell`.
+- Local update command remains: `dotnet tool update -g poshmcp --version 0.5.6 --add-source .\nupkg --ignore-failed-sources`.
+- Verified installs: `dotnet tool list -g` shows `poshmcp 0.5.6`; `poshmcp --version` reports `0.5.6+31fa6372ec4b71d7dd68261ba45266c6c8b93817`.
+
 📌 Team update (2026-04-14T00:00:00Z): Docs deployment workflow decision has been merged into `.squad/decisions.md` and inbox entry closed by Scribe.
 
 ## Archive Note
