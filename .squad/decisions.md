@@ -360,9 +360,6 @@ Comprehensive plan for out-of-process PowerShell execution written to `specs/out
 
 **Full spec:** `specs/out-of-process-execution.md`
 
-
-
-
 # Decision: PoshMcp Release Packaging Workflow (v0.5.1)
 
 **Date:** 2026-04-12
@@ -396,8 +393,6 @@ Use a **patch version increment** (`0.5.0` → `0.5.1`) for this release. The ch
 - `artifacts/nupkg/` is the local feed folder; not committed to source control.
 - Version bump commit should be made after packaging to keep git history clean.
 - NU1510 warnings (redundant explicit package refs) are pre-existing and non-blocking.
-
-
 
 ### 2026-04-11: CLIXML vs ndjson for OOP subprocess communication
 
@@ -475,8 +470,6 @@ If specific types prove problematic during implementation, the `oop-host.ps1` sc
 ## Impact
 
 No changes to `specs/out-of-process-execution.md`. The existing ndjson protocol remains the correct approach.
-
-
 
 # Decision: MCP Authentication Architecture
 
@@ -611,8 +604,6 @@ Use a concise role-to-achievement mapping for team introductions, with 1-2 audie
 
 **Impact:** Team-intro content for talk prep is now concise, consistent, and externally legible.
 
-
-
 # Merge Session Decisions — PRs #92–#95
 
 **Author:** Amy (DevOps/Platform)
@@ -641,7 +632,6 @@ Worktrees that have not been previously built do not have `project.assets.json` 
 ### Force-push requires explicit remote branch when upstream is not configured
 `git push --force-with-lease` fails without an upstream tracking ref. Use `git push --force-with-lease origin <branch-name>` explicitly in worktrees.
 
-
 # Decision: --use-default-display-properties CLI flag pattern
 
 **Date:** 2026-04-14
@@ -668,7 +658,6 @@ All scalar boolean flags in `update-config` follow this four-step pattern in `Pr
 ## Scope
 
 Single file change: `PoshMcp.Server/Program.cs`, 15 lines added, 0 deleted.
-
 
 # Decision: Advisory warnings in CLI commands go to stderr
 
@@ -724,12 +713,10 @@ For user-facing guidance in the root `README.md`, treat `docs/articles/*` as can
 - Build succeeds with no new warnings
 - PR #96 re-reviewed and ready for Farnsworth's approval
 
-
 ### 2026-04-13T08:50:30Z: User directive
 **By:** Steven Murawski (via Copilot)
 **What:** Whenever an agent creates a comment, issue, or PR on GitHub, sign it at the end with the agent's name (e.g., — Bender, — Farnsworth).
 **Why:** Without signatures, GitHub activity looks like the repo owner talking to themselves. Agent attribution makes conversations legible.
-
 
 # Decision: Guard against duplicate DiagnoseMissingCommands calls
 
@@ -754,7 +741,6 @@ Both `RunDoctorAsync` and `BuildDoctorJson` independently call `DiagnoseMissingC
 - PR #96 must be revised before merge
 - Assigned to Bender (rejection lockout on Hermes)
 - Pattern applies to any future expensive diagnostic that appears in both runtime and builder paths
-
 
 # PR #84 Action Required — Rebase onto main
 
@@ -820,7 +806,6 @@ The fix is sound and the approach is appropriate for the current scope:
 
 **Verdict: Approve and merge after rebase.**
 
-
 # Decision: Approve and merge PR #85 — extend update-config all settings
 
 **Date:** 2026-04-13
@@ -869,7 +854,6 @@ Upgrading `boolUpdateApplied` from `bool` to `int` is a strictly better design �
 - **#87** — Warn when `--set-auth-enabled true` used with empty `Authentication.Schemes` (UX improvement, not blocking)
 - **#88** — Add unit tests for all 4 new flags in `ProgramCliConfigCommandsTests` (test coverage gap, Fry's queue)
 
-
 # Decision: update-config flag test patterns (Issue #88)
 
 **Author:** Fry  
@@ -896,7 +880,6 @@ Rather than a separate test for AllowAnonymous/RequiredScopes/RequiredRoles, the
 
 ### 5. settingsChanged = boolUpdateApplied
 The `settingsChanged` JSON field increments once per flag that writes a value (`boolUpdateApplied` in `UpdateConfigurationFileAsync`). It does NOT count function add/remove operations — those appear in separate fields (`addedFunctions`, `removedFunctions`).
-
 
 # Decision: Doctor command resolution diagnostics pattern
 
@@ -931,7 +914,6 @@ The doctor command exists for troubleshooting. Reporting [MISSING] with no conte
 ## Scope
 
 This pattern applies to any future doctor/diagnostic subcommands that need to explain why something is missing. Keep introspection in `IsolatedPowerShellRunspace`, keep it best-effort (catch and report errors), and surface reasons in both text and JSON output.
-
 
 # Decision: Unserializable Parameter Type Filtering
 
@@ -1096,4 +1078,58 @@ Update docs to reflect actual `FunctionOverrides` resolver order: exact tool-nam
 **Impact:**
 - Documentation now recommends command-name keys for durable configuration while acknowledging that generated tool-name keys are currently honored.
 - Regression coverage includes precedence behavior so docs and implementation remain aligned.
+
+# Decision Proposal: Keep DESIGN.md aligned with implementation boundaries
+
+## Date
+2026-04-15
+
+## Proposed By
+Farnsworth (Lead/Architect)
+
+## Status
+Proposed
+
+## Decision
+Adopt a lightweight architecture-doc consistency rule for DESIGN.md:
+- Describe AI intent mapping as MCP client responsibility, not server responsibility.
+- Describe PoshMcp server responsibilities as tool discovery, schema generation, execution, and transport hosting.
+- Keep runtime and transport statements synchronized with implemented modes (`in-process`, `out-of-process`, `stdio`, `http`).
+- Use active documentation paths in local links; avoid archived paths unless explicitly labeled archive material.
+
+## Context
+The architecture consistency pass found drift in boundary language and at least one stale local link. The implementation and docs now clearly expose dual transport and runtime modes, while intent mapping remains external to the server.
+
+## Rationale
+These guardrails preserve architectural clarity for contributors and reviewers, reduce onboarding confusion, and prevent design docs from becoming aspirational in areas that are already concretely implemented.
+
+## Expected Impact
+- Fewer architecture misunderstandings in PR reviews.
+- Better consistency across DESIGN.md, README, and docs/articles.
+- Reduced broken-link churn in design documentation.
+
+## Suggested Follow-up
+Add a periodic docs consistency check in release readiness (manual checklist item to start).
+
+# Docker docs consistency guardrails (proposal)
+
+**Author:** Leela (Developer Advocate)  
+**Date:** 2026-04-15  
+**Status:** Proposed
+
+## Decision
+Treat `DOCKER.md` as the canonical root-level container operations guide, and constrain consistency edits to factual, high-confidence alignment with current CLI + container behavior.
+
+## Scope
+- Keep `DOCKER.md` CLI-first (`poshmcp build`, `poshmcp run`), while including Docker-native equivalents for parity with docs/articles.
+- Use container-accurate paths and entrypoint terminology (`/app/server/poshmcp`, `/app/server/appsettings.json`, `POSHMCP_TRANSPORT`).
+- Ensure root-level links only target files that currently exist in-repo.
+
+## Rationale
+- Existing docs have mixed generations of guidance (CLI-first and Docker-native); parity examples reduce confusion without broad rewrites.
+- Path and entrypoint precision prevents copy/paste failures in derived images and compose usage.
+- Small, factual edits lower risk and preserve voice/tone in docs that users already reference.
+
+## Follow-up (non-blocking)
+- In a future docs sweep, align `docs/articles/docker.md` examples with the same canonical path and compose environment-variable pattern used in `DOCKER.md`.
 
