@@ -53,25 +53,51 @@ Get-AzResource
 
 ## Authentication (Optional)
 
-Enable Entra ID authentication for HTTP mode to control who can access PoshMcp. See [Entra ID Authentication](authentication.md).
+For HTTP deployments, choose one authentication mode:
 
-Alternatively, enable API key authentication:
+- **Entra ID (OAuth 2.1):** Best for enterprise identity, external clients, and centralized access governance. See [Entra ID setup](authentication.md#entra-id-oauth-21).
+- **API key:** Best for trusted internal callers and simple service automation. See [API key setup](authentication.md#api-key-authentication).
+
+Example API key configuration:
 
 ```json
 {
   "Authentication": {
     "Enabled": true,
-    "DefaultScheme": "Bearer",
+    "DefaultScheme": "ApiKey",
+    "DefaultPolicy": {
+      "RequireAuthentication": true,
+      "RequiredScopes": [],
+      "RequiredRoles": ["reader"]
+    },
     "Schemes": {
-      "Bearer": {
+      "ApiKey": {
         "Type": "ApiKey",
-        "Location": "Header",
-        "HeaderName": "X-API-Key"
+        "HeaderName": "X-API-Key",
+        "Keys": {
+          "key-reader": {
+            "Scopes": [],
+            "Roles": ["reader"]
+          },
+          "key-ops": {
+            "Scopes": [],
+            "Roles": ["ops", "reader"]
+          }
+        }
+      }
+    }
+  },
+  "PowerShellConfiguration": {
+    "FunctionOverrides": {
+      "Get-Process": {
+        "RequiredRoles": ["ops"]
       }
     }
   }
 }
 ```
+
+Per-tool `FunctionOverrides` authorization requirements override `Authentication.DefaultPolicy` for that tool.
 
 Clients must provide the API key:
 
@@ -119,4 +145,4 @@ Logs include:
 
 ---
 
-**Next:** [Entra ID Authentication](authentication.md) | [Docker Deployment](docker.md)
+**Next:** [Authentication Guide](authentication.md) | [Docker Deployment](docker.md)

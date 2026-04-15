@@ -256,25 +256,61 @@ poshmcp update-config --add-exclude-pattern "ConvertTo-SecureString"
 
 ### Authentication
 
-Enable API key authentication for HTTP mode:
+PoshMcp supports both authentication modes in the same `Authentication` model:
+
+- **Entra ID (OAuth 2.1 / JwtBearer):** Use for enterprise identity and token-based clients. See [Authentication Guide - Entra ID](authentication.md#entra-id-oauth-21).
+- **API key (ApiKey):** Use for trusted internal clients and automation. Example:
 
 ```json
 {
   "Authentication": {
     "Enabled": true,
-    "DefaultScheme": "Bearer",
+    "DefaultScheme": "ApiKey",
+    "DefaultPolicy": {
+      "RequireAuthentication": true,
+      "RequiredScopes": [],
+      "RequiredRoles": ["reader"]
+    },
     "Schemes": {
-      "Bearer": {
+      "ApiKey": {
         "Type": "ApiKey",
-        "Location": "Header",
-        "HeaderName": "X-API-Key"
+        "HeaderName": "X-API-Key",
+        "Keys": {
+          "key-reader": {
+            "Scopes": [],
+            "Roles": ["reader"]
+          },
+          "key-ops": {
+            "Scopes": [],
+            "Roles": ["ops", "reader"]
+          }
+        }
+      }
+    }
+  },
+  "PowerShellConfiguration": {
+    "CommandNames": ["Get-Process", "Get-Service"],
+    "Modules": [],
+    "ExcludePatterns": [],
+    "IncludePatterns": [],
+    "FunctionOverrides": {
+      "Get-Process": {
+        "RequiredRoles": ["ops"]
+      },
+      "Get-Service": {
+        "RequiredRoles": ["reader", "support"]
       }
     }
   }
 }
 ```
 
-For enterprise security, see [Entra ID Authentication](authentication.md).
+Behavior:
+- `Authentication.DefaultPolicy.RequiredRoles` and `RequiredScopes` apply to all tools by default.
+- API key role and scope claims come from the matching `Schemes.ApiKey.Keys` entry.
+- `PowerShellConfiguration.FunctionOverrides.<ToolName>.RequiredRoles` and `RequiredScopes` take precedence over `Authentication.DefaultPolicy` for that tool.
+
+For full Entra ID and API key setup guidance, see [Authentication Guide](authentication.md).
 
 ---
 

@@ -1,13 +1,19 @@
 ---
 uid: authentication
-title: Entra ID Authentication Guide
+title: Authentication Guide
 ---
 
-# Entra ID Authentication Guide
+# Authentication Guide
 
-Secure your PoshMcp server with Azure Entra ID OAuth 2.1 authentication and token-based access control.
+Secure your PoshMcp server with either Azure Entra ID (OAuth 2.1) or API key authentication.
 
-This guide covers two complementary authentication paths. Most production deployments use both to achieve enterprise security with minimal credential management.
+Use this page to choose the right option for your deployment and configure it with the current `Authentication` schema.
+
+## Choose an Authentication Mode
+
+- Use **Entra ID (OAuth 2.1)** for enterprise identity, centralized access control, token issuance, and browser/client compatibility. Start with [Entra ID (OAuth 2.1)](#entra-id-oauth-21).
+- Use **API key authentication** for internal services, automation, and simple server-to-server access where key distribution is acceptable. Start with [API Key Authentication](#api-key-authentication).
+- In Azure-hosted production, a common pattern is **Entra ID for inbound client authentication** plus **Managed Identity for outbound Azure resource access**.
 
 ## Quick Comparison
 
@@ -27,7 +33,11 @@ This guide covers two complementary authentication paths. Most production deploy
 - **Simple testing**: Use **App Registration only**
 - **Enterprise with compliance**: Use **both** for maximum flexibility
 
-## Path A: App Registration
+## Entra ID (OAuth 2.1)
+
+Use Entra ID when clients should present bearer tokens and you need centralized identity lifecycle management.
+
+### App Registration
 
 Use App Registration to define OAuth scopes and control client access. Works anywhere.
 
@@ -87,7 +97,7 @@ Edit `appsettings.json`:
 
 Replace `{tenant-id}` with your Directory (tenant) ID from the app registration.
 
-## Path B: Managed Identity (Azure-Hosted Deployments)
+### Managed Identity (Azure-Hosted Deployments)
 
 Use managed identity when PoshMcp runs on Azure compute (Container Apps, AKS, App Service). Eliminates credential management on the server.
 
@@ -149,6 +159,50 @@ az role assignment create \
 ### Configuration
 
 Use the same `appsettings.json` format as App Registration. The difference is credentials come from the Azure platform automatically.
+
+## API Key Authentication
+
+Use API key authentication when you need lightweight authentication for trusted clients, internal automation, or bootstrap scenarios.
+
+Edit `appsettings.json`:
+
+```json
+{
+  "Authentication": {
+    "Enabled": true,
+    "DefaultScheme": "ApiKey",
+    "DefaultPolicy": {
+      "RequireAuthentication": true,
+      "RequiredScopes": [],
+      "RequiredRoles": ["reader"]
+    },
+    "Schemes": {
+      "ApiKey": {
+        "Type": "ApiKey",
+        "HeaderName": "X-API-Key",
+        "Keys": {
+          "key-reader": {
+            "Scopes": [],
+            "Roles": ["reader"]
+          },
+          "key-ops": {
+            "Scopes": [],
+            "Roles": ["ops", "reader"]
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Make an authenticated request:
+
+```bash
+curl -H "X-API-Key: key-reader" https://poshmcp.example.com/tools
+```
+
+For per-tool authorization precedence with `PowerShellConfiguration.FunctionOverrides`, see [Configuration Guide](configuration.md#authentication).
 
 ## Testing Authentication
 
@@ -309,6 +363,4 @@ az role assignment create \
 
 ---
 
-**Next:** [Docker Deployment](docker.md) | [Advanced Configuration](advanced.md)
-
-For the complete authentication guide with step-by-step portal screenshots and advanced scenarios, see the Entra ID Authentication Guide in the repository docs folder.
+**Next:** [Security Best Practices](security.md) | [Configuration Guide](configuration.md) | [Docker Deployment](docker.md)
