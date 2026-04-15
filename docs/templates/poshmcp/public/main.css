@@ -1,0 +1,27 @@
+/* Keep DocFX theme and only adjust logo visibility/placement. */
+.navbar .navbar-brand #logo {
+  display: block;
+  width: auto;
+  height: 36px;
+  max-width: 180px;
+}
+
+.navbar .container-xxl {
+  position: relative;
+}
+
+.navbar .navbar-brand {
+  position: absolute;
+  right: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0;
+  padding: 0;
+  z-index: 2;
+}
+
+@media (min-width: 768px) {
+  .navbar .navbar-collapse {
+    margin-right: 12rem;
+  }
+}

@@ -7,7 +7,7 @@ title: Environment Customization
 
 Configure PoshMcp's runtime environment for your specific use case.
 
-For detailed environment customization guide, see [ENVIRONMENT-CUSTOMIZATION.md](../../ENVIRONMENT-CUSTOMIZATION.md) in the repository.
+For detailed environment customization guide, see [ENVIRONMENT-CUSTOMIZATION.md](../archive/ENVIRONMENT-CUSTOMIZATION.md) in the repository.
 
 ## Quick Reference
 

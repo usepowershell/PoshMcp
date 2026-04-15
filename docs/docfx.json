@@ -13,7 +13,7 @@
   "build": {
     "content": [
       {
-        "files": ["articles/**/*.md", "articles/**/toc.yml", "index.md", "toc.yml"]
+        "files": ["articles/**/*.md", "articles/**/toc.yml", "archive/ENVIRONMENT-CUSTOMIZATION.md", "index.md", "toc.yml"]
       },
       {
         "files": ["api/**.yml", "api/**/toc.yml"]
@@ -21,7 +21,7 @@
     ],
     "resource": [
       {
-        "files": ["images/**"]
+        "files": ["images/**", "styles/**", "poshmcp.svg", "logo.svg", "public/logo.svg"]
       }
     ],
     "overwrite": [
@@ -32,6 +32,7 @@
     "dest": "_site",
     "globalMetadata": {
       "_appTitle": "PoshMcp Documentation",
+      "_appLogoPath": "public/logo.svg",
       "_appFooter": "© 2026 Microsoft. PoshMcp transforms PowerShell into AI-consumable tools.",
       "_gitContribute": {
         "repo": "https://github.com/usepowershell/poshmcp",
@@ -40,6 +41,6 @@
       },
       "_enableNewTab": true
     },
-    "template": ["default", "modern"]
+    "template": ["default", "modern", "templates/poshmcp"]
   }
 }

@@ -1,4 +1,7 @@
+- **20260414T000000Z**: ✓ Wired `docs/public/logo.svg` into DocFX build: created `docs/public/` source folder, added `public/logo.svg` to resource files, updated `_appLogoPath` to `public/logo.svg`. Build confirmed `_site/public/logo.svg` present, 0 warnings.
 - **20260403T135630Z**: ✓ Docs consistency review (13 files, 2.2K lines deduplicated). Proposal filed & merged into decisions.md.
+- **20260414T000000Z**: Updated DocFX branding config to use `poshmcp.svg` via `_appLogoPath` and added SVG to `build.resource.files` so the logo is emitted and referenced correctly in generated docs.
+- **20260414T000000Z**: Fixed DocFX homepage `InvalidFileLink` warnings by replacing `api/index.md` references in `docs/index.md` with the published API landing URL `https://usepowershell.github.io/PoshMcp/api/PoshMcp.html`; validated that both index warnings were removed in local build output.
 # Leela — History
 
 ## Project Context (Seeded on Join)
@@ -134,4 +137,9 @@
 - PoshMcp.Tests/Integration/README.azure-integration.md → Azure infra, Examples, DESIGN, Trait filtering, Quickstart
 
 **Net effect:** ~2,250 lines of duplicated content removed, replaced with clear cross-reference links. Every doc now has a distinct purpose with no overlapping content.
+
+- **20260414T000000Z**: Local DocFX and published HTML diverged on navbar logo path (`poshmcp.svg` vs `logo.svg`); standardized docs source to `logo.svg` in `docs/docfx.json` and added `docs/logo.svg` so local builds consistently emit `<img id="logo" class="svg" src="logo.svg" alt="">`.
+- **20260414T000000Z**: Fixed DocFX `InvalidFileLink` warnings in environment docs by replacing links that pointed outside the DocFX content graph with in-site article links or stable GitHub links; also corrected `docs/articles/environment.md` relative path to `../archive/ENVIRONMENT-CUSTOMIZATION.md`.
+- **20260414T000000Z**: DocFX content boundaries matter for link validation; archive-only pages in `docs/archive` should link to included `docs/articles/*` pages (or external URLs), not sibling archive files or repo-root folders excluded by `docs/docfx.json`.
+- **20260414T000000Z**: Navbar logo placement in DocFX should be changed in source template/style assets (`docs/templates/poshmcp/public/main.css` and matching source CSS), then validated by rebuilding and checking generated `_site/public/main.css` rather than editing `_site` directly.
 

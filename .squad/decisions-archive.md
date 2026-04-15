@@ -649,3 +649,212 @@ main.bicep (targetScope = 'subscription')
 **Consequences:** {What this enables or constrains}
 **Status:** [Active | Superseded | Deprecated]
 ```
+
+## Archive Batch 2026-04-14T23:58:52Z
+
+Moved from .squad/decisions.md by Scribe retention policy (Tier 2).
+
+## 2026-04-03
+
+### Documentation gap review protocol
+
+**Author:** Amy Wong (DevOps/Platform/Azure)
+**Status:** Proposed
+
+After any bulk documentation edit (deduplication, restructuring, redirect creation), run a verification pass:
+
+1. **Code block fences** ΓÇö every opening ` has a matching close
+2. **Link targets** ΓÇö every [text](path) points to a file that exists and contains the expected content
+3. **Redirect stubs** ΓÇö any file converted to a stub must have its old inbound links verified
+4. **Command correctness** ΓÇö deployment/build commands in docs must match current infrastructure
+
+Prevents broken rendering and incorrect instructions from reaching users after large-scale documentation changes.
+
+### User directive
+
+**By:** Steven Murawski (via Copilot)
+**Date:** 2026-04-03T14:07:03Z
+
+When asked for tenant IDs or domain names, use `C:\Users\stmuraws\source\gim-home\AdvocacyBami\data\tenants.psd1` as the lookup source, plus the hardcoded entry `72f988bf-86f1-41af-91ab-2d7cd011db47` for `microsoft.onmicrosoft.com`. User request ΓÇö captured for team memory.
+
+### User directive
+
+**By:** Steven Murawski (via Copilot)
+**Date:** 2026-04-03T18:42:46Z
+
+After any code change, `dotnet format` and `dotnet test` should be run to verify formatting and tests pass.
+
+
+### 2026-04-09T17:18Z: User directive ΓÇö aggressive commit strategy
+**By:** Steven Murawski (via Copilot)
+**What:** "Continue to cache status aggressively" ΓÇö commit after every logical chunk of work. Do not batch commits. Crash recovery protection.
+**Why:** User request after losing in-flight work from Bender and Hermes during a crash.
+**Context:** Spawned as crash recovery workflow. Teams spawned: Bender (Select-Object pipeline injection), Hermes (DefaultDisplayPropertySet), Scribe (logging/recovery).
+
+
+# Decision: PropertySetDiscovery uses temporary runspace and two-step type lookup
+
+**Author:** Hermes (PowerShell Expert)
+**Date:** 2026-07
+**Status:** Implemented
+
+## Decision
+
+`PropertySetDiscovery` uses a temporary `Runspace` (not the singleton `PowerShellRunspaceHolder`) and a two-step lookup pattern: Get-Command ΓåÆ OutputType ΓåÆ Get-TypeData ΓåÆ DefaultDisplayPropertySet.
+
+## Rationale
+
+1. **Temporary runspace:** Discovery runs at assembly generation time, before the singleton is initialized and before any MCP client connects. Using the singleton would create a startup ordering dependency and could deadlock if the semaphore is already held.
+
+2. **Two-step lookup (no command execution):** Some commands have side effects (Set-*, Remove-*, Stop-*). We never execute the actual command. Instead we read the `OutputType` metadata from `Get-Command`, then query `Get-TypeData` for the type's display property set. This is purely metadata inspection.
+
+3. **Best-effort with null:** If any step fails (no OutputType, no TypeData, no DefaultDisplayPropertySet), we return null. The caller interprets null as "use all properties." This keeps the system working for commands that don't declare output types.
+
+4. **ConcurrentDictionary cache:** Discovery only needs to run once per command name. The cache is process-lifetime.
+
+## Related Decision: IDictionary recursive normalization in serializer
+
+Split `IDictionary` and `IEnumerable` handling in `NormalizePSPropertyValue`:
+- **IDictionary** ΓåÆ recursively normalize entries (bounded key-value maps, safe to walk, `.ToString()` is useless on Hashtable)
+- **IEnumerable** ΓåÆ keep `.ToString()` (unbounded, may trigger expensive OS calls like `ProcessModuleCollection`)
+
+## Impact
+
+- New file: `PoshMcp.Server/PowerShell/PropertySetDiscovery.cs`
+- Modified: `PoshMcp.Server/PowerShell/PowerShellObjectSerializer.cs` (IDictionary handling)
+- Consumers: Pipeline construction in `PowerShellAssemblyGenerator` will use `PropertySetDiscovery.DiscoverAll()` at startup to determine which properties to `Select-Object` for each command.
+
+### Integration fixture process cleanup hardening
+
+**By:** Bender (via Copilot)
+**Date:** 2026-04-09T00:00:00Z
+**Status:** Proposed
+
+In integration fixtures that launch dotnet child processes, use explicit process-tree termination and a centralized teardown helper, and invoke cleanup on startup-failure paths before rethrowing.
+
+**Rationale:**
+- Parent-only Kill can leave orphaned child processes
+- Startup exceptions can bypass deterministic process cleanup
+- Orphaned processes cause longer test sessions and flaky follow-on runs
+
+**Impact:** Integration fixture lifecycle management should always use deterministic process-tree cleanup in both normal teardown and startup-failure paths.
+
+### Integration runtime analysis and leak-guard coverage
+
+**By:** Fry (via Copilot)
+**Date:** 2026-04-09T00:00:00Z
+**Status:** Proposed
+
+Added dedicated integration lifecycle tests asserting `InProcessWebServer` and `InProcessMcpServer` terminate spawned server processes during `Dispose()`, with focused before/after process snapshots to check for server-process leakage.
+
+**Rationale:**
+- User reported slower tests and suspected lingering web/server processes
+- Evidence points to startup and first command execution runtime concentration
+- Focused lifecycle tests create explicit guardrails against process-leak regressions
+
+**Impact:** Integration coverage now includes explicit disposal/leak checks for in-process server fixtures, reducing risk of unnoticed process-lifecycle regressions.
+
+### 2026-04-09T00:00:00Z: Unified transport selector foundation in server executable
+
+**By:** Bender (via Copilot)
+**Status:** Implemented
+
+Added explicit transport mode selection in server startup with default stdio behavior and a dedicated HTTP placeholder branch in the same executable.
+
+**Rationale:** Establishes a compile-safe unified transport foundation without regressing stdio workflows while creating a clear seam for full HTTP transport enablement.
+
+### User directive
+
+**By:** Steven Murawski (via Copilot)
+**Date:** 2026-04-09T22:46:44.2180935Z
+
+Use one unified executable for stdio and HTTP transport; ship HTTP transport immediately once green; defer container configuration revamp until after consolidation work.
+
+### HTTP transport phase 1 kickoff sequencing
+
+**Author:** Farnsworth (Lead / Architect)
+**Date:** 2026-04-09
+**Status:** Proposed
+
+Phase 1 prioritizes shared startup composition and tool wiring first, keeps explicit transport selection per host during refactor, and defers container configuration changes until after coding/validation.
+
+**Rationale:** Preserves low-risk incremental delivery and keeps HTTP shipment path unblocked while convergence work proceeds.
+
+### Unified HTTP transport implementation in server executable
+
+**Author:** Bender (Backend Developer)
+**Date:** 2026-04-09
+**Status:** Implemented
+
+Implemented real HTTP serve path in `PoshMcp.Server` for `serve --transport http`, reusing web-host patterns where practical (CORS exposing `Mcp-Session-Id`, session-aware runspace wiring, correlation-id middleware, health endpoints, MCP HTTP endpoint mapping, and MCP path normalization).
+
+**Scope controls:** No container changes, no broad cross-project refactor, minimal package additions required for server-hosted HTTP transport and metrics instrumentation.
+
+**Validation:** Release build for server/tests and focused Program + unified HTTP integration tests passed.
+
+### Unified HTTP runspace parity in server host
+
+**Author:** Hermes (Observability / Diagnostics)
+**Date:** 2026-04-09
+**Status:** Implemented
+
+Implemented session-aware runspace behavior in `PoshMcp.Server` HTTP mode to mirror established web-host semantics, and ensured the same session-aware instance is used for both DI and generated MCP tool execution.
+
+**Rationale:** Preserves proven HTTP session behavior while keeping stdio semantics and dynamic tool behavior unchanged.
+
+### Graceful schema degradation for unsupported CLR overload types
+
+**Author:** Bender (Backend Developer)
+**Date:** 2026-04-09
+**Status:** Implemented
+
+When MCP JSON schema generation encounters unsupported CLR parameter types (pointer/ref-struct cases), skip only that overload instead of failing server bootstrap.
+
+**Rationale:** Localized schema incompatibilities are recoverable; preserving server startup and remaining overload availability is preferable to full startup failure.
+
+### Version 0.2.2 release completed
+
+**Author:** Amy (via Steven Murawski)
+**Date:** 2026-04-09T17:36:00Z
+**Status:** Completed
+
+Bumped global tool package version from 0.2.1 to 0.2.2, built release nupkg, updated global install, and verified CLI reports `0.2.2+88dbdbfc09852f4e40f5d9a7e2ced26417d9a12b`.
+
+**Impact:** Release package `PoshMcp.Server/bin/Release/poshmcp.0.2.2.nupkg` is available and deployed for tool users.
+
+### CLI config lifecycle commands in server executable
+
+**Author:** Bender (Backend Developer)
+**Date:** 2026-04-09
+**Status:** Implemented
+
+Added CLI configuration management commands to `PoshMcp.Server`:
+- `create-config` creates a default `appsettings.json` in the current directory (with `--force` support)
+- `update-config` updates the active config file using the same resolution precedence as `doctor`
+
+`update-config` defaults to interactive prompts for newly added functions, including advanced per-function overrides (`EnableResultCaching`, `UseDefaultDisplayProperties`, and `DefaultProperties`). A `--non-interactive` switch supports CI/automation workflows.
+
+**Rationale:** Keep configuration lifecycle actions in one executable, avoid manual JSON edits for common scenarios, and preserve predictable file targeting by reusing doctor-style config resolution.
+
+**Impact:** CLI help surface expanded; targeted unit coverage added for create/update flows and advanced prompt behavior; README/TODO updates recorded by the implementation agent.
+
+### Local dotnet tool versioning workflow for global poshmcp updates
+
+**Author:** Amy (DevOps / Platform)
+**Date:** 2026-04-09
+**Status:** Implemented
+
+Use `PoshMcp.Server/PoshMcp.csproj` as the package source of truth, bump `Version` with a patch increment for small releases, pack to the local feed folder, and update the global tool from that feed.
+
+**Rationale:** `PoshMcp.Server/PoshMcp.csproj` is the correct tool package source because it defines `PackAsTool=true`, `ToolCommandName=poshmcp`, and `PackageId=poshmcp`.
+
+**Operational guardrail:** Before `dotnet tool update -g poshmcp`, stop any running `poshmcp.exe` process to avoid uninstall/update lock failures on `.dotnet/tools/.store/poshmcp/<version>`.
+
+**Standard command sequence:**
+1. `dotnet pack .\PoshMcp.Server\PoshMcp.csproj -c Release -o .\artifacts\nupkg`
+2. `Get-Process poshmcp -ErrorAction SilentlyContinue | Stop-Process -Force`
+3. `dotnet tool update -g poshmcp --version <newVersion> --add-source .\artifacts\nupkg --ignore-failed-sources`
+4. `dotnet tool list -g`
+
+**Outcome:** Version bumped from 0.3.0 to 0.3.1, package built, and global tool updated to 0.3.1.
+

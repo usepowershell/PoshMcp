@@ -15,7 +15,7 @@ PoshMcp is an open-source Model Context Protocol (MCP) server that securely expo
 - **[Configuration Guide](articles/configuration.md)** — Configure PowerShell tools and modules
 - **[Entra ID Authentication](articles/authentication.md)** — Secure with OAuth 2.1 and Managed Identity
 - **[Docker Deployment](articles/docker.md)** — Build and run containerized instances
-- **[API Reference](api/index.md)** — C# API documentation for developers
+- **[API Reference](https://usepowershell.github.io/PoshMcp/api/PoshMcp.html)** — C# API documentation for developers
 
 ## Why PoshMcp?
 
@@ -82,7 +82,7 @@ graph LR
 | **Security & Authentication** | [Entra ID Guide](articles/authentication.md) |
 | **Docker & Containerization** | [Docker Deployment](articles/docker.md) |
 | **Advanced Topics** | [Advanced Guide](articles/advanced.md) |
-| **API Reference** | [C# API Docs](api/index.md) |
+| **API Reference** | [C# API Docs](https://usepowershell.github.io/PoshMcp/api/PoshMcp.html) |
 | **Examples** | [Examples](articles/examples.md) |
 | **Troubleshooting** | [FAQ & Troubleshooting](articles/troubleshooting.md) |
 

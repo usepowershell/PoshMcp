@@ -4,8 +4,8 @@ This guide explains how to customize the PowerShell environment in PoshMcp throu
 
 ## Before You Start
 
-- **Module conflicts?** If you're experiencing issues with incompatible modules, see [OUT-OF-PROCESS.md](OUT-OF-PROCESS.md) — PoshMcp offers optional out-of-process PowerShell runtime for module isolation.
-- **Production modules?** Pre-install PowerShell Gallery modules at container build time to reduce startup time. See [../DOCKER.md](../DOCKER.md) for container examples.
+- **Module conflicts?** If you're experiencing issues with incompatible modules, see [Advanced Configuration](../articles/advanced.md) — PoshMcp offers optional out-of-process PowerShell runtime for module isolation.
+- **Production modules?** Pre-install PowerShell Gallery modules at container build time to reduce startup time. See [Docker Guide](../articles/docker.md) for container examples.
 
 ## Overview
 
@@ -616,13 +616,13 @@ docker logs <container-id>
 - [PowerShell Gallery](https://www.powershellgallery.com/)
 - [Docker Volumes Documentation](https://docs.docker.com/storage/volumes/)
 - [PowerShell Module Management](https://docs.microsoft.com/powershell/module/powershellget/)
-- [PoshMcp Project README](../README.md)
+- [PoshMcp Project README](https://github.com/usepowershell/poshmcp#readme)
 
 ---
 
 ## See also
 
-- [Implementation guide](IMPLEMENTATION-GUIDE.md) — developer integration steps for this feature
-- [Integration checklist](INTEGRATION-CHECKLIST.md) — step-by-step checklist for wiring up the feature
-- [DOCKER.md](../DOCKER.md) — Docker deployment guide with module installation patterns
-- [Examples](../examples/) — sample configurations and Docker Compose files
+- [Implementation guide](https://github.com/usepowershell/poshmcp/blob/main/docs/archive/IMPLEMENTATION-GUIDE.md) — developer integration steps for this feature
+- [Integration checklist](../articles/configuration.md) — step-by-step checklist for wiring up the feature
+- [Docker guide](../articles/docker.md) — Docker deployment guide with module installation patterns
+- [Examples](../articles/environment.md) — sample configurations and environment customization patterns
