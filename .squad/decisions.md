@@ -521,6 +521,11 @@ Authentication is **disabled by default** (`Authentication.Enabled = false`) to 
 2. **`DelegatingMcpServerTool` per-tool wrappers**: Rejected — requires wrapping every tool individually, no cleaner than a single filter, and doesn't pair with tool-list filtering.
 3. **Auth enabled by default**: Rejected — would break all existing deployments immediately.
 
+### 2026-04-14T00:00:00Z: Patch-release publish workflow confirmation
+**By:** Steven Murawski (via Amy/Copilot)
+**What:** Bump `PoshMcp.Server/PoshMcp.csproj` `<Version>` by patch (`0.5.5` -> `0.5.6`), package with `dotnet pack -o ./nupkg`, publish `poshmcp.0.5.6.nupkg` to `github-poshmcp` feed via `gh auth token`, and update local global tool from `./nupkg`.
+**Why:** This matches current repo release convention and successfully validated GitHub Packages publish plus local install update in one flow.
+
 ## References
 
 - MCP Spec Authorization: https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization

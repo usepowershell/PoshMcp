@@ -144,4 +144,5 @@
 - **20260414T000000Z**: Navbar logo placement in DocFX should be changed in source template/style assets (`docs/templates/poshmcp/public/main.css` and matching source CSS), then validated by rebuilding and checking generated `_site/public/main.css` rather than editing `_site` directly.
 - **20260414T000000Z**: Tool authorization docs should show complete API key examples with `DefaultPolicy`, per-key `Keys` role/scope claims, and `PowerShellConfiguration.FunctionOverrides` precedence so readers can reason about default vs per-tool access quickly.
 - **20260414T000000Z**: Updated docs/authentication.md, docs/articles/security.md, and docs/articles/configuration.md to explicitly present both Entra ID (`JwtBearer`) and API key (`ApiKey`) authentication with concise "when to use which" guidance and cross-links between sections.
+- **20260414T000000Z**: v0.5.6 release notes should anchor on three concrete commits: `31fa637` (authorization override matching + new `AuthorizationHelpersTests`), `0d26be6` (auth/security/config docs alignment), and `df8fcff` (package version bump to 0.5.6 in `PoshMcp.Server/PoshMcp.csproj`).
 
