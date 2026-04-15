@@ -67,21 +67,36 @@ PoshMcp automatically:
 
 ### Prerequisites
 
-- [.NET 10.0 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
+- [.NET 10.0 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)
 - PowerShell 7.x (included via Microsoft.PowerShell.SDK)
 
 ### Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/poshmcp.git
+# Install the CLI tool
+dotnet tool install -g poshmcp
+
+# Create a default config in the current directory
+poshmcp create-config
+
+# Run stdio server (for MCP clients)
+poshmcp serve --transport stdio
+
+# Run HTTP server (for web integration)
+poshmcp serve --transport http --port 8080
+```
+
+From source:
+
+```bash
+git clone https://github.com/microsoft/poshmcp.git
 cd poshmcp
 
 # Build the project
 dotnet build
 
 # Run stdio server (for MCP clients)
-dotnet run --project PoshMcp.Server
+dotnet run --project PoshMcp.Server -- serve --transport stdio
 
 # Run HTTP server (for web integration)
 dotnet run --project PoshMcp.Server -- serve --transport http
@@ -133,7 +148,7 @@ Configure which PowerShell commands to expose in `appsettings.json`:
 ```json
 {
   "PowerShellConfiguration": {
-    "FunctionNames": [
+    "CommandNames": [
       "Get-Process",
       "Get-Service"
     ],
@@ -150,16 +165,16 @@ Manage configuration files directly from the PoshMcp CLI:
 
 ```bash
 # Create default appsettings.json in the current directory
-dotnet run --project PoshMcp.Server -- create-config
+poshmcp create-config
 
 # Update the active configuration file (resolved with doctor rules)
-dotnet run --project PoshMcp.Server -- update-config --add-function Get-Process
+poshmcp update-config --add-function Get-Process
 
 # Automation-friendly update (skip interactive advanced prompts)
-dotnet run --project PoshMcp.Server -- update-config --non-interactive --add-module Az.Accounts
+poshmcp update-config --non-interactive --add-module Az.Accounts
 
 # Update config for HTTP mode
-dotnet run --project PoshMcp.Server -- update-config --add-function Get-Service
+poshmcp update-config --add-function Get-Service
 ```
 
 ### Built-in Utility Tools
@@ -245,7 +260,7 @@ Load modules from local directories or mounted volumes:
 ```
 
 **For complete documentation and examples, see:**
-- [Environment Customization Guide](docs/ENVIRONMENT-CUSTOMIZATION.md) - Comprehensive guide with use cases
+- [Environment Customization Guide](docs/articles/environment.md) - Comprehensive guide with use cases
 - [examples/](examples/) - Docker Compose examples and sample configurations
 
 ---
@@ -284,7 +299,7 @@ dotnet run --project PoshMcp.Server
 | Module isolation | Shared (one failure affects all) | Isolated |
 | Complexity | Simpler | More complex |
 
-**For complete documentation, see [docs/OUT-OF-PROCESS.md](docs/OUT-OF-PROCESS.md).**
+**For complete documentation, see [docs/articles/transport-modes.md](docs/articles/transport-modes.md) and [specs/out-of-process-execution.md](specs/out-of-process-execution.md).**
 
 ---
 
@@ -322,7 +337,7 @@ For architectural details, see [DESIGN.md](DESIGN.md).
   - Docker Compose orchestration examples
 
 ### Configuration & Customization
-- **[docs/ENVIRONMENT-CUSTOMIZATION.md](docs/ENVIRONMENT-CUSTOMIZATION.md)** — PowerShell environment setup (startup scripts, modules, paths)
+- **[docs/articles/environment.md](docs/articles/environment.md)** — PowerShell environment setup (startup scripts, modules, paths)
   - Module installation and importing
   - Startup script configuration (inline and file-based)
   - Environment-specific customization
@@ -334,26 +349,27 @@ For architectural details, see [DESIGN.md](DESIGN.md).
   - Unit, functional, and integration test categories
   - Running tests by category or trait
   - Contributing test guidelines
-- **[docs/IMPLEMENTATION-GUIDE.md](docs/IMPLEMENTATION-GUIDE.md)** — Developer integration guide
+- **[docs/articles/ai-integration.md](docs/articles/ai-integration.md)** — AI client integration guide
 - **[.github/copilot-instructions.md](.github/copilot-instructions.md)** — Development guidelines and conventions
 
 ### Runtime Modes
-- **[docs/OUT-OF-PROCESS.md](docs/OUT-OF-PROCESS.md)** — Out-of-process PowerShell runtime mode
+- **[docs/articles/transport-modes.md](docs/articles/transport-modes.md)** — Stdio and HTTP transport modes, including out-of-process guidance
   - Module isolation and conflict resolution
   - Configuration via CLI, environment variables, or appsettings.json
   - Performance characteristics and trade-offs
   - Troubleshooting and best practices
 
 ### Advanced Topics
-- **[docs/AZURE-INTEGRATION-TEST-SCENARIO.md](docs/AZURE-INTEGRATION-TEST-SCENARIO.md)** — Azure integration test documentation
-- **[docs/QUICKSTART-AZURE-INTEGRATION-TEST.md](docs/QUICKSTART-AZURE-INTEGRATION-TEST.md)** — Azure test quick reference
-- **[docs/TRAIT-BASED-TEST-FILTERING.md](docs/TRAIT-BASED-TEST-FILTERING.md)** — Test filtering by category, speed, or cost
-- **[docs/INTEGRATION-CHECKLIST.md](docs/INTEGRATION-CHECKLIST.md)** — Integration task checklist
+- **[docs/articles/azure-integration.md](docs/articles/azure-integration.md)** — Azure deployment and integration guidance
+- **[docs/archive/AZURE-INTEGRATION-TEST-SCENARIO.md](docs/archive/AZURE-INTEGRATION-TEST-SCENARIO.md)** — Azure integration test documentation (archived)
+- **[docs/archive/QUICKSTART-AZURE-INTEGRATION-TEST.md](docs/archive/QUICKSTART-AZURE-INTEGRATION-TEST.md)** — Azure test quick reference (archived)
+- **[docs/archive/TRAIT-BASED-TEST-FILTERING.md](docs/archive/TRAIT-BASED-TEST-FILTERING.md)** — Test filtering by category, speed, or cost (archived)
+- **[docs/archive/INTEGRATION-CHECKLIST.md](docs/archive/INTEGRATION-CHECKLIST.md)** — Integration task checklist (archived)
 
 ### Docker & Container Registry
 - **[DOCKER.md](DOCKER.md)** — Complete Docker deployment (see "Resources" section above)
-- **[docs/DOCKER-BUILD-QUICK-REF.md](docs/DOCKER-BUILD-QUICK-REF.md)** — Docker build quick reference
-- **[docs/DOCKER-BUILD-MODULES.md](docs/DOCKER-BUILD-MODULES.md)** — Legacy module building approach (deprecated, see DOCKER.md)
+- **[docs/archive/DOCKER-BUILD-QUICK-REF.md](docs/archive/DOCKER-BUILD-QUICK-REF.md)** — Docker build quick reference (archived)
+- **[docs/archive/DOCKER-BUILD-MODULES.md](docs/archive/DOCKER-BUILD-MODULES.md)** — Legacy module building approach (archived, see DOCKER.md)
 
 ---
 
@@ -367,8 +383,8 @@ Configure in your MCP client settings:
 {
   "mcpServers": {
     "poshmcp": {
-      "command": "dotnet",
-      "args": ["run", "--project", "/path/to/PoshMcp.Server"]
+      "command": "poshmcp",
+      "args": ["serve", "--transport", "stdio"]
     }
   }
 }
@@ -386,7 +402,7 @@ Runs on port 8080 by default. Configure via `appsettings.json`:
     }
   },
   "PowerShellConfiguration": {
-    "FunctionNames": ["Get-Process", "Get-Service"],
+    "CommandNames": ["Get-Process", "Get-Service"],
     "IncludePatterns": ["Get-*"],
     "ExcludePatterns": ["*-Dangerous*"]
   }
@@ -401,7 +417,7 @@ Runs on port 8080 by default. Configure via `appsettings.json`:
 
 #### PowerShellConfiguration Options
 
-- **`FunctionNames`**: Array of specific PowerShell function names to expose
+- **`CommandNames`**: Array of specific PowerShell command names to expose
 - **`Modules`**: Array of PowerShell modules to import (e.g., `Microsoft.PowerShell.Management`)
 - **`IncludePatterns`**: Wildcard patterns for functions to include (e.g., `Get-*`)
 - **`ExcludePatterns`**: Wildcard patterns for functions to exclude
@@ -495,9 +511,9 @@ Contributions are welcome! This project uses a squad-based development approach 
 
 Current focus areas:
 
-- ✅ **Phase 1 Complete**: Health checks and correlation IDs
-- 🔄 **Phase 2 In Progress**: Structured error codes and configuration validation
-- 📋 **Planned**: Command timeouts, circuit breakers, enhanced metrics
+- **Configuration and DX improvements**: Better CLI-driven configuration workflows and docs alignment
+- **Runtime resilience**: Ongoing work around execution stability, serialization safety, and observability
+- **Deployment patterns**: Continued improvements for container and Azure deployment guidance
 
 See [.squad/decisions.md](.squad/decisions.md) for architectural decisions and [.squad/quick-wins-summary.md](.squad/quick-wins-summary.md) for implementation details.
 
@@ -514,9 +530,9 @@ See [.squad/decisions.md](.squad/decisions.md) for architectural decisions and [
 
 ## Support
 
-- **Issues**: [GitHub Issues](../../issues) - Report bugs or request features
-- **Discussions**: [GitHub Discussions](../../discussions) - Ask questions and share ideas
-- **Documentation**: See the `infrastructure/azure/` directory for deployment guides
+- **Issues**: [GitHub Issues](https://github.com/usepowershell/poshmcp/issues) - Report bugs or request features
+- **Discussions**: [GitHub Discussions](https://github.com/usepowershell/poshmcp/discussions) - Ask questions and share ideas
+- **Documentation**: See [docs/index.md](docs/index.md) and [infrastructure/azure/README.md](infrastructure/azure/README.md)
 
 ---
 

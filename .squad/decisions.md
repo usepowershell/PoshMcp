@@ -698,31 +698,29 @@ Always prefix with `WARNING:` for easy grepping/filtering.
 - Stderr is the conventional channel for diagnostic/advisory output in CLI tools.
 - The write must not be blocked — the advisory is informational only.
 
+## 2026-04-15
 
-# Decision: Cache DiagnoseMissingCommands Results in Doctor Output
+### README consistency source and link policy
 
-**Author:** Bender  
-**Date:** 2025-07-15  
-**PR:** #96 (Issue #91 — doctor command resolution)
+**Author:** Leela
+**Date:** 2026-04-15
+**Status:** Proposed
 
-## Decision
+For user-facing guidance in the root `README.md`, treat `docs/articles/*` as canonical. Keep archived materials in `docs/archive/*` explicitly marked as archived, and avoid links to removed root-level `docs/*.md` pages.
 
-`DiagnoseMissingCommands` must be executed at most once per doctor invocation. Its results must be cached and shared between the text output path and the JSON output path in `Program.cs`.
+**Rationale:**
+- Current docs IA centers on `docs/articles/*` for active guides.
+- Root README had stale links (`docs/OUT-OF-PROCESS.md`, `docs/ENVIRONMENT-CUSTOMIZATION.md`, `docs/IMPLEMENTATION-GUIDE.md`) that no longer exist.
+- Mixed command patterns in README caused drift from current docs (`poshmcp` CLI vs legacy `dotnet run` examples for common workflows).
 
-## Context
+**Consequences:**
+- README remains stable as an onboarding surface while docs evolve.
+- Reduced broken-link risk by preferring active docs paths and explicit archive links.
+- Fewer support issues caused by outdated command examples.
 
-`RunDoctorAsync` and `BuildDoctorJson` both previously called `DiagnoseMissingCommands` independently. Each call creates an `IsolatedPowerShellRunspace` and runs `Get-Command`/`Import-Module` for every missing command. When `format == "json"`, both calls executed — doubling the cost with no benefit.
-
-## Fix Applied
-
-- `BuildDoctorJson` now accepts `List<ConfiguredFunctionStatus>? precomputedFunctionStatus = null`
-- A guard in `BuildDoctorJson` skips `DiagnoseMissingCommands` if `ResolutionReason` is already populated
-- `RunDoctorAsync` passes its resolved `configuredFunctionStatus` to `BuildDoctorJson` for the JSON path
-- `ConfiguredFunctionStatus` accessibility changed from `private` to `internal` to satisfy C# accessibility rules
-
-## Outcome
-
-- 336 tests pass, 0 failures
+**Scope:**
+- Root `README.md` link and command examples.
+- No behavior or code changes.
 - Build succeeds with no new warnings
 - PR #96 re-reviewed and ready for Farnsworth's approval
 

@@ -25,3 +25,4 @@ PoshMcp dynamically transforms PowerShell scripts, cmdlets, and modules into sec
 - 2026-04-10: When `decisions.md` is already above the archival threshold, check existing entries for age violations before assuming the inbox is the only archival source.
 - 2026-04-10: Recovery batches with overlapping agent findings are easier to audit when Scribe merges them into a few canonical ledger entries instead of copying each inbox file verbatim.
 - 2026-04-14: For docs-only workflow spawns, merge the inbox item into canonical decisions and add a cross-agent update so architecture/docs leads inherit deployment-trigger context.
+- 2026-04-15: Enforce the archival hard gate first when `decisions.md` exceeds 50KB; move out-of-window entries to `.squad/decisions-archive.md` before merging new inbox proposals so retention and canonical merge rules both stay true.

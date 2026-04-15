@@ -125,6 +125,33 @@ Add a `set-result-caching` MCP tool that sets runtime overrides for result cachi
 
 ---
 
+# Decision: Cache DiagnoseMissingCommands Results in Doctor Output
+
+**Author:** Bender
+**Date:** 2025-07-15
+**PR:** #96 (Issue #91 - doctor command resolution)
+
+## Decision
+
+`DiagnoseMissingCommands` must be executed at most once per doctor invocation. Its results must be cached and shared between the text output path and the JSON output path in `Program.cs`.
+
+## Context
+
+`RunDoctorAsync` and `BuildDoctorJson` both previously called `DiagnoseMissingCommands` independently. Each call creates an `IsolatedPowerShellRunspace` and runs `Get-Command`/`Import-Module` for every missing command. When `format == "json"`, both calls executed - doubling the cost with no benefit.
+
+## Fix Applied
+
+- `BuildDoctorJson` now accepts `List<ConfiguredFunctionStatus>? precomputedFunctionStatus = null`
+- A guard in `BuildDoctorJson` skips `DiagnoseMissingCommands` if `ResolutionReason` is already populated
+- `RunDoctorAsync` passes its resolved `configuredFunctionStatus` to `BuildDoctorJson` for the JSON path
+- `ConfiguredFunctionStatus` accessibility changed from `private` to `internal` to satisfy C# accessibility rules
+
+## Outcome
+
+- 336 tests pass, 0 failures
+
+---
+
 ## 2026-03-27: Phase 1 Testing Strategy - Stub-Based Specification
 
 **Context:** Phase 1 features (health checks, correlation IDs) required test coverage before implementation to serve as specifications and catch regressions.
