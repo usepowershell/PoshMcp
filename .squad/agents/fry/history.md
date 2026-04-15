@@ -20,6 +20,11 @@
 
 ## Learnings
 
+### 2026-04-15: Cross-agent verification pattern for auth behavior
+
+- Bender's resolver improvements should be validated with both precedence-focused tests and docs wording review in the same handoff.
+- For configuration behavior, lock exact-match precedence with regression tests and keep docs explicit about recommended key style versus currently accepted key styles.
+
 ### 2026-03-27: Phase 1 Test Scenarios Created
 
 **Context:** Created comprehensive test structure for Phase 1 Quick Wins (health checks and correlation IDs). Amy will implement these features, so tests serve as specifications and will be updated as implementation progresses.
@@ -196,5 +201,17 @@
 
 **Remaining gap:**
 - Full MCP server startup tests for out-of-process mode are still scaffolded because `Program.cs` and the in-process server harness do not yet expose a `--runtime-mode` integration path.
+
+### 2026-04-14: Auth override key matching docs must reflect actual candidate order
+
+**Context:** Reviewed the auth resolution change for `FunctionOverrides` mapping and verified docs against implementation and tests.
+
+**Key learning:**
+- `AuthorizationHelpers.GetToolOverride` checks candidates in this order: exact tool name, normalized hyphen form, configured command-name matches from snake_case parsing, then truncated fallbacks.
+- Docs that say generated MCP tool names are not valid keys are inaccurate; generated tool-name keys are currently supported and can take precedence when both generated and command-name keys are present.
+- Recommended docs wording: command-name keys are preferred for durable configuration, while exact generated names are still honored by the current resolver.
+
+**Coverage update:**
+- Added `GetToolOverride_PrefersExactToolNameOverride_BeforeCommandNameResolution` in `PoshMcp.Tests/Unit/AuthorizationHelpersTests.cs` to lock current precedence behavior.
 
 

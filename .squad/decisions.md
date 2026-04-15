@@ -1047,3 +1047,35 @@ Move the canonical logo source to `docs/public/logo.svg` and route it through Do
 - `docfx build` completed with 0 warnings, 0 errors.
 - `Test-Path docs/_site/public/logo.svg` returns `True`.
 
+## 2026-04-15
+
+### Authorization override matching for generated tool names
+**By:** Steven Murawski (via Copilot/Bender)
+**Status:** Implemented
+
+**Decision:**
+Resolve per-tool authorization overrides by command-name candidates derived from generated MCP tool names, preferring configured `CommandNames`/`FunctionNames` matches.
+
+**Rationale:**
+- Previous lookup behavior checked exact tool names and simple normalization but could miss command-name override keys when generated tool names included parameter-set suffixes.
+- Matching generated tool names back to command names keeps per-command `FunctionOverrides` authorization policies effective.
+
+**Impact:**
+- Command-level authorization overrides now apply consistently to tools generated from parameter-set-specific method names.
+- Existing command-name override configuration remains valid and predictable.
+
+### Align auth docs with real FunctionOverrides matching behavior
+**By:** Steven Murawski (via Fry/Copilot)
+**Status:** Implemented
+
+**Decision:**
+Update docs to reflect actual `FunctionOverrides` resolver order: exact tool-name match first, then normalized command-name candidates.
+
+**Rationale:**
+- Prior docs implied generated MCP tool names were not valid override keys, which contradicted runtime behavior.
+- Accurate docs reduce operator confusion and align guidance with implementation and tests.
+
+**Impact:**
+- Documentation now recommends command-name keys for durable configuration while acknowledging that generated tool-name keys are currently honored.
+- Regression coverage includes precedence behavior so docs and implementation remain aligned.
+

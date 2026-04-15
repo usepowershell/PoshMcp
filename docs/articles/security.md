@@ -98,6 +98,7 @@ Example API key configuration:
 ```
 
 Per-tool `FunctionOverrides` authorization requirements override `Authentication.DefaultPolicy` for that tool.
+`FunctionOverrides` matching checks exact tool names first (for example `get_process_name`), then normalized command-name candidates (for example `Get-Process`). Use command-name keys for durable configuration across generated parameter-set tool names.
 
 Clients must provide the API key:
 

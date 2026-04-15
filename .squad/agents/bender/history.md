@@ -18,6 +18,14 @@
 - Pass precomputed status data into JSON serialization helpers where available.
 - Guard expensive fallback calls behind null/empty checks to preserve standalone correctness.
 
+### 2026-04-14: Authorization overrides must map generated tool names back to base command names
+
+
+### 2026-04-15: Cross-agent auth handoff with Fry review
+
+- Fry's independent review confirmed docs wording and precedence tests should mirror the implemented override resolver order.
+- Keep pairing resolver changes with both code-level precedence tests and docs updates to avoid drift between runtime behavior and operator guidance.
+
 ### 2026-04-11 to 2026-04-12: Out-of-process execution patterns
 
 - `OutOfProcessCommandExecutor` should centralize subprocess lifecycle, NDJSON request/response matching, and cancellation timeout behavior.

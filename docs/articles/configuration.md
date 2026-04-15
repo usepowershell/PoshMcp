@@ -309,6 +309,7 @@ Behavior:
 - `Authentication.DefaultPolicy.RequiredRoles` and `RequiredScopes` apply to all tools by default.
 - API key role and scope claims come from the matching `Schemes.ApiKey.Keys` entry.
 - `PowerShellConfiguration.FunctionOverrides.<ToolName>.RequiredRoles` and `RequiredScopes` take precedence over `Authentication.DefaultPolicy` for that tool.
+- `FunctionOverrides` matching checks exact tool names first (for example `get_process_name`), then normalized command-name candidates. Use command names (for example `Get-Process`) for stable configuration across generated parameter-set tool names.
 
 For full Entra ID and API key setup guidance, see [Authentication Guide](authentication.md).
 
