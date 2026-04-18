@@ -15,11 +15,7 @@ namespace PoshMcp.Tests.Integration;
 /// These tests start a real server process via InProcessMcpServer and send JSON-RPC requests
 /// using ExternalMcpClient. They cover all acceptance scenarios from User Stories 3 and 4.
 ///
-/// All tests are marked [Trait("Category", "RequiresImplementation")] because
-/// WithListPromptsHandler and WithGetPromptHandler are not yet registered in Program.cs.
-/// Once the implementation PR (Spec 002) lands, remove the trait and verify the tests pass.
-///
-/// To run only these tests once implemented:
+/// To run only these tests:
 ///   dotnet test --filter "Category=McpPrompts"
 /// </summary>
 [Trait("Category", "McpPrompts")]
@@ -52,8 +48,7 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
 
     // ── prompts/list ─────────────────────────────────────────────────────────
 
-    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
-    [Trait("Category", "RequiresImplementation")]
+    [Fact]
     public async Task PromptsList_ReturnsFilePrompt_WithCorrectMetadata()
     {
         // User Story 3, Acceptance Scenario 1 (FR-022):
@@ -71,8 +66,7 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
         Assert.Equal(PromptsTestFixture.FilePromptDescription, filePrompt!["description"]?.ToString());
     }
 
-    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
-    [Trait("Category", "RequiresImplementation")]
+    [Fact]
     public async Task PromptsList_RequiredArgument_AppearsWithRequiredTrue()
     {
         // User Story 3, Acceptance Scenario 2 (FR-022):
@@ -96,8 +90,7 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
             "serviceName argument should have required:true");
     }
 
-    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
-    [Trait("Category", "RequiresImplementation")]
+    [Fact]
     public async Task PromptsList_ReturnsCommandPrompt_InList()
     {
         // User Story 4: command-backed prompt appears in prompts/list.
@@ -114,8 +107,7 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
 
     // ── prompts/get - file source ─────────────────────────────────────────────
 
-    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
-    [Trait("Category", "RequiresImplementation")]
+    [Fact]
     public async Task PromptsGet_FileSource_ReturnsFileContentAsUserRoleMessage()
     {
         // User Story 3, Acceptance Scenario 3 (FR-024):
@@ -139,8 +131,7 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
         Assert.Contains(PromptsTestFixture.FilePromptExpectedContent, textContent, StringComparison.Ordinal);
     }
 
-    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
-    [Trait("Category", "RequiresImplementation")]
+    [Fact]
     public async Task PromptsGet_FileSource_WithNoArguments_ReturnsRawContent()
     {
         // User Story 3, Acceptance Scenario 4 (FR-024):
@@ -161,8 +152,7 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
 
     // ── prompts/get - command source ──────────────────────────────────────────
 
-    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
-    [Trait("Category", "RequiresImplementation")]
+    [Fact]
     public async Task PromptsGet_CommandSource_ExecutesCommandAndReturnsUserRoleMessage()
     {
         // User Story 4, Acceptance Scenario 1 (FR-025):
@@ -186,8 +176,7 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
             "Command prompt should return non-empty text content");
     }
 
-    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
-    [Trait("Category", "RequiresImplementation")]
+    [Fact]
     public async Task PromptsGet_CommandSource_InjectsArgumentValues_AsPowerShellVariables()
     {
         // User Story 4, Acceptance Scenario 2 (FR-032):
@@ -210,8 +199,7 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
         Assert.Contains("wuauserv", textContent, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
-    [Trait("Category", "RequiresImplementation")]
+    [Fact]
     public async Task PromptsGet_CommandSource_TerminatingError_ReturnsMcpError()
     {
         // User Story 4, Acceptance Scenario 3 (FR-033):

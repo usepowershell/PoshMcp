@@ -15,11 +15,7 @@ namespace PoshMcp.Tests.Integration;
 /// These tests start a real server process via InProcessMcpServer and send JSON-RPC requests
 /// using ExternalMcpClient. They cover all acceptance scenarios from User Stories 1 and 2.
 ///
-/// All tests are marked [Trait("Category", "RequiresImplementation")] because
-/// WithListResourcesHandler and WithReadResourceHandler are not yet registered in Program.cs.
-/// Once the implementation PR (Spec 002) lands, remove the trait and verify the tests pass.
-///
-/// To run only these tests once implemented:
+/// To run only these tests:
 ///   dotnet test --filter "Category=McpResources"
 /// </summary>
 [Trait("Category", "McpResources")]
@@ -52,8 +48,7 @@ public class McpResourcesIntegrationTests : PowerShellTestBase, IAsyncLifetime
 
     // ── resources/list ──────────────────────────────────────────────────────
 
-    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
-    [Trait("Category", "RequiresImplementation")]
+    [Fact]
     public async Task ResourcesList_ReturnsFileResource_WithCorrectMetadata()
     {
         // User Story 1, Acceptance Scenario 1 (FR-018):
@@ -73,8 +68,7 @@ public class McpResourcesIntegrationTests : PowerShellTestBase, IAsyncLifetime
         Assert.Equal(ResourcesTestFixture.FileResourceMimeType, fileResource["mimeType"]?.ToString());
     }
 
-    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
-    [Trait("Category", "RequiresImplementation")]
+    [Fact]
     public async Task ResourcesList_ReturnsCommandResource_InList()
     {
         // User Story 2: command-backed resource appears in resources/list.
@@ -90,8 +84,7 @@ public class McpResourcesIntegrationTests : PowerShellTestBase, IAsyncLifetime
         Assert.Equal(ResourcesTestFixture.CommandResourceName, cmdResource!["name"]?.ToString());
     }
 
-    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
-    [Trait("Category", "RequiresImplementation")]
+    [Fact]
     public async Task ResourcesList_ReturnsAllConfiguredResources()
     {
         // User Story 1, Acceptance Scenario 5 (FR-018):
@@ -108,8 +101,7 @@ public class McpResourcesIntegrationTests : PowerShellTestBase, IAsyncLifetime
 
     // ── resources/read - file source ─────────────────────────────────────────
 
-    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
-    [Trait("Category", "RequiresImplementation")]
+    [Fact]
     public async Task ResourcesRead_FileSource_ReturnsFileContent()
     {
         // User Story 1, Acceptance Scenario 2 (FR-019, FR-020):
@@ -130,8 +122,7 @@ public class McpResourcesIntegrationTests : PowerShellTestBase, IAsyncLifetime
         Assert.Contains(ResourcesTestFixture.FileResourceExpectedContent, textContent, StringComparison.Ordinal);
     }
 
-    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
-    [Trait("Category", "RequiresImplementation")]
+    [Fact]
     public async Task ResourcesRead_FileSource_IncludesMimeTypeInResponse()
     {
         // User Story 1, Acceptance Scenario 4 (FR-019):
@@ -149,8 +140,7 @@ public class McpResourcesIntegrationTests : PowerShellTestBase, IAsyncLifetime
 
     // ── resources/read - command source ──────────────────────────────────────
 
-    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
-    [Trait("Category", "RequiresImplementation")]
+    [Fact]
     public async Task ResourcesRead_CommandSource_ExecutesCommandAndReturnsOutput()
     {
         // User Story 2, Acceptance Scenario 1 (FR-021):
@@ -172,8 +162,7 @@ public class McpResourcesIntegrationTests : PowerShellTestBase, IAsyncLifetime
             "Command resource should return non-empty text content");
     }
 
-    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
-    [Trait("Category", "RequiresImplementation")]
+    [Fact]
     public async Task ResourcesRead_CommandSource_ExecutedEachTime_NoCache()
     {
         // User Story 2, Acceptance Scenario 2 (FR-021):
@@ -193,8 +182,7 @@ public class McpResourcesIntegrationTests : PowerShellTestBase, IAsyncLifetime
         Assert.False(string.IsNullOrWhiteSpace(content2), "Second call should return content");
     }
 
-    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
-    [Trait("Category", "RequiresImplementation")]
+    [Fact]
     public async Task ResourcesRead_CommandSource_TerminatingError_ReturnsMcpError()
     {
         // User Story 2, Acceptance Scenario 4 (FR-033):
