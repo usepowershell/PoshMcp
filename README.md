@@ -90,7 +90,7 @@ poshmcp serve --transport stdio
 poshmcp serve --transport http --port 8080
 ```
 
-> **Preview builds:** To install the latest preview from GitHub Packages, see [Installing Preview Builds](docs/user-guide.md#installing-preview-builds) in the user guide.
+> **Preview builds:** To install the latest preview from GitHub Packages, see [Installing Preview Builds](docs/articles/getting-started.md#installing-preview-builds) in the Getting Started guide.
 
 From source:
 
