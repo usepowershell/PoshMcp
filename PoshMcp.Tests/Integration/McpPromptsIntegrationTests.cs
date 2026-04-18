@@ -52,7 +52,7 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
 
     // ── prompts/list ─────────────────────────────────────────────────────────
 
-    [Fact]
+    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
     [Trait("Category", "RequiresImplementation")]
     public async Task PromptsList_ReturnsFilePrompt_WithCorrectMetadata()
     {
@@ -71,7 +71,7 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
         Assert.Equal(PromptsTestFixture.FilePromptDescription, filePrompt!["description"]?.ToString());
     }
 
-    [Fact]
+    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
     [Trait("Category", "RequiresImplementation")]
     public async Task PromptsList_RequiredArgument_AppearsWithRequiredTrue()
     {
@@ -96,7 +96,7 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
             "serviceName argument should have required:true");
     }
 
-    [Fact]
+    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
     [Trait("Category", "RequiresImplementation")]
     public async Task PromptsList_ReturnsCommandPrompt_InList()
     {
@@ -114,7 +114,7 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
 
     // ── prompts/get - file source ─────────────────────────────────────────────
 
-    [Fact]
+    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
     [Trait("Category", "RequiresImplementation")]
     public async Task PromptsGet_FileSource_ReturnsFileContentAsUserRoleMessage()
     {
@@ -139,7 +139,7 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
         Assert.Contains(PromptsTestFixture.FilePromptExpectedContent, textContent, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
     [Trait("Category", "RequiresImplementation")]
     public async Task PromptsGet_FileSource_WithNoArguments_ReturnsRawContent()
     {
@@ -161,7 +161,7 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
 
     // ── prompts/get - command source ──────────────────────────────────────────
 
-    [Fact]
+    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
     [Trait("Category", "RequiresImplementation")]
     public async Task PromptsGet_CommandSource_ExecutesCommandAndReturnsUserRoleMessage()
     {
@@ -186,7 +186,7 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
             "Command prompt should return non-empty text content");
     }
 
-    [Fact]
+    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
     [Trait("Category", "RequiresImplementation")]
     public async Task PromptsGet_CommandSource_InjectsArgumentValues_AsPowerShellVariables()
     {
@@ -210,7 +210,7 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
         Assert.Contains("wuauserv", textContent, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
+    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
     [Trait("Category", "RequiresImplementation")]
     public async Task PromptsGet_CommandSource_TerminatingError_ReturnsMcpError()
     {

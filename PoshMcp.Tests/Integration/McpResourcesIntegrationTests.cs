@@ -52,7 +52,7 @@ public class McpResourcesIntegrationTests : PowerShellTestBase, IAsyncLifetime
 
     // ── resources/list ──────────────────────────────────────────────────────
 
-    [Fact]
+    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
     [Trait("Category", "RequiresImplementation")]
     public async Task ResourcesList_ReturnsFileResource_WithCorrectMetadata()
     {
@@ -73,7 +73,7 @@ public class McpResourcesIntegrationTests : PowerShellTestBase, IAsyncLifetime
         Assert.Equal(ResourcesTestFixture.FileResourceMimeType, fileResource["mimeType"]?.ToString());
     }
 
-    [Fact]
+    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
     [Trait("Category", "RequiresImplementation")]
     public async Task ResourcesList_ReturnsCommandResource_InList()
     {
@@ -90,7 +90,7 @@ public class McpResourcesIntegrationTests : PowerShellTestBase, IAsyncLifetime
         Assert.Equal(ResourcesTestFixture.CommandResourceName, cmdResource!["name"]?.ToString());
     }
 
-    [Fact]
+    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
     [Trait("Category", "RequiresImplementation")]
     public async Task ResourcesList_ReturnsAllConfiguredResources()
     {
@@ -108,7 +108,7 @@ public class McpResourcesIntegrationTests : PowerShellTestBase, IAsyncLifetime
 
     // ── resources/read - file source ─────────────────────────────────────────
 
-    [Fact]
+    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
     [Trait("Category", "RequiresImplementation")]
     public async Task ResourcesRead_FileSource_ReturnsFileContent()
     {
@@ -130,7 +130,7 @@ public class McpResourcesIntegrationTests : PowerShellTestBase, IAsyncLifetime
         Assert.Contains(ResourcesTestFixture.FileResourceExpectedContent, textContent, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
     [Trait("Category", "RequiresImplementation")]
     public async Task ResourcesRead_FileSource_IncludesMimeTypeInResponse()
     {
@@ -149,7 +149,7 @@ public class McpResourcesIntegrationTests : PowerShellTestBase, IAsyncLifetime
 
     // ── resources/read - command source ──────────────────────────────────────
 
-    [Fact]
+    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
     [Trait("Category", "RequiresImplementation")]
     public async Task ResourcesRead_CommandSource_ExecutesCommandAndReturnsOutput()
     {
@@ -172,7 +172,7 @@ public class McpResourcesIntegrationTests : PowerShellTestBase, IAsyncLifetime
             "Command resource should return non-empty text content");
     }
 
-    [Fact]
+    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
     [Trait("Category", "RequiresImplementation")]
     public async Task ResourcesRead_CommandSource_ExecutedEachTime_NoCache()
     {
@@ -193,7 +193,7 @@ public class McpResourcesIntegrationTests : PowerShellTestBase, IAsyncLifetime
         Assert.False(string.IsNullOrWhiteSpace(content2), "Second call should return content");
     }
 
-    [Fact]
+    [Fact(Skip = "Requires implementation branches merged — run against integration/spec-002")]
     [Trait("Category", "RequiresImplementation")]
     public async Task ResourcesRead_CommandSource_TerminatingError_ReturnsMcpError()
     {
