@@ -3285,12 +3285,12 @@ public class Program
         McpPromptHandler promptHandler)
     {
         ConfigureJsonSerializerOptions(builder);
-        ConfigureOpenTelemetry(builder);
+        ConfigureOpenTelemetry(builder, isStdioMode: true);
         RegisterMcpServerServices(builder, tools, resourcesConfig, configFilePath, loggerFactory, promptHandler);
         RegisterCleanupServices(builder);
     }
 
-    private static void ConfigureOpenTelemetry(HostApplicationBuilder builder)
+    private static void ConfigureOpenTelemetry(HostApplicationBuilder builder, bool isStdioMode = false)
     {
         // Register and configure OpenTelemetry metrics
         builder.Services.AddSingleton<McpMetrics>();
@@ -3298,9 +3298,11 @@ public class Program
         builder.Services.AddOpenTelemetry()
             .WithMetrics(metricsBuilder =>
             {
-                metricsBuilder
-                    .AddMeter(McpMetrics.MeterName)
-                    .AddConsoleExporter();
+                metricsBuilder.AddMeter(McpMetrics.MeterName);
+                if (!isStdioMode)
+                {
+                    metricsBuilder.AddConsoleExporter();
+                }
             });
 
         // Configure metrics in the factories after building the service provider
