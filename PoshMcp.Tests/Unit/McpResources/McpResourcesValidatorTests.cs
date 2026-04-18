@@ -229,7 +229,7 @@ public class McpResourcesValidatorTests
     [Fact]
     public void Validate_ResourceWithNoMimeType_ReportsMimeTypeWarning()
     {
-        // FR-027: absent MimeType gets a warning reminding that it defaults to text/plain.
+        // FR-027: MimeType is nullable; when null the validator warns that runtime will fall back to text/plain.
         var config = new McpResourcesConfiguration
         {
             Resources = new List<McpResourceConfiguration>
