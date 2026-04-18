@@ -12,7 +12,7 @@ public class McpResourceDefinition
     public string Uri { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
-    public string MimeType { get; set; } = "text/plain";
+    public string? MimeType { get; set; }
     public string Source { get; set; } = string.Empty;
     public string? Path { get; set; }
     public string? Command { get; set; }
