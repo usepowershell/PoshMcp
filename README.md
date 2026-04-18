@@ -48,18 +48,22 @@ PoshMcp automatically:
 - **State Preservation**: Variables and custom functions persist between calls
 - **Pattern-Based Filtering**: Include/exclude commands via configuration
 - **Rich Metadata**: Automatic extraction from `Get-Help` and `Get-Command`
+- **MCP Resources**: Expose files and live system state as readable resources
+- **MCP Prompts**: Define reusable prompt templates with dynamic arguments
 
 ### For Operations Teams
 - **Multi-User Isolation**: Separate PowerShell runspaces in web mode
 - **Health Monitoring**: `/health` and `/health/ready` endpoints for Kubernetes
 - **Correlation IDs**: Request tracing across distributed systems
 - **OpenTelemetry**: Built-in metrics and observability
+- **Contextual Data**: Share runbooks, policies, and live system state with AI agents
 
 ### For Developers
 - **Dual Transport**: stdio (MCP clients) or HTTP (web integration)
 - **Dynamic Assembly Generation**: Efficient caching of command metadata
 - **Thread-Safe Execution**: Async/await throughout with proper synchronization
 - **VS Code Integration**: Debug configurations and tasks included
+- **MCP Protocol Support**: Resources, Prompts, Tools, and Sampling protocols
 
 ---
 
@@ -185,6 +189,56 @@ PoshMcp includes commands for working with PowerShell output:
 - **`sort-last-command-output`**: Sort results by property
 - **`filter-last-command-output`**: Filter using PowerShell expressions
 - **`group-last-command-output`**: Group results by property
+
+### MCP Resources and Prompts
+
+Expose contextual information and reusable templates to AI agents:
+
+**MCP Resources** — Share files or live system state:
+
+```json
+{
+  "McpResources": {
+    "Resources": [
+      {
+        "Uri": "poshmcp://resources/deployment-guide",
+        "Name": "Deployment Guide",
+        "MimeType": "text/markdown",
+        "Source": "file",
+        "Path": "docs/DEPLOYMENT.md"
+      },
+      {
+        "Uri": "poshmcp://resources/running-processes",
+        "Name": "Processes",
+        "MimeType": "application/json",
+        "Source": "command",
+        "Command": "Get-Process | ConvertTo-Json"
+      }
+    ]
+  }
+}
+```
+
+**MCP Prompts** — Reusable templates with arguments:
+
+```json
+{
+  "McpPrompts": {
+    "Prompts": [
+      {
+        "Name": "check-service",
+        "Description": "Analyze service status",
+        "Arguments": [
+          { "Name": "serviceName", "Description": "Service to check", "Required": true }
+        ],
+        "Command": "Get-Service -Name $serviceName | Format-List *"
+      }
+    ]
+  }
+}
+```
+
+See [Resources and Prompts Guide](https://usepowershell.github.io/PoshMcp/articles/resources-and-prompts.html) for complete examples and best practices.
 
 ### Persistent State Example
 

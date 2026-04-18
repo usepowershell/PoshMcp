@@ -10,6 +10,8 @@
     href: articles/configuration.md
   - name: Exposing Tools
     href: articles/exposing-tools.md
+  - name: Resources and Prompts
+    href: articles/resources-and-prompts.md
   - name: Transport Modes
     href: articles/transport-modes.md
   - name: Session Management
