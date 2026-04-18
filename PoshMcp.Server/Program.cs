@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Builder;
+∩╗┐using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Hosting;
@@ -30,7 +30,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using PoshMcp.Server.Authentication;
+using PoshMcp.Server.McpPrompts;
 using PoshMcp.Server.McpResources;
+using ModelContextProtocol.Protocol;
 
 namespace PoshMcp;
 
@@ -1091,26 +1093,60 @@ public class Program
 
         var config = LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
         var tools = await DiscoverToolsAsync(config, loggerFactory, logger, finalConfigPath);
+        var (resourcesDiag, promptsDiag) = TryValidateResourcesAndPrompts(finalConfigPath);
+
+        var hasErrors = resourcesDiag.Errors.Count > 0 || promptsDiag.Errors.Count > 0;
 
         if (format == "json")
         {
             var payload = new
             {
-                valid = true,
+                valid = !hasErrors,
                 configurationPath = finalConfigPath,
                 runtimeMode = config.RuntimeMode.ToString(),
                 commandCount = config.GetEffectiveCommandNames().Count,
                 moduleCount = config.Modules.Count,
-                toolCount = tools.Count
+                toolCount = tools.Count,
+                resources = new
+                {
+                    configured = resourcesDiag.Configured,
+                    valid = resourcesDiag.Valid,
+                    errors = resourcesDiag.Errors,
+                    warnings = resourcesDiag.Warnings
+                },
+                prompts = new
+                {
+                    configured = promptsDiag.Configured,
+                    valid = promptsDiag.Valid,
+                    errors = promptsDiag.Errors,
+                    warnings = promptsDiag.Warnings
+                }
             };
             Console.WriteLine(JsonSerializer.Serialize(payload));
             return;
         }
 
-        Console.WriteLine("Configuration validation succeeded.");
+        if (hasErrors)
+        {
+            Console.WriteLine("Configuration validation failed.");
+        }
+        else
+        {
+            Console.WriteLine("Configuration validation succeeded.");
+        }
         Console.WriteLine($"Configuration: {finalConfigPath}");
         Console.WriteLine($"Runtime mode: {config.RuntimeMode}");
         Console.WriteLine($"Commands: {config.GetEffectiveCommandNames().Count} | Modules: {config.Modules.Count} | Tools: {tools.Count}");
+        Console.WriteLine($"Resources configured: {resourcesDiag.Configured} | valid: {resourcesDiag.Valid}");
+        foreach (var error in resourcesDiag.Errors)
+            Console.WriteLine($"  Γ£û {error}");
+        foreach (var warning in resourcesDiag.Warnings)
+            Console.WriteLine($"  ΓÜá {warning}");
+        Console.WriteLine($"Prompts configured: {promptsDiag.Configured} | valid: {promptsDiag.Valid}");
+        foreach (var error in promptsDiag.Errors)
+            Console.WriteLine($"  Γ£û {error}");
+        foreach (var warning in promptsDiag.Warnings)
+            Console.WriteLine($"  ΓÜá {warning}");
     }
 
     private static async Task RunDoctorAsync(ResolvedCommandSettings settings, string format)
@@ -1142,6 +1178,7 @@ public class Program
         }
 
         var warnings = BuildConfigurationWarnings(config);
+        var (resourcesDiag, promptsDiag) = TryValidateResourcesAndPrompts(settings.FinalConfigPath);
 
         if (format == "json")
         {
@@ -1160,7 +1197,9 @@ public class Program
                 effectiveMcpPathSource: settings.McpPath.Source,
                 config: config,
                 tools: tools,
-                precomputedFunctionStatus: configuredFunctionStatus));
+                precomputedFunctionStatus: configuredFunctionStatus,
+                resourcesDiagnostics: resourcesDiag,
+                promptsDiagnostics: promptsDiag));
             return;
         }
 
@@ -1231,12 +1270,42 @@ public class Program
             Console.WriteLine("Warnings:");
             foreach (var warning in warnings)
             {
-                Console.WriteLine($"  ⚠ {warning}");
+                Console.WriteLine($"  ΓÜá {warning}");
             }
             if (config.HasLegacyFunctionNames)
             {
-                Console.WriteLine("  💡 To migrate: poshmcp update-config --add-command Get-Process --remove-function Get-Process");
+                Console.WriteLine("  ≡ƒÆí To migrate: poshmcp update-config --add-command Get-Process --remove-function Get-Process");
             }
+        }
+
+        // Resources validation
+        Console.WriteLine($"Resources configured: {resourcesDiag.Configured} | valid: {resourcesDiag.Valid}");
+        if (resourcesDiag.Errors.Count > 0)
+        {
+            Console.WriteLine("Resource errors:");
+            foreach (var error in resourcesDiag.Errors)
+                Console.WriteLine($"  Γ£û {error}");
+        }
+        if (resourcesDiag.Warnings.Count > 0)
+        {
+            Console.WriteLine("Resource warnings:");
+            foreach (var warning in resourcesDiag.Warnings)
+                Console.WriteLine($"  ΓÜá {warning}");
+        }
+
+        // Prompts validation
+        Console.WriteLine($"Prompts configured: {promptsDiag.Configured} | valid: {promptsDiag.Valid}");
+        if (promptsDiag.Errors.Count > 0)
+        {
+            Console.WriteLine("Prompt errors:");
+            foreach (var error in promptsDiag.Errors)
+                Console.WriteLine($"  Γ£û {error}");
+        }
+        if (promptsDiag.Warnings.Count > 0)
+        {
+            Console.WriteLine("Prompt warnings:");
+            foreach (var warning in promptsDiag.Warnings)
+                Console.WriteLine($"  ΓÜá {warning}");
         }
     }
 
@@ -1255,7 +1324,9 @@ public class Program
         string effectiveMcpPathSource,
         PowerShellConfiguration config,
         List<McpServerTool> tools,
-        List<ConfiguredFunctionStatus>? precomputedFunctionStatus = null)
+        List<ConfiguredFunctionStatus>? precomputedFunctionStatus = null,
+        McpResourcesDiagnostics? resourcesDiagnostics = null,
+        McpPromptsDiagnostics? promptsDiagnostics = null)
     {
         var discoveredToolNames = GetDiscoveredToolNames(tools);
         var configuredFunctionStatus = precomputedFunctionStatus
@@ -1280,6 +1351,26 @@ public class Program
         }
 
         var warnings = BuildConfigurationWarnings(config);
+
+        // Compute resource/prompt diagnostics if not pre-supplied
+        resourcesDiagnostics ??= TryValidateResourcesAndPrompts(configurationPath).Resources;
+        promptsDiagnostics ??= TryValidateResourcesAndPrompts(configurationPath).Prompts;
+
+        var resourcesSummary = new
+        {
+            configured = resourcesDiagnostics.Configured,
+            valid = resourcesDiagnostics.Valid,
+            errors = resourcesDiagnostics.Errors,
+            warnings = resourcesDiagnostics.Warnings
+        };
+
+        var promptsSummary = new
+        {
+            configured = promptsDiagnostics.Configured,
+            valid = promptsDiagnostics.Valid,
+            errors = promptsDiagnostics.Errors,
+            warnings = promptsDiagnostics.Warnings
+        };
 
         var payload = new
         {
@@ -1308,10 +1399,26 @@ public class Program
             modulePaths = diagnostics.ModulePaths,
             oopModulePathEntries = oopModulePaths.Length,
             oopModulePaths,
+            resources = resourcesSummary,
+            prompts = promptsSummary,
             generatedAtUtc = DateTime.UtcNow
         };
 
         return JsonSerializer.Serialize(payload);
+    }
+
+    private static (McpResourcesDiagnostics Resources, McpPromptsDiagnostics Prompts) TryValidateResourcesAndPrompts(string configurationPath)
+    {
+        try
+        {
+            return ValidateResourcesAndPrompts(configurationPath);
+        }
+        catch
+        {
+            return (
+                new McpResourcesDiagnostics(0, 0, new List<string>(), new List<string>()),
+                new McpPromptsDiagnostics(0, 0, new List<string>(), new List<string>()));
+        }
     }
 
     private static List<string> BuildConfigurationWarnings(PowerShellConfiguration config)
@@ -1438,8 +1545,8 @@ public class Program
 
                     if (cmdResults.Count > 0)
                     {
-                        // The command exists but no tool was generated — all parameter sets were likely skipped.
-                        return "Command found in PowerShell session but no tool was generated — " +
+                        // The command exists but no tool was generated ΓÇö all parameter sets were likely skipped.
+                        return "Command found in PowerShell session but no tool was generated ΓÇö " +
                                "all parameter sets may have been skipped due to unserializable parameter types";
                     }
 
@@ -1455,11 +1562,11 @@ public class Program
 
                         if (moduleAvailableResults.Count == 0)
                         {
-                            return $"Module '{moduleName}' not found in PSModulePath — " +
+                            return $"Module '{moduleName}' not found in PSModulePath ΓÇö " +
                                    "ensure the module is installed or its path is added to PSModulePath";
                         }
 
-                        // Module is available — check whether it exports the command.
+                        // Module is available ΓÇö check whether it exports the command.
                         ps.Commands.Clear();
                         ps.AddScript(
                             $"Import-Module -Name {safeModuleName} -ErrorAction SilentlyContinue; " +
@@ -1472,12 +1579,12 @@ public class Program
                             return $"Module '{moduleName}' is available but does not export command '{name}'";
                         }
 
-                        return $"Command '{name}' found in module '{moduleName}' but was not loaded during tool discovery — " +
+                        return $"Command '{name}' found in module '{moduleName}' but was not loaded during tool discovery ΓÇö " +
                                "check module import order or environment setup";
                     }
 
-                    // No modules configured — bare command not found.
-                    return $"Command '{name}' not found in PowerShell session — " +
+                    // No modules configured ΓÇö bare command not found.
+                    return $"Command '{name}' not found in PowerShell session ΓÇö " +
                            "ensure the command exists and its module is installed and available in PSModulePath";
                 }
             });
@@ -2284,6 +2391,34 @@ public class Program
         return config;
     }
 
+    internal static (McpResourcesConfiguration Resources, McpPromptsConfiguration Prompts) LoadResourcesAndPromptsConfiguration(string configPath)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddJsonFile(configPath, optional: false, reloadOnChange: false)
+            .Build();
+
+        var resourcesConfig = new McpResourcesConfiguration();
+        configuration.GetSection("McpResources").Bind(resourcesConfig);
+
+        var promptsConfig = new McpPromptsConfiguration();
+        configuration.GetSection("McpPrompts").Bind(promptsConfig);
+
+        return (resourcesConfig, promptsConfig);
+    }
+
+    internal static (McpResourcesDiagnostics Resources, McpPromptsDiagnostics Prompts) ValidateResourcesAndPrompts(string configPath)
+    {
+        var configDirectory = Path.GetDirectoryName(Path.GetFullPath(configPath))
+            ?? Directory.GetCurrentDirectory();
+
+        var (resourcesConfig, promptsConfig) = LoadResourcesAndPromptsConfiguration(configPath);
+
+        var resourcesDiag = McpResourcesValidator.Validate(resourcesConfig, configDirectory);
+        var promptsDiag = McpPromptsValidator.Validate(promptsConfig, configDirectory);
+
+        return (resourcesDiag, promptsDiag);
+    }
+
     private static void LogConfigurationDetails(PowerShellConfiguration config, ILogger logger)
     {
         logger.LogDebug("Configuration loaded successfully");
@@ -2304,6 +2439,17 @@ public class Program
         configuration.GetSection("McpResources").Bind(config);
 
         logger.LogDebug("McpResources configuration loaded: {Count} resource(s)", config.Resources.Count);
+        return config;
+    }
+
+    internal static McpPromptsConfiguration LoadPromptsConfiguration(string configPath)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddJsonFile(configPath, optional: false, reloadOnChange: false)
+            .Build();
+
+        var config = new McpPromptsConfiguration();
+        configuration.GetSection("McpPrompts").Bind(config);
         return config;
     }
 
@@ -2375,7 +2521,10 @@ public class Program
         var resourcesConfig = LoadMcpResourcesConfiguration(finalConfigPath, logger);
         await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger, finalConfigPath);
         var tools = await SetupMcpToolsAsync(loggerFactory, config, logger, finalConfigPath, executorLease?.Executor);
-        ConfigureServerServices(builder, tools, resourcesConfig, finalConfigPath, loggerFactory);
+        var promptsConfig = LoadPromptsConfiguration(finalConfigPath);
+        var configDirectory = Path.GetDirectoryName(finalConfigPath) ?? Directory.GetCurrentDirectory();
+        var promptHandler = new McpPromptHandler(promptsConfig, configDirectory, loggerFactory.CreateLogger<McpPromptHandler>());
+        ConfigureServerServices(builder, tools, resourcesConfig, finalConfigPath, loggerFactory, promptHandler);
         await builder.Build().RunAsync();
     }
 
@@ -2403,6 +2552,8 @@ public class Program
         builder.Configuration.AddJsonFile(finalConfigPath, optional: false, reloadOnChange: true);
         builder.Services.Configure<PowerShellConfiguration>(
             builder.Configuration.GetSection("PowerShellConfiguration"));
+        builder.Services.Configure<McpPromptsConfiguration>(
+            builder.Configuration.GetSection("McpPrompts"));
 
         builder.Services
             .AddOptions<PoshMcp.Server.Authentication.AuthenticationConfiguration>()
@@ -2438,12 +2589,17 @@ public class Program
         var resourceLogger = bootstrapLoggerFactory.CreateLogger<McpResourceHandler>();
         var resourceHandler = new McpResourceHandler(resourcesConfig, sharedSessionRunspace, resourcesConfigDirectory, resourceLogger);
         var authConfigValue = builder.Configuration.GetSection("Authentication").Get<PoshMcp.Server.Authentication.AuthenticationConfiguration>() ?? new();
+        var promptsConfig = LoadPromptsConfiguration(finalConfigPath);
+        var httpConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? Directory.GetCurrentDirectory();
+        var httpPromptHandler = new McpPromptHandler(promptsConfig, httpConfigDirectory, bootstrapLoggerFactory.CreateLogger<McpPromptHandler>());
         var mcpBuilder = builder.Services
             .AddMcpServer()
             .WithHttpTransport()
             .WithTools(tools)
             .WithListResourcesHandler(resourceHandler.HandleListAsync)
-            .WithReadResourceHandler(resourceHandler.HandleReadAsync);
+            .WithReadResourceHandler(resourceHandler.HandleReadAsync)
+            .WithListPromptsHandler(httpPromptHandler.HandleListPromptsAsync)
+            .WithGetPromptHandler(httpPromptHandler.HandleGetPromptAsync);
 
         ToolAuthorizationFilter? callToolFilter = null;
         ToolListAuthorizationFilter? listToolFilter = null;
@@ -2550,13 +2706,13 @@ public class Program
                 }
                 else if (authConfig.Enabled)
                 {
-                    // Auth enabled but no origins configured — same-origin only (no wildcard)
+                    // Auth enabled but no origins configured ΓÇö same-origin only (no wildcard)
                     // ASP.NET Core doesn't support "same-origin only" via CORS policy directly,
-                    // so we just don't add AllowAnyOrigin — this effectively blocks cross-origin
+                    // so we just don't add AllowAnyOrigin ΓÇö this effectively blocks cross-origin
                 }
                 else
                 {
-                    // Auth disabled — keep wide-open for dev/stdio use
+                    // Auth disabled ΓÇö keep wide-open for dev/stdio use
                     policy.AllowAnyOrigin();
                 }
                 policy.AllowAnyMethod().AllowAnyHeader().WithExposedHeaders("Mcp-Session-Id");
@@ -2669,6 +2825,8 @@ public class Program
         builder.Configuration.AddJsonFile(finalConfigPath, optional: false, reloadOnChange: true);
         builder.Services.Configure<PowerShellConfiguration>(
             builder.Configuration.GetSection("PowerShellConfiguration"));
+        builder.Services.Configure<McpPromptsConfiguration>(
+            builder.Configuration.GetSection("McpPrompts"));
 
         builder.Services
             .AddOptions<PoshMcp.Server.Authentication.AuthenticationConfiguration>()
@@ -3041,11 +3199,12 @@ public class Program
         List<McpServerTool> tools,
         McpResourcesConfiguration resourcesConfig,
         string configFilePath,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        McpPromptHandler promptHandler)
     {
         ConfigureJsonSerializerOptions(builder);
         ConfigureOpenTelemetry(builder);
-        RegisterMcpServerServices(builder, tools, resourcesConfig, configFilePath, loggerFactory);
+        RegisterMcpServerServices(builder, tools, resourcesConfig, configFilePath, loggerFactory, promptHandler);
         RegisterCleanupServices(builder);
     }
 
@@ -3099,7 +3258,8 @@ public class Program
         List<McpServerTool> tools,
         McpResourcesConfiguration resourcesConfig,
         string configFilePath,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        McpPromptHandler promptHandler)
     {
         var runspace = new SingletonPowerShellRunspace();
         var configDirectory = Path.GetDirectoryName(configFilePath) ?? ".";
@@ -3111,7 +3271,9 @@ public class Program
             .WithStdioServerTransport()
             .WithTools(tools)
             .WithListResourcesHandler(resourceHandler.HandleListAsync)
-            .WithReadResourceHandler(resourceHandler.HandleReadAsync);
+            .WithReadResourceHandler(resourceHandler.HandleReadAsync)
+            .WithListPromptsHandler(promptHandler.HandleListPromptsAsync)
+            .WithGetPromptHandler(promptHandler.HandleGetPromptAsync);
     }
 
     private static void RegisterCleanupServices(HostApplicationBuilder builder)
