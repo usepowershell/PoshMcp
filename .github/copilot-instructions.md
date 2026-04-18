@@ -17,7 +17,7 @@ PoshMcp is a Model Context Protocol (MCP) server implementation that exposes Pow
 - **TestClient/**: Simple test client for manual testing
 
 ### Key Technologies
-- **.NET 8**: Primary runtime and framework
+- **.NET 10**: Primary runtime and framework
 - **PowerShell SDK**: For executing PowerShell commands and introspection
 - **Model Context Protocol**: JSON-RPC communication standard
 - **Newtonsoft.Json**: JSON serialization and JToken manipulation

@@ -79,7 +79,7 @@ synchronization. Every new abstraction MUST justify its complexity.
 
 ## Technology Constraints
 
-- **Runtime**: .NET 8 (`net8.0`), C# with nullable enabled, implicit usings disabled
+- **Runtime**: .NET 10 (`net8.0`), C# with nullable enabled, implicit usings disabled
 - **PowerShell**: Microsoft.PowerShell.SDK 7.4.x
 - **MCP**: ModelContextProtocol NuGet package (preview)
 - **JSON**: Newtonsoft.Json for all JSON manipulation

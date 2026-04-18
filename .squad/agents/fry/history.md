@@ -3,7 +3,7 @@
 ## Project Context
 
 **Project:** PoshMcp - Model Context Protocol (MCP) server for PowerShell
-**Tech Stack:** .NET 8, C#, PowerShell SDK, OpenTelemetry, ASP.NET Core, xUnit
+**Tech Stack:** .NET 10, C#, PowerShell SDK, OpenTelemetry, ASP.NET Core, xUnit
 **Primary User:** Steven Murawski
 
 **Test Structure:**
@@ -214,4 +214,28 @@
 **Coverage update:**
 - Added `GetToolOverride_PrefersExactToolNameOverride_BeforeCommandNameResolution` in `PoshMcp.Tests/Unit/AuthorizationHelpersTests.cs` to lock current precedence behavior.
 
+---
+
+### 2026-04-18: Spec 002 Final Verification — Full Suite Run on feature/002-tests (rebased)
+
+**Context:** Hermes rebased `feature/002-tests` onto main and removed all 16 Skip attributes from `McpResourcesIntegrationTests` and `McpPromptsIntegrationTests`. Task was to run the full test suite and confirm readiness for merge (PR #128).
+
+**Test run result:** 478 total — 470 passed, 1 failed, 7 skipped (duration ~247s)
+
+**Spec 002 integration tests:** 16/16 pass ✅
+- 8 `McpResourcesIntegrationTests`: all passing (resources/list, resources/read, file/command sources, error paths)
+- 8 `McpPromptsIntegrationTests`: all passing (prompts/list, prompts/get, file/command sources, argument injection, error paths)
+- Zero Skip attributes remain on spec-002 tests
+
+**The one failure (pre-existing, non-blocking):**
+- Test: `McpResourcesValidatorTests.Validate_ResourceWithNoMimeType_ReportsMimeTypeWarning`
+- Cause: `McpResourceConfiguration.MimeType` defaults to `"text/plain"` at the C# object level. The test creates a resource without setting MimeType, expecting the validator to warn, but the property already carries `"text/plain"` — so `IsNullOrWhiteSpace` is never true.
+- Pre-existing since `a2ade16` (original resources implementation). Not introduced by Hermes's rebase.
+- Remediation (future, not blocking): change `MimeType` default to `null`/empty and apply `"text/plain"` at runtime.
+
+**Skips (7, all pre-existing):**
+- 6 `OutOfProcessModuleTests` — out-of-process mode not yet integrated
+- 1 `Functional.ReturnType.GeneratedMethod.ShouldHandleGetChildItemCorrectly` — pre-existing
+
+**Verdict: ✅ CLEAR TO MERGE — PR #128**
 

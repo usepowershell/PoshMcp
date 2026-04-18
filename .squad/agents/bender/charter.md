@@ -15,7 +15,7 @@ C# and .NET implementation specialist for the PoshMcp MCP server.
 
 ## Domain Expertise
 
-- C# and .NET 8 development
+- C# and .NET 10 development
 - ASP.NET Core web APIs
 - Dependency injection and middleware
 - Error handling and exception management

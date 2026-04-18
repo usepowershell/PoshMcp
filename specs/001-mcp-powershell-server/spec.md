@@ -193,7 +193,7 @@ discoverable.
 
 - Target users are PowerShell experts (DevOps engineers, sysadmins, toolmakers) comfortable with PowerShell and JSON configuration
 - MCP clients (AI agents, VS Code, Claude Desktop, etc.) implement the MCP specification correctly
-- .NET 8 runtime is available in the deployment environment
+- .NET 10 runtime is available in the deployment environment
 - For Azure deployments, Azure Managed Identity is configured at the infrastructure level
 - PowerShell modules installed from PSGallery are trusted and compatible with PowerShell 7.4.x
 - The stdio transport serves a single client at a time (multiplexing is not in scope)

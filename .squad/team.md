@@ -25,7 +25,7 @@
 
 - **Project:** poshmcp
 - **Description:** Model Context Protocol (MCP) server that dynamically transforms PowerShell scripts, cmdlets, and modules into secure, discoverable AI-consumable tools
-- **Tech Stack:** .NET 8, C#, PowerShell SDK, OpenTelemetry, ASP.NET Core, xUnit
+- **Tech Stack:** .NET 10, C#, PowerShell SDK, OpenTelemetry, ASP.NET Core, xUnit
 - **Primary User:** Steven Murawski
 - **Created:** 2026-03-27
 

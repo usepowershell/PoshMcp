@@ -19,7 +19,7 @@ Create a complete Model Context Protocol (MCP) server in C# with the following s
 ## Implementation Details
 
 ### Basic Project Setup
-- Use .NET 8.0 or later
+- Use .NET 10.0 or later
 - Create a console application
 - Add necessary NuGet packages with --prerelease flag
 - Configure logging to stderr

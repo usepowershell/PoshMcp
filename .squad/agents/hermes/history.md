@@ -1,10 +1,11 @@
 # Hermes Work History
 - **20260403T135630Z**: ✓ Docker fixes & scripts reviews compiled and merged into decision ledger.
 - **20260408T000000Z**: ✓ Reviewed/recorded deploy.ps1 hardening for transient ACR OAuth EOF failures: bounded retry loops, transient error classification, and improved failure diagnostics.
+- **20260418T000000Z**: ✓ Rebased feature/002-tests onto main; resolved 5 add/add conflicts (McpResources + McpPrompts config classes, kept main implementation); removed Skip attrs from 16 integration tests (8 McpResources + 8 McpPrompts); all 16 passed; force-pushed.
 # Hermes Work History
 ## Project Context
 **Project:** PoshMcp - Model Context Protocol (MCP) server for PowerShell
-**Tech Stack:** .NET 8, C#, PowerShell SDK, OpenTelemetry, ASP.NET Core, xUnit
+**Tech Stack:** .NET 10, C#, PowerShell SDK, OpenTelemetry, ASP.NET Core, xUnit
 **Primary User:** Steven Murawski
 **Key Files:**
 - `PoshMcp.Server/PowerShell/PowerShellRunspaceHolder.cs` - Singleton runspace management
