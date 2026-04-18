@@ -30,6 +30,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using PoshMcp.Server.Authentication;
+using PoshMcp.Server.McpResources;
 
 namespace PoshMcp;
 
@@ -2293,6 +2294,19 @@ public class Program
         logger.LogTrace($"Runtime mode: {config.RuntimeMode}");
     }
 
+    internal static McpResourcesConfiguration LoadMcpResourcesConfiguration(string configPath, ILogger logger)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddJsonFile(configPath, optional: false, reloadOnChange: false)
+            .Build();
+
+        var config = new McpResourcesConfiguration();
+        configuration.GetSection("McpResources").Bind(config);
+
+        logger.LogDebug("McpResources configuration loaded: {Count} resource(s)", config.Resources.Count);
+        return config;
+    }
+
     private static async Task<List<McpServerTool>> DiscoverToolsAsync(PowerShellConfiguration config, ILoggerFactory loggerFactory, ILogger logger, string configurationPath)
     {
         logger.LogInformation("Discovering PowerShell tools...");
@@ -2358,9 +2372,10 @@ public class Program
         var logger = loggerFactory.CreateLogger("PoshMcpLogger");
         logger.LogInformation("Using configuration file: {ConfigurationPath}", finalConfigPath);
         var config = LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
+        var resourcesConfig = LoadMcpResourcesConfiguration(finalConfigPath, logger);
         await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger, finalConfigPath);
         var tools = await SetupMcpToolsAsync(loggerFactory, config, logger, finalConfigPath, executorLease?.Executor);
-        ConfigureServerServices(builder, tools);
+        ConfigureServerServices(builder, tools, resourcesConfig, finalConfigPath, loggerFactory);
         await builder.Build().RunAsync();
     }
 
@@ -2418,11 +2433,17 @@ public class Program
         logger.LogInformation("Using configuration file: {ConfigurationPath}", finalConfigPath);
 
         var tools = await SetupHttpMcpToolsAsync(bootstrapLoggerFactory, config, logger, finalConfigPath, sharedSessionRunspace, executorLease?.Executor);
+        var resourcesConfig = LoadMcpResourcesConfiguration(finalConfigPath, logger);
+        var resourcesConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? ".";
+        var resourceLogger = bootstrapLoggerFactory.CreateLogger<McpResourceHandler>();
+        var resourceHandler = new McpResourceHandler(resourcesConfig, sharedSessionRunspace, resourcesConfigDirectory, resourceLogger);
         var authConfigValue = builder.Configuration.GetSection("Authentication").Get<PoshMcp.Server.Authentication.AuthenticationConfiguration>() ?? new();
         var mcpBuilder = builder.Services
             .AddMcpServer()
             .WithHttpTransport()
-            .WithTools(tools);
+            .WithTools(tools)
+            .WithListResourcesHandler(resourceHandler.HandleListAsync)
+            .WithReadResourceHandler(resourceHandler.HandleReadAsync);
 
         ToolAuthorizationFilter? callToolFilter = null;
         ToolListAuthorizationFilter? listToolFilter = null;
@@ -3015,11 +3036,16 @@ public class Program
         return null;
     }
 
-    private static void ConfigureServerServices(HostApplicationBuilder builder, List<McpServerTool> tools)
+    private static void ConfigureServerServices(
+        HostApplicationBuilder builder,
+        List<McpServerTool> tools,
+        McpResourcesConfiguration resourcesConfig,
+        string configFilePath,
+        ILoggerFactory loggerFactory)
     {
         ConfigureJsonSerializerOptions(builder);
         ConfigureOpenTelemetry(builder);
-        RegisterMcpServerServices(builder, tools);
+        RegisterMcpServerServices(builder, tools, resourcesConfig, configFilePath, loggerFactory);
         RegisterCleanupServices(builder);
     }
 
@@ -3068,12 +3094,24 @@ public class Program
         });
     }
 
-    private static void RegisterMcpServerServices(HostApplicationBuilder builder, List<McpServerTool> tools)
+    private static void RegisterMcpServerServices(
+        HostApplicationBuilder builder,
+        List<McpServerTool> tools,
+        McpResourcesConfiguration resourcesConfig,
+        string configFilePath,
+        ILoggerFactory loggerFactory)
     {
+        var runspace = new SingletonPowerShellRunspace();
+        var configDirectory = Path.GetDirectoryName(configFilePath) ?? ".";
+        var resourceLogger = loggerFactory.CreateLogger<McpResourceHandler>();
+        var resourceHandler = new McpResourceHandler(resourcesConfig, runspace, configDirectory, resourceLogger);
+
         builder.Services
             .AddMcpServer()
             .WithStdioServerTransport()
-            .WithTools(tools);
+            .WithTools(tools)
+            .WithListResourcesHandler(resourceHandler.HandleListAsync)
+            .WithReadResourceHandler(resourceHandler.HandleReadAsync);
     }
 
     private static void RegisterCleanupServices(HostApplicationBuilder builder)
