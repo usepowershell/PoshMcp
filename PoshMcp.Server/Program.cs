@@ -6,6 +6,10 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using ILogger = Microsoft.Extensions.Logging.ILogger;
+using Serilog;
+using Serilog.Events;
+using Serilog.Extensions.Logging;
 using ModelContextProtocol.Server;
 using PoshMcp.Server.Health;
 using PoshMcp.Server.Observability;
@@ -48,6 +52,7 @@ public class Program
     private const string SessionModeEnvVar = "POSHMCP_SESSION_MODE";
     private const string RuntimeModeEnvVar = "POSHMCP_RUNTIME_MODE";
     private const string LogLevelEnvVar = "POSHMCP_LOG_LEVEL";
+    private const string LogFileEnvVar = "POSHMCP_LOG_FILE";
     private const string ConfigurationTroubleshootingToolEnvVar = "POSHMCP_ENABLE_CONFIGURATION_TROUBLESHOOTING_TOOL";
     private const string CliSource = "cli";
     private const string EnvSource = "env";
@@ -218,6 +223,11 @@ public class Program
         serveCommand.AddOption(urlOption);
         serveCommand.AddOption(mcpPathOption);
 
+        var logFileOption = new Option<string?>(
+            aliases: new[] { "--log-file" },
+            description: "Path to log file for stdio transport (suppresses console logging)");
+        serveCommand.AddOption(logFileOption);
+
         var listToolsCommand = new Command("list-tools", "Discover and list tools without starting the MCP server");
         listToolsCommand.AddOption(configOption);
         listToolsCommand.AddOption(logLevelOption);
@@ -362,11 +372,29 @@ public class Program
             }
         }, evaluateToolsOption, verboseOption, debugOption, traceOption);
 
-        serveCommand.SetHandler(async (configPath, logLevelText, transport, sessionMode, runtimeMode, url, mcpPath) =>
+        serveCommand.SetHandler(async (InvocationContext context) =>
         {
+            var configPath = context.ParseResult.GetValueForOption(configOption);
+            var logLevelText = context.ParseResult.GetValueForOption(logLevelOption);
+            var transport = context.ParseResult.GetValueForOption(transportOption);
+            var sessionMode = context.ParseResult.GetValueForOption(sessionModeOption);
+            var runtimeMode = context.ParseResult.GetValueForOption(runtimeModeOption);
+            var url = context.ParseResult.GetValueForOption(urlOption);
+            var mcpPath = context.ParseResult.GetValueForOption(mcpPathOption);
+            var logFile = context.ParseResult.GetValueForOption(logFileOption);
+
             var resolvedSettings = await ResolveCommandSettingsAsync(args, configPath, logLevelText, transport, sessionMode, runtimeMode, mcpPath);
             var parsedLogLevel = ParseLogLevel(resolvedSettings.LogLevel.Value);
             var transportMode = ResolveTransportMode(resolvedSettings.Transport.Value);
+
+            IConfiguration? fileConfig = null;
+            if (!string.IsNullOrWhiteSpace(resolvedSettings.FinalConfigPath) && File.Exists(resolvedSettings.FinalConfigPath))
+            {
+                fileConfig = new ConfigurationBuilder()
+                    .AddJsonFile(resolvedSettings.FinalConfigPath, optional: true, reloadOnChange: false)
+                    .Build();
+            }
+            var resolvedLogFile = ResolveLogFilePath(logFile, fileConfig);
 
             try
             {
@@ -377,7 +405,7 @@ public class Program
 
                 if (transportMode == TransportMode.Stdio)
                 {
-                    await RunMcpServerAsync(args, parsedLogLevel, resolvedSettings.FinalConfigPath, resolvedSettings.RuntimeMode.Value);
+                    await RunMcpServerAsync(args, parsedLogLevel, resolvedSettings.FinalConfigPath, resolvedSettings.RuntimeMode.Value, resolvedLogFile.Value);
                     Environment.ExitCode = ExitCodeSuccess;
                     return;
                 }
@@ -403,7 +431,7 @@ public class Program
                 Console.Error.WriteLine($"Startup error: {ex.Message}");
                 Environment.ExitCode = ExitCodeStartupError;
             }
-        }, configOption, logLevelOption, transportOption, sessionModeOption, runtimeModeOption, urlOption, mcpPathOption);
+        });
 
         listToolsCommand.SetHandler(async (configPath, logLevelText, runtimeMode, format) =>
         {
@@ -834,6 +862,26 @@ public class Program
         }
 
         return new ResolvedSetting(defaultValue, DefaultSource);
+    }
+
+    /// <summary>
+    /// Resolves the log file path with precedence: CLI option > POSHMCP_LOG_FILE env var > Logging:File:Path config > null (silent).
+    /// </summary>
+    private static ResolvedSetting ResolveLogFilePath(string? cliValue, IConfiguration? config = null)
+    {
+        var resolved = ResolveArgumentOrEnvironmentWithSource(cliValue, LogFileEnvVar, null);
+        if (!string.IsNullOrWhiteSpace(resolved.Value))
+        {
+            return resolved;
+        }
+
+        var configPath = config?["Logging:File:Path"];
+        if (!string.IsNullOrWhiteSpace(configPath))
+        {
+            return new ResolvedSetting(configPath, ConfigSource);
+        }
+
+        return new ResolvedSetting(null, DefaultSource);
     }
 
     private static string NormalizeFormat(string? format)
@@ -2508,10 +2556,10 @@ public class Program
         Console.Error.WriteLine($"Error: {ex.Message}");
     }
 
-    private static async Task RunMcpServerAsync(string[] args, LogLevel? overrideLogLevel = null, string? explicitConfigPath = null, string? runtimeModeOverride = null)
+    private static async Task RunMcpServerAsync(string[] args, LogLevel? overrideLogLevel = null, string? explicitConfigPath = null, string? runtimeModeOverride = null, string? logFilePath = null)
     {
         var builder = Host.CreateApplicationBuilder(args);
-        ConfigureServerLogging(builder, overrideLogLevel);
+        ConfigureStdioLogging(builder, overrideLogLevel, logFilePath);
         var finalConfigPath = await ConfigureServerConfiguration(builder, explicitConfigPath);
         var serviceProvider = builder.Services.BuildServiceProvider();
         var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
@@ -2818,6 +2866,40 @@ public class Program
             builder.Logging.SetMinimumLevel(overrideLogLevel.Value);
         }
     }
+
+    /// <summary>
+    /// Configures logging for stdio transport mode. Always clears default console providers to prevent
+    /// stdout/stderr pollution of the MCP JSON-RPC pipe. Optionally wires up a Serilog file sink.
+    /// </summary>
+    private static void ConfigureStdioLogging(HostApplicationBuilder builder, LogLevel? overrideLogLevel, string? logFilePath)
+    {
+        builder.Logging.ClearProviders();
+
+        if (!string.IsNullOrWhiteSpace(logFilePath))
+        {
+            var serilogLogger = new Serilog.LoggerConfiguration()
+                .MinimumLevel.Is(MapToSerilogLevel(overrideLogLevel ?? LogLevel.Information))
+                .WriteTo.File(
+                    logFilePath,
+                    rollingInterval: Serilog.RollingInterval.Day,
+                    retainedFileCountLimit: 7,
+                    outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss} {Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}")
+                .CreateLogger();
+
+            builder.Logging.AddSerilog(serilogLogger, dispose: true);
+        }
+    }
+
+    private static LogEventLevel MapToSerilogLevel(LogLevel level) =>
+        level switch
+        {
+            LogLevel.Trace => LogEventLevel.Verbose,
+            LogLevel.Debug => LogEventLevel.Debug,
+            LogLevel.Warning => LogEventLevel.Warning,
+            LogLevel.Error => LogEventLevel.Error,
+            LogLevel.Critical => LogEventLevel.Fatal,
+            _ => LogEventLevel.Information
+        };
 
     private static async Task<string> ConfigureServerConfiguration(HostApplicationBuilder builder, string? explicitConfigPath)
     {
@@ -3203,12 +3285,12 @@ public class Program
         McpPromptHandler promptHandler)
     {
         ConfigureJsonSerializerOptions(builder);
-        ConfigureOpenTelemetry(builder);
+        ConfigureOpenTelemetry(builder, isStdioMode: true);
         RegisterMcpServerServices(builder, tools, resourcesConfig, configFilePath, loggerFactory, promptHandler);
         RegisterCleanupServices(builder);
     }
 
-    private static void ConfigureOpenTelemetry(HostApplicationBuilder builder)
+    private static void ConfigureOpenTelemetry(HostApplicationBuilder builder, bool isStdioMode = false)
     {
         // Register and configure OpenTelemetry metrics
         builder.Services.AddSingleton<McpMetrics>();
@@ -3216,9 +3298,11 @@ public class Program
         builder.Services.AddOpenTelemetry()
             .WithMetrics(metricsBuilder =>
             {
-                metricsBuilder
-                    .AddMeter(McpMetrics.MeterName)
-                    .AddConsoleExporter();
+                metricsBuilder.AddMeter(McpMetrics.MeterName);
+                if (!isStdioMode)
+                {
+                    metricsBuilder.AddConsoleExporter();
+                }
             });
 
         // Configure metrics in the factories after building the service provider

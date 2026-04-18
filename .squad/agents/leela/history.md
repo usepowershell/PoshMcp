@@ -154,3 +154,29 @@
 - **20260419T000000Z**: ✓ Preview build install instructions added to README and user-guide. README.md updated with pointer to preview guide; user-guide.md now includes complete "Installing Preview Builds" subsection covering: why previews exist (latest features before stable release), GitHub Packages URL and authentication requirements (PAT with `read:packages` scope or GitHub CLI token), setup options (gh CLI recommended with bash/PowerShell examples, manual PAT fallback), install/update/downgrade commands with `--prerelease` and `--source` flags, preview version naming (`0.6.0-preview.{run_number}`), and link to browse packages at GitHub UI. Committed and pushed.
 
 - **20260419T201500Z**: ✓ Reconciled orphaned `docs/user-guide.md` into articles. Migrated "Installing Preview Builds" section (87 lines, complete GitHub Packages workflow) into `docs/articles/getting-started.md` after "Building from Source" as new subsection. Verified no other unique content in user-guide.md warranted migration (configuration, basic setup, etc. already covered in articles). Updated README.md link from `docs/user-guide.md#installing-preview-builds` to `docs/articles/getting-started.md#installing-preview-builds`. Deleted orphaned user-guide.md (1,590 lines removed). Committed and pushed. ToC remains wired to articles/ only—no conflicts.
+
+### 2026-07-18: Issue #131 — Stdio Logging to File Documentation
+
+**Task:** Document the new `--log-file` CLI option, `POSHMCP_LOG_FILE` environment variable, and `Logging.File.Path` appsettings configuration for stdio logging feature (Farnsworth issue #131 architecture decision).
+
+**Documentation updates applied:**
+
+1. **README.md changes:**
+   - Added stdio mode note (after MCP client config): "Logging to console is disabled in stdio mode to prevent interference with the MCP JSON-RPC stream. Use `--log-file <path>` or set `POSHMCP_LOG_FILE` to capture diagnostic logs."
+   - Created new "CLI Options and Environment Variables" subsection with:
+     - `serve` command options: `--transport` and new `--log-file <path>` (stdio mode only, overrides env/appsettings)
+     - Environment variables table with `POSHMCP_TRANSPORT`, `POSHMCP_LOG_FILE` (with detailed description of stdio behavior), `POSHMCP_LOG_LEVEL`
+   - Added "File-based Configuration (appsettings.json)" subsection showing `Logging.File.Path` schema and note that it's stdio-only
+   - Reorganized configuration section for clearer priority: CLI > env > appsettings > silent
+
+2. **DOCKER.md changes:**
+   - Added `POSHMCP_LOG_FILE` to "Environment customization" list with note on volume mounting for container persistence
+   - Created new subsection "Running in stdio mode with logging" with concrete Docker example: `docker run` with `-v /host/logs:/data` and `-e POSHMCP_LOG_FILE=/data/poshmcp.log` to demonstrate volume mounting pattern
+
+**Key design points captured:**
+- Logging is silent in stdio mode when no file is configured (prevents JSON-RPC stream pollution)
+- CLI option takes priority over environment variable, which takes priority over appsettings
+- Container deployments must use volume mounting for log persistence (logs don't survive container shutdown otherwise)
+- Distinction between stdio-only (file-based) vs HTTP console logging behavior
+
+**Outcome:** Issue #131 documentation complete. Users can now discover and understand the three configuration methods for stdio logging, and operators have clear guidance on containerized deployment with persistent logs.

@@ -1,12 +1,242 @@
 # Decisions Log
-Canonical record of decisions, actions, and outcomes.
-
-# Decisions Log
 
 Canonical record of decisions, actions, and outcomes.
 
 
 ## References
+
+
+## 2026-07-18
+
+### Issue #131: STDIO logging to file — Architecture decision
+
+Stdio transport must prevent console logging from polluting the JSON-RPC stream. Use Serilog file-backed logging with 3-tier resolution: CLI option > env var > config file. See detailed architecture below.
+
+### 2026-07-18: Architecture decision — Issue #131 STDIO logging
+
+**By:** Farnsworth
+
+**What:**
+
+## Problem
+
+When PoshMcp runs in stdio transport mode, `ConfigureServerLogging` unconditionally calls `builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace)` and `ConfigureOpenTelemetry` unconditionally calls `.AddConsoleExporter()`. Both write to stdout/stderr, which pollutes the stdio pipe that MCP clients use for JSON-RPC communication.
+
+Three affected sites in `Program.cs`:
+1. `ConfigureServerLogging` — `AddConsole` (used by both stdio and HTTP paths via `RunMcpServerAsync` and indirectly)
+2. `ConfigureOpenTelemetry` (stdio path in `ConfigureServerServices`) — `.AddConsoleExporter()`
+3. `CreateLoggerFactory` — `AddConsole` (bootstrap / evaluate-tools path)
+
+## Decision
+
+Use **Serilog** for file logging in stdio mode. It is the industry-standard .NET structured logging library, integrates cleanly with `Microsoft.Extensions.Logging` via `UseSerilog()`, and `Serilog.Sinks.File` is battle-tested. No existing Serilog dependency exists in the project — this is a deliberate new dependency. Alternative (custom file logger) rejected: unnecessary maintenance burden when Serilog solves it idiomatically.
+
+## Configuration
+
+### New `appsettings.json` section
+
+```json
+"Logging": {
+  "LogLevel": {
+    "Default": "Information",
+    "Microsoft.AspNetCore": "Warning",
+    "Microsoft.Hosting.Lifetime": "Information"
+  },
+  "File": {
+    "Path": ""
+  }
+}
+```
+
+`Logging.File.Path` is the appsettings key. Empty string or absent = no file logging.
+
+### New environment variable
+
+`POSHMCP_LOG_FILE` — absolute or relative path to the log file.
+
+### New CLI option
+
+`--log-file <path>` — added to the `serve` subcommand only.
+
+### Resolution order (highest wins)
+
+1. `--log-file` CLI option
+2. `POSHMCP_LOG_FILE` environment variable
+3. `Logging.File.Path` from appsettings.json
+4. No file → silent (NullLogger / suppress all logging in stdio mode)
+
+Add a new constant in `Program.cs`:
+```csharp
+private const string LogFileEnvVar = "POSHMCP_LOG_FILE";
+```
+
+## Implementation — Bender's scope (`Program.cs`, C# changes)
+
+### 1. New CLI option
+
+Add to `serve` command in `Main`:
+```csharp
+var logFileOption = new Option<string?>(
+    aliases: new[] { "--log-file" },
+    description: "Path to log file for stdio transport (suppresses console logging)");
+serveCommand.AddOption(logFileOption);
+```
+
+Pass `logFile` into `ResolveCommandSettingsAsync` and `RunMcpServerAsync` (add parameter).
+
+### 2. Log file resolution helper
+
+```csharp
+internal static ResolvedSetting ResolveLogFilePath(string? cliValue)
+{
+    return ResolveArgumentOrEnvironmentWithSource(cliValue, LogFileEnvVar, null);
+    // null default = not configured
+}
+```
+
+For appsettings resolution, read `Logging:File:Path` from the loaded `IConfiguration` after the config file is resolved. Merge: CLI/env wins over appsettings value.
+
+### 3. New Serilog-backed logging configurator for stdio mode
+
+```csharp
+private static void ConfigureStdioLogging(HostApplicationBuilder builder, LogLevel? overrideLogLevel, string? logFilePath)
+{
+    // Remove default console providers — nothing goes to stdout/stderr in stdio mode
+    builder.Logging.ClearProviders();
+
+    if (!string.IsNullOrWhiteSpace(logFilePath))
+    {
+        var logger = new LoggerConfiguration()
+            .MinimumLevel.Is(MapToSerilogLevel(overrideLogLevel ?? LogLevel.Information))
+            .WriteTo.File(
+                logFilePath,
+                rollingInterval: RollingInterval.Day,
+                retainedFileCountLimit: 7,
+                outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss} {Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}")
+            .CreateLogger();
+
+        builder.Logging.AddSerilog(logger, dispose: true);
+    }
+    // else: ClearProviders already installed NullLogger behavior — no output anywhere
+}
+```
+
+Replace `ConfigureServerLogging(builder, overrideLogLevel)` call in `RunMcpServerAsync` with `ConfigureStdioLogging(builder, overrideLogLevel, resolvedLogFilePath)`.
+
+### 4. Update `CreateLoggerFactory` (bootstrap/evaluate-tools)
+
+Pass `logFilePath` parameter. When in stdio context and log file is configured, use Serilog sink. When no file, return a no-op factory. Keep existing `AddConsole` behavior only for HTTP/evaluate-tools paths that explicitly request it.
+
+### 5. Required NuGet packages
+
+Add to `PoshMcp.csproj`:
+```xml
+<PackageReference Include="Serilog.Extensions.Hosting" Version="9.0.0" />
+<PackageReference Include="Serilog.Extensions.Logging" Version="9.0.0" />
+<PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+```
+
+Check NuGet for latest stable versions compatible with .NET 10 before pinning.
+
+### 6. Tests
+
+- Unit test: `ResolveLogFilePath` resolution priority (CLI > env > null)
+- Unit test: `ConfigureStdioLogging` with file path → Serilog file sink registered; without path → `ClearProviders` only
+- Integration test: start server in stdio mode with no log file, verify no output on stderr before first MCP message
+- Integration test: start server in stdio mode with `--log-file`, verify log file created and messages appear there
+
+## Implementation — Amy's scope (OTel + config schema + docs)
+
+### 1. Suppress OTel console exporter in stdio mode
+
+In `ConfigureOpenTelemetry` (stdio path, called from `ConfigureServerServices`):
+
+```csharp
+private static void ConfigureOpenTelemetry(HostApplicationBuilder builder, bool isStdioMode = false)
+{
+    builder.Services.AddSingleton<McpMetrics>();
+
+    builder.Services.AddOpenTelemetry()
+        .WithMetrics(metricsBuilder =>
+        {
+            metricsBuilder.AddMeter(McpMetrics.MeterName);
+            if (!isStdioMode)
+            {
+                metricsBuilder.AddConsoleExporter();
+            }
+        });
+
+    // ... rest unchanged
+}
+```
+
+Pass `isStdioMode: true` from `ConfigureServerServices` when building for stdio transport. `ConfigureOpenTelemetryForHttp` is already HTTP-only and stays unchanged.
+
+### 2. appsettings.json schema
+
+Add `Logging.File.Path` to `appsettings.json`, `default.appsettings.json`, and `appsettings.environment-example.json`:
+
+```json
+"Logging": {
+  "LogLevel": { ... },
+  "File": {
+    "Path": ""
+  }
+}
+```
+
+### 3. Documentation updates
+
+**README.md** — Add to the configuration/environment variables section:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `POSHMCP_LOG_FILE` | Path to log file when running in stdio transport mode. When set, all log output is redirected to this file. When unset in stdio mode, logging is suppressed entirely. | (none) |
+
+Add `--log-file <path>` to the CLI reference for the `serve` subcommand.
+
+Add a note under stdio transport usage: "Logging to console is disabled in stdio mode to prevent interference with the MCP JSON-RPC stream. Use `--log-file` or `POSHMCP_LOG_FILE` to capture logs."
+
+**DOCKER.md** — Add `POSHMCP_LOG_FILE` to the environment variables table. Note that in container deployments, the log file path should point to a volume-mounted directory for persistence (e.g., `/data/poshmcp.log`).
+
+**`appsettings.environment-example.json`** — Update example to include `Logging.File.Path`.
+
+## Default behavior in stdio mode with no log file
+
+**Silent** — `builder.Logging.ClearProviders()` removes all providers. No output to stdout, stderr, or any file. This is correct: the process is intentionally silent to avoid polluting the MCP pipe. If an operator needs diagnostics they must configure a log file path.
+
+Do NOT fail startup or warn to stderr when no log file is configured in stdio mode — that would also pollute the pipe.
+
+## What does NOT change
+
+- HTTP transport logging: `AddConsole` stays, OTel `AddConsoleExporter` stays
+- `doctor` command: writes to stdout intentionally (structured output, not logs)
+- `list-tools` command: writes to stdout intentionally
+- All `Console.Error.WriteLine` calls in pre-startup error handling (before transport is determined) stay — they're correct for CLI error reporting before stdio server starts
+
+**Why:** Issue #131 — STDIO transport must not write logs to stdio. MCP clients (Claude Desktop, VS Code, etc.) communicate with the server exclusively over stdio and any non-JSON-RPC output corrupts the stream.
+
+
+### 2026-07-18: PR #132 Review — Issue #131
+**By:** Farnsworth
+**Verdict:** Approved
+**What was checked:**
+- Logging suppression (ClearProviders first in ConfigureStdioLogging)
+- Serilog file sink (rolling daily, 7-day retention, output template)
+- Resolution order (CLI > env > appsettings > silent)
+- OTel console exporter guarded by isStdioMode
+- HTTP path unchanged (AddConsole + AddConsoleExporter still present)
+- Null safety (IsNullOrWhiteSpace guards)
+- Tests (7 unit + 2+ functional, 10/10 pass, full suite 487/0/1)
+- Documentation (README + DOCKER updated with all three config options)
+- Build warnings (0 new, 5 pre-existing unrelated)
+
+**Issues found:**
+- Non-blocking: `default.appsettings.json` (embedded) missing `Logging.File.Path` — functionally harmless
+- Non-blocking: Root handler (bare `poshmcp`) skips `POSHMCP_LOG_FILE` resolution — legacy path, low priority
+
+**Conclusion:** Implementation matches the design spec across all critical areas. ClearProviders unconditionally prevents stdio pollution, Serilog file sink is properly configured, 3-tier resolution works as specified, OTel suppressed in stdio mode, HTTP unaffected. Ship it.
+
 
 - MCP Spec Authorization: https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization
 - C# MCP SDK v1.2.0 API: https://csharp.sdk.modelcontextprotocol.io/
@@ -664,3 +894,4 @@ Fry updated only the inline comment to reference nullable behavior and committed
 ## Implication for future
 
 When a test appears to need "unskipping", check first whether it was actually skipped vs failing. A failing `[Fact]` with no Skip attribute just needs the underlying code fixed — no test-attribute surgery needed.
+

@@ -10,6 +10,25 @@ Current Priorities:
 
 ## Learnings (Recent)
 
+### 2026-07-18: Issue #131 — STDIO logging architecture review
+
+**Design ownership:** Created comprehensive architecture spec (farnsworth-131-stdio-logging-design.md) defining:
+- Problem: stdio transport must not pollute MCP JSON-RPC stream with console logging
+- Solution: Serilog file-backed logging with 3-tier resolution (CLI > env > config > silent)
+- New dependencies: Serilog.Extensions.Hosting, Serilog.Extensions.Logging, Serilog.Sinks.File
+- ConfigureStdioLogging method with ClearProviders unconditional suppression
+- OTel console exporter guarded by isStdioMode parameter
+
+**PR #132 Review:** Comprehensive code review across all team contributions:
+- Verified ClearProviders unconditionally prevents stdio pollution
+- Validated Serilog file sink configuration (rolling daily, 7-day retention, output template)
+- Confirmed resolution tier precedence (CLI > env > appsettings > silent)
+- Checked OTel console exporter guarded by isStdioMode (HTTP path unchanged)
+- Reviewed test coverage (10 tests, full suite 487/0/1 pass)
+- Validated documentation updates (README + DOCKER with all three config options)
+
+**Verdict:** APPROVED - Implementation matches design spec. Ship it.
+
 ### 2026-07-14: MCP authentication architecture design
 
 **Decision:** Implement two-layer authentication for HTTP transport:
@@ -128,3 +147,41 @@ Source: earned patterns from PRs #92–#96 and agent histories.
 **Verdict:** ✅ APPROVED
 **Summary:** MimeType model nullable change restores validator signal while maintaining runtime fallback behavior. All 471 tests pass, 0 build warnings. Validator correctly flags missing MimeType in config; handler provides runtime "text/plain" default in HandleListAsync and HandleReadAsync.
 **Key takeaway:** Model defaults that prevent validators from firing should be moved to runtime handlers. This preserves diagnostic signals while keeping runtime contracts stable.
+
+### 2026-07-18: Issue #131 triage — STDIO logging to file
+
+**Decisions made:**
+- Use Serilog (Serilog.Extensions.Hosting + Serilog.Sinks.File) as the file logging provider; no existing file logger in the project, Serilog is the idiomatic .NET choice
+- In stdio mode: `builder.Logging.ClearProviders()` unconditionally, then add Serilog file sink only if a log file path is configured — silent by default, no startup failure
+- Log file resolution priority: `--log-file` CLI > `POSHMCP_LOG_FILE` env var > `Logging.File.Path` appsettings key > silent
+- OTel `AddConsoleExporter()` suppressed in stdio mode by passing `isStdioMode` flag to `ConfigureOpenTelemetry`; HTTP path unchanged
+- HTTP transport logging behavior is entirely unchanged
+- Pre-startup `Console.Error.WriteLine` error paths stay as-is (correct for CLI errors before stdio server starts)
+
+**Branch created:** `squad/131-stdio-logging-to-file`
+
+**Agents assigned:**
+- **Bender** — C# implementation: `Program.cs` changes, Serilog wiring, `--log-file` CLI option, `POSHMCP_LOG_FILE` env var, unit + integration tests
+- **Amy** — OTel console suppression, `appsettings.json` schema (`Logging.File.Path`), documentation (README.md, DOCKER.md, appsettings.environment-example.json)
+
+**GitHub note:** Label addition and issue comment blocked by Enterprise Managed User policy — triage notes saved to `.squad/decisions/inbox/farnsworth-131-stdio-logging-design.md` instead.
+
+### 2026-07-18: PR #132 review — approved (STDIO logging suppression)
+
+**PR:** #132 (fixes #131) — `feat: suppress console logging in stdio transport, add Serilog file sink`
+**Verdict:** APPROVED
+
+**Implementation quality:** Clean match to design spec. Bender handled C# changes (ConfigureStdioLogging, ResolveLogFilePath, CLI option, Serilog wiring), Amy handled OTel suppression, appsettings schema, and documentation. No merge conflicts expected.
+
+**Key validation points:**
+- `ClearProviders()` is unconditionally first in `ConfigureStdioLogging` — correct
+- Serilog packages updated to 10.0.0/10.0.0/7.0.0 (newer than spec's 9.0.0/9.0.0/6.0.0) — correct per spec guidance
+- OTel `AddConsoleExporter()` properly gated by `isStdioMode` flag
+- 3-tier resolution (CLI > env > config > silent) works correctly
+- HTTP transport completely unaffected
+- 10 new tests (7 unit + 3 functional), all pass; full suite 487/0/1
+
+**Non-blocking notes:**
+- `default.appsettings.json` (embedded) missing `Logging.File.Path` — absent = silent, functionally correct
+- Root handler (bare `poshmcp`) doesn't resolve `POSHMCP_LOG_FILE` — legacy path, low priority
+- Pattern: `CreateLoggerFactory` didn't need changes because it's never called from the stdio server path — design spec was overcautious on this point

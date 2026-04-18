@@ -12,6 +12,28 @@
 
 ## Recent Learnings
 
+### 2026-07-18: Issue #131 — Stdio logging suppression + file sink
+
+**What changed in Program.cs:**
+- Added `private const string LogFileEnvVar = "POSHMCP_LOG_FILE";`
+- Added `--log-file <path>` CLI option to `serve` command (converted handler to `InvocationContext` form to accommodate 8th option)
+- Added `private static ResolvedSetting ResolveLogFilePath(string? cliValue, IConfiguration? config = null)` — resolves log file path with precedence: CLI > env > `Logging:File:Path` config key > null (silent)
+- Added `private static void ConfigureStdioLogging(HostApplicationBuilder builder, LogLevel? overrideLogLevel, string? logFilePath)` — always calls `ClearProviders()`, then wires Serilog file sink if path is configured
+- Added `private static LogEventLevel MapToSerilogLevel(LogLevel level)` helper
+- Updated `RunMcpServerAsync` signature to accept `string? logFilePath = null` and call `ConfigureStdioLogging` instead of `ConfigureServerLogging`
+- Updated `appsettings.json` to include `Logging.File.Path` key (empty by default)
+
+**NuGet packages added:**
+- `Serilog.Extensions.Hosting` 10.0.0
+- `Serilog.Extensions.Logging` 10.0.0
+- `Serilog.Sinks.File` 7.0.0
+
+**Surprises / important patterns:**
+- Adding `using Serilog;` creates an `ILogger` ambiguity with `Microsoft.Extensions.Logging.ILogger`. Fix: add `using ILogger = Microsoft.Extensions.Logging.ILogger;` alias at the top of the file, then bring in `using Serilog;` and `using Serilog.Extensions.Logging;`. The alias wins over the Serilog namespace for the unqualified name.
+- `ResolvedSetting` is a `private sealed record` inside `Program`. Methods returning it must also be `private` (not `internal`) to avoid CS0050 accessibility inconsistency.
+- `serveCommand.SetHandler` already had 7 typed params. To add an 8th option safely (avoiding potential overload count limits in System.CommandLine beta4), switched the serve handler to the `InvocationContext` form used by `updateConfigCommand`.
+- Rolling file sink: `Serilog.Sinks.File` 7.0.0 is latest stable, compatible with .NET 10 and Serilog 4.x.
+
 ### 2026-04-14: Doctor diagnostics should not recompute expensive introspection
 
 - Avoid duplicate execution of `DiagnoseMissingCommands` across runtime and JSON builder paths.

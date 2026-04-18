@@ -76,6 +76,7 @@ poshmcp build --modules "Az.Accounts Az.KeyVault" --tag myorg/poshmcp:prod
 - `POSHMCP_CONFIGURATION` --- path to appsettings.json
 - `POSHMCP_TRANSPORT` --- `http` or `stdio` (default: `http`)
 - `POSHMCP_LOG_LEVEL` --- `trace|debug|info|warn|error`
+- `POSHMCP_LOG_FILE` --- Path to log file (stdio mode only). In containers, use a volume-mounted path (e.g., `/data/poshmcp.log`) for persistence
 
 Run `poshmcp doctor --help` for all diagnostic options.
 
@@ -108,6 +109,24 @@ services:
 ```
 
 See [examples/docker-compose.environment.yml](examples/docker-compose.environment.yml) for a full example.
+
+### Running in stdio mode with logging
+
+To capture logs when running PoshMcp in stdio mode, mount a volume for the log file:
+
+```bash
+# Create a local logs directory
+mkdir -p /tmp/poshmcp-logs
+
+# Run container with mounted volume
+docker run -it \
+  -v /tmp/poshmcp-logs:/data \
+  -e POSHMCP_TRANSPORT=stdio \
+  -e POSHMCP_LOG_FILE=/data/poshmcp.log \
+  poshmcp:latest
+```
+
+Logs will be written to `/tmp/poshmcp-logs/poshmcp.log` on the host system.
 
 ### Image layering strategy
 

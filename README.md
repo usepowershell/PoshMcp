@@ -446,6 +446,8 @@ Configure in your MCP client settings:
 }
 ```
 
+> **Note:** Logging to console is disabled in stdio mode to prevent interference with the MCP JSON-RPC stream. Use `--log-file <path>` or set `POSHMCP_LOG_FILE` to capture diagnostic logs.
+
 ### Web Mode (HTTP)
 
 Runs on port 8080 by default. Configure via `appsettings.json`:
@@ -464,6 +466,41 @@ Runs on port 8080 by default. Configure via `appsettings.json`:
   }
 }
 ```
+
+### CLI Options and Environment Variables
+
+#### serve command options
+
+- `--transport <mode>`: `stdio` (for MCP clients) or `http` (for web integration). Default: `http`
+- `--log-file <path>`: Write logs to file instead of console (stdio mode only). Overrides `POSHMCP_LOG_FILE` and `Logging.File.Path`.
+
+#### Environment variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `POSHMCP_TRANSPORT` | Transport mode: `stdio` or `http` | `http` |
+| `POSHMCP_LOG_FILE` | Path to log file when running in stdio transport mode. When set, all log output is written to this file. When unset in stdio mode, logging is suppressed to prevent interference with the MCP JSON-RPC stream. | (none) |
+| `POSHMCP_LOG_LEVEL` | Minimum log level: `trace`, `debug`, `info`, `warn`, or `error` | `information` |
+
+### File-based Configuration (appsettings.json)
+
+Additional settings in `appsettings.json`:
+
+```json
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    },
+    "File": {
+      "Path": "/var/log/poshmcp.log"
+    }
+  }
+}
+```
+
+The `Logging.File.Path` setting is used when no CLI `--log-file` option or `POSHMCP_LOG_FILE` environment variable is set. File-based logging is only active in stdio mode.
 
 ### Environment-Specific Configuration
 

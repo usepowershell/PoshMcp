@@ -9,7 +9,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>poshmcp</ToolCommandName>
     <PackageId>poshmcp</PackageId>
-    <Version>0.6.1</Version>
+    <Version>0.7.0</Version>
     <Authors>Steven Murawski</Authors>
     <Description>A Model Context Protocol (MCP) server that exposes PowerShell commands and modules as AI-consumable tools.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -38,6 +38,9 @@
 
     <PackageReference Include="Microsoft.PowerShell.SDK" Version="7.6.0" />
     <PackageReference Include="ModelContextProtocol" Version="1.2.0" />
+    <PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0" />
+    <PackageReference Include="Serilog.Extensions.Logging" Version="10.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
     <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
     <PackageReference Include="OpenTelemetry" Version="1.15.1" />
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.15.1" />
