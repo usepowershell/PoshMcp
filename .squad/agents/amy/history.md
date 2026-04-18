@@ -154,3 +154,12 @@ Detailed session history was archived to `history-archive.md` on 2026-04-10 when
 - Note: `gh pr merge --delete-branch` produces a non-zero exit but the merge itself succeeds when GitHub auto-deletes the remote branch (same false-failure pattern as #92–#95 session). Squash-merge is the required strategy (merge commits blocked on this repo).
 - Spec 002 is fully closed. No residual branches or worktrees remain.
 
+### 2026-04-18: v0.6.0 minor release
+
+- Minor version bump: `PoshMcp.Server/PoshMcp.csproj` `0.5.6` → `0.6.0` (reflects merged feature PRs #125–#128 for Spec 002).
+- Pulled latest main: branch already up-to-date (10 spec-002 test commits already present from previous session).
+- Pack command: `dotnet pack PoshMcp.Server/PoshMcp.csproj -c Release -o ./nupkg` → produced `poshmcp.0.6.0.nupkg` (25.8 MB).
+- Uninstall/reinstall cycle: removed `poshmcp.0.5.6`, installed `0.6.0` from local nupkg source.
+- Verified: `poshmcp --version` → `0.6.0+3ed89f5946ba89be53ebb9f85238ab1a3143015b` (commit hash from main).
+- Commit: `chore: bump version to 0.6.0` with Copilot co-author trailer; pushed to main.
+
