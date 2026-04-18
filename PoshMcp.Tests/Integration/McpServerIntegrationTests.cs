@@ -585,6 +585,60 @@ public class ExternalMcpClient : IDisposable
         return await SendRequestAsync(request);
     }
 
+    public async Task<JObject> SendListResourcesAsync()
+    {
+        var request = new
+        {
+            jsonrpc = "2.0",
+            id = _requestId++,
+            method = "resources/list"
+        };
+
+        return await SendRequestAsync(request);
+    }
+
+    public async Task<JObject> SendReadResourceAsync(string uri)
+    {
+        var request = new
+        {
+            jsonrpc = "2.0",
+            id = _requestId++,
+            method = "resources/read",
+            @params = new { uri }
+        };
+
+        return await SendRequestAsync(request);
+    }
+
+    public async Task<JObject> SendListPromptsAsync()
+    {
+        var request = new
+        {
+            jsonrpc = "2.0",
+            id = _requestId++,
+            method = "prompts/list"
+        };
+
+        return await SendRequestAsync(request);
+    }
+
+    public async Task<JObject> SendGetPromptAsync(string name, object? arguments = null)
+    {
+        var request = new
+        {
+            jsonrpc = "2.0",
+            id = _requestId++,
+            method = "prompts/get",
+            @params = new
+            {
+                name,
+                arguments = arguments ?? new { }
+            }
+        };
+
+        return await SendRequestAsync(request);
+    }
+
     private async Task<JObject> SendRequestAsync(object request)
     {
         // Use semaphore to ensure thread-safe access to streams
