@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Hosting;
@@ -669,7 +669,7 @@ public class Program
             {
                 var buildType = string.IsNullOrWhiteSpace(type) ? "base" : type.ToLowerInvariant();
                 var imageTag = string.IsNullOrWhiteSpace(tag) ? "poshmcp:latest" : tag;
-                var dockerPath = DetectDockerCommand();
+                var dockerPath = DockerRunner.DetectDockerCommand();
 
                 if (dockerPath == null)
                 {
@@ -696,7 +696,7 @@ public class Program
                     buildArgs += $" --build-arg INSTALL_PS_MODULES=\"{modules}\"";
                 }
 
-                var result = ExecuteDockerCommand(dockerPath, buildArgs);
+                var result = DockerRunner.ExecuteDockerCommand(dockerPath, buildArgs);
                 if (result != ExitCodeSuccess)
                 {
                     Environment.ExitCode = result;
@@ -721,7 +721,7 @@ public class Program
                 var transportMode = string.IsNullOrWhiteSpace(mode) ? "http" : mode.ToLowerInvariant();
                 var portNumber = port ?? 8080;
                 var imageTag = string.IsNullOrWhiteSpace(tag) ? "poshmcp:latest" : tag;
-                var dockerPath = DetectDockerCommand();
+                var dockerPath = DockerRunner.DetectDockerCommand();
 
                 if (dockerPath == null)
                 {
@@ -784,13 +784,13 @@ public class Program
                 if (interactive)
                 {
                     Console.WriteLine($"Starting PoshMcp container in interactive mode: {imageTag}");
-                    var result = ExecuteDockerCommand(dockerPath, runArgs, interactive: true);
+                    var result = DockerRunner.ExecuteDockerCommand(dockerPath, runArgs, interactive: true);
                     Environment.ExitCode = result;
                 }
                 else
                 {
                     Console.WriteLine($"Starting PoshMcp container in {transportMode} mode on port {portNumber}...");
-                    var result = ExecuteDockerCommand(dockerPath, runArgs);
+                    var result = DockerRunner.ExecuteDockerCommand(dockerPath, runArgs);
                     if (result == ExitCodeSuccess)
                     {
                         Console.WriteLine($"Container started successfully ({transportMode} mode on port {portNumber})");
@@ -1104,7 +1104,7 @@ public class Program
 
     private static async Task RunListToolsAsync(LogLevel logLevel, string finalConfigPath, string? runtimeModeOverride, string format)
     {
-        using var loggerFactory = CreateLoggerFactory(logLevel);
+        using var loggerFactory = LoggingHelpers.CreateLoggerFactory(logLevel);
         var logger = loggerFactory.CreateLogger("ListTools");
 
         var config = LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
@@ -1136,7 +1136,7 @@ public class Program
 
     private static async Task RunValidateConfigAsync(LogLevel logLevel, string finalConfigPath, string? runtimeModeOverride, string format)
     {
-        using var loggerFactory = CreateLoggerFactory(logLevel);
+        using var loggerFactory = LoggingHelpers.CreateLoggerFactory(logLevel);
         var logger = loggerFactory.CreateLogger("ValidateConfig");
 
         var config = LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
@@ -1200,7 +1200,7 @@ public class Program
     private static async Task RunDoctorAsync(ResolvedCommandSettings settings, string format)
     {
         var parsedLogLevel = ParseLogLevel(settings.LogLevel.Value);
-        using var loggerFactory = CreateLoggerFactory(parsedLogLevel);
+        using var loggerFactory = LoggingHelpers.CreateLoggerFactory(parsedLogLevel);
         var logger = loggerFactory.CreateLogger("Doctor");
 
         var config = LoadPowerShellConfiguration(settings.FinalConfigPath, logger, settings.RuntimeMode.Value);
@@ -2295,7 +2295,7 @@ public class Program
         Console.Error.WriteLine("=== PowerShell MCP Server - PSModulePath Report ===");
         Console.Error.WriteLine();
 
-        using var loggerFactory = CreateLoggerFactory(logLevel);
+        using var loggerFactory = LoggingHelpers.CreateLoggerFactory(logLevel);
         var logger = loggerFactory.CreateLogger("PSModulePath");
 
         try
@@ -2353,7 +2353,7 @@ public class Program
     private static async Task RunToolEvaluationAsync(LogLevel logLevel)
     {
         PrintToolEvaluationHeader();
-        using var loggerFactory = CreateLoggerFactory(logLevel);
+        using var loggerFactory = LoggingHelpers.CreateLoggerFactory(logLevel);
         var logger = loggerFactory.CreateLogger("ToolEvaluation");
 
         try
@@ -2374,13 +2374,6 @@ public class Program
     {
         Console.Error.WriteLine("=== PowerShell MCP Server - Tool Evaluation Mode ===");
         Console.Error.WriteLine();
-    }
-
-    internal static ILoggerFactory CreateLoggerFactory(LogLevel logLevel)
-    {
-        return LoggerFactory.Create(builder =>
-            builder.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace)
-                   .SetMinimumLevel(logLevel));
     }
 
     private static void LogEvaluationStart(ILogger logger, LogLevel logLevel)
@@ -2617,7 +2610,7 @@ public class Program
 
         ConfigureOpenTelemetryForHttp(builder);
 
-        using var bootstrapLoggerFactory = CreateLoggerFactory(logLevel);
+        using var bootstrapLoggerFactory = LoggingHelpers.CreateLoggerFactory(logLevel);
         var logger = bootstrapLoggerFactory.CreateLogger("PoshMcpHttpLogger");
         var config = LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
         await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, bootstrapLoggerFactory, logger, finalConfigPath);
@@ -2878,7 +2871,7 @@ public class Program
         if (!string.IsNullOrWhiteSpace(logFilePath))
         {
             var serilogLogger = new Serilog.LoggerConfiguration()
-                .MinimumLevel.Is(MapToSerilogLevel(overrideLogLevel ?? LogLevel.Information))
+                .MinimumLevel.Is(LoggingHelpers.MapToSerilogLevel(overrideLogLevel ?? LogLevel.Information))
                 .WriteTo.File(
                     logFilePath,
                     rollingInterval: Serilog.RollingInterval.Day,
@@ -2889,17 +2882,6 @@ public class Program
             builder.Logging.AddSerilog(serilogLogger, dispose: true);
         }
     }
-
-    private static LogEventLevel MapToSerilogLevel(LogLevel level) =>
-        level switch
-        {
-            LogLevel.Trace => LogEventLevel.Verbose,
-            LogLevel.Debug => LogEventLevel.Debug,
-            LogLevel.Warning => LogEventLevel.Warning,
-            LogLevel.Error => LogEventLevel.Error,
-            LogLevel.Critical => LogEventLevel.Fatal,
-            _ => LogEventLevel.Information
-        };
 
     private static async Task<string> ConfigureServerConfiguration(HostApplicationBuilder builder, string? explicitConfigPath)
     {
@@ -3028,7 +3010,7 @@ public class Program
                 return Task.FromResult(BuildDoctorJson(
                     configurationPath: configurationPath,
                     configurationPathSource: "runtime",
-                    effectiveLogLevel: InferEffectiveLogLevel(logger),
+                    effectiveLogLevel: LoggingHelpers.InferEffectiveLogLevel(logger),
                     effectiveLogLevelSource: "runtime",
                     effectiveTransport: effectiveTransport,
                     effectiveTransportSource: "runtime",
@@ -3091,36 +3073,6 @@ public class Program
             OpenWorld = false,
             UseStructuredContent = true
         });
-    }
-
-    private static string InferEffectiveLogLevel(ILogger logger)
-    {
-        if (logger.IsEnabled(LogLevel.Trace))
-        {
-            return LogLevel.Trace.ToString();
-        }
-
-        if (logger.IsEnabled(LogLevel.Debug))
-        {
-            return LogLevel.Debug.ToString();
-        }
-
-        if (logger.IsEnabled(LogLevel.Information))
-        {
-            return LogLevel.Information.ToString();
-        }
-
-        if (logger.IsEnabled(LogLevel.Warning))
-        {
-            return LogLevel.Warning.ToString();
-        }
-
-        if (logger.IsEnabled(LogLevel.Error))
-        {
-            return LogLevel.Error.ToString();
-        }
-
-        return LogLevel.None.ToString();
     }
 
     private static McpToolFactoryV2 CreateToolFactory(PowerShellConfiguration config, ICommandExecutor? commandExecutor, IPowerShellRunspace? runspace = null)
@@ -3368,111 +3320,6 @@ public class Program
     private static void RegisterCleanupServices(WebApplicationBuilder builder)
     {
         builder.Services.AddSingleton<IHostedService, PowerShellCleanupService>();
-    }
-
-    /// <summary>
-    /// Detects whether docker or podman is available in the system PATH.
-    /// Returns the command name ("docker" or "podman") or null if neither is available.
-    /// </summary>
-    private static string? DetectDockerCommand()
-    {
-        // Try docker first
-        if (CommandExists("docker"))
-        {
-            return "docker";
-        }
-
-        // Fall back to podman
-        if (CommandExists("podman"))
-        {
-            return "podman";
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Checks if a command exists in the system PATH by attempting to execute it with --version.
-    /// </summary>
-    private static bool CommandExists(string command)
-    {
-        try
-        {
-            var processInfo = new ProcessStartInfo
-            {
-                FileName = command,
-                Arguments = "--version",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            using (var process = Process.Start(processInfo))
-            {
-                return process?.WaitForExit(5000) == true && process.ExitCode == 0;
-            }
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Executes a docker or podman command and returns the exit code.
-    /// Optionally runs in interactive mode for terminal interaction.
-    /// </summary>
-    private static int ExecuteDockerCommand(string dockerCommand, string arguments, bool interactive = false)
-    {
-        try
-        {
-            var processInfo = new ProcessStartInfo
-            {
-                FileName = dockerCommand,
-                Arguments = arguments,
-                RedirectStandardOutput = !interactive,
-                RedirectStandardError = !interactive,
-                UseShellExecute = false,
-                CreateNoWindow = !interactive
-            };
-
-            using (var process = Process.Start(processInfo))
-            {
-                if (process == null)
-                {
-                    return ExitCodeRuntimeError;
-                }
-
-                if (!interactive)
-                {
-                    var output = process.StandardOutput.ReadToEnd();
-                    var error = process.StandardError.ReadToEnd();
-
-                    process.WaitForExit();
-
-                    if (process.ExitCode != 0 && !string.IsNullOrEmpty(error))
-                    {
-                        Console.Error.WriteLine(error);
-                    }
-                    else if (!string.IsNullOrEmpty(output) && process.ExitCode == 0)
-                    {
-                        Console.WriteLine(output);
-                    }
-                }
-                else
-                {
-                    process.WaitForExit();
-                }
-
-                return process.ExitCode;
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"Failed to execute {dockerCommand}: {ex.Message}");
-            return ExitCodeRuntimeError;
-        }
     }
 
 }

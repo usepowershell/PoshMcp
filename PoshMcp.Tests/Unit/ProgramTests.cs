@@ -198,7 +198,7 @@ public class ProgramTests : PowerShellTestBase
         var logLevel = LogLevel.Information;
 
         // Act
-        using var loggerFactory = Program.CreateLoggerFactory(logLevel);
+        using var loggerFactory = LoggingHelpers.CreateLoggerFactory(logLevel);
 
         // Assert
         Assert.NotNull(loggerFactory);
