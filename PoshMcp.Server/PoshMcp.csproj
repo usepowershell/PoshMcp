@@ -19,12 +19,17 @@
     <PackageTags>mcp;powershell;ai;model-context-protocol;tools</PackageTags>
     <Copyright>Copyright (c) Steven Murawski</Copyright>
     <AllowMissingPrunePackageData>true</AllowMissingPrunePackageData>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
       <_Parameter1>PoshMcp.Tests</_Parameter1>
     </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,12 +1,12 @@
 name: Build and Publish Packages
 
 # Triggers:
-# - Automatically on release creation (published event)
+# - Automatically on version tag push (e.g. v0.6.0)
 # - Manual dispatch via workflow_dispatch for testing/debugging
-# - Supports pre-releases and drafts
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       version:
@@ -15,7 +15,7 @@ on:
         default: ''
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -40,12 +40,12 @@ jobs:
       - name: Determine version
         id: version
         run: |
-          if [[ "${{ github.event_name }}" == "release" ]]; then
+          if [[ "${{ github.event_name }}" == "push" ]]; then
             # Extract version from git tag (v1.2.3 -> 1.2.3)
-            VERSION=${{ github.event.release.tag_name }}
+            VERSION="${{ github.ref_name }}"
             VERSION=${VERSION#v}
             echo "version=${VERSION}" >> $GITHUB_OUTPUT
-            echo "source=release tag" >> $GITHUB_OUTPUT
+            echo "source=git tag" >> $GITHUB_OUTPUT
           elif [[ -n "${{ github.event.inputs.version }}" ]]; then
             echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
             echo "source=manual dispatch input" >> $GITHUB_OUTPUT
@@ -103,14 +103,49 @@ jobs:
             --store-password-in-clear-text \
             --name github \
             "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
-          
+
           # Push all nupkg files
           dotnet nuget push ./nupkg/*.nupkg \
             --api-key "${{ secrets.GITHUB_TOKEN }}" \
             --source github \
             --skip-duplicate
-          
+
           echo "✓ Packages published to GitHub Packages"
+
+      - name: Publish to NuGet.org
+        if: github.event_name == 'push'
+        run: |
+          dotnet nuget push ./nupkg/*.nupkg \
+            --api-key "${{ secrets.NUGET_API_KEY }}" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+          echo "✓ Packages published to NuGet.org"
+
+      - name: Create or update GitHub Release with notes
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          NOTES_FILE="docs/release-notes/${VERSION}.md"
+          if [[ -f "$NOTES_FILE" ]]; then
+            echo "Using release notes from $NOTES_FILE"
+            gh release create "v${VERSION}" \
+              --title "PoshMcp ${VERSION}" \
+              --notes-file "$NOTES_FILE" \
+              --verify-tag \
+              2>/dev/null || \
+            gh release edit "v${VERSION}" \
+              --notes-file "$NOTES_FILE" \
+              --title "PoshMcp ${VERSION}"
+          else
+            echo "No release notes file found at $NOTES_FILE — skipping release notes update"
+            gh release create "v${VERSION}" \
+              --title "PoshMcp ${VERSION}" \
+              --generate-notes \
+              --verify-tag \
+              2>/dev/null || echo "Release already exists"
+          fi
 
       - name: Upload artifacts
         if: always()
@@ -170,8 +205,8 @@ jobs:
             --configuration Release --no-build \
             -- build --tag "$IMAGE"
 
-      - name: Tag image as latest (releases only)
-        if: github.event_name == 'release'
+      - name: Tag image as latest (tag push only)
+        if: github.event_name == 'push'
         run: |
           IMAGE="${{ steps.image.outputs.name }}:${{ needs.build-and-publish.outputs.version }}"
           docker tag "$IMAGE" "${{ steps.image.outputs.name }}:latest"
@@ -180,8 +215,8 @@ jobs:
         run: |
           docker push "${{ steps.image.outputs.name }}:${{ needs.build-and-publish.outputs.version }}"
 
-      - name: Push latest tag (releases only)
-        if: github.event_name == 'release'
+      - name: Push latest tag (tag push only)
+        if: github.event_name == 'push'
         run: |
           docker push "${{ steps.image.outputs.name }}:latest"
 
@@ -189,7 +224,7 @@ jobs:
         run: |
           echo "## Container Image Published" >> $GITHUB_STEP_SUMMARY
           echo "- \`${{ steps.image.outputs.name }}:${{ needs.build-and-publish.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          if [[ "${{ github.event_name }}" == "release" ]]; then
+          if [[ "${{ github.event_name }}" == "push" ]]; then
             echo "- \`${{ steps.image.outputs.name }}:latest\`" >> $GITHUB_STEP_SUMMARY
           fi
 
