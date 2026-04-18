@@ -163,7 +163,15 @@ Detailed session history was archived to `history-archive.md` on 2026-04-10 when
 - Verified: `poshmcp --version` → `0.6.0+3ed89f5946ba89be53ebb9f85238ab1a3143015b` (commit hash from main).
 - Commit: `chore: bump version to 0.6.0` with Copilot co-author trailer; pushed to main.
 
-### 2026-04-18: Publish poshmcp 0.6.0 to GitHub Packages
+### 2026-04-18: CI/CD pipeline improvements — preview builds, NuGet.org release, README in package
+
+- Added `<PackageReadmeFile>README.md</PackageReadmeFile>` to `PoshMcp.Server/PoshMcp.csproj` PropertyGroup.
+- Added `<None Include="..\README.md" Pack="true" PackagePath="\" />` so README.md from the repo root is embedded in the NuGet package.
+- Created `.github/workflows/preview-packages.yml`: triggers on push to main (same paths as ci.yml), skips on `[skip ci]` or `[no preview]` in commit message, versions as `{base-version}-preview.{GITHUB_RUN_NUMBER}`, runs unit + functional tests, packs and publishes to GitHub Packages, uploads artifact (14-day retention), writes a job summary with version and link.
+- Reworked `.github/workflows/publish-packages.yml`: replaced `release: published` trigger with `push: tags: ['v*']`; updated version logic to strip `v` prefix from `github.ref_name` on tag push; added "Publish to NuGet.org" step (using `NUGET_API_KEY` secret, `if: github.event_name == 'push'`); added "Create or update GitHub Release with notes" step that uses `docs/release-notes/{version}.md` if present or auto-generates notes; updated `contents` permission from `read` to `write` (required for `gh release`); updated container job's "Tag image as latest" and "Push latest tag" `if:` conditions from `release` to `push`.
+- All changes committed and pushed to main: `0037c66`.
+
+
 
 - Package artifact: `nupkg/poshmcp.0.6.0.nupkg` (verified present, 25.8 MB).
 - GitHub Packages source was already registered as `github-poshmcp` → `https://nuget.pkg.github.com/usepowershell/index.json`.

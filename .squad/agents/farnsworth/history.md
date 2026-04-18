@@ -107,3 +107,24 @@ Source: earned patterns from PRs #92–#96 and agent histories.
 - "Fail-fast" is the right default for prompt behavior; structured prompt response is P2 (requires fail-fast infrastructure first)
 - Property filtering via `DefaultDisplayPropertySet` should be ON by default (95%+ payload reduction); result caching via `Tee-Object` should be OFF by default (most callers never use replay tools)
 - Spec 003 (prompt handling) logically precedes spec 004 (OOP) because the OOP interactive prompt strategy is defined as "defer to spec 003 / fail-fast in OOP mode"
+
+### 2026-07-18: PR #130 review — approved (MimeType nullable fix)
+
+**PR:** #130 (fixes #129) — `Fix MimeType default — null model property, apply text/plain at runtime in handler`
+**Verdict:** APPROVED
+
+**Pattern validated — "model reflects truth, handler applies default":**
+- `McpResourceConfiguration.MimeType` changed from `string` (default `"text/plain"`) to `string?` (no default)
+- Runtime fallback `?? "text/plain"` applied via `string.IsNullOrWhiteSpace()` in `McpResourceHandler` at both list and read response sites
+- Validator already used `IsNullOrWhiteSpace` — no change needed there
+- All 3 `.MimeType` access sites in server code audited and confirmed null-safe
+- Edge cases (empty string, whitespace) handled by `IsNullOrWhiteSpace` in both handler and validator
+- No serialization cascade — MimeType is consumed, never re-serialized from the model
+- Build: 0 errors; Tests: 471 passed, 0 failed
+
+**Key pattern:** When a config property has a protocol-level default, keep the model nullable to distinguish "not configured" from "explicitly configured to the default value". Apply the default at the last responsible moment (the handler constructing the response).
+### 2026-04-18: PR #130 review (issue #129 — MimeType fix)
+
+**Verdict:** ✅ APPROVED
+**Summary:** MimeType model nullable change restores validator signal while maintaining runtime fallback behavior. All 471 tests pass, 0 build warnings. Validator correctly flags missing MimeType in config; handler provides runtime "text/plain" default in HandleListAsync and HandleReadAsync.
+**Key takeaway:** Model defaults that prevent validators from firing should be moved to runtime handlers. This preserves diagnostic signals while keeping runtime contracts stable.

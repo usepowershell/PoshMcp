@@ -1,887 +1,518 @@
 # Decisions Archive
+Entries archived on 2026-04-18.
 
-Archived decisions outside the active Scribe retention window.
+## Archived Entries (older than 7 days)
 
-## 2026-03-27: Squad initialization
+## 2026-04-08
 
-**Decision:** Formed squad with Futurama cast to tackle maintainability, resilience, and observability improvements.
+### Serialization migration coverage should anchor on serializer-level tests
 
-**Context:** PoshMcp MCP server needs structured error handling, circuit breakers, health checks, enhanced metrics, and better runtime observability.
-
-**Team roster:**
-- 🏗️ Farnsworth (Lead/Architect)
-- ⚙️ Bender (Backend Dev - C#/.NET)
-- 💻 Hermes (PowerShell Expert)
-- 📊 Amy (DevOps/Platform - Observability)
-- 🧪 Fry (Tester)
-- 📋 Scribe (Session Logger)
-- 🔄 Ralph (Work Monitor)
-
-**Rationale:** Coverage across architecture, .NET implementation, PowerShell specifics, observability, and testing ensures capability to implement all recommended improvements.
-
----
-
-## 2026-03-27: Quick Wins Implementation Plan
-
-**Context:** PoshMcp needs immediate improvements to observability, resilience, and maintainability. Five high-priority quick wins have been identified that provide significant value with manageable implementation effort.
-
-**Decision:** Implement 5 quick wins in 3 phases over 2-3 weeks:
-- Phase 1: Health checks + Correlation IDs (parallel, no dependencies)
-- Phase 2: Structured error codes (depends on correlation IDs)
-- Phase 3: Config validation + Timeouts (depend on error codes)
-
-**Key Architectural Choices:**
-- Health checks: ASP.NET Core IHealthCheck infrastructure for K8s integration
-- Correlation IDs: AsyncLocal<T> for async/await propagation via middleware
-- Timeouts: Task.WaitAsync() with CancellationTokenSource at PowerShell execution layer
-- Error codes: Enum-based hierarchy (1xxx=config, 2xxx=execution, 3xxx=runspace, 4xxx=parameters)
-- Config validation: IValidateOptions<T> for fail-fast startup validation
-
-**Work Distribution:**
-- Amy: Health checks (lead), correlation IDs (lead), metrics integration
-- Bender: Error codes (lead), config validation (lead)
-- Hermes: PowerShell health checks, timeout handling (lead)
-- Fry: Comprehensive test coverage for all 5 features
-
-**Rationale:** These improvements address critical operational gaps with manageable scope. Phased approach ensures dependencies are resolved in order while enabling parallel work where possible.
-
-**Status:** Phase 1 Complete (2026-03-27)
-
----
-
-## 2026-03-27: Phase 1 Implementation - Health Checks and Correlation IDs
-
-**Context:** First phase of quick wins focusing on operational observability. Enables monitoring PoshMcp health and tracing requests across distributed systems.
-
-**Decision:** Implemented health check infrastructure and correlation ID tracking:
-
-**Health Checks:**
-- PowerShellRunspaceHealthCheck: Validates runspace responsiveness (< 500ms)
-- AssemblyGenerationHealthCheck: Tests dynamic assembly generation capability
-- ConfigurationHealthCheck: Validates configuration structure and reports metadata
-- Endpoints: `/health` (detailed JSON), `/health/ready` (K8s-compatible)
-
-**Correlation IDs:**
-- OperationContext: AsyncLocal-based tracking with format `yyyyMMdd-HHmmss-<8-char-guid>`
-- LoggerExtensions: Correlation-aware logging helpers for all log levels
-- Middleware: Extracts from X-Correlation-ID header, propagates through pipeline
-- Integration: Added to all logs, response headers, and OpenTelemetry metrics
-
-**Package Dependencies:**
-- Microsoft.Extensions.Diagnostics.HealthChecks 9.0.7 (PoshMcp.Server, PoshMcp.Web)
-
-**Success Criteria Met:**
-✅ Health checks complete in < 500ms
-✅ Correlation IDs propagate through async operations
-✅ All log statements include correlation ID
-✅ Metrics tagged with correlation_id dimension
-✅ K8s-compatible readiness probe available
-
-**Implementation:** Amy Wong
-
-**Testing:** Fry created 37 test scenarios (13 passing at phase completion)
-
-**Status:** Active
-
-## 2025-07
-
-### Runtime Caching Toggle via MCP Tool
-
-**Author:** Farnsworth (Lead / Architect)
-**Date:** 2025-07-17
+**Author:** Fry (via Copilot)
+**Date:** 2026-04-08T00:00:00Z
 **Status:** Proposed
-**Spec:** `specs/large-result-performance.md` (section 3.6)
 
-Add a `set-result-caching` MCP tool that sets runtime overrides for result caching without restarting the server.
-
-**Key design choices:**
-1. **Runtime overrides take highest priority** in the resolution chain — above per-function config and global config.
-2. **Scope: global + per-function.** The tool accepts a `scope` parameter (`global` or `function`). Per-function runtime overrides take priority over global runtime override.
-3. **Ephemeral state.** Runtime overrides do not persist across server restarts. Runtime = session intent; config = operational defaults.
-4. **Thread-safe via `ConcurrentDictionary` + `volatile`.** No locks needed for simple flag reads/writes.
-5. **Immediate effect on next command.** Toggling caching does not retroactively cache previous output.
-6. **Gating.** Recommend gating behind `EnableDynamicReloadTools` for consistency with other runtime configuration tools.
+Add focused unit coverage for `PowerShellJsonOptions` string serialization, because the current migration regression is shared across stdio and HTTP transport paths while the HTTP integration harness is also vulnerable to unrelated `dotnet run` apphost file locks.
 
 **Rationale:**
-- Steven requested runtime toggleability without restart for developer iteration
-- Single-client stdio server model makes session-scoped state unnecessary
-- Per-function + global hierarchy mirrors static config, reducing cognitive load
+- The integration failures prove user-visible breakage across transport paths
+- A serializer-level regression test gives the narrowest reliable validation target for the fix
+- Web integration runs can be polluted by unrelated `dotnet run` file-lock failures, so unit coverage is the safer regression anchor
 
-**Impact:**
-- New file: `RuntimeCachingState.cs`
-- New DI registration in `Program.cs`
-- New MCP tool registered in `McpToolFactoryV2`
-- Updated resolution logic in `ExecutePowerShellCommandTyped`
-- New Phase 2.5 in implementation plan (between Phase 2 and Phase 3)
-- Additional unit and integration tests
+**Impact:** Prioritize targeted serializer regression coverage while HTTP transport failures are being investigated. Use broader HTTP integration validation as confirmation, not the sole guardrail.
 
-## 2025-11-26
+### Normalize PowerShell results before JSON serialization
 
-### Recovery fix for out-of-process merge fallout
+**Author:** Steven Murawski (via Copilot/Hermes)
+**Date:** 2026-04-08
+**Status:** Proposed
 
-**By:** Bender
-**What:** Restored a shared `Program.BuildDoctorJson(...)` helper so CLI doctor output and MCP troubleshooting tools use the same JSON payload builder, and extended the shared `InProcessMcpServer` test harness to support explicit config arguments and stderr capture expected by out-of-process integration tests.
-**Why:** The merge left the server and integration harness in mismatched states: the runtime troubleshooting tool still depended on a removed helper, and the new out-of-process tests depended on harness features that were no longer present. Centralizing the doctor JSON path again and updating the shared harness was the minimal root-cause fix.
-
----
-
-# Decision: Cache DiagnoseMissingCommands Results in Doctor Output
-
-**Author:** Bender
-**Date:** 2025-07-15
-**PR:** #96 (Issue #91 - doctor command resolution)
-
-## Decision
-
-`DiagnoseMissingCommands` must be executed at most once per doctor invocation. Its results must be cached and shared between the text output path and the JSON output path in `Program.cs`.
-
-## Context
-
-`RunDoctorAsync` and `BuildDoctorJson` both previously called `DiagnoseMissingCommands` independently. Each call creates an `IsolatedPowerShellRunspace` and runs `Get-Command`/`Import-Module` for every missing command. When `format == "json"`, both calls executed - doubling the cost with no benefit.
-
-## Fix Applied
-
-- `BuildDoctorJson` now accepts `List<ConfiguredFunctionStatus>? precomputedFunctionStatus = null`
-- A guard in `BuildDoctorJson` skips `DiagnoseMissingCommands` if `ResolutionReason` is already populated
-- `RunDoctorAsync` passes its resolved `configuredFunctionStatus` to `BuildDoctorJson` for the JSON path
-- `ConfiguredFunctionStatus` accessibility changed from `private` to `internal` to satisfy C# accessibility rules
-
-## Outcome
-
-- 336 tests pass, 0 failures
-
----
-
-## 2026-03-27: Phase 1 Testing Strategy - Stub-Based Specification
-
-**Context:** Phase 1 features (health checks, correlation IDs) required test coverage before implementation to serve as specifications and catch regressions.
-
-**Decision:** Created 37 test scenarios as stubs with TODO comments, organized into 5 test files:
-- HealthChecksTests.cs (11 tests): Healthy/Unhealthy/Degraded states, timeouts, concurrent access
-- CorrelationIdGenerationTests.cs (5 tests): ID format, uniqueness, explicit setting
-- CorrelationIdPropagationTests.cs (6 tests): Async/await propagation, concurrent isolation
-- CorrelationIdLoggingTests.cs (6 tests): Log enrichment, structured logging integration
-- CorrelationIdMiddlewareTests.cs (9 tests): Header extraction, context lifetime, isolation
-
-**Rationale:** Tests-first approach provides clear specifications for implementation, documents expected behavior, enables regression prevention, and reveals design considerations early.
-
-**Consequences:**
-- Tests serve as living documentation of expected behavior
-- 13/37 tests passing after Phase 1 implementation (feature-complete but test activation ongoing)
-- Remaining tests will be activated as implementations are completed
-- Granular tests provide clear failure messages during development
-
-**Testing:** Fry Fry
-
-**Status:** Active
-
----
-
-## 2026-03-27: Phase 1 Code Review - Approval with Minor Fixes
-
-**Context:** Farnsworth completed architectural review of Phase 1 implementation (health checks and correlation IDs). Implementation demonstrated solid design alignment but required performance and correctness improvements.
-
-**Decision:** APPROVED WITH MINOR CHANGES
-- Overall assessment: 7.5/10 (Architecture 9/10, Code Quality 7/10)
-- Required fixes: Health check timeout enforcement, LoggerExtensions performance warnings
-- Non-blocking recommendation: Strengthen AssemblyGenerationHealthCheck validation
-
-**Critical Issues Identified:**
-1. **Health Check Timeouts:** PowerShellRunspaceHealthCheck declared 500ms timeout but didn't enforce it
-2. **LoggerExtensions Performance:** Created new scope per log call instead of per operation
-3. **Program.cs Duplicate Code:** Unreachable code after app.Run() in PoshMcp.Web/Program.cs
-
-**Resolution:** All critical issues addressed by Amy and Bender. Testing confirms 13/37 tests passing, Phase 1 feature-complete.
-
-**Reviewer:** Farnsworth  
-**Implementers:** Amy (fixes), Bender (Program.cs cleanup)  
-**Validator:** Test suite confirming functionality  
-
-**Status:** Active
-
----
-
-## 2026-03-27: Program.cs Duplicate Code Removal
-
-**Context:** Code review identified duplicate, unreachable code in PoshMcp.Web/Program.cs after app.Run() call.
-
-**Decision:** Removed duplicate endpoint mapping and app.Run() calls (lines 157-160).
-
-**Rationale:** 
-- app.Run() is blocking and starts the web server
-- Any code after app.Run() in the same method is unreachable
-- Duplicate code adds confusion even if not functional
-
-**Implementation:** Bender  
-**Impact:** No functional change (code was unreachable), improved maintainability  
-**Lesson Learned:** app.Run() should always be the last call in Program.cs
-
-**Status:** Active
-
----
-
-## 2026-03-27: Health Check Timeout and LoggerExtensions Performance Fixes
-
-**Context:** Farnsworth's Phase 1 review identified two critical production readiness issues that required immediate attention.
-
-**Decision:** Implemented two targeted fixes:
-
-1. **Health Check Timeout Enforcement:**
-   - Wrapped Task.Run with Task.WaitAsync(HealthCheckTimeout, cancellationToken)
-   - Added dedicated TimeoutException handling for diagnostics
-   - Ensures 500ms timeout requirement for K8s probe compatibility
-
-2. **LoggerExtensions Performance Warnings:**
-   - Added comprehensive XML documentation warnings about per-call scope creation
-   - Documented BeginCorrelationScope() as RECOMMENDED pattern for hot paths
-   - Preserved convenience methods with education-first approach
-   - Prevents performance issues while maintaining backward compatibility
+Convert PowerShell results into JSON-safe scalars, dictionaries, and arrays before handing them to `System.Text.Json`, with explicit handling for `IDictionary`, `IEnumerable`, pointer-like CLR values, recursive `PSObject` graphs, and inaccessible CLR properties.
 
 **Rationale:**
-- Timeout fix: Explicit enforcement guarantees operational requirements met
-- Documentation approach: Balances developer experience with performance guidance
-- Avoided breaking changes: Maintained backward compatibility while preventing future misuse
+- Direct serialization of nested CLR objects leaked framework dictionary internals into responses
+- Members such as `Encoding.Preamble` and pointer-like CLR values can trip unsupported serialization paths
+- Normalizing into JSON-safe shapes protects both live command results and cached outputs
 
-**Implementation:** Amy Wong  
-**Testing:** All 13 health check tests passing, timeout properly enforced  
-**Trade-off:** Documentation warnings vs. method removal (prioritized education and compatibility)
+**Impact:** The serialization pipeline should normalize nested PowerShell and CLR objects before JSON output so stdio and HTTP transport responses stay predictable and cache-safe.
 
-**Status:** Active
+### Preserve scalar PowerShell BaseObject values during JSON serialization
 
----
+**Author:** Hermes (via Copilot)
+**Date:** 2026-04-08T00:00:00Z
+**Status:** Proposed
 
-## 2026-03-27: PowerShell Native Streams for Deploy Scripts
-
-**Context:** Azure deployment script (`infrastructure/azure/deploy.ps1`) was using custom helper functions (`Write-Info`, `Write-Success`, `Write-ErrorMessage`) that wrapped `Write-Host` calls with different colors. This violated PowerShell best practices by bypassing the pipeline and prevented integration with PowerShell's built-in stream infrastructure.
-
-**Decision:** Refactored deploy.ps1 to use native PowerShell streams:
-- **Write-Information** (with `-Tags`) for status messages and successes
-- **Write-Verbose** for diagnostic details (command execution info)
-- **Write-Warning** for warnings (already correct, kept native)
-- **Write-Error** for errors with proper categories (`NotInstalled`, `AuthenticationError`, `InvalidOperation`)
-- **Write-Host** only for formatted summary output requiring color
-
-**Alternatives Considered:**
-1. Keep custom functions and add comment-based help → Rejected: Still bypasses pipeline
-2. Switch everything to Write-Host → Rejected: Worse than current state
-3. Use Write-Output for all messages → Rejected: Pollutes return values
-4. Native streams with proper categorization → **Selected**
+Treat scalar `PSObject.BaseObject` values, especially strings, as leaf JSON values before enumerating `PSObject.Properties`.
 
 **Rationale:**
-- Pipeline compatibility: Output can be captured/redirected using standard mechanisms
-- User control: Respects `-Verbose`, `-InformationAction`, `-ErrorAction` parameters
-- Better automation: Integrates with logging frameworks and automation tools
-- Standards compliance: Follows approved verb naming and stream conventions
-- Enhanced diagnostics: Verbose stream provides detailed execution information
-- Reduced code: Eliminated ~40 lines of custom wrapper functions
+- The `System.Text.Json` migration regressed simple command output by serializing wrapped strings as PowerShell metadata such as `Length`
+- Scalar leaf handling is the narrow fix for the user-visible string regression
+- Complex PowerShell objects still need property-based serialization after scalar cases are peeled off
 
-**Implementation Details:**
-- Set `$InformationPreference = 'Continue'` for interactive visibility
-- Added error categories for semantic error handling
-- Tagged Information messages (`-Tags 'Status'`, `-Tags 'Success'`) for filtering
-- Enhanced verbose logging for diagnostic traces
-- Leveraged existing `[CmdletBinding()]` for automatic parameters
+**Impact:** String and other scalar PowerShell results should serialize as their actual values instead of adapted metadata objects.
 
-**Consequences:**
-- ✅ Script now pipeline-compatible for automation scenarios
-- ✅ Users can control output verbosity with standard PowerShell parameters
-- ✅ Proper integration with PowerShell logging infrastructure
-- ✅ Improved error handling with categories and structured error records
-- ⚠️ Requires PowerShell 5.0+ (for Write-Information cmdlet)
-- 📋 Pattern should be applied to other automation scripts in codebase
+### Tester coverage should pin string serialization through execution and cache paths
 
-**Implementation:** Hermes  
-**Code Reduction:** ~40 lines removed  
-**Files Modified:** [infrastructure/azure/deploy.ps1](infrastructure/azure/deploy.ps1)
+**Author:** Fry (via Copilot)
+**Date:** 2026-04-08T00:00:00Z
+**Status:** Proposed
 
-**Status:** Active
-
----
-
-## 2026-03-27: Azure Container Apps Deployment Strategy
-
-**Context:** PoshMcp needs production-ready Azure deployment infrastructure that:
-- Supports both development and production environments
-- Integrates with existing health checks and observability (Phase 1)
-- Follows Azure best practices for security and scalability
-- Provides reproducible, automated deployment workflows
-
-**Decision:** Implement Azure Container Apps deployment using Bicep IaC templates.
-
-**Primary Choices:**
-
-1. **Azure Container Apps over alternatives:**
-   - **Why not AKS?** Too complex, higher operational overhead for single-app deployment
-   - **Why not App Service for Containers?** Less granular scaling, no built-in Dapr support
-   - **Why not Container Instances?** Limited scaling, no built-in ingress management
-   - **Container Apps chosen for:** Managed K8s-like features, autoscaling, built-in ingress, lower operational complexity
-
-2. **Bicep over ARM JSON:** More readable, maintainable, native Azure tooling support
-
-3. **User-Assigned Managed Identity:** Independent lifecycle, pre-deployment RBAC setup
-
-4. **Dual scripting (bash + PowerShell):** Cross-platform team support with feature parity
-
-**Health Check Strategy:**
-- Startup: `/health` with 30 failures (150s tolerance for PowerShell initialization)
-- Liveness: `/health/ready` every 30s (detect hung processes)
-- Readiness: `/health/ready` every 10s (control traffic routing)
-
-**Autoscaling:** HTTP-based with 1-10 replicas, 50 concurrent requests per replica threshold
-
-**Resource Sizing:** 0.5 vCPU, 1.0 GB memory (sufficient for PowerShell workloads)
-
-**Implementation:** Amy Wong
-
-**Status:** Active
-
----
-
-## 2026-03-27: Multi-Tenant Azure Deployment Support
-
-**Context:** Azure deployment scripts did not account for scenarios where users work with multiple Azure tenants, creating risks when deploying across customer environments or switching between organizational tenants.
-
-**Decision:** Implement explicit multi-tenant support in both deployment scripts (deploy.ps1 and deploy.sh):
-- Optional tenant parameter (PowerShell: `-TenantId`, Bash: `AZURE_TENANT_ID` env var)
-- Falls back to current tenant if not specified (backward compatible)
-- Tenant validation workflow: detect current tenant, switch if needed, validate subscription belongs to active tenant
-- Enhanced error handling with clear tenant mismatch messages
-
-**Implementation Details:**
-- Added `Set-AzureTenant` function in deploy.ps1 to handle tenant switching
-- Updated `Set-AzureSubscription` to validate subscription belongs to current tenant
-- Added tenant validation after login to verify successful switch
-- Comprehensive README documentation with 4 concrete usage scenarios
+Keep the serializer unit test as the narrow regression anchor, and add focused execution-plus-cache coverage for a string-returning PowerShell command so `ExecutePowerShellCommandTyped` and `GetLastCommandOutput` are pinned against the `[{"Length":N}]` regression.
 
 **Rationale:**
-- Maintains backward compatibility (parameter optional)
-- Prevents wrong-tenant deployments (critical security issue)
-- Follows Azure PowerShell naming conventions (`-TenantId`)
-- Provides clear error messages with both expected and actual tenant IDs
+- HTTP integration tests are useful but indirect for this defect
+- Prior functional cache assertions only checked for valid JSON and cache consistency
+- A direct execution-plus-cache assertion closes the gap on the public response shape that regressed
 
-**Consequences:**
-- ✅ Safe multi-tenant deployments
-- ✅ Backward compatible with existing workflows
-- ✅ CI/CD with managed identity works without tenant parameter
-- ✅ Follows PowerShell and Azure CLI best practices
+**Impact:** Regression coverage should include both serializer-level tests and targeted execution/cache assertions for string outputs.
 
-**Implementation:** Amy Wong
-**Code Review:** Hermes (9/10 - production-ready)
+### Reuse existing test build outputs when launching the in-process HTTP test harness
 
-**Status:** Active
+**Author:** Steven Murawski (via Copilot)
+**Date:** 2026-04-08T00:00:00Z
+**Status:** Superseded — see "poshmcp as single entry point" (2026-04-10)
 
----
-
-## 2026-03-27: Hermes Review - Multi-Tenant Deployment Implementation
-
-**Context:** Hermes reviewed Amy's multi-tenant PowerShell implementation in deploy.ps1 for code quality, PowerShell best practices, and production readiness.
-
-**Decision:** APPROVED (9/10 from PowerShell perspective) - Production-ready implementation.
-
-**Strengths Identified:**
-1. **Parameter naming:** Correct usage of `-TenantId` following Azure PowerShell conventions
-2. **Error handling:** Semantic error categories, defensive LASTEXITCODE checking, proper stderr redirection
-3. **Stream usage:** Perfect alignment with recent PowerShell streams refactoring (Write-Information, Write-Verbose)
-4. **Edge case handling:** Tenant mismatch validation, subscription-to-tenant validation
-5. **Script state management:** Correct use of script-scoped variables
-
-**Minor Optional Improvements:**
-- Could split tenant switching into separate function for reusability
-- Could add `-WhatIf` support for dry-run scenarios
-
-**Reviewer:** Hermes
-**Reviewee:** Amy Wong
-
-**Status:** Active
-
----
-
-## 2026-03-27: Documentation Standards Baseline
-
-**Context:** During initial documentation audit, Leela (Developer Advocate) identified significant inconsistencies across 162 markdown files. Mix of emoji usage patterns, heading case styles, code block formatting, and document structure made it unclear what standards contributors should follow.
-
-**Decision:** Established comprehensive documentation standards for PoshMcp project:
-
-**README Standards:**
-- Required sections: Title → Tagline → What/Why → Example → Features → Getting Started → Links → Contributing → License
-- Professional developer-focused voice with concrete examples
-- Benefits before details approach
-
-**Style Guidelines:**
-- **Emojis:** Minimal/none in technical documentation (exception: internal team docs)
-- **Headings:** Title Case for H1, sentence case for H2+
-- **Code blocks:** Always specify language (bash, powershell, json, csharp, text)
-- **Links:** Relative paths for internal, descriptive text for external
-
-**Quality Requirements:**
-- Verify code examples work before publishing
-- Validate all links
-- Confirm technical accuracy
-- Test copy-paste commands
-
-**Migration Strategy:**
-- Phase 1: All new content follows standards immediately (README.md updated as reference)
-- Phase 2: Critical docs (DESIGN.md, Azure docs, tests) - weeks 2-3
-- Phase 3: Comprehensive cleanup as time allows
-
-**Templates to Create:**
-- Feature documentation template
-- API documentation template  
-- Tutorial template
-- Deployment guide template
-
-**Rationale:** Consistent documentation improves contributor experience, project professionalism, and reduces friction for new users. Standards based on industry best practices for technical developer tools.
-
-**Consequences:**
-- ✅ Clear guidance for all documentation work
-- ✅ README.md revised as reference implementation
-- ⚠️ Requires progressive migration of existing docs (non-blocking)
-- 📋 May add markdown linters in future for automated enforcement
-
-**Proposed by:** Leela  
-**Status:** Active
-
----
-
-## 2026-03-27: PowerShell Review Policy - Hermes Mandatory Review
-
-**Context:** PoshMcp is built on PowerShell SDK and includes PowerShell automation scripts. PowerShell has specific idioms, stream patterns, and best practices that differ from general scripting. Recent work (stream refactoring, multi-tenant deployment) established strong patterns that new PowerShell code should follow.
-
-**Decision:** Hermes MUST review all new or updated PowerShell scripts before merge.
-
-**Scope:**
-- ✅ All `.ps1` files (scripts)
-- ✅ PowerShell code embedded in other files (Dockerfiles, CI/CD, documentation)
-- ✅ PowerShell configuration patterns in C# code (if they affect PowerShell execution semantics)
-- ❌ Trivial typo fixes in PowerShell comments
-
-**Review Criteria:**
-1. **Stream usage:** Proper use of Write-Information/Verbose/Warning/Error (not Write-Host)
-2. **Error handling:** Semantic error categories, proper $ErrorActionPreference
-3. **Parameter naming:** Following PowerShell and Azure conventions
-4. **CmdletBinding:** Proper use of [CmdletBinding()] and parameter attributes
-5. **Pipeline compatibility:** Script works in automation/pipeline scenarios
-6. **State management:** Correct variable scoping (script/global/local)
-7. **Performance:** No common anti-patterns (like creating scopes per log call)
-
-**Process:**
-1. Create review request in `.squad/decisions/inbox/` when PowerShell changes are made
-2. Hermes performs review within 1 business day (when available)
-3. Hermes provides APPROVED or CHANGES REQUESTED with specific feedback
-4. Implementation team addresses feedback, iteration continues until approval
-5. Merge only after Hermes approval
+The in-process HTTP test harness should infer the active test build configuration and launch `PoshMcp.Server` with `dotnet run --no-build --configuration {Debug|Release} -- serve --transport http` so integration tests reuse existing build outputs.
 
 **Rationale:**
-- PowerShell has established patterns from stream refactoring (2026-03-27)
-- Hermes already successfully reviewed Amy's multi-tenant implementation (9/10)
-- Consistent application of patterns prevents technical debt
-- Expert review catches PowerShell-specific issues other reviewers might miss
-- Maintains high code quality bar for PowerShell automation
+- `dotnet test -c Release` already produces the required binaries
+- Triggering a second build during `StartAsync()` caused file-lock conflicts against referenced outputs
+- Matching the active test configuration removes accidental Debug/Release mismatches in the harness
 
-**Consequences:**
-- ✅ All PowerShell code follows established best practices
-- ✅ Team learns PowerShell patterns through review feedback
-- ✅ Prevents PowerShell anti-patterns from entering codebase
-- ⚠️ Adds review step to PowerShell changes (worth the quality improvement)
-- 📋 Hermes availability becomes critical path for PowerShell work
+**Impact:** HTTP integration startup should avoid redundant builds and reduce file-lock failures during test execution.
 
-**Requested by:** Steven Murawski  
-**Status:** Active
+### User directive
 
----
+**By:** Steven Murawski (via Copilot)
+**Date:** 2026-04-08T00:00:00Z
 
-## 2026-03-27: Azure Bicep Modularization for Subscription-Scoped Deployment
+Do not run builds or tests from VS Code while the MCP server is running; use static inspection instead unless the server is stopped.
 
-**Decision Maker:** Amy Wong (DevOps/Platform/Azure)  
-**Status:** ✅ Implemented  
+## 2026-07
 
-**Decision:** Refactor Azure Bicep deployment to use **module-based architecture** for proper cross-scope resource deployment, separating subscription-scoped resources (resource group, role assignments) from resource group-scoped resources (Container Apps, monitoring, identity).
-
-**Context:** The original `main.bicep` file attempted to deploy all resources at subscription scope while setting `scope: resourceGroup(name)` on individual resources. This violates Bicep's fundamental scope rule and caused 10 compilation errors (BCP139, BCP265, BCP037, BCP120). Requirement was to enable **subscription-scoped RBAC role assignments** for Managed Identity while properly deploying Container Apps resources at resource group scope.
-
-**Solution Architecture:**
-```
-main.bicep (targetScope = 'subscription')
-├── Creates Resource Group
-├── Invokes Module: resources.bicep (scope: az.resourceGroup(rg.name))
-│   └── Deploys all RG-scoped resources
-└── Assigns RBAC role at subscription level
-```
-
-**Key Changes:**
-1. **main.bicep** (subscription scope): Create resource group, invoke `resources.bicep` module with RG scope, deploy role assignment at subscription scope, aggregate outputs from module
-2. **resources.bicep** (resource group scope): No structural changes (already correct), contains Log Analytics, App Insights, Container Apps Environment, Managed Identity, Container App
-3. **Role Assignment Fix:** Changed from `guid(subscription().id, resources.outputs.principalId, ...)` (runtime value) to `guid(subscription().id, resourceGroupName, containerAppName, roleId)` (deterministic)
-
-**Alternatives Considered:**
-- Single Resource Group-Scoped Template: Rejected - Cannot assign subscription-level RBAC roles from resource group scope
-- Two Separate Templates (Manual Orchestration): Rejected - Adds complexity and requires manual two-step deployment
-- Module-Based (Selected): Enables single-command deployment with proper scope separation
-
-**Consequences:**
-- ✅ Compilation errors eliminated, subscription-scoped role assignments enabled
-- ✅ Clean separation of concerns, reusable module pattern, follows Bicep best practices
-- ✅ Zero breaking changes to deployment process, in-place updates (no downtime)
-- Adds one level of indirection (module call), developers must understand scope hierarchy
-
-**Best Practices Applied:** Modules for cross-scope deployment, no `name` on module (modern convention), symbolic references using `resources.outputs.*`, `az.*` namespace for functions, deterministic GUIDs
-
-**Documentation:** [MODULARIZATION.md](infrastructure/azure/MODULARIZATION.md), [BICEP-REFACTOR-SUMMARY.md](infrastructure/azure/BICEP-REFACTOR-SUMMARY.md)
-
-**Validation:** Both `main.bicep` and `resources.bicep` compile with 0 errors, `az deployment sub what-if` successful
-
-**Rationale:** Enables production Azure deployment with proper RBAC while maintaining clean architecture and zero breaking changes. Follows established Bicep patterns for cross-scope resource deployment.
-
----
-
-## 2026-03-27: Docker Base Image Architecture - Module-Based Separation
-
-**Decision Maker:** Farnsworth (Lead Architect)  
-**Status:** ✅ Implemented  
-
-**Decision:** Redesigned Docker architecture to use **base image + derived image pattern**, separating MCP server runtime from user customizations.
-
-**Context:** Original Docker architecture embedded PowerShell module installation directly into base Dockerfile via build arguments. This created coupling (base runtime mixed with user customization), maintainability issues (every customization required rebuilding entire base image), and violated Docker layering best practices.
-
-**Solution:**
-1. **Base Image (`Dockerfile`)**: Contains only MCP server runtime, no module installation code, clean minimal reusable foundation (~500MB)
-2. **Module Installation Script (`install-modules.ps1`)**: Standalone PowerShell script with proper error handling, supports version constraints, reusable in any context
-3. **User Dockerfiles (Examples)**: `examples/Dockerfile.user` (basic), `examples/Dockerfile.azure` (Azure automation), `examples/Dockerfile.custom` (multi-stage build)
-
-**Key Implementation:**
-- Refactored base `Dockerfile` to ~100 lines (from 150), removed all module installation code
-- Created `install-modules.ps1` (400+ lines) with comprehensive error handling, parameter validation, environment variable support
-- Created 3 example Dockerfiles covering 90% of use cases
-- Updated documentation: `DOCKER.md` (~500 lines rewrite), `examples/README.md` (~400 lines)
-
-**Alternatives Considered:**
-- Keep Build Arguments: Rejected - Violates separation of concerns
-- Only Runtime Module Installation: Rejected - Poor performance (2-10s per module vs 50-200ms)
-- Monolithic Multi-Purpose Images: Rejected - Multiple large images harder to maintain
-- Script-Only Approach: Rejected - Users would handle .NET build, PowerShell installation
-
-**Consequences:**
-- ✅ Clearer responsibility boundaries, easier to maintain base image, faster base builds
-- ✅ Users can version control their Dockerfile + configs, reusable module installation script
-- ✅ Better layer caching, multi-stage build support, reusable tooling
-- ⚠️ Increased complexity: Users need to write a Dockerfile (mitigated with 3 copy-paste templates)
-- ⚠️ Broken backward compatibility: Old `docker.sh build --modules` approach deprecated (still works, migration guide provided)
-- ⚠️ Learning curve: Users must understand Dockerfile basics (mitigated with comprehensive documentation)
-
-**PowerShell Best Practices (Hermes-Reviewed):** `$ErrorActionPreference = 'Stop'`, `-ErrorAction Stop` for critical operations, proper stream-based output, exit codes for integration, version constraint mapping
-
-**Performance Impact:**
-- Build time comparable (5-7 min total, with caching custom rebuilds ~1-2 min)
-- Runtime performance unchanged (modules pre-installed)
-- Base image ~500MB, user images 550-800MB depending on modules
-
-**Rationale:** Separates concerns between PoshMcp team (runtime) and users (customization), follows Docker best practices, provides reusable tooling, maintains flexibility while improving maintainability.
-
----
-
-## 2026-03-27: Docker PowerShell Scripts - Critical Error Handling Fixes
-
-**Implementer:** Hermes (PowerShell Expert)  
-**Status:** ✅ Complete  
-
-**Decision:** Fix critical error handling and stream usage issues in Docker module pre-installation feature (`Dockerfile` embedded PowerShell and `docker.ps1` script).
-
-**Context:** Initial implementation of Docker module pre-installation had critical PowerShell issues that violated 2026-03-27 stream refactoring patterns. The Dockerfile embedded PowerShell had error handling bugs causing silent failures, and `docker.ps1` used `Write-Host` instead of native PowerShell streams.
-
-**Critical Fixes Applied:**
-
-**Priority 1 (Dockerfile):**
-1. **Missing $LASTEXITCODE Checking**: Added `if ($LASTEXITCODE -ne 0) { throw }` after every `Install-Module` call to catch failures that don't propagate through `-ErrorAction Stop`
-2. **Boolean Parameter Bug**: Fixed `-SkipPublisherCheck:\$$SKIP_PUBLISHER_CHECK` which expanded to string `"$true"` instead of boolean. Now converts environment variable to boolean first: `$skipCheck = [System.Convert]::ToBoolean('$SKIP_PUBLISHER_CHECK')`
-3. **Silent Failure Handling**: Changed `catch { Write-Warning }` to `catch { Write-Error -ErrorAction Stop; exit 1 }` to fail build on module installation errors
-
-**Priority 2 (docker.ps1):**
-1. **Added [CmdletBinding()]**: Enables `-Verbose`, `-InformationAction`, `-ErrorAction` common parameters
-2. **Stream Refactoring**: Converted status messages from `Write-Host` to `Write-Information -Tags 'Status'`, set `$InformationPreference = 'Continue'`, kept final success messages as `Write-Host` (presentation layer only)
-3. **Verbose Diagnostics**: Added `Write-Verbose` for build arguments, image name, module scope, container operations
-
-**Verification:**
-- ✅ Invalid module name → Build FAILS (exit 1)
-- ✅ Install-Module error → Build FAILS (caught by try/catch)
-- ✅ Boolean parameter correctly interpreted (not string)
-- ✅ Status messages use Write-Information with -Tags 'Status'
-- ✅ [CmdletBinding()] present, common parameters enabled
-- ✅ Follows 2026-03-27 stream refactoring patterns
-
-**Consequences:**
-- ✅ No silent failures - module installation errors immediately fail Docker build
-- ✅ PowerShell pipeline integration - scripts work with logging frameworks and automation
-- ✅ Diagnostic support - `-Verbose` switch provides troubleshooting information
-- ✅ Pattern consistency - matches established PowerShell best practices from deploy.ps1
-
-**PowerShell Quality Score:** Dockerfile improved from 4/10 → 9/10, docker.ps1 improved from 6/10 → 9/10
-
-**Rationale:** Prevents production incidents from silently failing module installations, ensures PowerShell code follows established team patterns, enables proper observability and troubleshooting.
-
----
-
-## 2026-03-27: Hermes PowerShell Review Policy
-
-**Requested by:** Steven Murawski (via Squad Coordinator)  
-**Status:** Active  
-
-**Decision:** Establish **mandatory Hermes review** for all new or updated PowerShell scripts before merge.
-
-**Context:** Docker module pre-installation feature introduced new PowerShell scripts (`docker.ps1`, embedded PowerShell in `Dockerfile`) that initially had critical issues violating established patterns from 2026-03-27 stream refactoring. User policy requires Hermes expert review for any PowerShell changes to maintain quality and consistency.
-
-**Scope of Review:**
-- Parameter handling and validation
-- PowerShell stream usage (Write-Information/Verbose/Error vs Write-Host)
-- Error handling patterns (`$ErrorActionPreference`, `-ErrorAction`, `$LASTEXITCODE` checking)
-- CmdletBinding and parameter attributes
-- Exit code handling
-- PowerShell anti-patterns and best practices compliance
-
-**Process:**
-1. Create review request in `.squad/decisions/inbox/` when PowerShell changes made
-2. Hermes performs review within 1 business day (when available)
-3. Hermes provides APPROVED or CHANGES REQUESTED with specific feedback
-4. Implementation team addresses feedback, iteration continues until approval
-5. Merge only after Hermes approval
-
-**Key Review Criteria:**
-- Follows PowerShell best practices from established patterns
-- Proper PowerShell streams used (Information/Verbose/Error vs Write-Host)
-- Error handling is semantic and appropriate
-- Parameter names follow conventions
-- No PowerShell anti-patterns
-- Edge cases handled (empty inputs, version constraints, timeouts)
-
-**Consequences:**
-- ✅ All PowerShell code follows established best practices
-- ✅ Team learns PowerShell patterns through review feedback
-- ✅ Prevents PowerShell anti-patterns from entering codebase
-- ⚠️ Adds review step to PowerShell changes (worth the quality improvement)
-- 📋 Hermes availability becomes critical path for PowerShell work
-
-**Example Success:** Hermes review of Docker scripts identified 3 critical Dockerfile bugs (silent failures, boolean interpolation, missing exit code checks) and 3 important docker.ps1 issues (missing CmdletBinding, Write-Host usage, no verbose diagnostics), preventing production incidents.
-
-**Rationale:** PowerShell has established patterns requiring domain expertise. Hermes already successfully reviewed Amy's multi-tenant implementation (9/10) and caught critical issues in Docker scripts. Consistent expert review prevents technical debt and maintains high code quality bar.
-
----
-
-## Decision Template
-
-```markdown
-### YYYY-MM-DD: {Decision title}
-**Context:** {What led to this decision}
-**Decision:** {What was decided}
-**Alternatives considered:** {What else was considered}
-**Rationale:** {Why this choice}
-**Consequences:** {What this enables or constrains}
-**Status:** [Active | Superseded | Deprecated]
-```
-
-## Archive Batch 2026-04-14T23:58:52Z
-
-Moved from .squad/decisions.md by Scribe retention policy (Tier 2).
-
-## 2026-04-03
-
-### Documentation gap review protocol
+### Restore explicit resource group creation in deploy.ps1
 
 **Author:** Amy Wong (DevOps/Platform/Azure)
-**Status:** Proposed
-
-After any bulk documentation edit (deduplication, restructuring, redirect creation), run a verification pass:
-
-1. **Code block fences** ΓÇö every opening ` has a matching close
-2. **Link targets** ΓÇö every [text](path) points to a file that exists and contains the expected content
-3. **Redirect stubs** ΓÇö any file converted to a stub must have its old inbound links verified
-4. **Command correctness** ΓÇö deployment/build commands in docs must match current infrastructure
-
-Prevents broken rendering and incorrect instructions from reaching users after large-scale documentation changes.
-
-### User directive
-
-**By:** Steven Murawski (via Copilot)
-**Date:** 2026-04-03T14:07:03Z
-
-When asked for tenant IDs or domain names, use `C:\Users\stmuraws\source\gim-home\AdvocacyBami\data\tenants.psd1` as the lookup source, plus the hardcoded entry `72f988bf-86f1-41af-91ab-2d7cd011db47` for `microsoft.onmicrosoft.com`. User request ΓÇö captured for team memory.
-
-### User directive
-
-**By:** Steven Murawski (via Copilot)
-**Date:** 2026-04-03T18:42:46Z
-
-After any code change, `dotnet format` and `dotnet test` should be run to verify formatting and tests pass.
-
-
-### 2026-04-09T17:18Z: User directive ΓÇö aggressive commit strategy
-**By:** Steven Murawski (via Copilot)
-**What:** "Continue to cache status aggressively" ΓÇö commit after every logical chunk of work. Do not batch commits. Crash recovery protection.
-**Why:** User request after losing in-flight work from Bender and Hermes during a crash.
-**Context:** Spawned as crash recovery workflow. Teams spawned: Bender (Select-Object pipeline injection), Hermes (DefaultDisplayPropertySet), Scribe (logging/recovery).
-
-
-# Decision: PropertySetDiscovery uses temporary runspace and two-step type lookup
-
-**Author:** Hermes (PowerShell Expert)
 **Date:** 2026-07
 **Status:** Implemented
 
-## Decision
+When Bicep was modularized to subscription scope, the `New-ResourceGroupIfNeeded` function in `deploy.ps1` was commented out under the assumption that `main.bicep` would handle resource group creation. However, `Initialize-ContainerRegistry` runs before `Deploy-Infrastructure`, so the resource group must exist before Bicep runs.
 
-`PropertySetDiscovery` uses a temporary `Runspace` (not the singleton `PowerShellRunspaceHolder`) and a two-step lookup pattern: Get-Command ΓåÆ OutputType ΓåÆ Get-TypeData ΓåÆ DefaultDisplayPropertySet.
-
-## Rationale
-
-1. **Temporary runspace:** Discovery runs at assembly generation time, before the singleton is initialized and before any MCP client connects. Using the singleton would create a startup ordering dependency and could deadlock if the semaphore is already held.
-
-2. **Two-step lookup (no command execution):** Some commands have side effects (Set-*, Remove-*, Stop-*). We never execute the actual command. Instead we read the `OutputType` metadata from `Get-Command`, then query `Get-TypeData` for the type's display property set. This is purely metadata inspection.
-
-3. **Best-effort with null:** If any step fails (no OutputType, no TypeData, no DefaultDisplayPropertySet), we return null. The caller interprets null as "use all properties." This keeps the system working for commands that don't declare output types.
-
-4. **ConcurrentDictionary cache:** Discovery only needs to run once per command name. The cache is process-lifetime.
-
-## Related Decision: IDictionary recursive normalization in serializer
-
-Split `IDictionary` and `IEnumerable` handling in `NormalizePSPropertyValue`:
-- **IDictionary** ΓåÆ recursively normalize entries (bounded key-value maps, safe to walk, `.ToString()` is useless on Hashtable)
-- **IEnumerable** ΓåÆ keep `.ToString()` (unbounded, may trigger expensive OS calls like `ProcessModuleCollection`)
-
-## Impact
-
-- New file: `PoshMcp.Server/PowerShell/PropertySetDiscovery.cs`
-- Modified: `PoshMcp.Server/PowerShell/PowerShellObjectSerializer.cs` (IDictionary handling)
-- Consumers: Pipeline construction in `PowerShellAssemblyGenerator` will use `PropertySetDiscovery.DiscoverAll()` at startup to determine which properties to `Select-Object` for each command.
-
-### Integration fixture process cleanup hardening
-
-**By:** Bender (via Copilot)
-**Date:** 2026-04-09T00:00:00Z
-**Status:** Proposed
-
-In integration fixtures that launch dotnet child processes, use explicit process-tree termination and a centralized teardown helper, and invoke cleanup on startup-failure paths before rethrowing.
+**Decision:** Keep explicit `az group create` in the deployment script **and** the declarative resource group in `main.bicep`. Both are idempotent. The script ensures the RG exists for imperative steps (ACR creation); Bicep re-declares it for completeness and drift correction.
 
 **Rationale:**
-- Parent-only Kill can leave orphaned child processes
-- Startup exceptions can bypass deterministic process cleanup
-- Orphaned processes cause longer test sessions and flaky follow-on runs
+- Azure resource group creation is idempotent — creating one that already exists is a no-op
+- Mixed imperative/declarative pipelines need the RG available before any `--resource-group` flag is used
+- Removing either one creates a fragile dependency on execution order
 
-**Impact:** Integration fixture lifecycle management should always use deterministic process-tree cleanup in both normal teardown and startup-failure paths.
+**Impact:** `deploy.ps1` — `New-ResourceGroupIfNeeded` uncommented and restored in workflow. No changes to `main.bicep` or `validate.ps1`. No breaking changes to any parameters or interfaces.
 
-### Integration runtime analysis and leak-guard coverage
+## 2026-04-09
 
-**By:** Fry (via Copilot)
-**Date:** 2026-04-09T00:00:00Z
-**Status:** Proposed
-
-Added dedicated integration lifecycle tests asserting `InProcessWebServer` and `InProcessMcpServer` terminate spawned server processes during `Dispose()`, with focused before/after process snapshots to check for server-process leakage.
-
-**Rationale:**
-- User reported slower tests and suspected lingering web/server processes
-- Evidence points to startup and first command execution runtime concentration
-- Focused lifecycle tests create explicit guardrails against process-leak regressions
-
-**Impact:** Integration coverage now includes explicit disposal/leak checks for in-process server fixtures, reducing risk of unnoticed process-lifecycle regressions.
-
-### 2026-04-09T00:00:00Z: Unified transport selector foundation in server executable
-
-**By:** Bender (via Copilot)
-**Status:** Implemented
-
-Added explicit transport mode selection in server startup with default stdio behavior and a dedicated HTTP placeholder branch in the same executable.
-
-**Rationale:** Establishes a compile-safe unified transport foundation without regressing stdio workflows while creating a clear seam for full HTTP transport enablement.
-
-### User directive
+### Open question decisions for large-result-performance proposal
 
 **By:** Steven Murawski (via Copilot)
-**Date:** 2026-04-09T22:46:44.2180935Z
+**Date:** 2026-04-09T16:43:00Z
+**Status:** Decided
 
-Use one unified executable for stdio and HTTP transport; ship HTTP transport immediately once green; defer container configuration revamp until after consolidation work.
+User decisions on open questions from Farnsworth's large-result-performance proposal:
 
-### HTTP transport phase 1 kickoff sequencing
+- **Q2 (result limiting):** YES — include `_MaxResults` parameter
+- **Q4 (cached results):** Cache the FILTERED object, not the full object
+- **Q5 (reset semantics):** Support null or the value "reset" to return to the previously configured setting
+- **Q6 (gating):** Do NOT gate `set-result-caching` behind `EnableDynamicReloadTools`
+- **Q1 (_AllProperties forcing caching):** Not addressed — keep proposal default (no coupling)
+- **Q3 (Format-List vs Format-Table):** Not addressed — keep proposal default (use display set)
+
+**Rationale:** User decisions captured for Phase 2 and Phase 2.5 implementation guidance.
+
+### dotnet tool packaging for PoshMcp.Server
+
+**Author:** Bender (Backend Developer)
+**Date:** 2026-04-08
+**Status:** Implemented
+
+Dotnet tool properties added to `PoshMcp.Server/PoshMcp.csproj`: `<PackAsTool>true</PackAsTool>`, `<ToolCommandName>poshmcp</ToolCommandName>`, `<PackageId>poshmcp</PackageId>`, `<Version>0.1.0</Version>` with standard metadata. Local tool manifest `.config/dotnet-tools.json` created for per-repo installation. Content files (appsettings.json, etc.) excluded from NuGet package via `<Pack>false</Pack>`. `default.appsettings.json` embedded as resource. Pack succeeded; output: `PoshMcp.Server/bin/Release/poshmcp.0.1.0.nupkg` (~26 MB). Usage: `dotnet tool install -g poshmcp` (global) or `dotnet tool install --local poshmcp` (local with manifest).
+
+**Rationale:** `PoshMcp.Server` is the single application binary; `poshmcp` is the CLI entry point for all transports. Tool command `poshmcp` matches project name and convention.
+
+**Impact:** Users can now install via standard dotnet tooling. Requires .NET 10 Runtime. Configuration via cwd `appsettings.json` or environment variables.
+
+### Large Result Set Performance Improvements: Proposal Filed
 
 **Author:** Farnsworth (Lead / Architect)
 **Date:** 2026-04-09
 **Status:** Proposed
 
-Phase 1 prioritizes shared startup composition and tool wiring first, keeps explicit transport selection per host during refactor, and defers container configuration changes until after coding/validation.
+Proposal filed: `specs/large-result-performance.md`. Two complementary changes recommended:
 
-**Rationale:** Preserves low-risk incremental delivery and keeps HTTP shipment path unblocked while convergence work proceeds.
+1. **Optional Tee-Object (opt-in):** Make `Tee-Object -Variable LastCommandOutput` conditional. Default OFF. Saves ~50% memory by eliminating duplicated result cache. Utility tools return error when caching disabled.
 
-### Unified HTTP transport implementation in server executable
+2. **Default property filtering via Select-Object:** Inject `Select-Object -Property <props>` using output type's `DefaultDisplayPropertySet`. Reduces JSON payload 95%+ for `Get-Process` (80 properties → 5). Configurable per-function; callers can opt out via `_AllProperties=true` parameter.
+
+**Configuration:** New `Performance` section and `FunctionOverrides` dictionary in `PowerShellConfiguration`. Per-function override → global default → built-in default. Both features independently toggleable.
+
+**Impact:** Breaking change for `get-last-command-output` without config (returns error). Mitigated by clear messaging and docs.
+
+**Rationale:** Addresses three compounding causes of hangs: synchronous blocking in `ExecuteThreadSafeAsync`, `Tee-Object` buffering, and reflection-heavy property enumeration. Result count caps and property shaping reduce payloads from ~2 MB to ~80 KB.
+
+### User directive — dynamic property filtering via tool parameter
+
+**By:** Steven Murawski (via Copilot)
+**Date:** 2026-04-09T10:25:38Z
+
+Instead of type-specific property shapers, add a universal `SelectProperties` parameter to every MCP tool invocation. When provided, inject a `Select-Object` step into the PowerShell pipeline to reduce properties returned. Applies to any tool, controlled by the AI caller at call time. More flexible than hardcoded type maps; works for any cmdlet without registry maintenance.
+
+### Get-Process MCP Pipeline Analysis: Large Result Set Hang
 
 **Author:** Bender (Backend Developer)
 **Date:** 2026-04-09
-**Status:** Implemented
+**Status:** Analysis / Proposed
 
-Implemented real HTTP serve path in `PoshMcp.Server` for `serve --transport http`, reusing web-host patterns where practical (CORS exposing `Mcp-Session-Id`, session-aware runspace wiring, correlation-id middleware, health endpoints, MCP HTTP endpoint mapping, and MCP path normalization).
+Root cause analysis: three compounding causes. **Cause 1** — Synchronous `ps.Invoke()` in `ExecutePowerShellCommandTyped` holds the runspace semaphore for full command duration. For `Get-Process` on busy machines (200–300 processes), this means tens of seconds of blocking. Any second MCP call blocked at `WaitAsync()`. **Cause 2** — `Tee-Object -Variable LastCommandOutput` buffers entire process collection before emitting. Each `System.Diagnostics.Process` holds OS handle; full collection stays live through serialization, doubling peak memory. **Cause 3** — `GetSafeProperties` enumerates all ~50 `Process` properties. Properties like `Modules`, `MainModule`, `Threads` make Win32 API calls that can block indefinitely on protected/system processes without elevated token. 200 processes × 50 properties = hang.
 
-**Scope controls:** No container changes, no broad cross-project refactor, minimal package additions required for server-hosted HTTP transport and metrics instrumentation.
+**Concrete patterns:**
+- Pattern 1 (1 day): Result count cap — truncate before serialization, signal truncation in JSON response.
+- Pattern 2 (2–3 days): Async execution — replace `InvokePowerShellSafe` with `InvokePowerShellSafeAsync`, thread CancellationToken through layers.
+- Pattern 3 (2–3 days): Property selection registry — static `ResultShaper` concept mapping Type → filtered dict (Process: Id, Name, CPU, WorkingSet; avoids all dangerous properties).
 
-**Validation:** Release build for server/tests and focused Program + unified HTTP integration tests passed.
+Config schema: `FunctionLimitConfiguration` with `MaxResults` (int, default 50) and `SelectProperties` (list of property names, empty = use type shaper or full serialization).
 
-### Unified HTTP runspace parity in server host
+**Recommendation:** Phase 1: Result count cap (ships immediately, eliminates most hangs). Phase 2: Async execution. Phase 3: Property shaping. Phase 1 alone reduces `Get-Process` payload from ~2 MB to ~80 KB.
+
+### Large Result Set Hang Analysis: Get-Process and Similar Cmdlets
 
 **Author:** Hermes (Observability / Diagnostics)
 **Date:** 2026-04-09
+**Status:** Analysis / Proposed
+
+Same root causes confirmed independently: (1) Synchronous blocking in `ExecuteThreadSafeAsync` with singleton semaphore; (2) `Tee-Object` buffering; (3) Property reflection on expensive CLR types. Three implementation approaches ranked:
+
+**Approach A** (recommended, medium effort): Property-selected result shaping before serialization. For known-expensive types (Process, FileInfo, Service), emit filtered dict instead of full PSObject graph. Type-to-shaper mappings in `PowerShellObjectSerializer` allow incremental expansion. Produces AI-friendly output, avoids all dangerous properties, O(50) → O(6) per-object serialization.
+
+**Approach B** (low effort, quick win): Result count cap with truncation hint. Cap results to configurable max (default 50), surface truncation flag in JSON. Eliminates large serialization loops. AI caller sees hint and can refine query.
+
+**Approach C** (high effort, high correctness): Async invocation with CancellationToken. Replace `InvokePowerShellSafe` with `InvokePowerShellSafeAsync`, thread token through layers. Allows hung calls to be cancelled; frees thread-pool thread under concurrent requests.
+
+**Recommendation:** Implement B first (2 days, low risk, eliminates user-visible symptom). Then A (makes tool AI-useful). Then C (necessary for correct async behavior and server resilience). A+B together address all three causes; B alone addresses Cause 3 by capping serialization work.
+
+### poshmcp as single entry point — PoshMcp.Web removed
+
+**Author:** Steven Murawski (via Farnsworth/Amy/Leela/Bender)
+**Date:** 2026-04-10
 **Status:** Implemented
 
-Implemented session-aware runspace behavior in `PoshMcp.Server` HTTP mode to mirror established web-host semantics, and ensured the same session-aware instance is used for both DI and generated MCP tool execution.
+`PoshMcp.Web` has been removed. `PoshMcp.Server` (`poshmcp` CLI tool) is the sole entry point for all transports.
 
-**Rationale:** Preserves proven HTTP session behavior while keeping stdio semantics and dynamic tool behavior unchanged.
+**What changed:**
+- `poshmcp serve --transport http` provides full HTTP/web server behavior (health checks, CORS, session-aware runspaces, OpenTelemetry)
+- `poshmcp serve --transport stdio` provides MCP stdio transport (unchanged)
+- `poshmcp build --tag <image>` delegates to docker/podman to build a container image
+- `poshmcp run --mode http|stdio` runs the container
+- `docker-entrypoint.sh` simplified to: `exec /app/server/poshmcp serve --transport "$POSHMCP_TRANSPORT"`
+- `PoshMcp.Web/` directory deleted; removed from `PoshMcp.sln`
+- All tests migrated from `InProcessWebServer` → `InProcessUnifiedHttpServer`
+- `POSHMCP_MODE` environment variable replaced by `POSHMCP_TRANSPORT` (values: `http`, `stdio`)
 
-### Graceful schema degradation for unsupported CLR overload types
+**Rationale:**
+- Single binary simplifies installation, deployment, and troubleshooting
+- `poshmcp` CLI as Docker entry point is consistent with how professional tools work (same commands locally and in containers)
+- PoshMcp.Web carried dead JWT dependencies and no unique functionality
 
-**Author:** Bender (Backend Developer)
+**Impact:** Any reference to `PoshMcp.Web`, `/app/web/`, `POSHMCP_MODE`, or `dotnet run --project PoshMcp.Web` should be updated to use `poshmcp serve --transport <http|stdio>` and `POSHMCP_TRANSPORT`.
+
+---
+
+### dotnet tool Packaging ADR — PoshMcp
+
+**Author:** Farnsworth (Lead / Architect)
 **Date:** 2026-04-09
+**Status:** Proposed
+
+Architectural decision record: `PoshMcp.Server` becomes dotnet tool. Server: supports both stdio and HTTP transports via `poshmcp serve --transport <stdio|http>`, complete CLI, fully self-contained.
+
+**Key decisions:**
+1. **Which project:** `PoshMcp.Server` only (Exe with CLI, stdio-ready).
+2. **Tool command:** `poshmcp` (clean, memorable).
+3. **csproj changes:** Add tool packaging props. Exclude user configs from NuGet (`<Pack>false</Pack>` on content items). Embed `default.appsettings.json` as resource.
+4. **SDK dependency:** Documentation-only. `Microsoft.PowerShell.SDK` ships full runtime; users only need .NET 10 Runtime.
+5. **Local manifest:** `.config/dotnet-tools.json` for local install support (`dotnet tool restore`).
+6. **NuGet metadata:** PackageId=PoshMcp, Version=0.1.0, Authors=Steven Murawski, Tags=mcp powershell model-context-protocol stdio.
+7. **SingleFile/Trim:** Do NOT use. PowerShell SDK and dynamic assembly generation not trim-safe.
+8. **Build workflow:** `dotnet pack` + local install via `--add-source ./nupkg`, or publish to NuGet.org.
+
+**User prerequisites:** .NET 10 Runtime. No bundled appsettings.json — users create in cwd. Config layering: embedded defaults → cwd appsettings.json → env vars → CLI flags.
+
+**MCP client wiring example:**
+```json
+{
+  "servers": {
+    "poshmcp": {
+      "type": "stdio",
+      "command": "poshmcp",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+## 2026-04-10
+
+### Doctor troubleshooting MCP surface stays read-only, shared, and explicitly gated
+
+**Author:** Steven Murawski (via Farnsworth/Bender/Fry)
+**Date:** 2026-04-10
 **Status:** Implemented
 
-When MCP JSON schema generation encounters unsupported CLR parameter types (pointer/ref-struct cases), skip only that overload instead of failing server bootstrap.
+Keep configuration troubleshooting exposed only through the existing special-tool registration path in `Program.cs`, have it return the same structured payload as `poshmcp doctor --format json`, and require both runtime configuration enablement and an explicit environment opt-in before the tool appears.
 
-**Rationale:** Localized schema incompatibilities are recoverable; preserving server startup and remaining overload availability is preferable to full startup failure.
+**Rationale:**
+- Reusing the shared doctor JSON builder keeps CLI and MCP diagnostics aligned
+- The troubleshooting surface is operationally sensitive and should remain disabled by default
+- Focused tests can assert the public JSON contract without coupling to internal registration details
 
-### Version 0.2.2 release completed
+**Impact:** The doctor/configuration troubleshooting flow now has one canonical payload builder, one registration seam, and default-hidden exposure semantics.
 
-**Author:** Amy (via Steven Murawski)
-**Date:** 2026-04-09T17:36:00Z
-**Status:** Completed
+### Import configured modules before discovery and pin startup ordering with focused tests
 
-Bumped global tool package version from 0.2.1 to 0.2.2, built release nupkg, updated global install, and verified CLI reports `0.2.2+88dbdbfc09852f4e40f5d9a7e2ced26417d9a12b`.
-
-**Impact:** Release package `PoshMcp.Server/bin/Release/poshmcp.0.2.2.nupkg` is available and deployed for tool users.
-
-### CLI config lifecycle commands in server executable
-
-**Author:** Bender (Backend Developer)
-**Date:** 2026-04-09
+**Author:** Steven Murawski (via Hermes/Fry)
+**Date:** 2026-04-10
 **Status:** Implemented
 
-Added CLI configuration management commands to `PoshMcp.Server`:
-- `create-config` creates a default `appsettings.json` in the current directory (with `--force` support)
-- `update-config` updates the active config file using the same resolution precedence as `doctor`
+Explicitly import modules from configuration before any by-name `Get-Command` or tool discovery pass, and keep regression tests that prove discovery fails before startup setup and succeeds after module import or startup script execution.
 
-`update-config` defaults to interactive prompts for newly added functions, including advanced per-function overrides (`EnableResultCaching`, `UseDefaultDisplayProperties`, and `DefaultProperties`). A `--non-interactive` switch supports CI/automation workflows.
+**Rationale:**
+- Discovery-before-import silently drops module-exported functions when autoloading is disabled or constrained
+- Configuration semantics already promise that listed modules are part of the tool surface
+- Narrow startup-order tests are faster and less brittle than full server boot validation
 
-**Rationale:** Keep configuration lifecycle actions in one executable, avoid manual JSON edits for common scenarios, and preserve predictable file targeting by reusing doctor-style config resolution.
+**Impact:** Startup ordering around module import is now a pinned contract rather than an incidental implementation detail.
 
-**Impact:** CLI help surface expanded; targeted unit coverage added for create/update flows and advanced prompt behavior; README/TODO updates recorded by the implementation agent.
+### Out-of-process runtime work remains scaffolded until startup and harness support exist
 
-### Local dotnet tool versioning workflow for global poshmcp updates
+**Author:** Steven Murawski (via Farnsworth/Bender/Fry)
+**Date:** 2026-04-10
+**Status:** Decided
 
-**Author:** Amy (DevOps / Platform)
-**Date:** 2026-04-09
+Treat the current out-of-process MCP path as incomplete until `Program.cs` and the shared `InProcessMcpServer` harness expose a supported `--runtime-mode` startup path with matching config/stderr handling. Keep subprocess and module-isolation tests, but leave end-to-end server tests as documented stubs until that runtime surface is real.
+
+**Rationale:**
+- The branch had tests that advanced ahead of the implemented CLI/runtime surface
+- Shared harness parity is a prerequisite for trustworthy end-to-end coverage
+- Compile-safe stubs preserve intent without letting speculative wiring break the solution build
+
+**Impact:** Recovery work should prioritize supported startup/harness seams before reactivating live out-of-process end-to-end tests.
+
+### Split vendored module layout and `POSHMCP_TRANSPORT` are the recovery baselines
+
+**Author:** Steven Murawski (via Farnsworth/Hermes)
+**Date:** 2026-04-10
 **Status:** Implemented
 
-Use `PoshMcp.Server/PoshMcp.csproj` as the package source of truth, bump `Version` with a patch increment for small releases, pack to the local feed folder, and update the global tool from that feed.
+Treat the split `integration/Modules/*` layout as canonical, remove partial merge-fallout vendored content such as `integration/Modules/Az.AppConfiguration/2.0.1`, and normalize live helpers, infrastructure, and docs from `POSHMCP_MODE` to `POSHMCP_TRANSPORT` to match the single-entry-point `poshmcp serve --transport ...` architecture.
 
-**Rationale:** `PoshMcp.Server/PoshMcp.csproj` is the correct tool package source because it defines `PackAsTool=true`, `ToolCommandName=poshmcp`, and `PackageId=poshmcp`.
+**Rationale:**
+- The partial Az.AppConfiguration tree was incomplete and not importable
+- Current integration assets are organized by concrete module name, not umbrella paths
+- Old transport environment-variable names encode a retired startup contract
 
-**Operational guardrail:** Before `dotnet tool update -g poshmcp`, stop any running `poshmcp.exe` process to avoid uninstall/update lock failures on `.dotnet/tools/.store/poshmcp/<version>`.
+**Impact:** Recovery and future test work should assume split module paths and `POSHMCP_TRANSPORT` as the only supported transport selector.
 
-**Standard command sequence:**
-1. `dotnet pack .\PoshMcp.Server\PoshMcp.csproj -c Release -o .\artifacts\nupkg`
-2. `Get-Process poshmcp -ErrorAction SilentlyContinue | Stop-Process -Force`
-3. `dotnet tool update -g poshmcp --version <newVersion> --add-source .\artifacts\nupkg --ignore-failed-sources`
-4. `dotnet tool list -g`
+### Preferred MVP direction for out-of-process hosting is a persistent `pwsh` subprocess over localhost TCP
 
-**Outcome:** Version bumped from 0.3.0 to 0.3.1, package built, and global tool updated to 0.3.1.
+**Author:** Farnsworth and Hermes
+**Date:** 2026-04-10
+**Status:** Proposed
 
+If out-of-process hosting proceeds, prefer a single persistent `pwsh` child process that speaks a JSON request/response protocol over localhost TCP, with host-script safeguards that resolve commands through `Get-Command` plus `& $CommandInfo`, keep diagnostics on stderr only, filter null parameters from the splat, and expand umbrella modules into child-module discovery.
+
+**Rationale:**
+- Localhost TCP gives one cross-platform transport and the lowest implementation complexity for an isolated subprocess model
+- Persistent subprocess state preserves module/session behavior while isolating assembly and module conflicts from the main server
+- Protocol-safe host-script rules prevent stdout corruption and reduce injection risk
+
+**Impact:** Future out-of-process implementation work should treat persistent subprocess hosting and protocol-safe host-script behavior as the default design direction.
+
+## 2026-04-11
+
+### Out-of-process execution architecture plan
+
+**Author:** Farnsworth (Lead / Architect)
+**Date:** 2026-04-11
+**Status:** Proposed
+
+Comprehensive plan for out-of-process PowerShell execution written to `specs/out-of-process-execution.md`. The feature enables modules that crash the in-process runtime (Az.*, Microsoft.Graph.*) to run in a separate `pwsh` subprocess.
+
+**Key architectural decisions:**
+
+1. **Communication protocol: stdin/stdout ndjson** (not TCP). Lower complexity than the localhost TCP direction noted on 2026-04-10 — no port conflicts, no firewall, no connection handshake, works identically cross-platform. TCP remains a future option for multi-client scenarios.
+
+2. **6-phase implementation plan** starting with stub types to fix 13 build errors (Phase 1), then subprocess lifecycle (Phase 2), command discovery (Phase 3), command invocation (Phase 4), IL assembly generation (Phase 5), and integration testing with Az/Graph modules (Phase 6).
+
+3. **`oop-host.ps1` subprocess host** — a PowerShell script running inside the persistent `pwsh` process that handles discover/invoke/ping/shutdown requests via ndjson protocol.
+
+4. **Crash recovery** — automatic subprocess restart with exponential backoff (3 retries in 5 minutes), re-discovery after restart.
+
+5. **No mixed mode** in v1 — RuntimeMode is server-wide (InProcess or OutOfProcess). Per-function routing deferred.
+
+**Impact:** Unblocks `dotnet build` (Phase 1 is immediate priority) and enables PoshMcp to serve modules from the `integration/Modules/` test corpus.
+
+**Full spec:** `specs/out-of-process-execution.md`
+
+# Decision: PoshMcp Release Packaging Workflow (v0.5.1)
+
+**Date:** 2026-04-12
+**Author:** Amy (DevOps / Platform Engineer)
+**Status:** Confirmed
+
+## Context
+
+Steven requested a new release of PoshMcp be packaged and installed globally. This is the first release from the `main` branch after the `0.5.0` bump commit.
+
+## Decision
+
+Use a **patch version increment** (`0.5.0` → `0.5.1`) for this release. The change set since `0.5.0` is purely operational (embedded oop-host.ps1 resource, CLI wiring) with no breaking changes or new features warranting a minor bump.
+
+## Established Workflow (canonical steps)
+
+1. **Stop any running poshmcp process** — prevents update lock failures on Windows.
+2. **Bump version** in `PoshMcp.Server/PoshMcp.csproj` (`<Version>` property).
+3. **Pack:** `dotnet pack .\PoshMcp.Server\PoshMcp.csproj -c Release -o .\artifacts\nupkg`
+4. **Install/Update:** `dotnet tool update -g poshmcp --version <newVersion> --add-source .\artifacts\nupkg --ignore-failed-sources`
+5. **Verify:** `poshmcp --version` should report `<newVersion>+<git-sha>`
+
+## Outcomes
+
+- Package: `artifacts/nupkg/poshmcp.0.5.1.nupkg` (~25 MB)
+- Global tool verified: `poshmcp --version` → `0.5.1+fad23f66007916f0c2145e7c5e0eb8a20925c8dd`
+- `dotnet tool update` works for both initial install and upgrade; no need to uninstall first.
+
+## Notes
+
+- `artifacts/nupkg/` is the local feed folder; not committed to source control.
+- Version bump commit should be made after packaging to keep git history clean.
+- NU1510 warnings (redundant explicit package refs) are pre-existing and non-blocking.
+
+### 2026-04-11: CLIXML vs ndjson for OOP subprocess communication
+
+**Author:** Farnsworth (Lead / Architect)
+**Date:** 2026-04-11
+**Status:** Proposed
+**Requested by:** Steven Murawski
+
+## Decision
+
+**Stick with ndjson (newline-delimited JSON) for OOP subprocess communication. Do not adopt CLIXML.**
+
+## Context
+
+Steven asked whether CLIXML (`Export-Clixml`/`Import-Clixml`, PowerShell's native serialization format used by PS Remoting) should replace or complement the ndjson protocol defined in `specs/out-of-process-execution.md`. The current spec has `oop-host.ps1` returning results via `ConvertTo-Json -Depth 4 -Compress` over stdin/stdout.
+
+## Analysis
+
+### The fundamental constraint: MCP output is JSON
+
+The entire pipeline terminates at a JSON string delivered to the MCP client. Any type fidelity gained from CLIXML is necessarily lost when the server converts results back to JSON for MCP transport. This makes CLIXML a detour, not a shortcut.
+
+### Can the server deserialize CLIXML?
+
+Yes — the server already loads `Microsoft.PowerShell.SDK`. The OOP architecture isolates **heavy module loading** (Az.\*, Microsoft.Graph.\*), not the SDK itself. `[System.Management.Automation.PSSerializer]::Deserialize()` would work fine on the server side. This is not a technical blocker — but it's also not a free benefit, because the resulting `PSObject` still needs to go through `PowerShellObjectSerializer.FlattenPSObject()` and then `System.Text.Json` serialization to reach MCP-compatible JSON.
+
+### CLIXML advantages (real but insufficient)
+
+| Advantage | Severity | Assessment |
+|-----------|----------|------------|
+| Round-trip type fidelity (DateTime Kind, TimeSpan, enums) | Medium | Lost at the JSON output boundary. MCP clients receive JSON strings regardless of internal transport format. |
+| ErrorRecord preservation (full exception chain, InvocationInfo) | Medium | Already solved differently: the spec uses a separate `error` response field for PowerShell errors, not serialized ErrorRecord objects in the result set. |
+| PSTypeName metadata | Low | The in-process path already strips this via `PowerShellObjectSerializer`. MCP tool schemas, not runtime type names, drive client behavior. |
+| SecureString/PSCredential handling | Low | These should never transit the subprocess boundary — security-sensitive types should be handled in-process or via environment variables. |
+| Battle-tested by PS Remoting | Neutral | PS Remoting sends CLIXML between two PowerShell endpoints. Our architecture is PowerShell→C#→JSON — different shape. |
+
+### CLIXML disadvantages (concrete)
+
+| Disadvantage | Impact |
+|-------------|--------|
+| **Triple conversion pipeline:** CLIXML serialize (pwsh) → CLIXML deserialize to PSObject (server) → FlattenPSObject → JSON serialize (server). Current path: JSON serialize (pwsh) → pass-through or parse (server). | Significant complexity and CPU overhead. |
+| **Wire size inflation:** CLIXML/XML is 5-10x larger than compressed JSON for equivalent data. The spec already flags large result serialization as Risk #4. CLIXML makes this worse. | Direct performance regression for large result sets. |
+| **Parsing cost:** XML parsing is heavier than JSON parsing. `PSSerializer.Deserialize()` reconstructs full PSObject graphs with type metadata — work we then discard. | Unnecessary CPU/memory for throwaway fidelity. |
+| **ConvertTo-Json is the simpler, tested path:** `ConvertTo-Json -Depth 4 -Compress` produces output close to what MCP needs. Minimal transformation required on the server side. | Current approach is already nearly optimal. |
+| **Subprocess simplicity:** `oop-host.ps1` stays lean with `ConvertTo-Json`. Adding `Export-Clixml` requires temp files or `[PSSerializer]::Serialize()` (string API) and careful stream handling. | Adding CLIXML complicates the host script for no user-visible benefit. |
+
+### Hybrid approach evaluation
+
+A hybrid (JSON for commands, CLIXML for results) was considered. The command direction (server→pwsh) is simple JSON — no type fidelity needed. The result direction (pwsh→server) is where CLIXML would theoretically help. But:
+
+- The server must still produce JSON for MCP clients, so CLIXML→PSObject→JSON adds steps
+- The existing `PowerShellObjectSerializer` normalizes PSObjects to JSON-safe shapes — this pipeline already exists and works
+- Net effect: CLIXML adds serialization + deserialization + normalization, replacing a direct JSON-to-JSON path
+
+### Where CLIXML genuinely helps (and what to do instead)
+
+The real types that `ConvertTo-Json` handles poorly: deeply nested objects, circular references, types without public properties. The spec already mitigates these:
+
+- **Depth:** `-Depth 4` matches the in-process `MaxDepth = 4` in `PowerShellObjectSerializer`
+- **Circular refs:** `ConvertTo-Json` handles this with depth limits; the host script can add `-WarningAction SilentlyContinue`
+- **Large result sets:** `_MaxResults` framework parameter and `Select-Object` injection (from the performance spec) cap output before serialization
+
+If specific types prove problematic during implementation, the `oop-host.ps1` script can add targeted handling (e.g., custom serialization for ErrorRecord) without switching the entire transport to CLIXML.
+
+## Recommendation
+
+1. **Keep ndjson/JSON as specified.** The current `ConvertTo-Json -Depth 4 -Compress` approach matches the MCP output format, minimizes conversion steps, and keeps the subprocess host script simple.
+
+2. **Do not add CLIXML support in OOP v1.** The complexity-to-benefit ratio is unfavorable when the pipeline ends at JSON regardless.
+
+3. **If type fidelity becomes a real problem during implementation** (not theoretical), address it surgically in `oop-host.ps1` with per-type handlers rather than switching transport format.
+
+4. **Document this decision** so the team doesn't revisit it without new evidence.
+
+## Impact
+
+No changes to `specs/out-of-process-execution.md`. The existing ndjson protocol remains the correct approach.
+
+# Decision: MCP Authentication Architecture
+
+**Author:** Farnsworth (Lead/Architect)
+**Date:** 2026-07-14
+**Status:** Proposed
+
+## Context
+
+PoshMcp has no authentication or authorization. For HTTP deployments, any client can connect and invoke any tool — including destructive ones like `Stop-Process`. The MCP protocol spec (2025-06-18) defines an optional OAuth 2.1-based authorization model for HTTP transports.
+
+## Decision
+
+Implement a **two-layer authentication architecture** for PoshMcp's HTTP transport:
+
+1. **ASP.NET Core authentication middleware** validates caller identity (JWT Bearer tokens and API keys), populating `HttpContext.User` which the MCP SDK automatically propagates to `RequestContext.User`.
+
+2. **MCP SDK `CallToolFilters`** enforce per-tool authorization by matching tool names against configuration-driven scope and role requirements in `FunctionOverrides`.
+
+Authentication is **disabled by default** (`Authentication.Enabled = false`) to preserve backward compatibility.
+
+## Key Architectural Choices
+
+- **`McpRequestFilters.CallToolFilters`** for per-tool auth — not `DelegatingMcpServerTool` wrappers. Filters are cross-cutting, have direct access to `User` and tool name, and pair with `ListToolsFilters` for consistent tool visibility.
+- **Standard ASP.NET Core auth stack** for token validation — not custom MCP-layer parsing. The SDK's `MessageContext.User` (`ClaimsPrincipal`) proves this is the intended integration point.
+- **Per-tool overrides via `FunctionOverrides`** — extends the existing pattern (`RequiredScopes`, `RequiredRoles`, `AllowAnonymous`) rather than creating a parallel config section.
+- **Multi-scheme support** (JWT Bearer + API Key) — JWT for spec compliance and enterprise, API Key for simplicity.
+- **Stdio transport**: Skips HTTP auth per MCP spec, but `CallToolFilters` still run for tool-level policy enforcement.
+
+## Consequences
+
+- Existing deployments are unaffected (auth off by default)
+- New `Authentication` config section in `appsettings.json` with `Enabled`, `Schemes`, `DefaultPolicy`
+- `FunctionOverride` class gets three new properties
+- `Program.cs` HTTP pipeline gains auth middleware conditionally
+- RFC 9728 Protected Resource Metadata endpoint at `/.well-known/oauth-protected-resource`
+- New NuGet dependency: `Microsoft.AspNetCore.Authentication.JwtBearer`
+
+## Alternatives Considered
+
+1. **Auth at MCP filter layer only** (parse tokens in `CallToolFilters`): Rejected — reinvents ASP.NET Core's auth stack, misses session-init protection, fragile JWT handling.
+2. **`DelegatingMcpServerTool` per-tool wrappers**: Rejected — requires wrapping every tool individually, no cleaner than a single filter, and doesn't pair with tool-list filtering.
+3. **Auth enabled by default**: Rejected — would break all existing deployments immediately.
+
+### 2026-04-14T00:00:00Z: Patch-release publish workflow confirmation
+**By:** Steven Murawski (via Amy/Copilot)
+**What:** Bump `PoshMcp.Server/PoshMcp.csproj` `<Version>` by patch (`0.5.5` -> `0.5.6`), package with `dotnet pack -o ./nupkg`, publish `poshmcp.0.5.6.nupkg` to `github-poshmcp` feed via `gh auth token`, and update local global tool from `./nupkg`.
+**Why:** This matches current repo release convention and successfully validated GitHub Packages publish plus local install update in one flow.
