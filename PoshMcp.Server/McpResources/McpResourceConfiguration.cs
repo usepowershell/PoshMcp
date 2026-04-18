@@ -23,9 +23,10 @@ public class McpResourceConfiguration
     public string? Description { get; set; }
 
     /// <summary>
-    /// MIME type of the resource content. Defaults to "text/plain".
+    /// MIME type of the resource content. Null when not specified in configuration;
+    /// the runtime handler applies "text/plain" as the fallback when serving responses.
     /// </summary>
-    public string MimeType { get; set; } = "text/plain";
+    public string? MimeType { get; set; }
 
     /// <summary>
     /// Source type: "file" or "command".

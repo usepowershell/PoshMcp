@@ -125,9 +125,9 @@ public class McpResourceConfigurationBindingTests
     }
 
     [Fact]
-    public void McpResourceDefinition_MimeType_DefaultsToTextPlain_WhenOmitted()
+    public void McpResourceDefinition_MimeType_IsNull_WhenOmitted()
     {
-        // FR-030: MimeType MUST default to "text/plain" when not specified.
+        // FR-030: MimeType is null when omitted from config; the runtime handler applies "text/plain".
         var json = """
         {
           "McpResources": {
@@ -147,7 +147,7 @@ public class McpResourceConfigurationBindingTests
         var section = new McpResourcesSection();
         config.GetSection("McpResources").Bind(section);
 
-        Assert.Equal("text/plain", section.Resources[0].MimeType);
+        Assert.Null(section.Resources[0].MimeType);
     }
 
     [Fact]
