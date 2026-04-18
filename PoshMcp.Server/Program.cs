@@ -1,4 +1,4 @@
-∩╗┐using Microsoft.AspNetCore.Builder;
+﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Hosting;
@@ -1139,14 +1139,14 @@ public class Program
         Console.WriteLine($"Commands: {config.GetEffectiveCommandNames().Count} | Modules: {config.Modules.Count} | Tools: {tools.Count}");
         Console.WriteLine($"Resources configured: {resourcesDiag.Configured} | valid: {resourcesDiag.Valid}");
         foreach (var error in resourcesDiag.Errors)
-            Console.WriteLine($"  Γ£û {error}");
+            Console.WriteLine($"  ✖ {error}");
         foreach (var warning in resourcesDiag.Warnings)
-            Console.WriteLine($"  ΓÜá {warning}");
+            Console.WriteLine($"  ⚠ {warning}");
         Console.WriteLine($"Prompts configured: {promptsDiag.Configured} | valid: {promptsDiag.Valid}");
         foreach (var error in promptsDiag.Errors)
-            Console.WriteLine($"  Γ£û {error}");
+            Console.WriteLine($"  ✖ {error}");
         foreach (var warning in promptsDiag.Warnings)
-            Console.WriteLine($"  ΓÜá {warning}");
+            Console.WriteLine($"  ⚠ {warning}");
     }
 
     private static async Task RunDoctorAsync(ResolvedCommandSettings settings, string format)
@@ -1270,11 +1270,11 @@ public class Program
             Console.WriteLine("Warnings:");
             foreach (var warning in warnings)
             {
-                Console.WriteLine($"  ΓÜá {warning}");
+                Console.WriteLine($"  ⚠ {warning}");
             }
             if (config.HasLegacyFunctionNames)
             {
-                Console.WriteLine("  ≡ƒÆí To migrate: poshmcp update-config --add-command Get-Process --remove-function Get-Process");
+                Console.WriteLine("  💡 To migrate: poshmcp update-config --add-command Get-Process --remove-function Get-Process");
             }
         }
 
@@ -1284,13 +1284,13 @@ public class Program
         {
             Console.WriteLine("Resource errors:");
             foreach (var error in resourcesDiag.Errors)
-                Console.WriteLine($"  Γ£û {error}");
+                Console.WriteLine($"  ✖ {error}");
         }
         if (resourcesDiag.Warnings.Count > 0)
         {
             Console.WriteLine("Resource warnings:");
             foreach (var warning in resourcesDiag.Warnings)
-                Console.WriteLine($"  ΓÜá {warning}");
+                Console.WriteLine($"  ⚠ {warning}");
         }
 
         // Prompts validation
@@ -1299,13 +1299,13 @@ public class Program
         {
             Console.WriteLine("Prompt errors:");
             foreach (var error in promptsDiag.Errors)
-                Console.WriteLine($"  Γ£û {error}");
+                Console.WriteLine($"  ✖ {error}");
         }
         if (promptsDiag.Warnings.Count > 0)
         {
             Console.WriteLine("Prompt warnings:");
             foreach (var warning in promptsDiag.Warnings)
-                Console.WriteLine($"  ΓÜá {warning}");
+                Console.WriteLine($"  ⚠ {warning}");
         }
     }
 
@@ -1545,8 +1545,8 @@ public class Program
 
                     if (cmdResults.Count > 0)
                     {
-                        // The command exists but no tool was generated ΓÇö all parameter sets were likely skipped.
-                        return "Command found in PowerShell session but no tool was generated ΓÇö " +
+                        // The command exists but no tool was generated — all parameter sets were likely skipped.
+                        return "Command found in PowerShell session but no tool was generated — " +
                                "all parameter sets may have been skipped due to unserializable parameter types";
                     }
 
@@ -1562,11 +1562,11 @@ public class Program
 
                         if (moduleAvailableResults.Count == 0)
                         {
-                            return $"Module '{moduleName}' not found in PSModulePath ΓÇö " +
+                            return $"Module '{moduleName}' not found in PSModulePath — " +
                                    "ensure the module is installed or its path is added to PSModulePath";
                         }
 
-                        // Module is available ΓÇö check whether it exports the command.
+                        // Module is available — check whether it exports the command.
                         ps.Commands.Clear();
                         ps.AddScript(
                             $"Import-Module -Name {safeModuleName} -ErrorAction SilentlyContinue; " +
@@ -1579,12 +1579,12 @@ public class Program
                             return $"Module '{moduleName}' is available but does not export command '{name}'";
                         }
 
-                        return $"Command '{name}' found in module '{moduleName}' but was not loaded during tool discovery ΓÇö " +
+                        return $"Command '{name}' found in module '{moduleName}' but was not loaded during tool discovery — " +
                                "check module import order or environment setup";
                     }
 
-                    // No modules configured ΓÇö bare command not found.
-                    return $"Command '{name}' not found in PowerShell session ΓÇö " +
+                    // No modules configured — bare command not found.
+                    return $"Command '{name}' not found in PowerShell session — " +
                            "ensure the command exists and its module is installed and available in PSModulePath";
                 }
             });
@@ -2706,13 +2706,13 @@ public class Program
                 }
                 else if (authConfig.Enabled)
                 {
-                    // Auth enabled but no origins configured ΓÇö same-origin only (no wildcard)
+                    // Auth enabled but no origins configured — same-origin only (no wildcard)
                     // ASP.NET Core doesn't support "same-origin only" via CORS policy directly,
-                    // so we just don't add AllowAnyOrigin ΓÇö this effectively blocks cross-origin
+                    // so we just don't add AllowAnyOrigin — this effectively blocks cross-origin
                 }
                 else
                 {
-                    // Auth disabled ΓÇö keep wide-open for dev/stdio use
+                    // Auth disabled — keep wide-open for dev/stdio use
                     policy.AllowAnyOrigin();
                 }
                 policy.AllowAnyMethod().AllowAnyHeader().WithExposedHeaders("Mcp-Session-Id");
