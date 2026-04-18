@@ -58,6 +58,30 @@
 - **Commit:** `1419a20` on `squad/129-fix-mimetype-nullable` (Coordinator rebased)
 - **PR #130** ready for review.
 
+### 2026-07-18: Issue #131 — Stdio logging suppression tests
+
+**Branch:** `squad/131-stdio-logging-to-file`
+
+**Test files created:**
+- `PoshMcp.Tests/Unit/StdioLoggingConfigurationTests.cs` — 8 unit tests for `ResolveLogFilePath` resolution priority
+- `PoshMcp.Tests/Functional/StdioLoggingTests.cs` — 2 functional tests for stdio logging suppression/file routing
+
+**Unit tests (reflection-based):**
+- `ResolveLogFilePath` is `private static` in `Program.cs` so tests use `BindingFlags.NonPublic | BindingFlags.Static` reflection
+- Return type `ResolvedSetting` is a private sealed record; properties accessed via reflection too
+- Covered: CLI > env var, env var > null, null both = null/default, appsettings fallback, CLI > appsettings, env > appsettings, whitespace CLI falls back to env
+
+**Functional tests:**
+- Use `InProcessMcpServer` + `ExternalMcpClient` from `PoshMcp.Tests.Integration` namespace (same project, public classes)
+- `WithNoLogFile`: asserts no Serilog `[yyyy-MM-dd HH:mm:ss LVL]` or MEL `info:` lines appear on server stderr
+- `WithLogFile`: passes `serve --log-file <path>` as extraArgs; Serilog uses `RollingInterval.Day` so search for `basename*.log`; assert file exists and has content
+- All 10 tests (8 unit + 2 functional) pass; total run ~11s
+
+**Testing infrastructure notes:**
+- `ImplicitUsings` is disabled in the test project — all `using` statements must be explicit
+- `AddInMemoryCollection` available via transitive `Microsoft.Extensions.Configuration` dependency from `PoshMcp.Server`
+- `EnvironmentVariableScope` helper pattern (save/restore env var) reused from `ProgramTransportSelectionTests.cs` style
+
 ## Archive
 
 Detailed prior history (2026-03-27 through 2026-04-07) archived to `history-archive.md` when this file exceeded 15 KB threshold on 2026-04-18.
