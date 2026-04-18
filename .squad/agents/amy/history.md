@@ -163,3 +163,12 @@ Detailed session history was archived to `history-archive.md` on 2026-04-10 when
 - Verified: `poshmcp --version` → `0.6.0+3ed89f5946ba89be53ebb9f85238ab1a3143015b` (commit hash from main).
 - Commit: `chore: bump version to 0.6.0` with Copilot co-author trailer; pushed to main.
 
+### 2026-04-18: Publish poshmcp 0.6.0 to GitHub Packages
+
+- Package artifact: `nupkg/poshmcp.0.6.0.nupkg` (verified present, 25.8 MB).
+- GitHub Packages source was already registered as `github-poshmcp` → `https://nuget.pkg.github.com/usepowershell/index.json`.
+- Publish command: `dotnet nuget push ./nupkg/poshmcp.0.6.0.nupkg --source https://nuget.pkg.github.com/usepowershell/index.json --api-key (gh auth token)`.
+- Result: **Successfully published** to GitHub Packages NuGet registry.
+- Verified via `gh api "/users/usepowershell/packages/nuget/poshmcp/versions"` → confirmed `0.6.0` is the latest published version (alongside 0.5.6 and 0.5.5).
+- Repository owner: `usepowershell` (user account, not organization).
+
