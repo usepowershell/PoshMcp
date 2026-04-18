@@ -111,7 +111,17 @@
 - Local update command remains: `dotnet tool update -g poshmcp --version 0.5.6 --add-source .\nupkg --ignore-failed-sources`.
 - Verified installs: `dotnet tool list -g` shows `poshmcp 0.5.6`; `poshmcp --version` reports `0.5.6+31fa6372ec4b71d7dd68261ba45266c6c8b93817`.
 
-📌 Team update (2026-04-14T00:00:00Z): Docs deployment workflow decision has been merged into `.squad/decisions.md` and inbox entry closed by Scribe.
+### 2026-07-18: Issue #131 — OTel stdio suppression and appsettings schema
+
+- Added `isStdioMode = false` parameter to `ConfigureOpenTelemetry(HostApplicationBuilder, bool)` in `Program.cs`.
+- Guarded `metricsBuilder.AddConsoleExporter()` behind `if (!isStdioMode)` so no OTel console output occurs in stdio transport mode.
+- Updated `ConfigureServerServices` call site (stdio-only path) to pass `isStdioMode: true` to `ConfigureOpenTelemetry`.
+- `ConfigureOpenTelemetryForHttp` (HTTP path) is a separate method and remains unchanged — HTTP console exporter unaffected.
+- `appsettings.json` already had `Logging.File.Path` added by Bender; added the same `Logging.File.Path: ""` schema key to `appsettings.environment-example.json`, `appsettings.azure.json`, and `appsettings.modules.json`.
+- Build: `dotnet build PoshMcp.Server/PoshMcp.csproj` → succeeded, 5 pre-existing warnings, 0 errors.
+- Committed and pushed to branch `squad/131-stdio-logging-to-file` (commit `8a10311`).
+
+
 
 ## Archive Note
 
@@ -153,6 +163,12 @@ Detailed session history was archived to `history-archive.md` on 2026-04-10 when
 - Spec review worktrees (`poshmcp-spec-001` through `poshmcp-spec-005`) are separate infrastructure — left intact.
 - Note: `gh pr merge --delete-branch` produces a non-zero exit but the merge itself succeeds when GitHub auto-deletes the remote branch (same false-failure pattern as #92–#95 session). Squash-merge is the required strategy (merge commits blocked on this repo).
 - Spec 002 is fully closed. No residual branches or worktrees remain.
+
+### 2026-04-18: Issue #131 STDIO logging infrastructure (Amy as DevOps lead)
+
+- Suppressed OTel console exporter in stdio mode via isStdioMode parameter in ConfigureOpenTelemetry.
+- Updated all appsettings files with Logging.File.Path schema (appsettings.json, default.appsettings.json, environment-example, azure, modules).
+- Infrastructure changes complete and merged to squad/131-stdio-logging-to-file branch.
 
 ### 2026-04-18: v0.6.0 minor release
 
