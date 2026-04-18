@@ -41,6 +41,23 @@
 
 - `app.Run()` is blocking in ASP.NET Core; any logic after it in the same flow is unreachable and should be removed.
 
+### 2026-04-15: MimeType nullable fix (#129)
+
+- Changed `McpResourceConfiguration.MimeType` from `string = "text/plain"` to `string?` (no default).
+- The model-level default was shadowing the validator's `IsNullOrWhiteSpace` check — validator warning for absent MimeType never fired.
+- `McpResourceHandler` already applied `IsNullOrWhiteSpace(r.MimeType) ? "text/plain" : r.MimeType` in both `HandleListAsync` and `HandleReadAsync` — no handler code changes needed.
+- Test stub `McpResourceDefinition` in `PoshMcp.Tests/Models/McpResourceConfig.cs` updated to `string? MimeType` to mirror server type.
+- Binding test `McpResourceDefinition_MimeType_DefaultsToTextPlain_WhenOmitted` renamed to `McpResourceDefinition_MimeType_IsNull_WhenOmitted` and asserts `null` — runtime fallback is in handler, not model.
+- Pre-existing build warnings (5x CS8602 in `McpToolFactoryV2.cs`) are unrelated and not introduced by this fix.
+- **Commit:** `6a93c3d` on `squad/129-fix-mimetype-nullable`
+
+### 2026-04-18: Issue #129 MimeType Fix Completion (PR #130)
+
+- Fix committed `6a93c3d` and rebased by Coordinator into worktree `poshmcp-129`.
+- PR #130 opened at https://github.com/usepowershell/PoshMcp/pull/130.
+- All 39 backend tests pass; validator warning now fires correctly.
+- Handoff to Fry: test verification found no Skip attribute needed; test logic already correct.
+
 ## Archive Note
 
 Detailed prior history was archived to `history-archive.md` on 2026-04-14 when this file exceeded the 15 KB Scribe threshold.
