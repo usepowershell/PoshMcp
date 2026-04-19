@@ -13,7 +13,7 @@
   "build": {
     "content": [
       {
-        "files": ["articles/**/*.md", "articles/**/toc.yml", "archive/ENVIRONMENT-CUSTOMIZATION.md", "index.md", "toc.yml"]
+        "files": ["articles/**/*.md", "articles/**/toc.yml", "release-notes/**/*.md", "archive/ENVIRONMENT-CUSTOMIZATION.md", "index.md", "toc.yml"]
       },
       {
         "files": ["api/**.yml", "api/**/toc.yml"]
