@@ -21,14 +21,14 @@ public class StdioLoggingConfigurationTests
         string? cliValue,
         IConfiguration? config = null)
     {
-        var method = typeof(Program).GetMethod(
+        var method = typeof(SettingsResolver).GetMethod(
             "ResolveLogFilePath",
-            BindingFlags.NonPublic | BindingFlags.Static,
+            BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Public,
             binder: null,
             types: new[] { typeof(string), typeof(IConfiguration) },
             modifiers: null)
             ?? throw new MissingMethodException(
-                "Program.ResolveLogFilePath(string?, IConfiguration?) not found — was the method renamed or made public?");
+                "SettingsResolver.ResolveLogFilePath(string?, IConfiguration?) not found — was the method renamed or made public?");
 
         var result = method.Invoke(null, new object?[] { cliValue, config })
             ?? throw new InvalidOperationException("ResolveLogFilePath returned null unexpectedly");

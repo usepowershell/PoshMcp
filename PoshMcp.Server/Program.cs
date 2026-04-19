@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Hosting;
@@ -42,25 +42,10 @@ namespace PoshMcp;
 
 public class Program
 {
-    private const int ExitCodeSuccess = 0;
-    private const int ExitCodeConfigError = 2;
-    private const int ExitCodeStartupError = 3;
-    private const int ExitCodeRuntimeError = 4;
-    private const string TransportEnvVar = "POSHMCP_TRANSPORT";
-    private const string ConfigurationEnvVar = "POSHMCP_CONFIGURATION";
-    private const string McpPathEnvVar = "POSHMCP_MCP_PATH";
-    private const string SessionModeEnvVar = "POSHMCP_SESSION_MODE";
-    private const string RuntimeModeEnvVar = "POSHMCP_RUNTIME_MODE";
-    private const string LogLevelEnvVar = "POSHMCP_LOG_LEVEL";
-    private const string LogFileEnvVar = "POSHMCP_LOG_FILE";
-    private const string ConfigurationTroubleshootingToolEnvVar = "POSHMCP_ENABLE_CONFIGURATION_TROUBLESHOOTING_TOOL";
-    private const string CliSource = "cli";
-    private const string EnvSource = "env";
-    private const string DefaultSource = "default";
-    private const string CwdSource = "cwd";
-    private const string UserSource = "user";
-    private const string EmbeddedDefaultSource = "embedded-default";
-    private const string ConfigSource = "config";
+    private const int ExitCodeSuccess = ExitCodes.Success;
+    private const int ExitCodeConfigError = ExitCodes.ConfigError;
+    private const int ExitCodeStartupError = ExitCodes.StartupError;
+    private const int ExitCodeRuntimeError = ExitCodes.RuntimeError;
 
     public static async Task<int> Main(string[] args)
     {
@@ -383,9 +368,9 @@ public class Program
             var mcpPath = context.ParseResult.GetValueForOption(mcpPathOption);
             var logFile = context.ParseResult.GetValueForOption(logFileOption);
 
-            var resolvedSettings = await ResolveCommandSettingsAsync(args, configPath, logLevelText, transport, sessionMode, runtimeMode, mcpPath);
-            var parsedLogLevel = ParseLogLevel(resolvedSettings.LogLevel.Value);
-            var transportMode = ResolveTransportMode(resolvedSettings.Transport.Value);
+            var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args, configPath, logLevelText, transport, sessionMode, runtimeMode, mcpPath);
+            var parsedLogLevel = SettingsResolver.ParseLogLevel(resolvedSettings.LogLevel.Value);
+            var transportMode = SettingsResolver.ResolveTransportMode(resolvedSettings.Transport.Value);
 
             IConfiguration? fileConfig = null;
             if (!string.IsNullOrWhiteSpace(resolvedSettings.FinalConfigPath) && File.Exists(resolvedSettings.FinalConfigPath))
@@ -394,13 +379,13 @@ public class Program
                     .AddJsonFile(resolvedSettings.FinalConfigPath, optional: true, reloadOnChange: false)
                     .Build();
             }
-            var resolvedLogFile = ResolveLogFilePath(logFile, fileConfig);
+            var resolvedLogFile = SettingsResolver.ResolveLogFilePath(logFile, fileConfig);
 
             try
             {
-                if (ShouldPrintResolvedSettings(parsedLogLevel))
+                if (SettingsResolver.ShouldPrintResolvedSettings(parsedLogLevel))
                 {
-                    PrintResolvedSettings("serve", resolvedSettings);
+                    SettingsResolver.PrintResolvedSettings("serve", resolvedSettings);
                 }
 
                 if (transportMode == TransportMode.Stdio)
@@ -435,14 +420,14 @@ public class Program
 
         listToolsCommand.SetHandler(async (configPath, logLevelText, runtimeMode, format) =>
         {
-            var resolvedSettings = await ResolveCommandSettingsAsync(args, configPath, logLevelText, null, null, runtimeMode, null);
-            var parsedLogLevel = ParseLogLevel(resolvedSettings.LogLevel.Value);
-            var outputFormat = NormalizeFormat(format);
+            var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args, configPath, logLevelText, null, null, runtimeMode, null);
+            var parsedLogLevel = SettingsResolver.ParseLogLevel(resolvedSettings.LogLevel.Value);
+            var outputFormat = ConfigurationFileManager.NormalizeFormat(format);
             try
             {
-                if (ShouldPrintResolvedSettings(parsedLogLevel))
+                if (SettingsResolver.ShouldPrintResolvedSettings(parsedLogLevel))
                 {
-                    PrintResolvedSettings("list-tools", resolvedSettings);
+                    SettingsResolver.PrintResolvedSettings("list-tools", resolvedSettings);
                 }
 
                 await RunListToolsAsync(parsedLogLevel, resolvedSettings.FinalConfigPath, resolvedSettings.RuntimeMode.Value, outputFormat);
@@ -462,14 +447,14 @@ public class Program
 
         validateConfigCommand.SetHandler(async (configPath, logLevelText, runtimeMode, format) =>
         {
-            var resolvedSettings = await ResolveCommandSettingsAsync(args, configPath, logLevelText, null, null, runtimeMode, null);
-            var parsedLogLevel = ParseLogLevel(resolvedSettings.LogLevel.Value);
-            var outputFormat = NormalizeFormat(format);
+            var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args, configPath, logLevelText, null, null, runtimeMode, null);
+            var parsedLogLevel = SettingsResolver.ParseLogLevel(resolvedSettings.LogLevel.Value);
+            var outputFormat = ConfigurationFileManager.NormalizeFormat(format);
             try
             {
-                if (ShouldPrintResolvedSettings(parsedLogLevel))
+                if (SettingsResolver.ShouldPrintResolvedSettings(parsedLogLevel))
                 {
-                    PrintResolvedSettings("validate-config", resolvedSettings);
+                    SettingsResolver.PrintResolvedSettings("validate-config", resolvedSettings);
                 }
 
                 await RunValidateConfigAsync(parsedLogLevel, resolvedSettings.FinalConfigPath, resolvedSettings.RuntimeMode.Value, outputFormat);
@@ -489,8 +474,8 @@ public class Program
 
         doctorCommand.SetHandler(async (configPath, logLevelText, transport, sessionMode, runtimeMode, mcpPath, format) =>
         {
-            var resolvedSettings = await ResolveCommandSettingsAsync(args, configPath, logLevelText, transport, sessionMode, runtimeMode, mcpPath);
-            var outputFormat = NormalizeFormat(format);
+            var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args, configPath, logLevelText, transport, sessionMode, runtimeMode, mcpPath);
+            var outputFormat = ConfigurationFileManager.NormalizeFormat(format);
             try
             {
                 await RunDoctorAsync(resolvedSettings, outputFormat);
@@ -505,12 +490,12 @@ public class Program
 
         createConfigCommand.SetHandler(async (force, format) =>
         {
-            var outputFormat = NormalizeFormat(format);
+            var outputFormat = ConfigurationFileManager.NormalizeFormat(format);
             var targetPath = Path.GetFullPath("appsettings.json");
 
             try
             {
-                var created = await CreateDefaultConfigInCurrentDirectoryAsync(targetPath, force);
+                var created = await ConfigurationFileManager.CreateDefaultConfigInCurrentDirectoryAsync(targetPath, force);
 
                 if (outputFormat == "json")
                 {
@@ -566,15 +551,15 @@ public class Program
             var runtimeMode = context.ParseResult.GetValueForOption(runtimeModeOption);
             var nonInteractive = context.ParseResult.GetValueForOption(nonInteractiveOption);
 
-            var resolvedSettings = await ResolveCommandSettingsAsync(args, configPath, logLevelText, null, null, null, null);
-            var parsedLogLevel = ParseLogLevel(resolvedSettings.LogLevel.Value);
-            var outputFormat = NormalizeFormat(format);
+            var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args, configPath, logLevelText, null, null, null, null);
+            var parsedLogLevel = SettingsResolver.ParseLogLevel(resolvedSettings.LogLevel.Value);
+            var outputFormat = ConfigurationFileManager.NormalizeFormat(format);
 
             try
             {
-                if (ShouldPrintResolvedSettings(parsedLogLevel))
+                if (SettingsResolver.ShouldPrintResolvedSettings(parsedLogLevel))
                 {
-                    PrintResolvedSettings("update-config", resolvedSettings);
+                    SettingsResolver.PrintResolvedSettings("update-config", resolvedSettings);
                 }
 
                 var updateRequest = new ConfigUpdateRequest(
@@ -588,15 +573,15 @@ public class Program
                     removeIncludePatterns ?? Array.Empty<string>(),
                     addExcludePatterns ?? Array.Empty<string>(),
                     removeExcludePatterns ?? Array.Empty<string>(),
-                    TryParseRequiredBoolean(enableDynamicReloadTools),
-                    TryParseRequiredBoolean(enableConfigurationTroubleshootingTool),
-                    TryParseRequiredBoolean(enableResultCaching),
-                    TryParseRequiredBoolean(useDefaultDisplayProperties),
-                    TryParseRequiredBoolean(setAuthEnabled),
-                    NormalizeRuntimeMode(runtimeMode),
+                    ConfigurationFileManager.TryParseRequiredBoolean(enableDynamicReloadTools),
+                    ConfigurationFileManager.TryParseRequiredBoolean(enableConfigurationTroubleshootingTool),
+                    ConfigurationFileManager.TryParseRequiredBoolean(enableResultCaching),
+                    ConfigurationFileManager.TryParseRequiredBoolean(useDefaultDisplayProperties),
+                    ConfigurationFileManager.TryParseRequiredBoolean(setAuthEnabled),
+                    ConfigurationFileManager.NormalizeRuntimeMode(runtimeMode),
                     nonInteractive);
 
-                var result = await UpdateConfigurationFileAsync(resolvedSettings.FinalConfigPath, updateRequest);
+                var result = await ConfigurationFileManager.UpdateConfigurationFileAsync(resolvedSettings.FinalConfigPath, updateRequest);
 
                 if (outputFormat == "json")
                 {
@@ -669,7 +654,7 @@ public class Program
             {
                 var buildType = string.IsNullOrWhiteSpace(type) ? "base" : type.ToLowerInvariant();
                 var imageTag = string.IsNullOrWhiteSpace(tag) ? "poshmcp:latest" : tag;
-                var dockerPath = DetectDockerCommand();
+                var dockerPath = DockerRunner.DetectDockerCommand();
 
                 if (dockerPath == null)
                 {
@@ -696,7 +681,7 @@ public class Program
                     buildArgs += $" --build-arg INSTALL_PS_MODULES=\"{modules}\"";
                 }
 
-                var result = ExecuteDockerCommand(dockerPath, buildArgs);
+                var result = DockerRunner.ExecuteDockerCommand(dockerPath, buildArgs);
                 if (result != ExitCodeSuccess)
                 {
                     Environment.ExitCode = result;
@@ -721,7 +706,7 @@ public class Program
                 var transportMode = string.IsNullOrWhiteSpace(mode) ? "http" : mode.ToLowerInvariant();
                 var portNumber = port ?? 8080;
                 var imageTag = string.IsNullOrWhiteSpace(tag) ? "poshmcp:latest" : tag;
-                var dockerPath = DetectDockerCommand();
+                var dockerPath = DockerRunner.DetectDockerCommand();
 
                 if (dockerPath == null)
                 {
@@ -784,13 +769,13 @@ public class Program
                 if (interactive)
                 {
                     Console.WriteLine($"Starting PoshMcp container in interactive mode: {imageTag}");
-                    var result = ExecuteDockerCommand(dockerPath, runArgs, interactive: true);
+                    var result = DockerRunner.ExecuteDockerCommand(dockerPath, runArgs, interactive: true);
                     Environment.ExitCode = result;
                 }
                 else
                 {
                     Console.WriteLine($"Starting PoshMcp container in {transportMode} mode on port {portNumber}...");
-                    var result = ExecuteDockerCommand(dockerPath, runArgs);
+                    var result = DockerRunner.ExecuteDockerCommand(dockerPath, runArgs);
                     if (result == ExitCodeSuccess)
                     {
                         Console.WriteLine($"Container started successfully ({transportMode} mode on port {portNumber})");
@@ -808,306 +793,13 @@ public class Program
         return await rootCommand.InvokeAsync(args);
     }
 
-    private static LogLevel ParseLogLevel(string? logLevelText, string? environmentVariableName = null)
-    {
-        var resolvedLogLevelText = string.IsNullOrWhiteSpace(environmentVariableName)
-            ? logLevelText
-            : ResolveArgumentOrEnvironment(logLevelText, environmentVariableName!);
-
-        if (string.IsNullOrWhiteSpace(resolvedLogLevelText))
-        {
-            return LogLevel.Information;
-        }
-
-        return resolvedLogLevelText.Trim().ToLowerInvariant() switch
-        {
-            "trace" => LogLevel.Trace,
-            "debug" => LogLevel.Debug,
-            "info" => LogLevel.Information,
-            "information" => LogLevel.Information,
-            "warn" => LogLevel.Warning,
-            "warning" => LogLevel.Warning,
-            "error" => LogLevel.Error,
-            _ => LogLevel.Information
-        };
-    }
-
-    private static string? ResolveArgumentOrEnvironment(string? argumentValue, string environmentVariableName, string? defaultValue = null)
-    {
-        if (!string.IsNullOrWhiteSpace(argumentValue))
-        {
-            return argumentValue;
-        }
-
-        var environmentValue = Environment.GetEnvironmentVariable(environmentVariableName);
-        if (!string.IsNullOrWhiteSpace(environmentValue))
-        {
-            return environmentValue;
-        }
-
-        return defaultValue;
-    }
-
-    private static ResolvedSetting ResolveArgumentOrEnvironmentWithSource(string? argumentValue, string environmentVariableName, string? defaultValue = null)
-    {
-        if (!string.IsNullOrWhiteSpace(argumentValue))
-        {
-            return new ResolvedSetting(argumentValue, CliSource);
-        }
-
-        var environmentValue = Environment.GetEnvironmentVariable(environmentVariableName);
-        if (!string.IsNullOrWhiteSpace(environmentValue))
-        {
-            return new ResolvedSetting(environmentValue, EnvSource);
-        }
-
-        return new ResolvedSetting(defaultValue, DefaultSource);
-    }
-
-    /// <summary>
-    /// Resolves the log file path with precedence: CLI option > POSHMCP_LOG_FILE env var > Logging:File:Path config > null (silent).
-    /// </summary>
-    private static ResolvedSetting ResolveLogFilePath(string? cliValue, IConfiguration? config = null)
-    {
-        var resolved = ResolveArgumentOrEnvironmentWithSource(cliValue, LogFileEnvVar, null);
-        if (!string.IsNullOrWhiteSpace(resolved.Value))
-        {
-            return resolved;
-        }
-
-        var configPath = config?["Logging:File:Path"];
-        if (!string.IsNullOrWhiteSpace(configPath))
-        {
-            return new ResolvedSetting(configPath, ConfigSource);
-        }
-
-        return new ResolvedSetting(null, DefaultSource);
-    }
-
-    private static string NormalizeFormat(string? format)
-    {
-        if (string.Equals(format, "json", StringComparison.OrdinalIgnoreCase))
-        {
-            return "json";
-        }
-
-        return "text";
-    }
-
-    private static bool? TryParseRequiredBoolean(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-
-        var normalized = value.Trim();
-        if (bool.TryParse(normalized, out var parsed))
-        {
-            return parsed;
-        }
-
-        throw new ArgumentException($"Expected 'true' or 'false' but received '{value}'.");
-    }
-
-    private static string? NormalizeRuntimeMode(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-
-        return value.Trim().ToLowerInvariant() switch
-        {
-            "in-process" or "inprocess" => "InProcess",
-            "out-of-process" or "outofprocess" => "OutOfProcess",
-            _ => throw new ArgumentException($"Expected 'in-process' or 'out-of-process' but received '{value}'.")
-        };
-    }
-
-    private static ResolvedSetting ResolveEffectiveLogLevel(string[] args, string? logLevelText)
-    {
-        if (HasOption(args, "--trace", "-t"))
-        {
-            return new ResolvedSetting(LogLevel.Trace.ToString(), CliSource);
-        }
-
-        if (HasOption(args, "--debug", "-d") || HasOption(args, "--verbose", "-v"))
-        {
-            return new ResolvedSetting(LogLevel.Debug.ToString(), CliSource);
-        }
-
-        var resolvedLogLevel = ResolveArgumentOrEnvironmentWithSource(logLevelText, LogLevelEnvVar);
-        var parsedLogLevel = ParseLogLevel(resolvedLogLevel.Value);
-        return new ResolvedSetting(parsedLogLevel.ToString(), resolvedLogLevel.Source);
-    }
-
-    private static bool HasOption(string[] args, string longName, string shortName)
-    {
-        return args.Any(arg =>
-            string.Equals(arg, longName, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(arg, shortName, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static bool ShouldPrintResolvedSettings(LogLevel logLevel)
-    {
-        return logLevel == LogLevel.Debug || logLevel == LogLevel.Trace;
-    }
-
-    private static async Task<ResolvedCommandSettings> ResolveCommandSettingsAsync(
-        string[] args,
-        string? configPath,
-        string? logLevelText,
-        string? transport,
-        string? sessionMode,
-        string? runtimeMode,
-        string? mcpPath)
-    {
-        var preferredConfigPath = ResolveArgumentOrEnvironmentWithSource(configPath, ConfigurationEnvVar);
-        var resolvedConfigPath = await ResolveConfigurationPathWithSourceAsync(preferredConfigPath);
-        var resolvedLogLevel = ResolveEffectiveLogLevel(args, logLevelText);
-        var resolvedTransport = ResolveArgumentOrEnvironmentWithSource(transport, TransportEnvVar, "stdio");
-        var normalizedTransport = new ResolvedSetting(NormalizeTransportValue(resolvedTransport.Value), resolvedTransport.Source);
-        var resolvedSessionMode = ResolveArgumentOrEnvironmentWithSource(sessionMode, SessionModeEnvVar);
-        var resolvedRuntimeMode = ResolveEffectiveRuntimeMode(resolvedConfigPath.Value, runtimeMode);
-        var resolvedMcpPath = ResolveArgumentOrEnvironmentWithSource(mcpPath, McpPathEnvVar);
-
-        return new ResolvedCommandSettings(
-            resolvedConfigPath,
-            resolvedConfigPath.Value ?? string.Empty,
-            resolvedLogLevel,
-            normalizedTransport,
-            resolvedSessionMode,
-            resolvedRuntimeMode,
-            resolvedMcpPath);
-    }
-
-    private static ResolvedSetting ResolveEffectiveRuntimeMode(string? configurationPath, string? runtimeModeOverride)
-    {
-        var overrideSetting = ResolveArgumentOrEnvironmentWithSource(runtimeModeOverride, RuntimeModeEnvVar);
-        if (!string.IsNullOrWhiteSpace(overrideSetting.Value))
-        {
-            return new ResolvedSetting(NormalizeRuntimeModeValue(overrideSetting.Value), overrideSetting.Source);
-        }
-
-        return ResolveEffectiveRuntimeModeFromConfiguration(configurationPath);
-    }
-
-    private static ResolvedSetting ResolveEffectiveRuntimeModeFromConfiguration(string? configurationPath)
-    {
-        if (!string.IsNullOrWhiteSpace(configurationPath) && File.Exists(configurationPath))
-        {
-            var configuration = new ConfigurationBuilder()
-                .AddJsonFile(configurationPath, optional: false, reloadOnChange: false)
-                .Build();
-
-            var configuredRuntimeMode = configuration.GetSection("PowerShellConfiguration")[nameof(PowerShellConfiguration.RuntimeMode)];
-            if (!string.IsNullOrWhiteSpace(configuredRuntimeMode))
-            {
-                return new ResolvedSetting(NormalizeRuntimeModeValue(configuredRuntimeMode), ConfigSource);
-            }
-        }
-
-        return new ResolvedSetting(RuntimeMode.InProcess.ToString(), DefaultSource);
-    }
-
-    private static ResolvedSetting ResolveEffectiveRuntimeModeFromConfiguration(string? configuredRuntimeMode, string? runtimeModeOverride)
-    {
-        var overrideSetting = ResolveArgumentOrEnvironmentWithSource(runtimeModeOverride, RuntimeModeEnvVar);
-        if (!string.IsNullOrWhiteSpace(overrideSetting.Value))
-        {
-            return new ResolvedSetting(NormalizeRuntimeModeValue(overrideSetting.Value), overrideSetting.Source);
-        }
-
-        if (!string.IsNullOrWhiteSpace(configuredRuntimeMode))
-        {
-            return new ResolvedSetting(NormalizeRuntimeModeValue(configuredRuntimeMode), ConfigSource);
-        }
-
-        return new ResolvedSetting(RuntimeMode.InProcess.ToString(), DefaultSource);
-    }
-
-    internal static string NormalizeTransportValue(string? transport)
-    {
-        if (string.IsNullOrWhiteSpace(transport))
-        {
-            return "stdio";
-        }
-
-        return transport.Trim().ToLowerInvariant();
-    }
-
-    internal static TransportMode ResolveTransportMode(string? transport)
-    {
-        return NormalizeTransportValue(transport) switch
-        {
-            "stdio" => TransportMode.Stdio,
-            "http" => TransportMode.Http,
-            _ => TransportMode.Unsupported
-        };
-    }
-
-    internal static string NormalizeRuntimeModeValue(string? runtimeMode)
-    {
-        if (string.IsNullOrWhiteSpace(runtimeMode))
-        {
-            return RuntimeMode.InProcess.ToString();
-        }
-
-        var normalized = runtimeMode.Trim().ToLowerInvariant().Replace("-", string.Empty).Replace("_", string.Empty);
-        return normalized switch
-        {
-            "inprocess" => RuntimeMode.InProcess.ToString(),
-            "outofprocess" => RuntimeMode.OutOfProcess.ToString(),
-            _ => runtimeMode.Trim()
-        };
-    }
-
-    internal static RuntimeMode ResolveRuntimeMode(string? runtimeMode)
-    {
-        var normalized = NormalizeRuntimeModeValue(runtimeMode);
-        return normalized switch
-        {
-            nameof(RuntimeMode.InProcess) => RuntimeMode.InProcess,
-            nameof(RuntimeMode.OutOfProcess) => RuntimeMode.OutOfProcess,
-            _ => RuntimeMode.Unsupported
-        };
-    }
-
-    internal static string? NormalizeMcpPath(string? mcpPath)
-    {
-        if (string.IsNullOrWhiteSpace(mcpPath))
-        {
-            return null;
-        }
-
-        var normalized = mcpPath.Trim();
-        if (!normalized.StartsWith('/'))
-        {
-            normalized = "/" + normalized;
-        }
-
-        return normalized;
-    }
-
-    private static void PrintResolvedSettings(string commandName, ResolvedCommandSettings settings)
-    {
-        Console.Error.WriteLine($"{commandName} resolved settings:");
-        Console.Error.WriteLine($"Configuration: {settings.FinalConfigPath} (source: {settings.ConfigPath.Source})");
-        Console.Error.WriteLine($"Effective log level: {settings.LogLevel.Value} (source: {settings.LogLevel.Source})");
-        Console.Error.WriteLine($"Effective transport: {settings.Transport.Value} (source: {settings.Transport.Source})");
-        Console.Error.WriteLine($"Effective session mode: {settings.SessionMode.Value ?? "(not set)"} (source: {settings.SessionMode.Source})");
-        Console.Error.WriteLine($"Effective runtime mode: {settings.RuntimeMode.Value} (source: {settings.RuntimeMode.Source})");
-        Console.Error.WriteLine($"Effective MCP path: {settings.McpPath.Value ?? "(not set)"} (source: {settings.McpPath.Source})");
-        Console.Error.WriteLine();
-    }
 
     private static async Task RunListToolsAsync(LogLevel logLevel, string finalConfigPath, string? runtimeModeOverride, string format)
     {
-        using var loggerFactory = CreateLoggerFactory(logLevel);
+        using var loggerFactory = LoggingHelpers.CreateLoggerFactory(logLevel);
         var logger = loggerFactory.CreateLogger("ListTools");
 
-        var config = LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
+        var config = ConfigurationLoader.LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
         var tools = await DiscoverToolsAsync(config, loggerFactory, logger, finalConfigPath);
 
         if (format == "json")
@@ -1136,12 +828,12 @@ public class Program
 
     private static async Task RunValidateConfigAsync(LogLevel logLevel, string finalConfigPath, string? runtimeModeOverride, string format)
     {
-        using var loggerFactory = CreateLoggerFactory(logLevel);
+        using var loggerFactory = LoggingHelpers.CreateLoggerFactory(logLevel);
         var logger = loggerFactory.CreateLogger("ValidateConfig");
 
-        var config = LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
+        var config = ConfigurationLoader.LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
         var tools = await DiscoverToolsAsync(config, loggerFactory, logger, finalConfigPath);
-        var (resourcesDiag, promptsDiag) = TryValidateResourcesAndPrompts(finalConfigPath);
+        var (resourcesDiag, promptsDiag) = ConfigurationLoader.TryValidateResourcesAndPrompts(finalConfigPath);
 
         var hasErrors = resourcesDiag.Errors.Count > 0 || promptsDiag.Errors.Count > 0;
 
@@ -1199,11 +891,11 @@ public class Program
 
     private static async Task RunDoctorAsync(ResolvedCommandSettings settings, string format)
     {
-        var parsedLogLevel = ParseLogLevel(settings.LogLevel.Value);
-        using var loggerFactory = CreateLoggerFactory(parsedLogLevel);
+        var parsedLogLevel = SettingsResolver.ParseLogLevel(settings.LogLevel.Value);
+        using var loggerFactory = LoggingHelpers.CreateLoggerFactory(parsedLogLevel);
         var logger = loggerFactory.CreateLogger("Doctor");
 
-        var config = LoadPowerShellConfiguration(settings.FinalConfigPath, logger, settings.RuntimeMode.Value);
+        var config = ConfigurationLoader.LoadPowerShellConfiguration(settings.FinalConfigPath, logger, settings.RuntimeMode.Value);
         var tools = await DiscoverToolsAsync(config, loggerFactory, logger, settings.FinalConfigPath);
         var discoveredToolNames = GetDiscoveredToolNames(tools);
         var configuredFunctionStatus = BuildConfiguredFunctionStatus(config.GetEffectiveCommandNames(), discoveredToolNames);
@@ -1226,7 +918,7 @@ public class Program
         }
 
         var warnings = BuildConfigurationWarnings(config);
-        var (resourcesDiag, promptsDiag) = TryValidateResourcesAndPrompts(settings.FinalConfigPath);
+        var (resourcesDiag, promptsDiag) = ConfigurationLoader.TryValidateResourcesAndPrompts(settings.FinalConfigPath);
 
         if (format == "json")
         {
@@ -1401,8 +1093,8 @@ public class Program
         var warnings = BuildConfigurationWarnings(config);
 
         // Compute resource/prompt diagnostics if not pre-supplied
-        resourcesDiagnostics ??= TryValidateResourcesAndPrompts(configurationPath).Resources;
-        promptsDiagnostics ??= TryValidateResourcesAndPrompts(configurationPath).Prompts;
+        resourcesDiagnostics ??= ConfigurationLoader.TryValidateResourcesAndPrompts(configurationPath).Resources;
+        promptsDiagnostics ??= ConfigurationLoader.TryValidateResourcesAndPrompts(configurationPath).Prompts;
 
         var resourcesSummary = new
         {
@@ -1453,20 +1145,6 @@ public class Program
         };
 
         return JsonSerializer.Serialize(payload);
-    }
-
-    private static (McpResourcesDiagnostics Resources, McpPromptsDiagnostics Prompts) TryValidateResourcesAndPrompts(string configurationPath)
-    {
-        try
-        {
-            return ValidateResourcesAndPrompts(configurationPath);
-        }
-        catch
-        {
-            return (
-                new McpResourcesDiagnostics(0, 0, new List<string>(), new List<string>()),
-                new McpPromptsDiagnostics(0, 0, new List<string>(), new List<string>()));
-        }
     }
 
     private static List<string> BuildConfigurationWarnings(PowerShellConfiguration config)
@@ -1773,529 +1451,14 @@ public class Program
         List<string> MatchedToolNames,
         string? ResolutionReason = null);
 
-    private sealed record CreateDefaultConfigResult(bool WasOverwritten);
 
-    private sealed record ConfigUpdateRequest(
-        IEnumerable<string> AddFunctions,
-        IEnumerable<string> RemoveFunctions,
-        IEnumerable<string> AddCommands,
-        IEnumerable<string> RemoveCommands,
-        IEnumerable<string> AddModules,
-        IEnumerable<string> RemoveModules,
-        IEnumerable<string> AddIncludePatterns,
-        IEnumerable<string> RemoveIncludePatterns,
-        IEnumerable<string> AddExcludePatterns,
-        IEnumerable<string> RemoveExcludePatterns,
-        bool? EnableDynamicReloadTools,
-        bool? EnableConfigurationTroubleshootingTool,
-        bool? EnableResultCaching,
-        bool? UseDefaultDisplayProperties,
-        bool? SetAuthEnabled,
-        string? SetRuntimeMode,
-        bool NonInteractive);
-
-    private sealed record ConfigUpdateResult(
-        string ConfigurationPath,
-        bool Changed,
-        int AddedFunctions,
-        int RemovedFunctions,
-        int AddedCommands,
-        int RemovedCommands,
-        int AdvancedPromptedFunctionCount,
-        int SettingsChanged);
-
-    private sealed record ResolvedSetting(string? Value, string Source);
-
-    private sealed record ResolvedCommandSettings(
-        ResolvedSetting ConfigPath,
-        string FinalConfigPath,
-        ResolvedSetting LogLevel,
-        ResolvedSetting Transport,
-        ResolvedSetting SessionMode,
-        ResolvedSetting RuntimeMode,
-        ResolvedSetting McpPath);
-
-    internal enum TransportMode
-    {
-        Stdio,
-        Http,
-        Unsupported
-    }
-
-    private static async Task<string> ResolveExplicitOrDefaultConfigPath(string? explicitConfigPath)
-    {
-        var preferredConfigPath = string.IsNullOrWhiteSpace(explicitConfigPath)
-            ? new ResolvedSetting(null, DefaultSource)
-            : new ResolvedSetting(explicitConfigPath, CliSource);
-
-        var resolvedConfigPath = await ResolveConfigurationPathWithSourceAsync(preferredConfigPath);
-        return resolvedConfigPath.Value ?? throw new InvalidOperationException("Resolved configuration path was empty.");
-    }
-
-    private static async Task<ResolvedSetting> ResolveConfigurationPathWithSourceAsync(ResolvedSetting preferredConfigPath)
-    {
-        if (!string.IsNullOrWhiteSpace(preferredConfigPath.Value))
-        {
-            var absoluteConfigPath = Path.GetFullPath(preferredConfigPath.Value);
-            if (!File.Exists(absoluteConfigPath))
-            {
-                throw new FileNotFoundException($"Configuration file not found: {absoluteConfigPath}");
-            }
-
-            await UpgradeConfigWithMissingDefaultsAsync(absoluteConfigPath);
-            return new ResolvedSetting(absoluteConfigPath, preferredConfigPath.Source);
-        }
-
-        var currentDirectoryConfigPath = Path.GetFullPath("appsettings.json");
-        if (File.Exists(currentDirectoryConfigPath))
-        {
-            await UpgradeConfigWithMissingDefaultsAsync(currentDirectoryConfigPath);
-            return new ResolvedSetting(currentDirectoryConfigPath, CwdSource);
-        }
-
-        var userConfigPath = GetUserConfigPath();
-        if (File.Exists(userConfigPath))
-        {
-            await UpgradeConfigWithMissingDefaultsAsync(userConfigPath);
-            return new ResolvedSetting(userConfigPath, UserSource);
-        }
-
-        await InstallEmbeddedDefaultConfigToUserLocationAsync(userConfigPath);
-        return new ResolvedSetting(userConfigPath, EmbeddedDefaultSource);
-    }
-
-    private static string GetUserConfigPath()
-    {
-        var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        return Path.Combine(appDataPath, "PoshMcp", "appsettings.json");
-    }
-
-    private static async Task InstallEmbeddedDefaultConfigToUserLocationAsync(string userConfigPath)
-    {
-        var directory = Path.GetDirectoryName(userConfigPath);
-        if (!string.IsNullOrWhiteSpace(directory) && !Directory.Exists(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
-
-        var defaultConfigJson = LoadEmbeddedDefaultConfig();
-        await File.WriteAllTextAsync(userConfigPath, defaultConfigJson);
-    }
-
-    private static async Task<CreateDefaultConfigResult> CreateDefaultConfigInCurrentDirectoryAsync(string targetPath, bool force)
-    {
-        var alreadyExists = File.Exists(targetPath);
-        if (alreadyExists && !force)
-        {
-            throw new IOException($"Configuration file already exists: {targetPath}. Use --force to overwrite.");
-        }
-
-        var defaultConfigJson = LoadEmbeddedDefaultConfig();
-        await File.WriteAllTextAsync(targetPath, defaultConfigJson + Environment.NewLine);
-        return new CreateDefaultConfigResult(alreadyExists);
-    }
-
-    private static async Task<ConfigUpdateResult> UpdateConfigurationFileAsync(string configPath, ConfigUpdateRequest request)
-    {
-        var existingConfigJson = await File.ReadAllTextAsync(configPath);
-        var parseOptions = new JsonDocumentOptions
-        {
-            CommentHandling = JsonCommentHandling.Skip,
-            AllowTrailingCommas = true
-        };
-
-        var root = JsonNode.Parse(existingConfigJson, documentOptions: parseOptions)?.AsObject()
-            ?? throw new InvalidOperationException($"Configuration file '{configPath}' must be a JSON object.");
-
-        var powerShellConfiguration = GetOrCreateObject(root, "PowerShellConfiguration");
-
-        // CommandNames is the preferred target for --add-command/--remove-command
-        var commandNames = GetOrCreateArray(powerShellConfiguration, "CommandNames");
-        var addedCommands = AddUniqueValues(commandNames, request.AddCommands, out var addedCommandNames);
-        var removedCommands = RemoveValues(commandNames, request.RemoveCommands);
-
-        // FunctionNames is the legacy target for --add-function/--remove-function
-        var functionNames = GetOrCreateArray(powerShellConfiguration, "FunctionNames");
-        var addedFunctions = AddUniqueValues(functionNames, request.AddFunctions, out var addedFunctionNames);
-        var removedFunctions = RemoveValues(functionNames, request.RemoveFunctions);
-
-        // Combine for advanced prompts
-        var allAddedNames = addedCommandNames.Concat(addedFunctionNames).ToList();
-
-        var addedModules = AddUniqueValues(GetOrCreateArray(powerShellConfiguration, "Modules"), request.AddModules, out _);
-        var removedModules = RemoveValues(GetOrCreateArray(powerShellConfiguration, "Modules"), request.RemoveModules);
-
-        var addedIncludePatterns = AddUniqueValues(GetOrCreateArray(powerShellConfiguration, "IncludePatterns"), request.AddIncludePatterns, out _);
-        var removedIncludePatterns = RemoveValues(GetOrCreateArray(powerShellConfiguration, "IncludePatterns"), request.RemoveIncludePatterns);
-
-        var addedExcludePatterns = AddUniqueValues(GetOrCreateArray(powerShellConfiguration, "ExcludePatterns"), request.AddExcludePatterns, out _);
-        var removedExcludePatterns = RemoveValues(GetOrCreateArray(powerShellConfiguration, "ExcludePatterns"), request.RemoveExcludePatterns);
-
-        var boolUpdateApplied = 0;
-        if (request.EnableDynamicReloadTools.HasValue)
-        {
-            powerShellConfiguration["EnableDynamicReloadTools"] = request.EnableDynamicReloadTools.Value;
-            boolUpdateApplied++;
-        }
-
-        if (request.EnableConfigurationTroubleshootingTool.HasValue)
-        {
-            powerShellConfiguration["EnableConfigurationTroubleshootingTool"] = request.EnableConfigurationTroubleshootingTool.Value;
-            boolUpdateApplied++;
-        }
-
-        if (request.EnableResultCaching.HasValue)
-        {
-            var performance = GetOrCreateObject(powerShellConfiguration, "Performance");
-            performance["EnableResultCaching"] = request.EnableResultCaching.Value;
-            boolUpdateApplied++;
-        }
-
-        if (request.UseDefaultDisplayProperties.HasValue)
-        {
-            var performance = GetOrCreateObject(powerShellConfiguration, "Performance");
-            performance["UseDefaultDisplayProperties"] = request.UseDefaultDisplayProperties.Value;
-            boolUpdateApplied++;
-        }
-
-        if (!string.IsNullOrWhiteSpace(request.SetRuntimeMode))
-        {
-            powerShellConfiguration["RuntimeMode"] = request.SetRuntimeMode;
-            boolUpdateApplied++;
-        }
-
-        if (request.SetAuthEnabled.HasValue)
-        {
-            var authentication = GetOrCreateObject(root, "Authentication");
-            authentication["Enabled"] = request.SetAuthEnabled.Value;
-            boolUpdateApplied++;
-
-            if (request.SetAuthEnabled.Value)
-            {
-                var schemes = authentication["Schemes"]?.AsArray();
-                if (schemes == null || schemes.Count == 0)
-                {
-                    Console.Error.WriteLine("WARNING: Authentication.Enabled set to true but Authentication.Schemes is empty. Run 'poshmcp validate-config' to verify your configuration.");
-                }
-            }
-        }
-
-        var advancedPromptedFunctionCount = 0;
-        if (!request.NonInteractive && allAddedNames.Count > 0)
-        {
-            advancedPromptedFunctionCount = PromptForAdvancedFunctionConfiguration(powerShellConfiguration, allAddedNames);
-        }
-
-        var changed = addedCommands > 0 || removedCommands > 0 ||
-            addedFunctions > 0 || removedFunctions > 0 ||
-            addedModules > 0 || removedModules > 0 ||
-            addedIncludePatterns > 0 || removedIncludePatterns > 0 ||
-            addedExcludePatterns > 0 || removedExcludePatterns > 0 ||
-            boolUpdateApplied > 0 || advancedPromptedFunctionCount > 0;
-
-        if (changed)
-        {
-            var updatedConfigJson = root.ToJsonString(new JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
-
-            await File.WriteAllTextAsync(configPath, updatedConfigJson + Environment.NewLine);
-        }
-
-        return new ConfigUpdateResult(
-            configPath,
-            changed,
-            addedFunctions,
-            removedFunctions,
-            addedCommands,
-            removedCommands,
-            advancedPromptedFunctionCount,
-            boolUpdateApplied);
-    }
-
-    private static int PromptForAdvancedFunctionConfiguration(JsonObject powerShellConfiguration, IEnumerable<string> addedFunctionNames)
-    {
-        var promptedCount = 0;
-
-        foreach (var functionName in addedFunctionNames)
-        {
-            Console.Write($"Configure advanced settings for '{functionName}'? [y/N]: ");
-            if (!IsYesAnswer(Console.ReadLine()))
-            {
-                continue;
-            }
-
-            var functionOverrides = GetOrCreateObject(powerShellConfiguration, "FunctionOverrides");
-            var functionOverride = GetOrCreateObject(functionOverrides, functionName);
-
-            var cachingOverride = PromptForNullableBoolean($"Override EnableResultCaching for {functionName} (true/false/skip): ");
-            if (cachingOverride.HasValue)
-            {
-                functionOverride["EnableResultCaching"] = cachingOverride.Value;
-            }
-
-            var displayOverride = PromptForNullableBoolean($"Override UseDefaultDisplayProperties for {functionName} (true/false/skip): ");
-            if (displayOverride.HasValue)
-            {
-                functionOverride["UseDefaultDisplayProperties"] = displayOverride.Value;
-            }
-
-            Console.Write($"Set DefaultProperties for {functionName} (comma-separated, blank to skip): ");
-            var defaultPropertiesText = Console.ReadLine();
-            if (!string.IsNullOrWhiteSpace(defaultPropertiesText))
-            {
-                var propertyValues = defaultPropertiesText
-                    .Split(',', StringSplitOptions.RemoveEmptyEntries)
-                    .Select(value => value.Trim())
-                    .Where(value => !string.IsNullOrWhiteSpace(value))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
-                if (propertyValues.Count > 0)
-                {
-                    functionOverride["DefaultProperties"] = new JsonArray(propertyValues.Select(value => (JsonNode?)value).ToArray());
-                }
-            }
-
-            var allowAnonymousOverride = PromptForNullableBoolean($"Set AllowAnonymous for {functionName} (true/false/skip): ");
-            if (allowAnonymousOverride.HasValue)
-            {
-                functionOverride["AllowAnonymous"] = allowAnonymousOverride.Value;
-            }
-
-            Console.Write($"Set RequiredScopes for {functionName} (space-separated, blank to skip): ");
-            var requiredScopesText = Console.ReadLine();
-            if (!string.IsNullOrWhiteSpace(requiredScopesText))
-            {
-                var scopeValues = requiredScopesText
-                    .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                    .Select(value => value.Trim())
-                    .Where(value => !string.IsNullOrWhiteSpace(value))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
-                if (scopeValues.Count > 0)
-                {
-                    functionOverride["RequiredScopes"] = new JsonArray(scopeValues.Select(value => (JsonNode?)value).ToArray());
-                }
-            }
-
-            Console.Write($"Set RequiredRoles for {functionName} (space-separated, blank to skip): ");
-            var requiredRolesText = Console.ReadLine();
-            if (!string.IsNullOrWhiteSpace(requiredRolesText))
-            {
-                var roleValues = requiredRolesText
-                    .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                    .Select(value => value.Trim())
-                    .Where(value => !string.IsNullOrWhiteSpace(value))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
-                if (roleValues.Count > 0)
-                {
-                    functionOverride["RequiredRoles"] = new JsonArray(roleValues.Select(value => (JsonNode?)value).ToArray());
-                }
-            }
-
-            promptedCount++;
-        }
-
-        return promptedCount;
-    }
-
-    private static bool IsYesAnswer(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return false;
-        }
-
-        var normalized = value.Trim();
-        return string.Equals(normalized, "y", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(normalized, "yes", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool? PromptForNullableBoolean(string prompt)
-    {
-        while (true)
-        {
-            Console.Write(prompt);
-            var input = Console.ReadLine();
-            if (string.IsNullOrWhiteSpace(input) || string.Equals(input.Trim(), "skip", StringComparison.OrdinalIgnoreCase))
-            {
-                return null;
-            }
-
-            if (bool.TryParse(input.Trim(), out var parsed))
-            {
-                return parsed;
-            }
-
-            Console.WriteLine("Please enter true, false, or skip.");
-        }
-    }
-
-    private static JsonObject GetOrCreateObject(JsonObject parent, string propertyName)
-    {
-        if (parent[propertyName] is JsonObject existing)
-        {
-            return existing;
-        }
-
-        var created = new JsonObject();
-        parent[propertyName] = created;
-        return created;
-    }
-
-    private static JsonArray GetOrCreateArray(JsonObject parent, string propertyName)
-    {
-        if (parent[propertyName] is JsonArray existing)
-        {
-            return existing;
-        }
-
-        var created = new JsonArray();
-        parent[propertyName] = created;
-        return created;
-    }
-
-    private static int AddUniqueValues(JsonArray array, IEnumerable<string> values, out List<string> addedValues)
-    {
-        var existing = new HashSet<string>(
-            array.Select(v => v?.GetValue<string>())
-                .Where(v => !string.IsNullOrWhiteSpace(v))
-                .Select(v => v!.Trim()),
-            StringComparer.OrdinalIgnoreCase);
-
-        addedValues = new List<string>();
-        foreach (var value in values)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                continue;
-            }
-
-            var normalized = value.Trim();
-            if (!existing.Add(normalized))
-            {
-                continue;
-            }
-
-            array.Add(normalized);
-            addedValues.Add(normalized);
-        }
-
-        return addedValues.Count;
-    }
-
-    private static int RemoveValues(JsonArray array, IEnumerable<string> values)
-    {
-        var toRemove = new HashSet<string>(
-            values.Where(v => !string.IsNullOrWhiteSpace(v))
-                .Select(v => v.Trim()),
-            StringComparer.OrdinalIgnoreCase);
-
-        if (toRemove.Count == 0)
-        {
-            return 0;
-        }
-
-        var removed = 0;
-        for (var i = array.Count - 1; i >= 0; i--)
-        {
-            var existing = array[i]?.GetValue<string>();
-            if (string.IsNullOrWhiteSpace(existing))
-            {
-                continue;
-            }
-
-            if (toRemove.Contains(existing.Trim()))
-            {
-                array.RemoveAt(i);
-                removed++;
-            }
-        }
-
-        return removed;
-    }
-
-    private static async Task UpgradeConfigWithMissingDefaultsAsync(string configPath)
-    {
-        var defaultConfigJson = LoadEmbeddedDefaultConfig();
-        var existingConfigJson = await File.ReadAllTextAsync(configPath);
-
-        var parseOptions = new JsonDocumentOptions
-        {
-            CommentHandling = JsonCommentHandling.Skip,
-            AllowTrailingCommas = true
-        };
-
-        var defaultRoot = JsonNode.Parse(defaultConfigJson, documentOptions: parseOptions)?.AsObject()
-            ?? throw new InvalidOperationException("Embedded default configuration must be a JSON object.");
-        var existingRoot = JsonNode.Parse(existingConfigJson, documentOptions: parseOptions)?.AsObject()
-            ?? throw new InvalidOperationException($"Configuration file '{configPath}' must be a JSON object.");
-
-        var changed = MergeMissingProperties(defaultRoot, existingRoot);
-        if (!changed)
-        {
-            return;
-        }
-
-        var updatedConfigJson = existingRoot.ToJsonString(new JsonSerializerOptions
-        {
-            WriteIndented = true
-        });
-
-        await File.WriteAllTextAsync(configPath, updatedConfigJson + Environment.NewLine);
-    }
-
-    private static bool MergeMissingProperties(JsonObject defaultObject, JsonObject targetObject)
-    {
-        var changed = false;
-
-        foreach (var defaultProperty in defaultObject)
-        {
-            if (!targetObject.TryGetPropertyValue(defaultProperty.Key, out var existingValue))
-            {
-                targetObject[defaultProperty.Key] = defaultProperty.Value?.DeepClone();
-                changed = true;
-                continue;
-            }
-
-            if (defaultProperty.Value is JsonObject defaultChildObject && existingValue is JsonObject existingChildObject)
-            {
-                changed |= MergeMissingProperties(defaultChildObject, existingChildObject);
-            }
-        }
-
-        return changed;
-    }
-
-    private static string LoadEmbeddedDefaultConfig()
-    {
-        var assembly = Assembly.GetExecutingAssembly();
-        var resourceName = assembly
-            .GetManifestResourceNames()
-            .FirstOrDefault(name => name.EndsWith("default.appsettings.json", StringComparison.OrdinalIgnoreCase));
-
-        if (resourceName is null)
-        {
-            throw new InvalidOperationException("Embedded default configuration resource was not found.");
-        }
-
-        using var stream = assembly.GetManifestResourceStream(resourceName)
-            ?? throw new InvalidOperationException($"Unable to open embedded configuration resource '{resourceName}'.");
-        using var reader = new StreamReader(stream);
-        return reader.ReadToEnd();
-    }
 
     private static void RunPSModulePathCommand(LogLevel logLevel)
     {
         Console.Error.WriteLine("=== PowerShell MCP Server - PSModulePath Report ===");
         Console.Error.WriteLine();
 
-        using var loggerFactory = CreateLoggerFactory(logLevel);
+        using var loggerFactory = LoggingHelpers.CreateLoggerFactory(logLevel);
         var logger = loggerFactory.CreateLogger("PSModulePath");
 
         try
@@ -2353,14 +1516,14 @@ public class Program
     private static async Task RunToolEvaluationAsync(LogLevel logLevel)
     {
         PrintToolEvaluationHeader();
-        using var loggerFactory = CreateLoggerFactory(logLevel);
+        using var loggerFactory = LoggingHelpers.CreateLoggerFactory(logLevel);
         var logger = loggerFactory.CreateLogger("ToolEvaluation");
 
         try
         {
             LogEvaluationStart(logger, logLevel);
             var finalConfigPath = await DetermineConfigurationPath(logger);
-            var config = LoadPowerShellConfiguration(finalConfigPath, logger);
+            var config = ConfigurationLoader.LoadPowerShellConfiguration(finalConfigPath, logger);
             var tools = await DiscoverToolsAsync(config, loggerFactory, logger, finalConfigPath);
             ReportToolDiscoveryResults(tools, logger);
         }
@@ -2374,13 +1537,6 @@ public class Program
     {
         Console.Error.WriteLine("=== PowerShell MCP Server - Tool Evaluation Mode ===");
         Console.Error.WriteLine();
-    }
-
-    internal static ILoggerFactory CreateLoggerFactory(LogLevel logLevel)
-    {
-        return LoggerFactory.Create(builder =>
-            builder.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace)
-                   .SetMinimumLevel(logLevel));
     }
 
     private static void LogEvaluationStart(ILogger logger, LogLevel logLevel)
@@ -2402,103 +1558,10 @@ public class Program
     internal static async Task<string> ResolveConfigurationPath(string configPath)
     {
         var preferredConfigPath = File.Exists(configPath)
-            ? new ResolvedSetting(configPath, CliSource)
-            : new ResolvedSetting(null, DefaultSource);
-        var resolvedConfigPath = await ResolveConfigurationPathWithSourceAsync(preferredConfigPath);
+            ? new ResolvedSetting(configPath, SettingsResolver.CliSource)
+            : new ResolvedSetting(null, SettingsResolver.DefaultSource);
+        var resolvedConfigPath = await SettingsResolver.ResolveConfigurationPathWithSourceAsync(preferredConfigPath);
         return resolvedConfigPath.Value ?? throw new InvalidOperationException("Resolved configuration path was empty.");
-    }
-
-    internal static PowerShellConfiguration LoadPowerShellConfiguration(string configPath, ILogger logger)
-    {
-        return LoadPowerShellConfiguration(configPath, logger, null);
-    }
-
-    internal static PowerShellConfiguration LoadPowerShellConfiguration(string configPath, ILogger logger, string? runtimeModeOverride)
-    {
-        var configuration = new ConfigurationBuilder()
-            .AddJsonFile(configPath, optional: false, reloadOnChange: false)
-            .Build();
-
-        var config = new PowerShellConfiguration();
-        configuration.GetSection("PowerShellConfiguration").Bind(config);
-
-        var configurationTroubleshootingOverride = Environment.GetEnvironmentVariable(ConfigurationTroubleshootingToolEnvVar);
-        if (bool.TryParse(configurationTroubleshootingOverride, out var enableConfigurationTroubleshootingTool))
-        {
-            config.EnableConfigurationTroubleshootingTool = enableConfigurationTroubleshootingTool;
-        }
-
-        var runtimeModeSetting = ResolveEffectiveRuntimeModeFromConfiguration(config.RuntimeMode.ToString(), runtimeModeOverride);
-        config.RuntimeMode = ResolveRuntimeMode(runtimeModeSetting.Value);
-        if (config.RuntimeMode == RuntimeMode.Unsupported)
-        {
-            throw new InvalidOperationException($"Unsupported runtime mode '{runtimeModeSetting.Value}'. Supported runtime modes: in-process, out-of-process.");
-        }
-
-        LogConfigurationDetails(config, logger);
-        return config;
-    }
-
-    internal static (McpResourcesConfiguration Resources, McpPromptsConfiguration Prompts) LoadResourcesAndPromptsConfiguration(string configPath)
-    {
-        var configuration = new ConfigurationBuilder()
-            .AddJsonFile(configPath, optional: false, reloadOnChange: false)
-            .Build();
-
-        var resourcesConfig = new McpResourcesConfiguration();
-        configuration.GetSection("McpResources").Bind(resourcesConfig);
-
-        var promptsConfig = new McpPromptsConfiguration();
-        configuration.GetSection("McpPrompts").Bind(promptsConfig);
-
-        return (resourcesConfig, promptsConfig);
-    }
-
-    internal static (McpResourcesDiagnostics Resources, McpPromptsDiagnostics Prompts) ValidateResourcesAndPrompts(string configPath)
-    {
-        var configDirectory = Path.GetDirectoryName(Path.GetFullPath(configPath))
-            ?? Directory.GetCurrentDirectory();
-
-        var (resourcesConfig, promptsConfig) = LoadResourcesAndPromptsConfiguration(configPath);
-
-        var resourcesDiag = McpResourcesValidator.Validate(resourcesConfig, configDirectory);
-        var promptsDiag = McpPromptsValidator.Validate(promptsConfig, configDirectory);
-
-        return (resourcesDiag, promptsDiag);
-    }
-
-    private static void LogConfigurationDetails(PowerShellConfiguration config, ILogger logger)
-    {
-        logger.LogDebug("Configuration loaded successfully");
-        logger.LogTrace($"Command names: {string.Join(", ", config.GetEffectiveCommandNames())}");
-        logger.LogTrace($"Modules: {string.Join(", ", config.Modules)}");
-        logger.LogTrace($"Include patterns: {string.Join(", ", config.IncludePatterns)}");
-        logger.LogTrace($"Exclude patterns: {string.Join(", ", config.ExcludePatterns)}");
-        logger.LogTrace($"Runtime mode: {config.RuntimeMode}");
-    }
-
-    internal static McpResourcesConfiguration LoadMcpResourcesConfiguration(string configPath, ILogger logger)
-    {
-        var configuration = new ConfigurationBuilder()
-            .AddJsonFile(configPath, optional: false, reloadOnChange: false)
-            .Build();
-
-        var config = new McpResourcesConfiguration();
-        configuration.GetSection("McpResources").Bind(config);
-
-        logger.LogDebug("McpResources configuration loaded: {Count} resource(s)", config.Resources.Count);
-        return config;
-    }
-
-    internal static McpPromptsConfiguration LoadPromptsConfiguration(string configPath)
-    {
-        var configuration = new ConfigurationBuilder()
-            .AddJsonFile(configPath, optional: false, reloadOnChange: false)
-            .Build();
-
-        var config = new McpPromptsConfiguration();
-        configuration.GetSection("McpPrompts").Bind(config);
-        return config;
     }
 
     private static async Task<List<McpServerTool>> DiscoverToolsAsync(PowerShellConfiguration config, ILoggerFactory loggerFactory, ILogger logger, string configurationPath)
@@ -2565,11 +1628,11 @@ public class Program
         var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
         var logger = loggerFactory.CreateLogger("PoshMcpLogger");
         logger.LogInformation("Using configuration file: {ConfigurationPath}", finalConfigPath);
-        var config = LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
-        var resourcesConfig = LoadMcpResourcesConfiguration(finalConfigPath, logger);
+        var config = ConfigurationLoader.LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
+        var resourcesConfig = ConfigurationLoader.LoadMcpResourcesConfiguration(finalConfigPath, logger);
         await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger, finalConfigPath);
         var tools = await SetupMcpToolsAsync(loggerFactory, config, logger, finalConfigPath, executorLease?.Executor);
-        var promptsConfig = LoadPromptsConfiguration(finalConfigPath);
+        var promptsConfig = ConfigurationLoader.LoadPromptsConfiguration(finalConfigPath);
         var configDirectory = Path.GetDirectoryName(finalConfigPath) ?? Directory.GetCurrentDirectory();
         var promptHandler = new McpPromptHandler(promptsConfig, configDirectory, loggerFactory.CreateLogger<McpPromptHandler>());
         ConfigureServerServices(builder, tools, resourcesConfig, finalConfigPath, loggerFactory, promptHandler);
@@ -2617,9 +1680,9 @@ public class Program
 
         ConfigureOpenTelemetryForHttp(builder);
 
-        using var bootstrapLoggerFactory = CreateLoggerFactory(logLevel);
+        using var bootstrapLoggerFactory = LoggingHelpers.CreateLoggerFactory(logLevel);
         var logger = bootstrapLoggerFactory.CreateLogger("PoshMcpHttpLogger");
-        var config = LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
+        var config = ConfigurationLoader.LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
         await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, bootstrapLoggerFactory, logger, finalConfigPath);
 
         var sharedHttpContextAccessor = new HttpContextAccessor();
@@ -2632,12 +1695,12 @@ public class Program
         logger.LogInformation("Using configuration file: {ConfigurationPath}", finalConfigPath);
 
         var tools = await SetupHttpMcpToolsAsync(bootstrapLoggerFactory, config, logger, finalConfigPath, sharedSessionRunspace, executorLease?.Executor);
-        var resourcesConfig = LoadMcpResourcesConfiguration(finalConfigPath, logger);
+        var resourcesConfig = ConfigurationLoader.LoadMcpResourcesConfiguration(finalConfigPath, logger);
         var resourcesConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? ".";
         var resourceLogger = bootstrapLoggerFactory.CreateLogger<McpResourceHandler>();
         var resourceHandler = new McpResourceHandler(resourcesConfig, sharedSessionRunspace, resourcesConfigDirectory, resourceLogger);
         var authConfigValue = builder.Configuration.GetSection("Authentication").Get<PoshMcp.Server.Authentication.AuthenticationConfiguration>() ?? new();
-        var promptsConfig = LoadPromptsConfiguration(finalConfigPath);
+        var promptsConfig = ConfigurationLoader.LoadPromptsConfiguration(finalConfigPath);
         var httpConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? Directory.GetCurrentDirectory();
         var httpPromptHandler = new McpPromptHandler(promptsConfig, httpConfigDirectory, bootstrapLoggerFactory.CreateLogger<McpPromptHandler>());
         var mcpBuilder = builder.Services
@@ -2712,7 +1775,7 @@ public class Program
             Predicate = _ => true
         }).AllowAnonymous();
 
-        var normalizedMcpPath = NormalizeMcpPath(mcpPath);
+        var normalizedMcpPath = SettingsResolver.NormalizeMcpPath(mcpPath);
         IEndpointConventionBuilder mcpEndpoint;
         if (string.IsNullOrWhiteSpace(normalizedMcpPath))
         {
@@ -2878,7 +1941,7 @@ public class Program
         if (!string.IsNullOrWhiteSpace(logFilePath))
         {
             var serilogLogger = new Serilog.LoggerConfiguration()
-                .MinimumLevel.Is(MapToSerilogLevel(overrideLogLevel ?? LogLevel.Information))
+                .MinimumLevel.Is(LoggingHelpers.MapToSerilogLevel(overrideLogLevel ?? LogLevel.Information))
                 .WriteTo.File(
                     logFilePath,
                     rollingInterval: Serilog.RollingInterval.Day,
@@ -2890,20 +1953,9 @@ public class Program
         }
     }
 
-    private static LogEventLevel MapToSerilogLevel(LogLevel level) =>
-        level switch
-        {
-            LogLevel.Trace => LogEventLevel.Verbose,
-            LogLevel.Debug => LogEventLevel.Debug,
-            LogLevel.Warning => LogEventLevel.Warning,
-            LogLevel.Error => LogEventLevel.Error,
-            LogLevel.Critical => LogEventLevel.Fatal,
-            _ => LogEventLevel.Information
-        };
-
     private static async Task<string> ConfigureServerConfiguration(HostApplicationBuilder builder, string? explicitConfigPath)
     {
-        var finalConfigPath = await ResolveExplicitOrDefaultConfigPath(explicitConfigPath);
+        var finalConfigPath = await ConfigurationLoader.ResolveExplicitOrDefaultConfigPath(explicitConfigPath);
         builder.Configuration.AddJsonFile(finalConfigPath, optional: false, reloadOnChange: true);
         builder.Services.Configure<PowerShellConfiguration>(
             builder.Configuration.GetSection("PowerShellConfiguration"));
@@ -3024,11 +2076,11 @@ public class Program
             {
                 logger.LogInformation("Processing configuration troubleshooting request");
 
-                var config = LoadPowerShellConfiguration(configurationPath, logger, effectiveRuntimeMode);
+                var config = ConfigurationLoader.LoadPowerShellConfiguration(configurationPath, logger, effectiveRuntimeMode);
                 return Task.FromResult(BuildDoctorJson(
                     configurationPath: configurationPath,
                     configurationPathSource: "runtime",
-                    effectiveLogLevel: InferEffectiveLogLevel(logger),
+                    effectiveLogLevel: LoggingHelpers.InferEffectiveLogLevel(logger),
                     effectiveLogLevelSource: "runtime",
                     effectiveTransport: effectiveTransport,
                     effectiveTransportSource: "runtime",
@@ -3091,36 +2143,6 @@ public class Program
             OpenWorld = false,
             UseStructuredContent = true
         });
-    }
-
-    private static string InferEffectiveLogLevel(ILogger logger)
-    {
-        if (logger.IsEnabled(LogLevel.Trace))
-        {
-            return LogLevel.Trace.ToString();
-        }
-
-        if (logger.IsEnabled(LogLevel.Debug))
-        {
-            return LogLevel.Debug.ToString();
-        }
-
-        if (logger.IsEnabled(LogLevel.Information))
-        {
-            return LogLevel.Information.ToString();
-        }
-
-        if (logger.IsEnabled(LogLevel.Warning))
-        {
-            return LogLevel.Warning.ToString();
-        }
-
-        if (logger.IsEnabled(LogLevel.Error))
-        {
-            return LogLevel.Error.ToString();
-        }
-
-        return LogLevel.None.ToString();
     }
 
     private static McpToolFactoryV2 CreateToolFactory(PowerShellConfiguration config, ICommandExecutor? commandExecutor, IPowerShellRunspace? runspace = null)
@@ -3368,111 +2390,6 @@ public class Program
     private static void RegisterCleanupServices(WebApplicationBuilder builder)
     {
         builder.Services.AddSingleton<IHostedService, PowerShellCleanupService>();
-    }
-
-    /// <summary>
-    /// Detects whether docker or podman is available in the system PATH.
-    /// Returns the command name ("docker" or "podman") or null if neither is available.
-    /// </summary>
-    private static string? DetectDockerCommand()
-    {
-        // Try docker first
-        if (CommandExists("docker"))
-        {
-            return "docker";
-        }
-
-        // Fall back to podman
-        if (CommandExists("podman"))
-        {
-            return "podman";
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Checks if a command exists in the system PATH by attempting to execute it with --version.
-    /// </summary>
-    private static bool CommandExists(string command)
-    {
-        try
-        {
-            var processInfo = new ProcessStartInfo
-            {
-                FileName = command,
-                Arguments = "--version",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            using (var process = Process.Start(processInfo))
-            {
-                return process?.WaitForExit(5000) == true && process.ExitCode == 0;
-            }
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Executes a docker or podman command and returns the exit code.
-    /// Optionally runs in interactive mode for terminal interaction.
-    /// </summary>
-    private static int ExecuteDockerCommand(string dockerCommand, string arguments, bool interactive = false)
-    {
-        try
-        {
-            var processInfo = new ProcessStartInfo
-            {
-                FileName = dockerCommand,
-                Arguments = arguments,
-                RedirectStandardOutput = !interactive,
-                RedirectStandardError = !interactive,
-                UseShellExecute = false,
-                CreateNoWindow = !interactive
-            };
-
-            using (var process = Process.Start(processInfo))
-            {
-                if (process == null)
-                {
-                    return ExitCodeRuntimeError;
-                }
-
-                if (!interactive)
-                {
-                    var output = process.StandardOutput.ReadToEnd();
-                    var error = process.StandardError.ReadToEnd();
-
-                    process.WaitForExit();
-
-                    if (process.ExitCode != 0 && !string.IsNullOrEmpty(error))
-                    {
-                        Console.Error.WriteLine(error);
-                    }
-                    else if (!string.IsNullOrEmpty(output) && process.ExitCode == 0)
-                    {
-                        Console.WriteLine(output);
-                    }
-                }
-                else
-                {
-                    process.WaitForExit();
-                }
-
-                return process.ExitCode;
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"Failed to execute {dockerCommand}: {ex.Message}");
-            return ExitCodeRuntimeError;
-        }
     }
 
 }

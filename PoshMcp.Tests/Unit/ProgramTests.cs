@@ -198,7 +198,7 @@ public class ProgramTests : PowerShellTestBase
         var logLevel = LogLevel.Information;
 
         // Act
-        using var loggerFactory = Program.CreateLoggerFactory(logLevel);
+        using var loggerFactory = LoggingHelpers.CreateLoggerFactory(logLevel);
 
         // Assert
         Assert.NotNull(loggerFactory);
@@ -219,7 +219,7 @@ public class ProgramTests : PowerShellTestBase
     public void NormalizeTransportValue_ReturnsExpectedNormalizedValue(string? input, string expected)
     {
         // Act
-        var result = Program.NormalizeTransportValue(input);
+        var result = SettingsResolver.NormalizeTransportValue(input);
 
         // Assert
         Assert.Equal(expected, result);
@@ -237,7 +237,7 @@ public class ProgramTests : PowerShellTestBase
     public void ResolveTransportMode_ReturnsExpectedMode(string? input, string expected)
     {
         // Act
-        var result = Program.ResolveTransportMode(input);
+        var result = SettingsResolver.ResolveTransportMode(input);
 
         // Assert
         Assert.Equal(expected, result.ToString());
@@ -253,7 +253,7 @@ public class ProgramTests : PowerShellTestBase
     public void NormalizeMcpPath_ReturnsExpectedPath(string? input, string? expected)
     {
         // Act
-        var result = Program.NormalizeMcpPath(input);
+        var result = SettingsResolver.NormalizeMcpPath(input);
 
         // Assert
         Assert.Equal(expected, result);
@@ -280,7 +280,7 @@ public class ProgramTests : PowerShellTestBase
         try
         {
             // Act
-            var config = Program.LoadPowerShellConfiguration(tempFile, logger);
+            var config = ConfigurationLoader.LoadPowerShellConfiguration(tempFile, logger);
 
             // Assert
             Assert.NotNull(config);
@@ -316,7 +316,7 @@ public class ProgramTests : PowerShellTestBase
         try
         {
             // Act
-            var config = Program.LoadPowerShellConfiguration(tempFile, logger);
+            var config = ConfigurationLoader.LoadPowerShellConfiguration(tempFile, logger);
 
             // Assert
             Assert.NotNull(config);
@@ -351,7 +351,7 @@ public class ProgramTests : PowerShellTestBase
         try
         {
             // Act
-            var config = Program.LoadPowerShellConfiguration(tempFile, logger);
+            var config = ConfigurationLoader.LoadPowerShellConfiguration(tempFile, logger);
 
             // Assert
             Assert.NotNull(config);
@@ -385,7 +385,7 @@ public class ProgramTests : PowerShellTestBase
         try
         {
             // Act
-            var config = Program.LoadPowerShellConfiguration(tempFile, logger);
+            var config = ConfigurationLoader.LoadPowerShellConfiguration(tempFile, logger);
 
             // Assert
             Assert.NotNull(config);
