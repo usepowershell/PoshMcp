@@ -219,7 +219,7 @@ public class ProgramTests : PowerShellTestBase
     public void NormalizeTransportValue_ReturnsExpectedNormalizedValue(string? input, string expected)
     {
         // Act
-        var result = Program.NormalizeTransportValue(input);
+        var result = SettingsResolver.NormalizeTransportValue(input);
 
         // Assert
         Assert.Equal(expected, result);
@@ -237,7 +237,7 @@ public class ProgramTests : PowerShellTestBase
     public void ResolveTransportMode_ReturnsExpectedMode(string? input, string expected)
     {
         // Act
-        var result = Program.ResolveTransportMode(input);
+        var result = SettingsResolver.ResolveTransportMode(input);
 
         // Assert
         Assert.Equal(expected, result.ToString());
@@ -253,7 +253,7 @@ public class ProgramTests : PowerShellTestBase
     public void NormalizeMcpPath_ReturnsExpectedPath(string? input, string? expected)
     {
         // Act
-        var result = Program.NormalizeMcpPath(input);
+        var result = SettingsResolver.NormalizeMcpPath(input);
 
         // Assert
         Assert.Equal(expected, result);

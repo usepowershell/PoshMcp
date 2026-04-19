@@ -46,21 +46,7 @@ public class Program
     private const int ExitCodeConfigError = 2;
     private const int ExitCodeStartupError = 3;
     private const int ExitCodeRuntimeError = 4;
-    private const string TransportEnvVar = "POSHMCP_TRANSPORT";
-    private const string ConfigurationEnvVar = "POSHMCP_CONFIGURATION";
-    private const string McpPathEnvVar = "POSHMCP_MCP_PATH";
-    private const string SessionModeEnvVar = "POSHMCP_SESSION_MODE";
-    private const string RuntimeModeEnvVar = "POSHMCP_RUNTIME_MODE";
-    private const string LogLevelEnvVar = "POSHMCP_LOG_LEVEL";
-    private const string LogFileEnvVar = "POSHMCP_LOG_FILE";
     private const string ConfigurationTroubleshootingToolEnvVar = "POSHMCP_ENABLE_CONFIGURATION_TROUBLESHOOTING_TOOL";
-    private const string CliSource = "cli";
-    private const string EnvSource = "env";
-    private const string DefaultSource = "default";
-    private const string CwdSource = "cwd";
-    private const string UserSource = "user";
-    private const string EmbeddedDefaultSource = "embedded-default";
-    private const string ConfigSource = "config";
 
     public static async Task<int> Main(string[] args)
     {
@@ -383,9 +369,9 @@ public class Program
             var mcpPath = context.ParseResult.GetValueForOption(mcpPathOption);
             var logFile = context.ParseResult.GetValueForOption(logFileOption);
 
-            var resolvedSettings = await ResolveCommandSettingsAsync(args, configPath, logLevelText, transport, sessionMode, runtimeMode, mcpPath);
-            var parsedLogLevel = ParseLogLevel(resolvedSettings.LogLevel.Value);
-            var transportMode = ResolveTransportMode(resolvedSettings.Transport.Value);
+            var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args, configPath, logLevelText, transport, sessionMode, runtimeMode, mcpPath);
+            var parsedLogLevel = SettingsResolver.ParseLogLevel(resolvedSettings.LogLevel.Value);
+            var transportMode = SettingsResolver.ResolveTransportMode(resolvedSettings.Transport.Value);
 
             IConfiguration? fileConfig = null;
             if (!string.IsNullOrWhiteSpace(resolvedSettings.FinalConfigPath) && File.Exists(resolvedSettings.FinalConfigPath))
@@ -394,13 +380,13 @@ public class Program
                     .AddJsonFile(resolvedSettings.FinalConfigPath, optional: true, reloadOnChange: false)
                     .Build();
             }
-            var resolvedLogFile = ResolveLogFilePath(logFile, fileConfig);
+            var resolvedLogFile = SettingsResolver.ResolveLogFilePath(logFile, fileConfig);
 
             try
             {
-                if (ShouldPrintResolvedSettings(parsedLogLevel))
+                if (SettingsResolver.ShouldPrintResolvedSettings(parsedLogLevel))
                 {
-                    PrintResolvedSettings("serve", resolvedSettings);
+                    SettingsResolver.PrintResolvedSettings("serve", resolvedSettings);
                 }
 
                 if (transportMode == TransportMode.Stdio)
@@ -435,14 +421,14 @@ public class Program
 
         listToolsCommand.SetHandler(async (configPath, logLevelText, runtimeMode, format) =>
         {
-            var resolvedSettings = await ResolveCommandSettingsAsync(args, configPath, logLevelText, null, null, runtimeMode, null);
-            var parsedLogLevel = ParseLogLevel(resolvedSettings.LogLevel.Value);
+            var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args, configPath, logLevelText, null, null, runtimeMode, null);
+            var parsedLogLevel = SettingsResolver.ParseLogLevel(resolvedSettings.LogLevel.Value);
             var outputFormat = NormalizeFormat(format);
             try
             {
-                if (ShouldPrintResolvedSettings(parsedLogLevel))
+                if (SettingsResolver.ShouldPrintResolvedSettings(parsedLogLevel))
                 {
-                    PrintResolvedSettings("list-tools", resolvedSettings);
+                    SettingsResolver.PrintResolvedSettings("list-tools", resolvedSettings);
                 }
 
                 await RunListToolsAsync(parsedLogLevel, resolvedSettings.FinalConfigPath, resolvedSettings.RuntimeMode.Value, outputFormat);
@@ -462,14 +448,14 @@ public class Program
 
         validateConfigCommand.SetHandler(async (configPath, logLevelText, runtimeMode, format) =>
         {
-            var resolvedSettings = await ResolveCommandSettingsAsync(args, configPath, logLevelText, null, null, runtimeMode, null);
-            var parsedLogLevel = ParseLogLevel(resolvedSettings.LogLevel.Value);
+            var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args, configPath, logLevelText, null, null, runtimeMode, null);
+            var parsedLogLevel = SettingsResolver.ParseLogLevel(resolvedSettings.LogLevel.Value);
             var outputFormat = NormalizeFormat(format);
             try
             {
-                if (ShouldPrintResolvedSettings(parsedLogLevel))
+                if (SettingsResolver.ShouldPrintResolvedSettings(parsedLogLevel))
                 {
-                    PrintResolvedSettings("validate-config", resolvedSettings);
+                    SettingsResolver.PrintResolvedSettings("validate-config", resolvedSettings);
                 }
 
                 await RunValidateConfigAsync(parsedLogLevel, resolvedSettings.FinalConfigPath, resolvedSettings.RuntimeMode.Value, outputFormat);
@@ -489,7 +475,7 @@ public class Program
 
         doctorCommand.SetHandler(async (configPath, logLevelText, transport, sessionMode, runtimeMode, mcpPath, format) =>
         {
-            var resolvedSettings = await ResolveCommandSettingsAsync(args, configPath, logLevelText, transport, sessionMode, runtimeMode, mcpPath);
+            var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args, configPath, logLevelText, transport, sessionMode, runtimeMode, mcpPath);
             var outputFormat = NormalizeFormat(format);
             try
             {
@@ -566,15 +552,15 @@ public class Program
             var runtimeMode = context.ParseResult.GetValueForOption(runtimeModeOption);
             var nonInteractive = context.ParseResult.GetValueForOption(nonInteractiveOption);
 
-            var resolvedSettings = await ResolveCommandSettingsAsync(args, configPath, logLevelText, null, null, null, null);
-            var parsedLogLevel = ParseLogLevel(resolvedSettings.LogLevel.Value);
+            var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args, configPath, logLevelText, null, null, null, null);
+            var parsedLogLevel = SettingsResolver.ParseLogLevel(resolvedSettings.LogLevel.Value);
             var outputFormat = NormalizeFormat(format);
 
             try
             {
-                if (ShouldPrintResolvedSettings(parsedLogLevel))
+                if (SettingsResolver.ShouldPrintResolvedSettings(parsedLogLevel))
                 {
-                    PrintResolvedSettings("update-config", resolvedSettings);
+                    SettingsResolver.PrintResolvedSettings("update-config", resolvedSettings);
                 }
 
                 var updateRequest = new ConfigUpdateRequest(
@@ -808,82 +794,6 @@ public class Program
         return await rootCommand.InvokeAsync(args);
     }
 
-    private static LogLevel ParseLogLevel(string? logLevelText, string? environmentVariableName = null)
-    {
-        var resolvedLogLevelText = string.IsNullOrWhiteSpace(environmentVariableName)
-            ? logLevelText
-            : ResolveArgumentOrEnvironment(logLevelText, environmentVariableName!);
-
-        if (string.IsNullOrWhiteSpace(resolvedLogLevelText))
-        {
-            return LogLevel.Information;
-        }
-
-        return resolvedLogLevelText.Trim().ToLowerInvariant() switch
-        {
-            "trace" => LogLevel.Trace,
-            "debug" => LogLevel.Debug,
-            "info" => LogLevel.Information,
-            "information" => LogLevel.Information,
-            "warn" => LogLevel.Warning,
-            "warning" => LogLevel.Warning,
-            "error" => LogLevel.Error,
-            _ => LogLevel.Information
-        };
-    }
-
-    private static string? ResolveArgumentOrEnvironment(string? argumentValue, string environmentVariableName, string? defaultValue = null)
-    {
-        if (!string.IsNullOrWhiteSpace(argumentValue))
-        {
-            return argumentValue;
-        }
-
-        var environmentValue = Environment.GetEnvironmentVariable(environmentVariableName);
-        if (!string.IsNullOrWhiteSpace(environmentValue))
-        {
-            return environmentValue;
-        }
-
-        return defaultValue;
-    }
-
-    private static ResolvedSetting ResolveArgumentOrEnvironmentWithSource(string? argumentValue, string environmentVariableName, string? defaultValue = null)
-    {
-        if (!string.IsNullOrWhiteSpace(argumentValue))
-        {
-            return new ResolvedSetting(argumentValue, CliSource);
-        }
-
-        var environmentValue = Environment.GetEnvironmentVariable(environmentVariableName);
-        if (!string.IsNullOrWhiteSpace(environmentValue))
-        {
-            return new ResolvedSetting(environmentValue, EnvSource);
-        }
-
-        return new ResolvedSetting(defaultValue, DefaultSource);
-    }
-
-    /// <summary>
-    /// Resolves the log file path with precedence: CLI option > POSHMCP_LOG_FILE env var > Logging:File:Path config > null (silent).
-    /// </summary>
-    private static ResolvedSetting ResolveLogFilePath(string? cliValue, IConfiguration? config = null)
-    {
-        var resolved = ResolveArgumentOrEnvironmentWithSource(cliValue, LogFileEnvVar, null);
-        if (!string.IsNullOrWhiteSpace(resolved.Value))
-        {
-            return resolved;
-        }
-
-        var configPath = config?["Logging:File:Path"];
-        if (!string.IsNullOrWhiteSpace(configPath))
-        {
-            return new ResolvedSetting(configPath, ConfigSource);
-        }
-
-        return new ResolvedSetting(null, DefaultSource);
-    }
-
     private static string NormalizeFormat(string? format)
     {
         if (string.Equals(format, "json", StringComparison.OrdinalIgnoreCase))
@@ -923,183 +833,6 @@ public class Program
             "out-of-process" or "outofprocess" => "OutOfProcess",
             _ => throw new ArgumentException($"Expected 'in-process' or 'out-of-process' but received '{value}'.")
         };
-    }
-
-    private static ResolvedSetting ResolveEffectiveLogLevel(string[] args, string? logLevelText)
-    {
-        if (HasOption(args, "--trace", "-t"))
-        {
-            return new ResolvedSetting(LogLevel.Trace.ToString(), CliSource);
-        }
-
-        if (HasOption(args, "--debug", "-d") || HasOption(args, "--verbose", "-v"))
-        {
-            return new ResolvedSetting(LogLevel.Debug.ToString(), CliSource);
-        }
-
-        var resolvedLogLevel = ResolveArgumentOrEnvironmentWithSource(logLevelText, LogLevelEnvVar);
-        var parsedLogLevel = ParseLogLevel(resolvedLogLevel.Value);
-        return new ResolvedSetting(parsedLogLevel.ToString(), resolvedLogLevel.Source);
-    }
-
-    private static bool HasOption(string[] args, string longName, string shortName)
-    {
-        return args.Any(arg =>
-            string.Equals(arg, longName, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(arg, shortName, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static bool ShouldPrintResolvedSettings(LogLevel logLevel)
-    {
-        return logLevel == LogLevel.Debug || logLevel == LogLevel.Trace;
-    }
-
-    private static async Task<ResolvedCommandSettings> ResolveCommandSettingsAsync(
-        string[] args,
-        string? configPath,
-        string? logLevelText,
-        string? transport,
-        string? sessionMode,
-        string? runtimeMode,
-        string? mcpPath)
-    {
-        var preferredConfigPath = ResolveArgumentOrEnvironmentWithSource(configPath, ConfigurationEnvVar);
-        var resolvedConfigPath = await ResolveConfigurationPathWithSourceAsync(preferredConfigPath);
-        var resolvedLogLevel = ResolveEffectiveLogLevel(args, logLevelText);
-        var resolvedTransport = ResolveArgumentOrEnvironmentWithSource(transport, TransportEnvVar, "stdio");
-        var normalizedTransport = new ResolvedSetting(NormalizeTransportValue(resolvedTransport.Value), resolvedTransport.Source);
-        var resolvedSessionMode = ResolveArgumentOrEnvironmentWithSource(sessionMode, SessionModeEnvVar);
-        var resolvedRuntimeMode = ResolveEffectiveRuntimeMode(resolvedConfigPath.Value, runtimeMode);
-        var resolvedMcpPath = ResolveArgumentOrEnvironmentWithSource(mcpPath, McpPathEnvVar);
-
-        return new ResolvedCommandSettings(
-            resolvedConfigPath,
-            resolvedConfigPath.Value ?? string.Empty,
-            resolvedLogLevel,
-            normalizedTransport,
-            resolvedSessionMode,
-            resolvedRuntimeMode,
-            resolvedMcpPath);
-    }
-
-    private static ResolvedSetting ResolveEffectiveRuntimeMode(string? configurationPath, string? runtimeModeOverride)
-    {
-        var overrideSetting = ResolveArgumentOrEnvironmentWithSource(runtimeModeOverride, RuntimeModeEnvVar);
-        if (!string.IsNullOrWhiteSpace(overrideSetting.Value))
-        {
-            return new ResolvedSetting(NormalizeRuntimeModeValue(overrideSetting.Value), overrideSetting.Source);
-        }
-
-        return ResolveEffectiveRuntimeModeFromConfiguration(configurationPath);
-    }
-
-    private static ResolvedSetting ResolveEffectiveRuntimeModeFromConfiguration(string? configurationPath)
-    {
-        if (!string.IsNullOrWhiteSpace(configurationPath) && File.Exists(configurationPath))
-        {
-            var configuration = new ConfigurationBuilder()
-                .AddJsonFile(configurationPath, optional: false, reloadOnChange: false)
-                .Build();
-
-            var configuredRuntimeMode = configuration.GetSection("PowerShellConfiguration")[nameof(PowerShellConfiguration.RuntimeMode)];
-            if (!string.IsNullOrWhiteSpace(configuredRuntimeMode))
-            {
-                return new ResolvedSetting(NormalizeRuntimeModeValue(configuredRuntimeMode), ConfigSource);
-            }
-        }
-
-        return new ResolvedSetting(RuntimeMode.InProcess.ToString(), DefaultSource);
-    }
-
-    private static ResolvedSetting ResolveEffectiveRuntimeModeFromConfiguration(string? configuredRuntimeMode, string? runtimeModeOverride)
-    {
-        var overrideSetting = ResolveArgumentOrEnvironmentWithSource(runtimeModeOverride, RuntimeModeEnvVar);
-        if (!string.IsNullOrWhiteSpace(overrideSetting.Value))
-        {
-            return new ResolvedSetting(NormalizeRuntimeModeValue(overrideSetting.Value), overrideSetting.Source);
-        }
-
-        if (!string.IsNullOrWhiteSpace(configuredRuntimeMode))
-        {
-            return new ResolvedSetting(NormalizeRuntimeModeValue(configuredRuntimeMode), ConfigSource);
-        }
-
-        return new ResolvedSetting(RuntimeMode.InProcess.ToString(), DefaultSource);
-    }
-
-    internal static string NormalizeTransportValue(string? transport)
-    {
-        if (string.IsNullOrWhiteSpace(transport))
-        {
-            return "stdio";
-        }
-
-        return transport.Trim().ToLowerInvariant();
-    }
-
-    internal static TransportMode ResolveTransportMode(string? transport)
-    {
-        return NormalizeTransportValue(transport) switch
-        {
-            "stdio" => TransportMode.Stdio,
-            "http" => TransportMode.Http,
-            _ => TransportMode.Unsupported
-        };
-    }
-
-    internal static string NormalizeRuntimeModeValue(string? runtimeMode)
-    {
-        if (string.IsNullOrWhiteSpace(runtimeMode))
-        {
-            return RuntimeMode.InProcess.ToString();
-        }
-
-        var normalized = runtimeMode.Trim().ToLowerInvariant().Replace("-", string.Empty).Replace("_", string.Empty);
-        return normalized switch
-        {
-            "inprocess" => RuntimeMode.InProcess.ToString(),
-            "outofprocess" => RuntimeMode.OutOfProcess.ToString(),
-            _ => runtimeMode.Trim()
-        };
-    }
-
-    internal static RuntimeMode ResolveRuntimeMode(string? runtimeMode)
-    {
-        var normalized = NormalizeRuntimeModeValue(runtimeMode);
-        return normalized switch
-        {
-            nameof(RuntimeMode.InProcess) => RuntimeMode.InProcess,
-            nameof(RuntimeMode.OutOfProcess) => RuntimeMode.OutOfProcess,
-            _ => RuntimeMode.Unsupported
-        };
-    }
-
-    internal static string? NormalizeMcpPath(string? mcpPath)
-    {
-        if (string.IsNullOrWhiteSpace(mcpPath))
-        {
-            return null;
-        }
-
-        var normalized = mcpPath.Trim();
-        if (!normalized.StartsWith('/'))
-        {
-            normalized = "/" + normalized;
-        }
-
-        return normalized;
-    }
-
-    private static void PrintResolvedSettings(string commandName, ResolvedCommandSettings settings)
-    {
-        Console.Error.WriteLine($"{commandName} resolved settings:");
-        Console.Error.WriteLine($"Configuration: {settings.FinalConfigPath} (source: {settings.ConfigPath.Source})");
-        Console.Error.WriteLine($"Effective log level: {settings.LogLevel.Value} (source: {settings.LogLevel.Source})");
-        Console.Error.WriteLine($"Effective transport: {settings.Transport.Value} (source: {settings.Transport.Source})");
-        Console.Error.WriteLine($"Effective session mode: {settings.SessionMode.Value ?? "(not set)"} (source: {settings.SessionMode.Source})");
-        Console.Error.WriteLine($"Effective runtime mode: {settings.RuntimeMode.Value} (source: {settings.RuntimeMode.Source})");
-        Console.Error.WriteLine($"Effective MCP path: {settings.McpPath.Value ?? "(not set)"} (source: {settings.McpPath.Source})");
-        Console.Error.WriteLine();
     }
 
     private static async Task RunListToolsAsync(LogLevel logLevel, string finalConfigPath, string? runtimeModeOverride, string format)
@@ -1199,7 +932,7 @@ public class Program
 
     private static async Task RunDoctorAsync(ResolvedCommandSettings settings, string format)
     {
-        var parsedLogLevel = ParseLogLevel(settings.LogLevel.Value);
+        var parsedLogLevel = SettingsResolver.ParseLogLevel(settings.LogLevel.Value);
         using var loggerFactory = LoggingHelpers.CreateLoggerFactory(parsedLogLevel);
         var logger = loggerFactory.CreateLogger("Doctor");
 
@@ -1804,82 +1537,14 @@ public class Program
         int AdvancedPromptedFunctionCount,
         int SettingsChanged);
 
-    private sealed record ResolvedSetting(string? Value, string Source);
-
-    private sealed record ResolvedCommandSettings(
-        ResolvedSetting ConfigPath,
-        string FinalConfigPath,
-        ResolvedSetting LogLevel,
-        ResolvedSetting Transport,
-        ResolvedSetting SessionMode,
-        ResolvedSetting RuntimeMode,
-        ResolvedSetting McpPath);
-
-    internal enum TransportMode
-    {
-        Stdio,
-        Http,
-        Unsupported
-    }
-
     private static async Task<string> ResolveExplicitOrDefaultConfigPath(string? explicitConfigPath)
     {
         var preferredConfigPath = string.IsNullOrWhiteSpace(explicitConfigPath)
-            ? new ResolvedSetting(null, DefaultSource)
-            : new ResolvedSetting(explicitConfigPath, CliSource);
+            ? new ResolvedSetting(null, SettingsResolver.DefaultSource)
+            : new ResolvedSetting(explicitConfigPath, SettingsResolver.CliSource);
 
-        var resolvedConfigPath = await ResolveConfigurationPathWithSourceAsync(preferredConfigPath);
+        var resolvedConfigPath = await SettingsResolver.ResolveConfigurationPathWithSourceAsync(preferredConfigPath);
         return resolvedConfigPath.Value ?? throw new InvalidOperationException("Resolved configuration path was empty.");
-    }
-
-    private static async Task<ResolvedSetting> ResolveConfigurationPathWithSourceAsync(ResolvedSetting preferredConfigPath)
-    {
-        if (!string.IsNullOrWhiteSpace(preferredConfigPath.Value))
-        {
-            var absoluteConfigPath = Path.GetFullPath(preferredConfigPath.Value);
-            if (!File.Exists(absoluteConfigPath))
-            {
-                throw new FileNotFoundException($"Configuration file not found: {absoluteConfigPath}");
-            }
-
-            await UpgradeConfigWithMissingDefaultsAsync(absoluteConfigPath);
-            return new ResolvedSetting(absoluteConfigPath, preferredConfigPath.Source);
-        }
-
-        var currentDirectoryConfigPath = Path.GetFullPath("appsettings.json");
-        if (File.Exists(currentDirectoryConfigPath))
-        {
-            await UpgradeConfigWithMissingDefaultsAsync(currentDirectoryConfigPath);
-            return new ResolvedSetting(currentDirectoryConfigPath, CwdSource);
-        }
-
-        var userConfigPath = GetUserConfigPath();
-        if (File.Exists(userConfigPath))
-        {
-            await UpgradeConfigWithMissingDefaultsAsync(userConfigPath);
-            return new ResolvedSetting(userConfigPath, UserSource);
-        }
-
-        await InstallEmbeddedDefaultConfigToUserLocationAsync(userConfigPath);
-        return new ResolvedSetting(userConfigPath, EmbeddedDefaultSource);
-    }
-
-    private static string GetUserConfigPath()
-    {
-        var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        return Path.Combine(appDataPath, "PoshMcp", "appsettings.json");
-    }
-
-    private static async Task InstallEmbeddedDefaultConfigToUserLocationAsync(string userConfigPath)
-    {
-        var directory = Path.GetDirectoryName(userConfigPath);
-        if (!string.IsNullOrWhiteSpace(directory) && !Directory.Exists(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
-
-        var defaultConfigJson = LoadEmbeddedDefaultConfig();
-        await File.WriteAllTextAsync(userConfigPath, defaultConfigJson);
     }
 
     private static async Task<CreateDefaultConfigResult> CreateDefaultConfigInCurrentDirectoryAsync(string targetPath, bool force)
@@ -1890,7 +1555,7 @@ public class Program
             throw new IOException($"Configuration file already exists: {targetPath}. Use --force to overwrite.");
         }
 
-        var defaultConfigJson = LoadEmbeddedDefaultConfig();
+        var defaultConfigJson = SettingsResolver.LoadEmbeddedDefaultConfig();
         await File.WriteAllTextAsync(targetPath, defaultConfigJson + Environment.NewLine);
         return new CreateDefaultConfigResult(alreadyExists);
     }
@@ -2220,76 +1885,6 @@ public class Program
         return removed;
     }
 
-    private static async Task UpgradeConfigWithMissingDefaultsAsync(string configPath)
-    {
-        var defaultConfigJson = LoadEmbeddedDefaultConfig();
-        var existingConfigJson = await File.ReadAllTextAsync(configPath);
-
-        var parseOptions = new JsonDocumentOptions
-        {
-            CommentHandling = JsonCommentHandling.Skip,
-            AllowTrailingCommas = true
-        };
-
-        var defaultRoot = JsonNode.Parse(defaultConfigJson, documentOptions: parseOptions)?.AsObject()
-            ?? throw new InvalidOperationException("Embedded default configuration must be a JSON object.");
-        var existingRoot = JsonNode.Parse(existingConfigJson, documentOptions: parseOptions)?.AsObject()
-            ?? throw new InvalidOperationException($"Configuration file '{configPath}' must be a JSON object.");
-
-        var changed = MergeMissingProperties(defaultRoot, existingRoot);
-        if (!changed)
-        {
-            return;
-        }
-
-        var updatedConfigJson = existingRoot.ToJsonString(new JsonSerializerOptions
-        {
-            WriteIndented = true
-        });
-
-        await File.WriteAllTextAsync(configPath, updatedConfigJson + Environment.NewLine);
-    }
-
-    private static bool MergeMissingProperties(JsonObject defaultObject, JsonObject targetObject)
-    {
-        var changed = false;
-
-        foreach (var defaultProperty in defaultObject)
-        {
-            if (!targetObject.TryGetPropertyValue(defaultProperty.Key, out var existingValue))
-            {
-                targetObject[defaultProperty.Key] = defaultProperty.Value?.DeepClone();
-                changed = true;
-                continue;
-            }
-
-            if (defaultProperty.Value is JsonObject defaultChildObject && existingValue is JsonObject existingChildObject)
-            {
-                changed |= MergeMissingProperties(defaultChildObject, existingChildObject);
-            }
-        }
-
-        return changed;
-    }
-
-    private static string LoadEmbeddedDefaultConfig()
-    {
-        var assembly = Assembly.GetExecutingAssembly();
-        var resourceName = assembly
-            .GetManifestResourceNames()
-            .FirstOrDefault(name => name.EndsWith("default.appsettings.json", StringComparison.OrdinalIgnoreCase));
-
-        if (resourceName is null)
-        {
-            throw new InvalidOperationException("Embedded default configuration resource was not found.");
-        }
-
-        using var stream = assembly.GetManifestResourceStream(resourceName)
-            ?? throw new InvalidOperationException($"Unable to open embedded configuration resource '{resourceName}'.");
-        using var reader = new StreamReader(stream);
-        return reader.ReadToEnd();
-    }
-
     private static void RunPSModulePathCommand(LogLevel logLevel)
     {
         Console.Error.WriteLine("=== PowerShell MCP Server - PSModulePath Report ===");
@@ -2395,9 +1990,9 @@ public class Program
     internal static async Task<string> ResolveConfigurationPath(string configPath)
     {
         var preferredConfigPath = File.Exists(configPath)
-            ? new ResolvedSetting(configPath, CliSource)
-            : new ResolvedSetting(null, DefaultSource);
-        var resolvedConfigPath = await ResolveConfigurationPathWithSourceAsync(preferredConfigPath);
+            ? new ResolvedSetting(configPath, SettingsResolver.CliSource)
+            : new ResolvedSetting(null, SettingsResolver.DefaultSource);
+        var resolvedConfigPath = await SettingsResolver.ResolveConfigurationPathWithSourceAsync(preferredConfigPath);
         return resolvedConfigPath.Value ?? throw new InvalidOperationException("Resolved configuration path was empty.");
     }
 
@@ -2421,8 +2016,8 @@ public class Program
             config.EnableConfigurationTroubleshootingTool = enableConfigurationTroubleshootingTool;
         }
 
-        var runtimeModeSetting = ResolveEffectiveRuntimeModeFromConfiguration(config.RuntimeMode.ToString(), runtimeModeOverride);
-        config.RuntimeMode = ResolveRuntimeMode(runtimeModeSetting.Value);
+        var runtimeModeSetting = SettingsResolver.ResolveEffectiveRuntimeModeFromConfiguration(config.RuntimeMode.ToString(), runtimeModeOverride);
+        config.RuntimeMode = SettingsResolver.ResolveRuntimeMode(runtimeModeSetting.Value);
         if (config.RuntimeMode == RuntimeMode.Unsupported)
         {
             throw new InvalidOperationException($"Unsupported runtime mode '{runtimeModeSetting.Value}'. Supported runtime modes: in-process, out-of-process.");
@@ -2705,7 +2300,7 @@ public class Program
             Predicate = _ => true
         }).AllowAnonymous();
 
-        var normalizedMcpPath = NormalizeMcpPath(mcpPath);
+        var normalizedMcpPath = SettingsResolver.NormalizeMcpPath(mcpPath);
         IEndpointConventionBuilder mcpEndpoint;
         if (string.IsNullOrWhiteSpace(normalizedMcpPath))
         {
