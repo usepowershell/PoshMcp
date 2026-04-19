@@ -689,7 +689,7 @@ public class Program
                     return;
                 }
 
-                var buildArgs = $"build -f {imageFile} -t {imageTag}";
+                var buildArgs = $"build -f {imageFile} -t {imageTag} .";
 
                 if (!string.IsNullOrWhiteSpace(modules))
                 {
