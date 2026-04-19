@@ -51,7 +51,7 @@ public class ConfigurationTroubleshootingTools
 
             var config = ConfigurationLoader.LoadPowerShellConfiguration(_configurationPath, _logger, _effectiveRuntimeMode);
             var tools = _registeredToolsProvider();
-            var logLevel = InferEffectiveLogLevel();
+            var logLevel = LoggingHelpers.InferEffectiveLogLevel(_logger);
 
             return Task.FromResult(Program.BuildDoctorJson(
                 configurationPath: _configurationPath,
@@ -80,33 +80,4 @@ public class ConfigurationTroubleshootingTools
         }
     }
 
-    private string InferEffectiveLogLevel()
-    {
-        if (_logger.IsEnabled(LogLevel.Trace))
-        {
-            return LogLevel.Trace.ToString();
-        }
-
-        if (_logger.IsEnabled(LogLevel.Debug))
-        {
-            return LogLevel.Debug.ToString();
-        }
-
-        if (_logger.IsEnabled(LogLevel.Information))
-        {
-            return LogLevel.Information.ToString();
-        }
-
-        if (_logger.IsEnabled(LogLevel.Warning))
-        {
-            return LogLevel.Warning.ToString();
-        }
-
-        if (_logger.IsEnabled(LogLevel.Error))
-        {
-            return LogLevel.Error.ToString();
-        }
-
-        return LogLevel.None.ToString();
-    }
 }

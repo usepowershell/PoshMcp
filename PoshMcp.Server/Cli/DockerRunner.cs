@@ -5,7 +5,7 @@ namespace PoshMcp;
 
 internal static class DockerRunner
 {
-    private const int ExitCodeRuntimeError = 4;
+
 
     /// <summary>
     /// Detects whether docker or podman is available in the system PATH.
@@ -78,7 +78,7 @@ internal static class DockerRunner
             {
                 if (process == null)
                 {
-                    return ExitCodeRuntimeError;
+                    return ExitCodes.RuntimeError;
                 }
 
                 if (!interactive)
@@ -108,7 +108,7 @@ internal static class DockerRunner
         catch (Exception ex)
         {
             Console.Error.WriteLine($"Failed to execute {dockerCommand}: {ex.Message}");
-            return ExitCodeRuntimeError;
+            return ExitCodes.RuntimeError;
         }
     }
 }

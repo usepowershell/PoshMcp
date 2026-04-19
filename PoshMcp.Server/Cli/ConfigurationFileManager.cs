@@ -183,7 +183,7 @@ internal static class ConfigurationFileManager
             boolUpdateApplied);
     }
 
-    internal static int PromptForAdvancedFunctionConfiguration(JsonObject powerShellConfiguration, IEnumerable<string> addedFunctionNames)
+    private static int PromptForAdvancedFunctionConfiguration(JsonObject powerShellConfiguration, IEnumerable<string> addedFunctionNames)
     {
         var promptedCount = 0;
 
@@ -273,7 +273,7 @@ internal static class ConfigurationFileManager
         return promptedCount;
     }
 
-    internal static bool IsYesAnswer(string? value)
+    private static bool IsYesAnswer(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -285,7 +285,7 @@ internal static class ConfigurationFileManager
             string.Equals(normalized, "yes", StringComparison.OrdinalIgnoreCase);
     }
 
-    internal static bool? PromptForNullableBoolean(string prompt)
+    private static bool? PromptForNullableBoolean(string prompt)
     {
         while (true)
         {
@@ -305,7 +305,7 @@ internal static class ConfigurationFileManager
         }
     }
 
-    internal static JsonObject GetOrCreateObject(JsonObject parent, string propertyName)
+    private static JsonObject GetOrCreateObject(JsonObject parent, string propertyName)
     {
         if (parent[propertyName] is JsonObject existing)
         {
@@ -317,7 +317,7 @@ internal static class ConfigurationFileManager
         return created;
     }
 
-    internal static JsonArray GetOrCreateArray(JsonObject parent, string propertyName)
+    private static JsonArray GetOrCreateArray(JsonObject parent, string propertyName)
     {
         if (parent[propertyName] is JsonArray existing)
         {
@@ -329,7 +329,7 @@ internal static class ConfigurationFileManager
         return created;
     }
 
-    internal static int AddUniqueValues(JsonArray array, IEnumerable<string> values, out List<string> addedValues)
+    private static int AddUniqueValues(JsonArray array, IEnumerable<string> values, out List<string> addedValues)
     {
         var existing = new HashSet<string>(
             array.Select(v => v?.GetValue<string>())
@@ -358,7 +358,7 @@ internal static class ConfigurationFileManager
         return addedValues.Count;
     }
 
-    internal static int RemoveValues(JsonArray array, IEnumerable<string> values)
+    private static int RemoveValues(JsonArray array, IEnumerable<string> values)
     {
         var toRemove = new HashSet<string>(
             values.Where(v => !string.IsNullOrWhiteSpace(v))

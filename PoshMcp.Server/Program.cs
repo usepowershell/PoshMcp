@@ -42,10 +42,10 @@ namespace PoshMcp;
 
 public class Program
 {
-    private const int ExitCodeSuccess = 0;
-    private const int ExitCodeConfigError = 2;
-    private const int ExitCodeStartupError = 3;
-    private const int ExitCodeRuntimeError = 4;
+    private const int ExitCodeSuccess = ExitCodes.Success;
+    private const int ExitCodeConfigError = ExitCodes.ConfigError;
+    private const int ExitCodeStartupError = ExitCodes.StartupError;
+    private const int ExitCodeRuntimeError = ExitCodes.RuntimeError;
 
     public static async Task<int> Main(string[] args)
     {

@@ -363,7 +363,7 @@ internal static class SettingsResolver
         await File.WriteAllTextAsync(configPath, updatedConfigJson + Environment.NewLine);
     }
 
-    internal static bool MergeMissingProperties(JsonObject defaultObject, JsonObject targetObject)
+    private static bool MergeMissingProperties(JsonObject defaultObject, JsonObject targetObject)
     {
         var changed = false;
 
