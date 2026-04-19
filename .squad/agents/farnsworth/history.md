@@ -10,6 +10,36 @@ Current Priorities:
 
 ## Learnings (Recent)
 
+### 2025-07-17: PR #135 — Program.cs extraction quality (items 1-4)
+
+**Task:** Reviewed PR #135 which extracts `LoggingHelpers`, `DockerRunner`, `SettingsResolver`, `ConfigurationFileManager`, and `ConfigurationLoader` from Program.cs.
+
+**Key observations:**
+- All extractions were complete and correct — every method and type listed in the plan for items 1–4 appeared in its designated file with no omissions.
+- The decision to combine PRs A–D into one PR was sound: all four are "safe" extractions (pure function moves, no instance state), so there was no behavioral risk to combining them.
+- Call sites updated consistently throughout Program.cs — no stale direct method calls left behind.
+- Namespace (`namespace PoshMcp;`) and visibility (`internal static`) were uniform across all five new files. Zero accidental public surface.
+- Build: 0 errors, 0 warnings. Tests not explicitly run, but build green is a strong indicator.
+- Only note: `ExitCodeRuntimeError = 4` is duplicated as `private const` in both `Program.cs` and `DockerRunner.cs`. Harmless, but a candidate for a shared constants class in a later sweep.
+- `Program.cs` is ~2,100 lines post-extraction — expected at this stage. The big reductions come in PRs E–H (doctor, tool setup, server hosts, CLI tree).
+
+**Verdict:** APPROVED. Extraction quality is high. Pattern is replicable for PRs E–I.
+
+### 2025-07-18: Program.cs refactor plan authored
+
+**Task:** Full read of Program.cs (~3,480 lines) and all other .cs files in PoshMcp.Server. Produced working refactor plan at `specs/program-cs-refactor.md`.
+
+**Key findings:**
+- Program.cs owns 12 distinct concerns — CLI tree, command handlers, settings resolution, config file I/O, config loading, doctor diagnostics, MCP tool setup, stdio server startup, HTTP server startup, Docker process commands, logging utilities, and inline model types.
+- All methods are `private static` or `internal static` with no instance state — extractions are pure method moves with no behavioral risk.
+- Two genuine care points: (1) `args` is closed over in SetHandler lambdas — must be threaded explicitly when extracting handlers; (2) `ConfigureJsonSerializerOptions`/`RegisterCleanupServices` are duplicated for both builder types — deduplicate via a shared `Action<>` delegate.
+- Static mutable state on `McpToolFactoryV2.SetMetrics`, `PowerShellAssemblyGenerator.SetMetrics/SetRuntimeCachingState/SetConfiguration` is a pre-existing anti-pattern — explicitly deferred from this refactor.
+- `UpgradeConfigWithMissingDefaultsAsync` is a side-effecting call embedded inside config path resolution — intentional coupling, move both methods together rather than decoupling.
+
+**Proposed breakdown:** 10 new files, 9 incremental PRs, Program.cs target ≤200 lines.
+
+**Decision inbox entry:** `.squad/decisions/inbox/farnsworth-program-cs-refactor.md`
+
 ### 2026-07-18: Issue #131 — STDIO logging architecture review
 
 **Design ownership:** Created comprehensive architecture spec (farnsworth-131-stdio-logging-design.md) defining:
@@ -185,3 +215,34 @@ Source: earned patterns from PRs #92–#96 and agent histories.
 - `default.appsettings.json` (embedded) missing `Logging.File.Path` — absent = silent, functionally correct
 - Root handler (bare `poshmcp`) doesn't resolve `POSHMCP_LOG_FILE` — legacy path, low priority
 - Pattern: `CreateLoggerFactory` didn't need changes because it's never called from the stdio server path — design spec was overcautious on this point
+
+### 2026-07-18: PR #134 review — approved (docker buildx missing build context path)
+
+**PR:** #134 (fixes #133) — `fix(#133): add missing build context path to docker buildx build command`
+**Verdict:** APPROVED (comment posted — GitHub blocked self-review via API)
+
+**Fix:** Single-character change: added ` .` to the end of `buildArgs` in the `buildCommand.SetHandler` lambda in `Program.cs` line 692.
+
+**Validation points:**
+- Bug is real: `docker build` requires a PATH argument for the build context; without it the command fails unconditionally
+- `File.Exists(imageFile)` guard before the build args line implicitly validates CWD — if CWD were wrong, the Dockerfile check exits early with `ExitCodeConfigError`; by the time `.` is appended, CWD is the repo root
+- Consistent with entire codebase: `docker.ps1` (3 sites), `docker.sh`, `infrastructure/azure/deploy.ps1`, `infrastructure/azure/deploy.sh` all use `.` as build context
+- CI (`publish-packages.yml`) invokes from repo root — no CWD surprise
+
+**Pattern noted:** When a CLI tool wraps an external command, every required positional argument must be present in the assembled arg string. The `File.Exists` guard doubles as implicit CWD validation — a pattern worth documenting for future Docker command wrappers.
+
+### 2025-07-17: PR #135 re-review — second pass confirmation
+
+**PR:** #135 — `refactor: extract LoggingHelpers, DockerRunner, SettingsResolver, ConfigurationFileManager, ConfigurationLoader from Program.cs`
+**Verdict:** APPROVED (comment — self-approval blocked by GitHub)
+
+**Second-pass validation (independent of Steven's self-review):**
+- Verified all 5 files contain exactly the methods specified in items 1–4 of `specs/program-cs-refactor.md`
+- Scanned all 60+ call sites in Program.cs — every one uses the new class prefix (`LoggingHelpers.`, `DockerRunner.`, `SettingsResolver.`, `ConfigurationFileManager.`, `ConfigurationLoader.`). Zero stale unqualified calls.
+- Confirmed no method definitions are duplicated between Program.cs and the new files via `private static|internal static` scan.
+- Namespace (`namespace PoshMcp;`) and visibility (`internal static`) uniform across all 5 files.
+- Program.cs is 2,100 lines — expected intermediate state. Bulk reduction in PRs E–H.
+- `ExitCodeRuntimeError = 4` duplication noted again (Program.cs + DockerRunner.cs). Non-blocking. Candidate for shared constants.
+- `args` closure, static mutable state, `UpgradeConfigWithMissingDefaultsAsync` coupling — all handled per plan.
+
+**Pattern for future PRs:** The combined A–D approach worked well for "safe" extractions (pure function moves). PRs E–G (doctor, tool setup, server hosts) have more cross-cutting dependencies and should be individual PRs as the plan recommends.

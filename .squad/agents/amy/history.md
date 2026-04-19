@@ -123,6 +123,16 @@
 
 
 
+### 2026-07-18: Issue #133 — docker buildx build missing PATH argument
+
+- **Root cause:** `PoshMcp.Server/Program.cs` line ~692, the `build` CLI command handler constructed `buildArgs` as `"build -f {imageFile} -t {imageTag}"` — missing the required build context PATH argument.
+- On modern Docker (buildx-as-default), `docker build` delegates to `docker buildx build` which requires a positional PATH/URL/`-` argument. Without it, Docker fails with `'docker buildx build' requires 1 argument`.
+- **Fix:** Changed to `$"build -f {imageFile} -t {imageTag} ."` — appending `.` (current directory) as the build context.
+- The CI workflow (`publish-packages.yml`) calls `dotnet run -- build --tag "$IMAGE"` which runs the CLI build handler; the Dockerfile is expected to exist in the working directory (repo root), consistent with using `.` as context.
+- **Key files:** `PoshMcp.Server/Program.cs` (handler for `buildCommand`), `.github/workflows/publish-packages.yml` (CI step that triggered the failure).
+- Branch: `squad/133-fix-docker-buildx-path`, commit `fadbd4d`, PR #134.
+- Build verified: `dotnet build PoshMcp.Server/PoshMcp.csproj -c Release` → 0 errors after fix.
+
 ## Archive Note
 
 Detailed session history was archived to `history-archive.md` on 2026-04-10 when this file exceeded the 15 KB Scribe threshold.

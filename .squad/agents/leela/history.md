@@ -180,3 +180,33 @@
 - Distinction between stdio-only (file-based) vs HTTP console logging behavior
 
 **Outcome:** Issue #131 documentation complete. Users can now discover and understand the three configuration methods for stdio logging, and operators have clear guidance on containerized deployment with persistent logs.
+
+### 2026-04-19: Created v0.7.0 and v0.7.1 Release Notes
+
+**Task:** Author release notes for v0.7.0 and v0.7.1 following the established format from 0.6.0.
+
+**v0.7.0 Release Notes (`docs/release-notes/0.7.0.md`):**
+- Focused on **stdio logging to file** (issue #131, PR #132) — the primary reliability fix that suppresses diagnostic logs from corrupting the JSON-RPC stream
+- Documented **MimeType nullable fix** (PR #130) — safe handling of optional MimeType in resources with `text/plain` fallback
+- Included configuration examples for all three log file methods: CLI (`--log-file`), environment (`POSHMCP_LOG_FILE`), and appsettings (`Logging.File.Path`)
+- Added Docker example showing volume mounting pattern for persistent logs in containers
+- Emphasized backward compatibility and upgrade path for production deployments
+
+**v0.7.1 Release Notes (`docs/release-notes/0.7.1.md`):**
+- Documented **Docker build context fix** (PR #134) — resolved build failures in `docker buildx build` command
+- Covered **Program.cs refactoring** (PR #135) — extracted five utility classes (LoggingHelpers, DockerRunner, SettingsResolver, ConfigurationFileManager, ConfigurationLoader) for improved maintainability
+- Kept release notes concise (maintenance/bugfix release) without inventing features from sparse commit details
+
+**toc.yml Update:**
+- Added new "Release Notes" section at the end of navigation
+- Listed all three releases: v0.7.1 (latest), v0.7.0, v0.6.0
+- Maintains consistent navigation structure with existing sections
+
+**Design Decisions:**
+- **Format Consistency:** Matched 0.6.0.md structure exactly (frontmatter with uid/title, release date, What's New, Configuration, Breaking Changes, Upgrade Notes, etc.)
+- **Release Focus:** 0.7.0 emphasizes the logging reliability fix as the headline feature (most impactful); 0.7.1 is brief by design (maintenance release)
+- **Configuration Examples:** Provided concrete CLI, environment, and appsettings examples for discoverability
+- **Cross-linking:** All release notes link to relevant user guides (Transport Modes, Configuration, Resources/Prompts)
+- **ToC Placement:** Release Notes added after Support section (alphabetical/logical grouping)
+
+**Outcome:** Both release notes files created and toc.yml updated. Documentation follows established patterns and provides clear upgrade guidance for each release.

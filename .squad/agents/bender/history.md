@@ -1,6 +1,6 @@
 # Bender Work History
 
-## Recent Status (2026-04-14)
+## Recent Status (2026-04-19)
 
 **Summary:** Backend execution and diagnostic reliability work remains the core focus. Current emphasis is out-of-process lifecycle hardening, tooling diagnostics performance, and minimizing redundant PowerShell execution paths.
 
@@ -11,6 +11,19 @@
 **Primary User:** Steven Murawski
 
 ## Recent Learnings
+
+### 2026-04-19: PR #135 — Copilot review feedback addressed (commit f209175)
+
+**Feedback addressed:**
+1. **ExitCode duplication** — Created `PoshMcp.Server/Cli/ExitCodes.cs` with a shared `internal static class ExitCodes` (Success=0, ConfigError=2, StartupError=3, RuntimeError=4). Both `Program.cs` and `DockerRunner.cs` now reference `ExitCodes.*`. Rejected Copilot's reflection-based suggestion as fragile; a dedicated constants file is simpler and correct.
+2. **ConfigurationFileManager visibility** — Narrowed 7 helper methods from `internal static` to `private static`: `PromptForAdvancedFunctionConfiguration`, `IsYesAnswer`, `PromptForNullableBoolean`, `GetOrCreateObject`, `GetOrCreateArray`, `AddUniqueValues`, `RemoveValues`. None had external callers (grep confirmed).
+3. **SettingsResolver.MergeMissingProperties** — Narrowed from `internal static` to `private static`; only used recursively within the class.
+4. **ConfigurationTroubleshootingTools.InferEffectiveLogLevel** — Removed the private duplicate; delegated to `LoggingHelpers.InferEffectiveLogLevel(_logger)`. `using PoshMcp;` was already present.
+
+**Patterns to remember:**
+- Always grep ALL files (including tests) before making a method `private` to confirm there are no external callers.
+- When Copilot suggests reflection to resolve a constant, a shared constants class is always the better answer.
+- `internal` on a helper method is a code smell if it has no external callers — prefer `private` to minimize accidental coupling.
 
 ### 2026-07-18: Issue #131 — Stdio logging suppression + file sink
 
@@ -28,11 +41,19 @@
 - `Serilog.Extensions.Logging` 10.0.0
 - `Serilog.Sinks.File` 7.0.0
 
-**Surprises / important patterns:**
-- Adding `using Serilog;` creates an `ILogger` ambiguity with `Microsoft.Extensions.Logging.ILogger`. Fix: add `using ILogger = Microsoft.Extensions.Logging.ILogger;` alias at the top of the file, then bring in `using Serilog;` and `using Serilog.Extensions.Logging;`. The alias wins over the Serilog namespace for the unqualified name.
-- `ResolvedSetting` is a `private sealed record` inside `Program`. Methods returning it must also be `private` (not `internal`) to avoid CS0050 accessibility inconsistency.
-- `serveCommand.SetHandler` already had 7 typed params. To add an 8th option safely (avoiding potential overload count limits in System.CommandLine beta4), switched the serve handler to the `InvocationContext` form used by `updateConfigCommand`.
-- Rolling file sink: `Serilog.Sinks.File` 7.0.0 is latest stable, compatible with .NET 10 and Serilog 4.x.
+### 2026-07-28: Program.cs refactor extractions 2-4 (SettingsResolver, ConfigurationFileManager, ConfigurationLoader)
+
+**What was extracted:**
+- `SettingsResolver.cs` — All settings resolution logic plus `ResolvedSetting`, `ResolvedCommandSettings`, `TransportMode` types. Previous agent had already done most of this work; just needed commit.
+- `ConfigurationFileManager.cs` — All JSON config mutation methods plus `CreateDefaultConfigResult`, `ConfigUpdateRequest`, `ConfigUpdateResult` types. Also includes `NormalizeFormat`, `TryParseRequiredBoolean`, `NormalizeRuntimeMode`.
+- `ConfigurationLoader.cs` (in `Configuration/` subdir) — Config loading methods plus `TryValidateResourcesAndPrompts`. `ConfigurationTroubleshootingToolEnvVar` constant moved here. `ConfigurationTroubleshootingTools.cs` also needed updating.
+
+**Surprises / patterns:**
+- The PowerShell search-and-replace approach (`-replace` on the whole file) also mangles method definition lines, turning `private static void MethodName(...)` into `private static void ClassName.MethodName(...)`. Need to then surgically remove those mangled definition blocks separately.
+- `ConfigurationTroubleshootingTools.cs` (in `PoshMcp.Server.PowerShell` namespace) had a direct `Program.LoadPowerShellConfiguration` call — non-obvious external reference. Always grep ALL files in the project, not just Program.cs, when looking for call sites.
+- `ProgramTests.cs` had `Program.LoadPowerShellConfiguration` calls that needed updating to `ConfigurationLoader.LoadPowerShellConfiguration`. C# resolves types in parent namespaces (e.g., `PoshMcp` types from `PoshMcp.Tests.Unit`) without explicit `using` statements.
+- The `StdioLoggingTests` were failing intermittently in the full suite but all 319 unit tests pass reliably — pre-existing flaky integration tests.
+- Final Program.cs line count: **2395 lines** (still far above 150-line target; most extractions for this PR are pure logic, not the handlers/server-startup which are the bulk).
 
 ### 2026-04-14: Doctor diagnostics should not recompute expensive introspection
 
@@ -79,6 +100,12 @@
 - PR #130 opened at https://github.com/usepowershell/PoshMcp/pull/130.
 - All 39 backend tests pass; validator warning now fires correctly.
 - Handoff to Fry: test verification found no Skip attribute needed; test logic already correct.
+
+## Learnings
+
+### 2026-07-28 (continued): PR #135 merged, worktree cleaned up
+
+PR #135 squash-merged to main (commit `5cb6533`). All 4 Copilot inline comments had been replied to in `f209175`. Summary comment posted, squash merge succeeded, remote branch deleted. Worktree `poshmcp-refactor-1-4` removed, local branch `refactor/program-cs-extract-1-4` deleted. Main pulled and fast-forwarded. Next PRs are E-G (remaining Program.cs extractions per `specs/program-cs-refactor.md`).
 
 ## Archive Note
 

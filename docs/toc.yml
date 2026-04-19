@@ -46,3 +46,12 @@
   items:
   - name: FAQ & Troubleshooting
     href: articles/troubleshooting.md
+
+- name: Release Notes
+  items:
+  - name: v0.7.1
+    href: release-notes/0.7.1.md
+  - name: v0.7.0
+    href: release-notes/0.7.0.md
+  - name: v0.6.0
+    href: release-notes/0.6.0.md
