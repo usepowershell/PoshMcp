@@ -280,7 +280,7 @@ public class ProgramTests : PowerShellTestBase
         try
         {
             // Act
-            var config = Program.LoadPowerShellConfiguration(tempFile, logger);
+            var config = ConfigurationLoader.LoadPowerShellConfiguration(tempFile, logger);
 
             // Assert
             Assert.NotNull(config);
@@ -316,7 +316,7 @@ public class ProgramTests : PowerShellTestBase
         try
         {
             // Act
-            var config = Program.LoadPowerShellConfiguration(tempFile, logger);
+            var config = ConfigurationLoader.LoadPowerShellConfiguration(tempFile, logger);
 
             // Assert
             Assert.NotNull(config);
@@ -351,7 +351,7 @@ public class ProgramTests : PowerShellTestBase
         try
         {
             // Act
-            var config = Program.LoadPowerShellConfiguration(tempFile, logger);
+            var config = ConfigurationLoader.LoadPowerShellConfiguration(tempFile, logger);
 
             // Assert
             Assert.NotNull(config);
@@ -385,7 +385,7 @@ public class ProgramTests : PowerShellTestBase
         try
         {
             // Act
-            var config = Program.LoadPowerShellConfiguration(tempFile, logger);
+            var config = ConfigurationLoader.LoadPowerShellConfiguration(tempFile, logger);
 
             // Assert
             Assert.NotNull(config);

@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
+using PoshMcp;
 
 namespace PoshMcp.Server.PowerShell;
 
@@ -48,7 +49,7 @@ public class ConfigurationTroubleshootingTools
         {
             _logger.LogInformation("Processing configuration troubleshooting request");
 
-            var config = Program.LoadPowerShellConfiguration(_configurationPath, _logger, _effectiveRuntimeMode);
+            var config = ConfigurationLoader.LoadPowerShellConfiguration(_configurationPath, _logger, _effectiveRuntimeMode);
             var tools = _registeredToolsProvider();
             var logLevel = InferEffectiveLogLevel();
 
