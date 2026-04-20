@@ -69,7 +69,7 @@ public static class DoctorTextRenderer
     {
         var lines = new List<string>();
         foreach (var (key, value) in variables)
-            lines.Add($"  {key,-30}: {value ?? "(not set)"}");
+            lines.Add($"  {key,-35}: {value ?? "(not set)"}");
         return string.Join("\n", lines);
     }
 

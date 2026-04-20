@@ -1,8 +1,8 @@
 # Bender Work History
 
-## Recent Status (2026-04-19)
+## Recent Status (2026-07-28)
 
-**Summary:** Backend execution and diagnostic reliability work remains the core focus. Current emphasis is out-of-process lifecycle hardening, tooling diagnostics performance, and minimizing redundant PowerShell execution paths.
+**Summary:** Phase 1 of Spec 006 (Doctor Output Restructure) complete. DoctorReport record hierarchy created as a pure-addition file in `PoshMcp.Server/Diagnostics/`. Two unavoidable small modifications to existing files were required to resolve type accessibility conflicts. Build is clean (zero errors, zero new warnings).
 
 ## Project Context
 
@@ -139,3 +139,24 @@ Detailed prior history was archived to `history-archive.md` on 2026-04-14 when t
 - Amy fixed PR #138 orphaned COPY line issue
 - PR #138 now approved (worktree poshmcp-136)
 - Both PRs approved and integrated
+
+### 2026-07-28: Spec 006 Phase 1 — DoctorReport record hierarchy (commit 3f02073)
+
+**Task:** T001–T005 — create `PoshMcp.Server/Diagnostics/DoctorReport.cs` with full record hierarchy and `Build` factory.
+
+**What was built:**
+- `DoctorReport` sealed record (top-level) with all section properties and `Warnings` list
+- `DoctorSummary`, `RuntimeSettingsSection`, `EnvironmentVariablesSection`, `PowerShellSection`, `FunctionsToolsSection`, `McpDefinitionsSection`, `McpResourcesDiagSummary`, `McpPromptsDiagSummary` nested records — all with `[JsonPropertyName]` camelCase attributes
+- `DoctorReport.ComputeStatus(DoctorReport)` static method: errors → warnings → healthy precedence
+- `DoctorReport.Build(...)` static factory accepting pre-computed diagnostic data and returning a populated `DoctorReport` with `Summary.Status` computed last
+
+**Unavoidable changes to existing files (2):**
+1. `SettingsResolver.cs` — `ResolvedSetting` was already defined there as `internal` positional record. Promoted to `public` and added `[property: JsonPropertyName]` attributes so the single type serves both CLI resolution and JSON serialization. Added `using System.Text.Json.Serialization;`.
+2. `Program.cs` — `ConfiguredFunctionStatus` was `internal sealed record` nested inside `Program`. Promoted to `public` so it can appear in the public `FunctionsToolsSection.ConfiguredFunctionStatus` property without accessibility mismatch.
+
+**Patterns to remember:**
+- When a "pure addition" spec creates `public` types that reference existing `internal` types, the accessibility mismatch surfaces at build time — not at design time. Always grep for the type accessibility before writing public APIs.
+- Positional records don't have a parameterless constructor. Default property initializers in init-property records that hold positional records must use the positional constructor: `= new(null, string.Empty)` — or use a private static sentinel value to avoid repeating the constructor at each property.
+- `[property: JsonPropertyName("x")]` is the correct attribute syntax for positional record constructor parameters (not `[JsonPropertyName("x")]` directly on the parameter).
+
+**Closes:** #140, #141, #142, #143, #144
