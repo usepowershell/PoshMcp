@@ -20,7 +20,7 @@ public sealed record DoctorReport
 
     /// <summary>Relevant environment variable values at diagnostic time.</summary>
     [JsonPropertyName("environmentVariables")]
-    public EnvironmentVariablesSection EnvironmentVariables { get; init; } = new();
+    public Dictionary<string, string?> EnvironmentVariables { get; init; } = [];
 
     /// <summary>PowerShell runtime diagnostics.</summary>
     [JsonPropertyName("powerShell")]
@@ -102,10 +102,7 @@ public sealed record DoctorReport
                 RuntimeMode = new ResolvedSetting(effectiveRuntimeMode, effectiveRuntimeModeSource),
                 McpPath = new ResolvedSetting(effectiveMcpPath, effectiveMcpPathSource),
             },
-            EnvironmentVariables = new EnvironmentVariablesSection
-            {
-                Variables = environmentVariables,
-            },
+            EnvironmentVariables = environmentVariables,
             PowerShell = new PowerShellSection
             {
                 Version = powerShellVersion,
@@ -199,14 +196,6 @@ public sealed record RuntimeSettingsSection
     /// <summary>Resolved MCP path.</summary>
     [JsonPropertyName("mcpPath")]
     public ResolvedSetting McpPath { get; init; } = Empty;
-}
-
-/// <summary>Snapshot of relevant environment variables.</summary>
-public sealed record EnvironmentVariablesSection
-{
-    /// <summary>Map of environment variable name to current value (<c>null</c> when unset).</summary>
-    [JsonPropertyName("variables")]
-    public Dictionary<string, string?> Variables { get; init; } = [];
 }
 
 /// <summary>PowerShell runtime diagnostics.</summary>

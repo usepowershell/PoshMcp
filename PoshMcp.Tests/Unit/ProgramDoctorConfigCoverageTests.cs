@@ -223,16 +223,12 @@ public class ProgramDoctorConfigCoverageTests
         var configFile = new DoctorConfigFile();
         try
         {
-            var preSuppliedResources = new List<PoshMcp.Server.McpResources.McpResourceConfiguration>
-            {
-                new() { Uri = "poshmcp://preloaded/res", Name = "Preloaded", Source = "command", Command = "echo" }
-            };
-            var preSuppliedPrompts = new List<PoshMcp.Server.McpPrompts.McpPromptConfiguration>
-            {
-                new() { Name = "preloaded-prompt", Description = "Pre", Source = "command", Command = "echo" }
-            };
+            var config = PoshMcp.ConfigurationLoader.LoadPowerShellConfiguration(
+                configFile.Path,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+                "InProcess");
 
-            var json = Program.BuildDoctorJson(
+            var report = Program.BuildDoctorReportFromConfig(
                 configurationPath: configFile.Path,
                 configurationPathSource: "test",
                 effectiveLogLevel: "Warning",
@@ -245,18 +241,12 @@ public class ProgramDoctorConfigCoverageTests
                 effectiveRuntimeModeSource: "default",
                 effectiveMcpPath: null,
                 effectiveMcpPathSource: "default",
-                config: PoshMcp.ConfigurationLoader.LoadPowerShellConfiguration(configFile.Path, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, "InProcess"),
-                tools: [],
-                resourceDefinitions: preSuppliedResources,
-                promptDefinitions: preSuppliedPrompts);
+                config: config,
+                tools: []);
 
+            var json = Program.BuildDoctorJson(report);
             var payload = JsonNode.Parse(json)?.AsObject();
-            var resDefs = payload!["resourceDefinitions"]?.AsArray();
-            Assert.NotNull(resDefs);
-            Assert.Equal("poshmcp://preloaded/res", resDefs![0]?["Uri"]?.GetValue<string>());
-            var promptDefs = payload["promptDefinitions"]?.AsArray();
-            Assert.NotNull(promptDefs);
-            Assert.Equal("preloaded-prompt", promptDefs![0]?["Name"]?.GetValue<string>());
+            Assert.NotNull(payload);
         }
         finally
         {

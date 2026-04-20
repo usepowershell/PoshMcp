@@ -53,7 +53,7 @@ public class ConfigurationTroubleshootingTools
             var tools = _registeredToolsProvider();
             var logLevel = LoggingHelpers.InferEffectiveLogLevel(_logger);
 
-            return Task.FromResult(Program.BuildDoctorJson(
+            var report = Program.BuildDoctorReportFromConfig(
                 configurationPath: _configurationPath,
                 configurationPathSource: "runtime",
                 effectiveLogLevel: logLevel,
@@ -67,7 +67,9 @@ public class ConfigurationTroubleshootingTools
                 effectiveMcpPath: _effectiveMcpPath,
                 effectiveMcpPathSource: "runtime",
                 config: config,
-                tools: tools));
+                tools: tools);
+
+            return Task.FromResult(Program.BuildDoctorJson(report));
         }
         catch (Exception ex)
         {

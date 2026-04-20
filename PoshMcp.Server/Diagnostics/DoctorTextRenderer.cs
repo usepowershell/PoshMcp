@@ -40,9 +40,9 @@ public static class DoctorTextRenderer
     {
         var symbol = summary.Status switch
         {
-            "healthy"  => "✓",
+            "healthy" => "✓",
             "warnings" => "⚠",
-            _          => "✗",
+            _ => "✗",
         };
         var content = $"  PoshMcp Doctor  {symbol} {summary.Status}".PadRight(BannerInnerWidth);
         return string.Join("\n",
@@ -58,17 +58,17 @@ public static class DoctorTextRenderer
 
         return string.Join("\n",
             Row("configuration", section.ConfigurationPath),
-            Row("transport",     section.Transport),
-            Row("log-level",     section.LogLevel),
-            Row("session-mode",  section.SessionMode),
-            Row("runtime-mode",  section.RuntimeMode),
-            Row("mcp-path",      section.McpPath));
+            Row("transport", section.Transport),
+            Row("log-level", section.LogLevel),
+            Row("session-mode", section.SessionMode),
+            Row("runtime-mode", section.RuntimeMode),
+            Row("mcp-path", section.McpPath));
     }
 
-    private static string RenderEnvironmentVariables(EnvironmentVariablesSection section)
+    private static string RenderEnvironmentVariables(Dictionary<string, string?> variables)
     {
         var lines = new List<string>();
-        foreach (var (key, value) in section.Variables)
+        foreach (var (key, value) in variables)
             lines.Add($"  {key,-30}: {value ?? "(not set)"}");
         return string.Join("\n", lines);
     }
@@ -99,9 +99,9 @@ public static class DoctorTextRenderer
 
         foreach (var fs in section.ConfiguredFunctionStatus)
         {
-            var sym    = StatusSymbol(fs.Found);
+            var sym = StatusSymbol(fs.Found);
             var status = fs.Found ? "FOUND" : "MISSING";
-            var extra  = fs.Found
+            var extra = fs.Found
                 ? $"matched: {string.Join(", ", fs.MatchedToolNames)}"
                 : $"reason: {fs.ResolutionReason ?? "unknown"}";
             lines.Add($"  - {fs.FunctionName} → {fs.ExpectedToolName} [{sym} {status}] {extra}");

@@ -483,7 +483,7 @@ public class ProgramTests : PowerShellTestBase
         };
 
         // Act
-        var json = Program.BuildDoctorJson(
+        var report = Program.BuildDoctorReportFromConfig(
             configurationPath: configPath,
             configurationPathSource: "test",
             effectiveLogLevel: "Information",
@@ -498,6 +498,7 @@ public class ProgramTests : PowerShellTestBase
             effectiveMcpPathSource: "test",
             config: config,
             tools: new List<ModelContextProtocol.Server.McpServerTool>());
+        var json = Program.BuildDoctorJson(report);
         var root = JsonNode.Parse(json)?.AsObject();
 
         // Assert
