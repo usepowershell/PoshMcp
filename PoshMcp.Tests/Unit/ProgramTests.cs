@@ -503,7 +503,7 @@ public class ProgramTests : PowerShellTestBase
 
         // Assert
         Assert.NotNull(root);
-        var oopModulePaths = root!["oopModulePaths"]?.AsArray()
+        var oopModulePaths = root!["powerShell"]?["oopModulePaths"]?.AsArray()
             .Select(node => node?.GetValue<string>())
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Cast<string>()
@@ -512,6 +512,6 @@ public class ProgramTests : PowerShellTestBase
 
         var expectedResolvedPath = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(configPath))!, relativeModulePath));
         Assert.Contains(expectedResolvedPath, oopModulePaths);
-        Assert.Equal(oopModulePaths.Length, root["oopModulePathEntries"]?.GetValue<int>());
+        Assert.Equal(oopModulePaths.Length, root["powerShell"]?["oopModulePathEntries"]?.GetValue<int>());
     }
 }

@@ -42,7 +42,7 @@ public class ProgramConfigurationGuidanceToolExposureTests
 
     private static string[] GetToolNames(string standardOutput)
     {
-        return JsonNode.Parse(standardOutput.Trim())?["toolNames"]?.AsArray()
+        return JsonNode.Parse(standardOutput.Trim())?["functionsTools"]?["toolNames"]?.AsArray()
             .Select(node => node?.GetValue<string>())
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Cast<string>()

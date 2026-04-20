@@ -49,21 +49,7 @@ public class ProgramDoctorConfigCoverageTests
     }
 
     [Fact]
-    public async Task DoctorJson_IncludesAuthenticationConfig()
-    {
-        using var configFile = new DoctorConfigFile(includeAuthentication: true);
-        using var capture = new DoctorConsoleCapture();
-
-        var result = await Program.Main(["doctor", "--config", configFile.Path, "--format", "json"]);
-
-        Assert.Equal(0, result);
-        var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
-        Assert.NotNull(payload);
-        Assert.NotNull(payload!["authenticationConfig"]);
-    }
-
-    [Fact]
-    public async Task DoctorJson_IncludesLoggingConfig()
+    public async Task DoctorJson_IncludesRuntimeSettingsSection()
     {
         using var configFile = new DoctorConfigFile();
         using var capture = new DoctorConsoleCapture();
@@ -73,7 +59,28 @@ public class ProgramDoctorConfigCoverageTests
         Assert.Equal(0, result);
         var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
         Assert.NotNull(payload);
-        Assert.NotNull(payload!["loggingConfig"]);
+        Assert.NotNull(payload!["runtimeSettings"]);
+        Assert.NotNull(payload["runtimeSettings"]!["transport"]);
+        Assert.NotNull(payload["runtimeSettings"]!["logLevel"]);
+    }
+
+    [Fact]
+    public async Task DoctorJson_IncludesSummarySection()
+    {
+        using var configFile = new DoctorConfigFile();
+        using var capture = new DoctorConsoleCapture();
+
+        var result = await Program.Main(["doctor", "--config", configFile.Path, "--format", "json"]);
+
+        Assert.Equal(0, result);
+        var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
+        Assert.NotNull(payload);
+        var summary = payload!["summary"]?.AsObject();
+        Assert.NotNull(summary);
+        Assert.NotNull(summary!["status"]);
+        var status = summary["status"]!.GetValue<string>();
+        Assert.True(status == "healthy" || status == "warnings" || status == "errors",
+            $"Unexpected status value: {status}");
     }
 
     [Fact]
@@ -87,10 +94,9 @@ public class ProgramDoctorConfigCoverageTests
         Assert.Equal(0, result);
         var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
         Assert.NotNull(payload);
-        var defs = payload!["resourceDefinitions"]?.AsArray();
-        Assert.NotNull(defs);
-        Assert.True(defs!.Count > 0);
-        Assert.Equal("poshmcp://test/resource", defs[0]?["Uri"]?.GetValue<string>());
+        var resources = payload!["mcpDefinitions"]?["resources"]?.AsObject();
+        Assert.NotNull(resources);
+        Assert.True(resources!["configured"]?.GetValue<int>() > 0, "expected at least one configured resource");
     }
 
     [Fact]
@@ -104,10 +110,9 @@ public class ProgramDoctorConfigCoverageTests
         Assert.Equal(0, result);
         var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
         Assert.NotNull(payload);
-        var defs = payload!["promptDefinitions"]?.AsArray();
-        Assert.NotNull(defs);
-        Assert.True(defs!.Count > 0);
-        Assert.Equal("test-prompt", defs[0]?["Name"]?.GetValue<string>());
+        var prompts = payload!["mcpDefinitions"]?["prompts"]?.AsObject();
+        Assert.NotNull(prompts);
+        Assert.True(prompts!["configured"]?.GetValue<int>() > 0, "expected at least one configured prompt");
     }
 
     [Fact]
@@ -119,24 +124,12 @@ public class ProgramDoctorConfigCoverageTests
         var result = await Program.Main(["doctor", "--config", configFile.Path]);
 
         Assert.Equal(0, result);
-        Assert.Contains("Environment variables:", capture.StandardOutput);
-        Assert.Contains("POSHMCP_TRANSPORT=", capture.StandardOutput);
+        Assert.Contains("── Environment Variables", capture.StandardOutput);
+        Assert.Contains("POSHMCP_TRANSPORT", capture.StandardOutput);
     }
 
     [Fact]
-    public async Task DoctorText_IncludesAuthenticationConfigSection()
-    {
-        using var configFile = new DoctorConfigFile(includeAuthentication: true);
-        using var capture = new DoctorConsoleCapture();
-
-        var result = await Program.Main(["doctor", "--config", configFile.Path]);
-
-        Assert.Equal(0, result);
-        Assert.Contains("Authentication config:", capture.StandardOutput);
-    }
-
-    [Fact]
-    public async Task DoctorText_IncludesLoggingConfigSection()
+    public async Task DoctorText_IncludesRuntimeSettingsSection()
     {
         using var configFile = new DoctorConfigFile();
         using var capture = new DoctorConsoleCapture();
@@ -144,7 +137,33 @@ public class ProgramDoctorConfigCoverageTests
         var result = await Program.Main(["doctor", "--config", configFile.Path]);
 
         Assert.Equal(0, result);
-        Assert.Contains("Logging config:", capture.StandardOutput);
+        Assert.Contains("── Runtime Settings", capture.StandardOutput);
+    }
+
+    [Fact]
+    public async Task DoctorText_IncludesMcpDefinitionsSection()
+    {
+        using var configFile = new DoctorConfigFile(includeResource: true);
+        using var capture = new DoctorConsoleCapture();
+
+        var result = await Program.Main(["doctor", "--config", configFile.Path]);
+
+        Assert.Equal(0, result);
+        Assert.Contains("── MCP Definitions", capture.StandardOutput);
+        Assert.Contains("resources", capture.StandardOutput);
+    }
+
+    [Fact]
+    public async Task DoctorText_IncludesPromptDefinitionsSection()
+    {
+        using var configFile = new DoctorConfigFile(includePrompt: true);
+        using var capture = new DoctorConsoleCapture();
+
+        var result = await Program.Main(["doctor", "--config", configFile.Path]);
+
+        Assert.Equal(0, result);
+        Assert.Contains("── MCP Definitions", capture.StandardOutput);
+        Assert.Contains("prompts", capture.StandardOutput);
     }
 
     [Fact]
@@ -157,39 +176,15 @@ public class ProgramDoctorConfigCoverageTests
         var result = await Program.Main(["doctor", "--config", configFile.Path]);
 
         Assert.Equal(0, result);
-        Assert.Contains("POSHMCP_MCP_PATH=(not set)", capture.StandardOutput);
+        // New format: "  POSHMCP_MCP_PATH                      : (not set)"
+        Assert.Contains("POSHMCP_MCP_PATH", capture.StandardOutput);
+        Assert.Contains("(not set)", capture.StandardOutput);
     }
 
     [Fact]
-    public async Task DoctorText_IncludesResourceDefinitionsSection()
+    public async Task DoctorJson_DoesNotContainAuthenticationConfig()
     {
-        using var configFile = new DoctorConfigFile(includeResource: true);
-        using var capture = new DoctorConsoleCapture();
-
-        var result = await Program.Main(["doctor", "--config", configFile.Path]);
-
-        Assert.Equal(0, result);
-        Assert.Contains("Resource definitions:", capture.StandardOutput);
-        Assert.Contains("poshmcp://test/resource", capture.StandardOutput);
-    }
-
-    [Fact]
-    public async Task DoctorText_IncludesPromptDefinitionsSection()
-    {
-        using var configFile = new DoctorConfigFile(includePrompt: true);
-        using var capture = new DoctorConsoleCapture();
-
-        var result = await Program.Main(["doctor", "--config", configFile.Path]);
-
-        Assert.Equal(0, result);
-        Assert.Contains("Prompt definitions:", capture.StandardOutput);
-        Assert.Contains("test-prompt", capture.StandardOutput);
-    }
-
-    [Fact]
-    public async Task DoctorJson_SensitiveAuthConfigValues_AreRedacted()
-    {
-        using var configFile = new DoctorConfigFile(includeAuthWithSecret: true);
+        using var configFile = new DoctorConfigFile(includeAuthentication: true);
         using var capture = new DoctorConsoleCapture();
 
         var result = await Program.Main(["doctor", "--config", configFile.Path, "--format", "json"]);
@@ -197,14 +192,13 @@ public class ProgramDoctorConfigCoverageTests
         Assert.Equal(0, result);
         var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
         Assert.NotNull(payload);
-        var authConfig = payload!["authenticationConfig"]?.AsObject();
-        Assert.NotNull(authConfig);
-        Assert.Equal("[REDACTED]", authConfig!["ClientSecret"]?.GetValue<string>());
-        Assert.NotEqual("[REDACTED]", authConfig["ClientId"]?.GetValue<string>());
+        // Authentication config is not surfaced in this spec version (spec-006)
+        Assert.False(payload!.ContainsKey("authenticationConfig"),
+            "authenticationConfig must not appear in the new nested JSON structure");
     }
 
     [Fact]
-    public async Task DoctorText_SensitiveAuthConfigValues_AreRedacted()
+    public async Task DoctorText_DoesNotContainLegacyAuthenticationConfigLabel()
     {
         using var configFile = new DoctorConfigFile(includeAuthWithSecret: true);
         using var capture = new DoctorConsoleCapture();
@@ -212,9 +206,10 @@ public class ProgramDoctorConfigCoverageTests
         var result = await Program.Main(["doctor", "--config", configFile.Path]);
 
         Assert.Equal(0, result);
-        Assert.Contains("ClientSecret=[REDACTED]", capture.StandardOutput);
+        // The old "Authentication config:" label must not appear in the new text output
+        Assert.DoesNotContain("Authentication config:", capture.StandardOutput);
+        // Sensitive value from config must never leak into output
         Assert.DoesNotContain("super-secret-value", capture.StandardOutput);
-        Assert.Contains("ClientId=my-client-id", capture.StandardOutput);
     }
 
     [Fact]
