@@ -44,7 +44,7 @@ public sealed record DoctorReport
     /// </summary>
     public static string ComputeStatus(DoctorReport report)
     {
-        if (report.FunctionsTools.ConfiguredFunctionsMissing.Count > 0
+        if (report.FunctionsTools.ConfiguredFunctionsMissing > 0
             || report.McpDefinitions.Resources.Errors.Count > 0
             || report.McpDefinitions.Prompts.Errors.Count > 0)
             return "errors";
@@ -114,8 +114,8 @@ public sealed record DoctorReport
             FunctionsTools = new FunctionsToolsSection
             {
                 ConfiguredFunctionCount = configuredFunctionStatus.Count,
-                ConfiguredFunctionsFound = foundFunctions,
-                ConfiguredFunctionsMissing = missingFunctions,
+                ConfiguredFunctionsFound = foundFunctions.Count,
+                ConfiguredFunctionsMissing = missingFunctions.Count,
                 ToolCount = toolNames.Count,
                 ToolNames = toolNames,
                 ConfiguredFunctionStatus = configuredFunctionStatus,
@@ -244,13 +244,13 @@ public sealed record FunctionsToolsSection
     [JsonPropertyName("configuredFunctionCount")]
     public int ConfiguredFunctionCount { get; init; }
 
-    /// <summary>Names of configured functions that were found in the PowerShell session.</summary>
+    /// <summary>Number of configured functions that were found in the PowerShell session.</summary>
     [JsonPropertyName("configuredFunctionsFound")]
-    public List<string> ConfiguredFunctionsFound { get; init; } = [];
+    public int ConfiguredFunctionsFound { get; init; }
 
-    /// <summary>Names of configured functions that were not found in the PowerShell session.</summary>
+    /// <summary>Number of configured functions that were not found in the PowerShell session.</summary>
     [JsonPropertyName("configuredFunctionsMissing")]
-    public List<string> ConfiguredFunctionsMissing { get; init; } = [];
+    public int ConfiguredFunctionsMissing { get; init; }
 
     /// <summary>Total number of discovered MCP tools.</summary>
     [JsonPropertyName("toolCount")]

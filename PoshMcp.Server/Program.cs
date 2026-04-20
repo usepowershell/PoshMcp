@@ -2028,7 +2028,7 @@ public class Program
         return McpServerTool.Create(troubleshootingDelegate, new McpServerToolCreateOptions
         {
             Name = "get-configuration-troubleshooting",
-            Description = "Returns doctor-style configuration diagnostics for the running server",
+            Description = "Returns doctor-style configuration diagnostics for the running server. Output includes runtime settings, environment variables, PowerShell info, configured functions, and MCP definitions. Outputs structured text by default; pass argument '--json' for machine-readable JSON.",
             Title = "Get Configuration Troubleshooting",
             ReadOnly = true,
             Destructive = false,

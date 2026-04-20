@@ -90,10 +90,10 @@ public static class DoctorTextRenderer
 
     private static string RenderFunctionsTools(FunctionsToolsSection section)
     {
-        var allFound = section.ConfiguredFunctionsMissing.Count == 0;
+        var allFound = section.ConfiguredFunctionsMissing == 0;
         var lines = new List<string>
         {
-            $"  {StatusSymbol(allFound)} {section.ConfiguredFunctionsFound.Count}/{section.ConfiguredFunctionCount} configured functions found",
+            $"  {StatusSymbol(allFound)} {section.ConfiguredFunctionsFound}/{section.ConfiguredFunctionCount} configured functions found",
             $"  tools discovered: {section.ToolCount}",
         };
 
