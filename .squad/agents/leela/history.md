@@ -210,3 +210,15 @@
 - **ToC Placement:** Release Notes added after Support section (alphabetical/logical grouping)
 
 **Outcome:** Both release notes files created and toc.yml updated. Documentation follows established patterns and provides clear upgrade guidance for each release.
+
+### 2026-04-19: Fixed DocFX Release Notes Build Content
+
+**Task:** Fix DocFX build configuration to include release-notes in the documentation site build.
+
+**Problem:** Release notes files (`docs/release-notes/0.7.0.md`, `docs/release-notes/0.7.1.md`, `docs/release-notes/0.6.0.md`) were 404ing on the published docs site because `docs/docfx.json` did not include the release-notes directory in the content files glob.
+
+**Solution:** Added `"release-notes/**/*.md"` to the first content entry in `docs/docfx.json` build.content files array. Verified toc.yml already had the Release Notes section properly configured.
+
+**Key Learning:** DocFX content globs must explicitly include all directories containing markdown files intended for the published site. The `build.content[0].files` array is the entry point for content discovery—any .md files outside these patterns will be excluded from the build even if referenced in toc.yml.
+
+**Outcome:** Release notes now included in DocFX build and will be published to the documentation site. Commit: `5a498c8`.
