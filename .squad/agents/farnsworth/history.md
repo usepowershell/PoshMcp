@@ -164,3 +164,24 @@ Source: earned patterns from PRs #92–#96 and agent histories.
 - Amy fixed PR #138 feedback (worktree poshmcp-136) 
 - Bender fixed PR #139 feedback (worktree poshmcp-137)
 - Both PRs approved with nits resolved
+
+### 2026-04-20: Spec 006 — Doctor Output Restructure milestone created
+
+**Actions taken:**
+1. Renamed `specs/doctor-output-restructure/` → `specs/006-doctor-output-restructure/` via git mv, added spec number to frontmatter, committed and pushed to main.
+2. Created GitHub milestone #3: "Spec 006 - Doctor Output Restructure" (https://github.com/usepowershell/PoshMcp/milestone/3).
+3. Created 27 GitHub issues (T001–T027, #140–#166) across 8 phases:
+   - **Bender** (squad:bender): 22 issues — Phases 1–6 (T001–T018) and Phase 8 (T024–T027)
+   - **Fry** (squad:fry): 5 issues — Phase 7 (T019–T023, tests)
+
+**Issue mapping:**
+- Phase 1 (DoctorReport Record Hierarchy): T001=#140, T002=#141, T003=#142, T004=#143, T005=#144
+- Phase 2 (DoctorTextRenderer): T006=#145, T007=#146, T008=#147, T009=#148
+- Phase 3 (Wire into RunDoctorAsync): T010=#149, T011=#150, T012=#151
+- Phase 4 (Environment Variables): T013=#152, T014=#153
+- Phase 5 (Summary Banner): T015=#154, T016=#155
+- Phase 6 (Update MCP Tool): T017=#156, T018=#157
+- Phase 7 (Tests): T019=#158, T020=#159, T021=#160, T022=#161, T023=#162
+- Phase 8 (Cleanup/Validation): T024=#163, T025=#164, T026=#165, T027=#166
+
+**Note:** Push to main required rebase to remove a pre-existing merge commit (a77dfcc) that violated repo rules.
