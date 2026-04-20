@@ -674,12 +674,7 @@ public class Program
                     return;
                 }
 
-                var buildArgs = $"build -f {imageFile} -t {imageTag} .";
-
-                if (!string.IsNullOrWhiteSpace(modules))
-                {
-                    buildArgs += $" --build-arg INSTALL_PS_MODULES=\"{modules}\"";
-                }
+                var buildArgs = DockerRunner.BuildDockerBuildArgs(imageFile, imageTag, modules);
 
                 var result = DockerRunner.ExecuteDockerCommand(dockerPath, buildArgs);
                 if (result != ExitCodeSuccess)

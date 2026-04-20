@@ -185,3 +185,27 @@ Source: earned patterns from PRs #92–#96 and agent histories.
 - Phase 8 (Cleanup/Validation): T024=#163, T025=#164, T026=#165, T027=#166
 
 **Note:** Push to main required rebase to remove a pre-existing merge commit (a77dfcc) that violated repo rules.
+
+### 2026-07-28: PR #167 review — approved (Spec 006: Doctor Output Restructure)
+
+**PR:** #167 — `feat(spec-006): restructure doctor output`
+**Verdict:** ✅ APPROVED (comment — self-approval blocked by GitHub)
+
+**Implementation quality:** Clean match to spec 006. Architecture is solid: `DoctorReport` (pure data model with records + `[JsonPropertyName]`), `DoctorTextRenderer` (static class, pure rendering), `Program.cs` (thin orchestration). Build: 0 errors. Tests: 520 passed, 0 failed, 7 skipped.
+
+**Spec compliance verified:**
+- Banner: `╔═══╗` box-drawing chars, `BannerInnerWidth = 42`, correct status symbols (✓/⚠/✗)
+- Section headers: `── Name ──` format, padded to 44 chars
+- JSON: 7 top-level keys match FR-106, `effectivePowerShellConfiguration` dropped, camelCase throughout
+- ComputeStatus: `errors > warnings > healthy` precedence per FR-102
+- ResolvedSetting: `value`/`source` pairs per FR-107
+
+**Must-fix nits (3):**
+1. MCP tool description says "Outputs structured text by default; pass argument '--json'" — tool always returns JSON, no format argument exists. Misleading to LLM clients.
+2. `POSHMCP_LOG_FILE` missing from `CollectEnvironmentVariables` — FR-113 violation, flagged since PR #139.
+3. `POSHMCP_CONFIG` should be `POSHMCP_CONFIGURATION` in `CollectEnvironmentVariables` — pre-existing bug; `SettingsResolver.cs` defines the env var as `POSHMCP_CONFIGURATION`.
+
+**Non-blocking observations:**
+- `✖` (U+2716) vs `✗` (U+2717) inconsistency in `RenderMcpDefinitions` vs `StatusSymbol`
+- Auth/logging config removed from output (technically FR-109 information loss, but defensible per spec's "placeholder" language)
+- Extra env vars added beyond spec's 8 (POSHMCP_FUNCTION_NAMES, POSHMCP_COMMAND_NAMES, DOTNET_ENVIRONMENT) — additive, fine

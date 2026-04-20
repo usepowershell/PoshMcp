@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Threading.Tasks;
 
 namespace PoshMcp;
 
@@ -83,19 +84,26 @@ internal static class DockerRunner
 
                 if (!interactive)
                 {
-                    var output = process.StandardOutput.ReadToEnd();
-                    var error = process.StandardError.ReadToEnd();
+                    var outputTask = Task.Run(() =>
+                    {
+                        string? line;
+                        while ((line = process.StandardOutput.ReadLine()) != null)
+                        {
+                            Console.WriteLine(line);
+                        }
+                    });
+
+                    var errorTask = Task.Run(() =>
+                    {
+                        string? line;
+                        while ((line = process.StandardError.ReadLine()) != null)
+                        {
+                            Console.Error.WriteLine(line);
+                        }
+                    });
 
                     process.WaitForExit();
-
-                    if (process.ExitCode != 0 && !string.IsNullOrEmpty(error))
-                    {
-                        Console.Error.WriteLine(error);
-                    }
-                    else if (!string.IsNullOrEmpty(output) && process.ExitCode == 0)
-                    {
-                        Console.WriteLine(output);
-                    }
+                    Task.WaitAll(outputTask, errorTask);
                 }
                 else
                 {
@@ -110,5 +118,24 @@ internal static class DockerRunner
             Console.Error.WriteLine($"Failed to execute {dockerCommand}: {ex.Message}");
             return ExitCodes.RuntimeError;
         }
+    }
+
+    /// <summary>
+    /// Builds the argument string for a docker/podman build command.
+    /// </summary>
+    /// <param name="imageFile">Path to the Dockerfile.</param>
+    /// <param name="imageTag">Image tag (e.g., "poshmcp:latest").</param>
+    /// <param name="modules">Optional space-separated list of PowerShell modules to pre-install via INSTALL_PS_MODULES build arg.</param>
+    /// <returns>The full argument string to pass to docker/podman.</returns>
+    internal static string BuildDockerBuildArgs(string imageFile, string imageTag, string? modules = null)
+    {
+        var buildArgs = $"build -f {imageFile} -t {imageTag} .";
+
+        if (!string.IsNullOrWhiteSpace(modules))
+        {
+            buildArgs += $" --build-arg INSTALL_PS_MODULES=\"{modules}\"";
+        }
+
+        return buildArgs;
     }
 }
