@@ -243,3 +243,9 @@
 - **Cross-links:** Pointed to Docker, Configuration, and doctor documentation for deeper dives
 
 **Outcome:** v0.8.0 release notes created following established format. Docker hang fix prominently featured as significant UX regression fix. Ready for publication without commit (coordinator handles).
+
+## TOC Update for v0.8.0
+**Date:** 2026-04-20 16:20:52
+**Task:** Add v0.8.0 release notes entry to docs/toc.yml
+**Team Directive:** Requested by Steven Murawski; Developer Advocate role as Leela
+**Action:** Added v0.8.0 as newest entry (first in list) following semantic versioning convention. Committed with co-author trailer and pushed to origin/main.
