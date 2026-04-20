@@ -222,3 +222,24 @@
 **Key Learning:** DocFX content globs must explicitly include all directories containing markdown files intended for the published site. The `build.content[0].files` array is the entry point for content discovery—any .md files outside these patterns will be excluded from the build even if referenced in toc.yml.
 
 **Outcome:** Release notes now included in DocFX build and will be published to the documentation site. Commit: `5a498c8`.
+
+### 2026-04-20: Created v0.8.0 Release Notes
+
+**Task:** Author release notes for v0.8.0 highlighting the Docker build deadlock fix and doctor command enhancements.
+
+**v0.8.0 Release Notes (`docs/release-notes/0.8.0.md`):**
+- **Primary headline:** Fixed critical stdout/stderr deadlock in Docker builds that caused `poshmcp build` to hang silently even after image built successfully. Explained root cause (sequential `ReadToEnd()` calls with pipe-buffer overflow) and solution (concurrent `Task.Run` readers with `Task.WaitAll`)
+- **Secondary feature:** Real-time build output streaming (users now see live progress instead of silence)
+- **Infrastructure improvements:** Extracted `BuildDockerBuildArgs` into `DockerRunner` as testable static method; refactored doctor command with hierarchical `DoctorReport` structure and dedicated `DoctorTextRenderer`
+- **Doctor command enhancements:** Authentication configuration, logging settings, environment variables, and MCP tool definitions now displayed in diagnostic output
+- **Security:** Updated `System.Security.Cryptography.Xml` (10.0.5 → 10.0.6) for CVE mitigation
+- **Testing:** Highlighted 11 new unit tests in `DockerRunnerTests.cs` covering Docker build scenarios
+- **Format:** Matched 0.7.1.md structure exactly; emphasized user-facing benefits (no hanging, real-time feedback, better diagnostics)
+
+**Design Decisions:**
+- **Problem-Solution Format:** Deadlock fix described in plain language with technical explanation for advanced users
+- **Highlighted Docker Users:** Added dedicated "Highlights for Docker Users" section since this fix directly impacts a known pain point
+- **Hierarchical Information:** What's New → Bug Fixes & Security → Upgrade Notes (less critical for stable release)
+- **Cross-links:** Pointed to Docker, Configuration, and doctor documentation for deeper dives
+
+**Outcome:** v0.8.0 release notes created following established format. Docker hang fix prominently featured as significant UX regression fix. Ready for publication without commit (coordinator handles).

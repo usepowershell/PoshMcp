@@ -132,3 +132,7 @@ Detailed session history was archived to `history-archive.md` on 2026-04-10 when
 - Farnsworth approved both PRs #138 and #139
 - Bender added config secrets redaction to #139
 - 334 tests now passing across suite
+
+## Learnings
+
+- **Version management:** Project version is maintained solely in PoshMcp.Server/PoshMcp.csproj under the <Version> element. No distributed version configuration across multiple files (e.g., Directory.Build.props). Bumped  .7.1 →  .8.0.
