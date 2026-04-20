@@ -147,6 +147,9 @@ public sealed record DoctorReport
                 Status = ComputeStatus(report),
                 GeneratedAtUtc = DateTime.UtcNow,
                 ConfigurationPath = configurationPath,
+                FunctionCount = configuredFunctionStatus.Count,
+                FoundCount = foundFunctions.Count,
+                WarningCount = warnings.Count,
             },
         };
     }
@@ -166,6 +169,18 @@ public sealed record DoctorSummary
     /// <summary>Resolved path to the active configuration file.</summary>
     [JsonPropertyName("configurationPath")]
     public string ConfigurationPath { get; init; } = string.Empty;
+
+    /// <summary>Total number of configured functions.</summary>
+    [JsonPropertyName("functionCount")]
+    public int FunctionCount { get; init; }
+
+    /// <summary>Number of configured functions that were found.</summary>
+    [JsonPropertyName("foundCount")]
+    public int FoundCount { get; init; }
+
+    /// <summary>Number of warnings collected across all sections.</summary>
+    [JsonPropertyName("warningCount")]
+    public int WarningCount { get; init; }
 }
 
 /// <summary>Resolved runtime settings with source annotations.</summary>
