@@ -11,7 +11,7 @@ COPY PoshMcp.Server/PoshMcp.csproj ./PoshMcp.Server/
 
 # Restore dependencies in one stage for efficiency
 # This layer is cached unless project files change
-RUN dotnet restore PoshMcp.sln \
+RUN dotnet restore PoshMcp.Server/PoshMcp.csproj \
     && dotnet nuget locals http-cache --clear
 
 # Copy all source code (changes frequently - placed after stable dependencies)
@@ -19,7 +19,7 @@ COPY . .
 
 # Build and publish the PoshMcp.Server application in Release configuration
 # Use /p:UseAppHost=false for portability across architectures
-RUN dotnet build PoshMcp.sln -c Release --no-restore \
+RUN dotnet build PoshMcp.Server/PoshMcp.csproj -c Release --no-restore \
     && dotnet publish PoshMcp.Server/PoshMcp.csproj -c Release -o /app/publish/server /p:UseAppHost=false
 
 # Copy startup script to publish output
