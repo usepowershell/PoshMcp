@@ -467,3 +467,34 @@ Create comprehensive user documentation following PoshMcp documentation standard
 - Release Notes: `docs/release-notes/0.6.0.md`
 - User Guide: `docs/articles/resources-and-prompts.md`
 
+# Decision: Spec 006 — Doctor Output Restructure Milestone
+
+**Date**: 2026-04-20
+**Author**: Farnsworth (Lead/Architect)
+**Status**: Executed
+
+## Context
+
+The doctor output restructure spec was authored and approved. It needed to be numbered (006), tracked with a GitHub milestone, and broken into individually assignable issues for team execution.
+
+## Decision
+
+1. **Spec numbered as 006** — follows the established numbering sequence (001–005 already assigned).
+2. **Milestone #3 created**: "Spec 006 - Doctor Output Restructure" on GitHub.
+3. **27 issues created** (T001–T027) across 8 phases, assigned by team role:
+   - **Bender** (C# implementation): Phases 1–6 and Phase 8 — 22 issues
+   - **Fry** (testing): Phase 7 — 5 issues
+4. **Phase ordering** is sequential — each phase depends on prior phases completing. Within a phase, tasks can be parallelized.
+
+## Team Assignments Rationale
+
+- Bender handles all C# implementation (record types, renderers, wiring, cleanup) because these are backend code changes requiring deep familiarity with Program.cs and the existing doctor infrastructure.
+- Fry handles all test creation (Phase 7) because tests should be written by someone other than the implementer for independent validation.
+- Phase 8 (cleanup/validation) returns to Bender because it requires understanding the implementation to verify completeness.
+
+## Artifacts
+
+- Milestone: https://github.com/usepowershell/PoshMcp/milestone/3
+- Issues: #140–#166
+- Spec: specs/006-doctor-output-restructure/spec.md
+

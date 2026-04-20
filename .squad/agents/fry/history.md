@@ -1,24 +1,50 @@
 # Fry Work History
 
-## Project Context
+## Recent Work (2026-04-20 — CURRENT SESSION)
 
-**Project:** PoshMcp - Model Context Protocol (MCP) server for PowerShell
-**Tech Stack:** .NET 10, C#, PowerShell SDK, OpenTelemetry, ASP.NET Core, xUnit
-**Primary User:** Steven Murawski
+### Docker Build Arguments Unit Tests
+**Branch:** background→sync  
+**Status:** Complete
 
-**Test Structure:**
-- 53 total tests across unit, functional, and integration levels
-- `PoshMcp.Tests/Unit/` - 3 files
-- `PoshMcp.Tests/Functional/` - 6 files
-- `PoshMcp.Tests/Integration/` - 4 files
-- `PoshMcp.Tests/Shared/` - Test infrastructure (PowerShellTestBase, TestOutputLogger)
+- **Task (Fry)**: Create comprehensive unit test suite for Docker build arguments
+- **Implementation**: Created `PoshMcp.Tests/Unit/DockerRunnerTests.cs` with 11 test cases
+- **Coverage**: All PoshMcp Docker build scenarios (minimal config, buildkit, registries, multi-arch, custom paths, ignore patterns, error handling, labels, caching, build args, output format)
+- **Outcome**: All 11 tests passing ✅
+- **Coordination**: Tests verify Bender's extracted `DockerRunner.BuildDockerBuildArgs` method thoroughly
 
-**Key Test Files:**
-- `IntegrationTests.cs` - Full workflow tests
-- `McpServerIntegrationTests.cs` - MCP protocol tests
-- `SimpleAssemblyTests.cs`, `ParameterTypeTests.cs`, `OutputTypeTests.cs` - Unit tests
+**Test results summary:**
+- 11/11 passing
+- Covers argument construction, registry handling, multi-architecture builds, error paths
+- Validates build argument ordering and formatting
 
-## Recent Work (2026-04-14 onwards)
+## Recent Status (2026-07-18: Spec 006 Phase 7 — Doctor Output Tests (T019–T023)
+
+**Branch:** `squad/spec006-doctor-output-restructure` (worktree `poshmcp-spec006`)
+
+**New test files created:**
+- `PoshMcp.Tests/Unit/DoctorReportTests.cs` — 14 tests: `ComputeStatus` (healthy/errors/warnings/resource-errors/prompt-errors/resource-warnings), `DoctorSummary` property assertions, JSON top-level key verification (T021 combined), camelCase name assertions, `effectivePowerShellConfiguration` absence check
+- `PoshMcp.Tests/Unit/DoctorTextRendererTests.cs` — 14 tests: banner box-drawing chars, status symbols (✓/⚠/✗), section headers (Runtime Settings/Env Vars/PowerShell/Functions-Tools/MCP Definitions), header format validation, conditional Warnings section (present/absent)
+
+**Existing test files updated (T022):**
+- `ProgramDoctorConfigCoverageTests.cs` — replaced 12 failing tests: removed `authenticationConfig`/`loggingConfig`/old resource+prompt assertions; added `runtimeSettings`, `summary.status`, `mcpDefinitions.resources`, `mcpDefinitions.prompts`, new text section header checks (`── Environment Variables`, `── Runtime Settings`, `── MCP Definitions`), auth-absent test
+- `ProgramDoctorToolExposureTests.cs` — fixed `GetToolNames` to use `functionsTools.toolNames`; removed `effectivePowerShellConfiguration` assertion
+- `ProgramConfigurationGuidanceToolExposureTests.cs` — fixed `GetToolNames` to use `functionsTools.toolNames`
+- `ProgramTransportSelectionTests.cs` — updated all 8 tests: flat keys (`effectiveTransport`, `effectiveSessionMode`, etc.) → nested (`runtimeSettings.transport.value`, `runtimeSettings.sessionMode.value`, etc.); `PayloadContainsConfiguredModulePath` now checks `powerShell.oopModulePaths`
+- `ProgramTests.cs` — fixed `oopModulePaths`/`oopModulePathEntries` → `powerShell.oopModulePaths`/`powerShell.oopModulePathEntries`
+
+**Result:** 527 total — 520 passed, 7 skipped (pre-existing), 0 failed ✅
+`dotnet format --verify-no-changes` clean. Commit `f38b9b9` pushed.
+
+**Key patterns established:**
+- New JSON shape: all runtime settings under `runtimeSettings.{key}.value` / `.source`
+- Tool names under `functionsTools.toolNames`
+- OOP module paths under `powerShell.oopModulePaths`/`oopModulePathEntries`
+- No `authenticationConfig`, `loggingConfig`, `effectivePowerShellConfiguration` in new JSON
+- Text output sections use `── Section Name ──...` headers (44-char padded)
+
+**[Earlier detailed history 2026-04-14 and prior archived to history-archive.md on 2026-04-18 per Scribe threshold policy. Preserving last 90 days (2026-04-21 onwards) in main history.]**
+
+
 
 ### 2026-04-15: Cross-agent verification pattern for auth behavior
 
@@ -82,6 +108,31 @@
 - `AddInMemoryCollection` available via transitive `Microsoft.Extensions.Configuration` dependency from `PoshMcp.Server`
 - `EnvironmentVariableScope` helper pattern (save/restore env var) reused from `ProgramTransportSelectionTests.cs` style
 
-## Archive
+### 2026-07-18: Spec 006 Phase 7 — Doctor Output Tests (T019–T023)
+
+**Branch:** `squad/spec006-doctor-output-restructure` (worktree `poshmcp-spec006`)
+
+**New test files created:**
+- `PoshMcp.Tests/Unit/DoctorReportTests.cs` — 14 tests: `ComputeStatus` (healthy/errors/warnings/resource-errors/prompt-errors/resource-warnings), `DoctorSummary` property assertions, JSON top-level key verification (T021 combined), camelCase name assertions, `effectivePowerShellConfiguration` absence check
+- `PoshMcp.Tests/Unit/DoctorTextRendererTests.cs` — 14 tests: banner box-drawing chars, status symbols (✓/⚠/✗), section headers (Runtime Settings/Env Vars/PowerShell/Functions-Tools/MCP Definitions), header format validation, conditional Warnings section (present/absent)
+
+**Existing test files updated (T022):**
+- `ProgramDoctorConfigCoverageTests.cs` — replaced 12 failing tests: removed `authenticationConfig`/`loggingConfig`/old resource+prompt assertions; added `runtimeSettings`, `summary.status`, `mcpDefinitions.resources`, `mcpDefinitions.prompts`, new text section header checks (`── Environment Variables`, `── Runtime Settings`, `── MCP Definitions`), auth-absent test
+- `ProgramDoctorToolExposureTests.cs` — fixed `GetToolNames` to use `functionsTools.toolNames`; removed `effectivePowerShellConfiguration` assertion
+- `ProgramConfigurationGuidanceToolExposureTests.cs` — fixed `GetToolNames` to use `functionsTools.toolNames`
+- `ProgramTransportSelectionTests.cs` — updated all 8 tests: flat keys (`effectiveTransport`, `effectiveSessionMode`, etc.) → nested (`runtimeSettings.transport.value`, `runtimeSettings.sessionMode.value`, etc.); `PayloadContainsConfiguredModulePath` now checks `powerShell.oopModulePaths`
+- `ProgramTests.cs` — fixed `oopModulePaths`/`oopModulePathEntries` → `powerShell.oopModulePaths`/`powerShell.oopModulePathEntries`
+
+**Result:** 527 total — 520 passed, 7 skipped (pre-existing), 0 failed ✅
+`dotnet format --verify-no-changes` clean. Commit `f38b9b9` pushed.
+
+**Key patterns established:**
+- New JSON shape: all runtime settings under `runtimeSettings.{key}.value` / `.source`
+- Tool names under `functionsTools.toolNames`
+- OOP module paths under `powerShell.oopModulePaths`/`oopModulePathEntries`
+- No `authenticationConfig`, `loggingConfig`, `effectivePowerShellConfiguration` in new JSON
+- Text output sections use `── Section Name ──...` headers (44-char padded)
+
+
 
 Detailed prior history (2026-03-27 through 2026-04-07) archived to `history-archive.md` when this file exceeded 15 KB threshold on 2026-04-18.
