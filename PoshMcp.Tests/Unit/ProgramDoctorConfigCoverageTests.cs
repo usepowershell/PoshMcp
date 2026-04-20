@@ -186,12 +186,91 @@ public class ProgramDoctorConfigCoverageTests
         Assert.Contains("test-prompt", capture.StandardOutput);
     }
 
+    [Fact]
+    public async Task DoctorJson_SensitiveAuthConfigValues_AreRedacted()
+    {
+        using var configFile = new DoctorConfigFile(includeAuthWithSecret: true);
+        using var capture = new DoctorConsoleCapture();
+
+        var result = await Program.Main(["doctor", "--config", configFile.Path, "--format", "json"]);
+
+        Assert.Equal(0, result);
+        var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
+        Assert.NotNull(payload);
+        var authConfig = payload!["authenticationConfig"]?.AsObject();
+        Assert.NotNull(authConfig);
+        Assert.Equal("[REDACTED]", authConfig!["ClientSecret"]?.GetValue<string>());
+        Assert.NotEqual("[REDACTED]", authConfig["ClientId"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task DoctorText_SensitiveAuthConfigValues_AreRedacted()
+    {
+        using var configFile = new DoctorConfigFile(includeAuthWithSecret: true);
+        using var capture = new DoctorConsoleCapture();
+
+        var result = await Program.Main(["doctor", "--config", configFile.Path]);
+
+        Assert.Equal(0, result);
+        Assert.Contains("ClientSecret=[REDACTED]", capture.StandardOutput);
+        Assert.DoesNotContain("super-secret-value", capture.StandardOutput);
+        Assert.Contains("ClientId=my-client-id", capture.StandardOutput);
+    }
+
+    [Fact]
+    public void BuildDoctorJson_WithPreSuppliedResourceAndPromptDefs_UsesPreSupplied()
+    {
+        var configFile = new DoctorConfigFile();
+        try
+        {
+            var preSuppliedResources = new List<PoshMcp.Server.McpResources.McpResourceConfiguration>
+            {
+                new() { Uri = "poshmcp://preloaded/res", Name = "Preloaded", Source = "command", Command = "echo" }
+            };
+            var preSuppliedPrompts = new List<PoshMcp.Server.McpPrompts.McpPromptConfiguration>
+            {
+                new() { Name = "preloaded-prompt", Description = "Pre", Source = "command", Command = "echo" }
+            };
+
+            var json = Program.BuildDoctorJson(
+                configurationPath: configFile.Path,
+                configurationPathSource: "test",
+                effectiveLogLevel: "Warning",
+                effectiveLogLevelSource: "default",
+                effectiveTransport: "stdio",
+                effectiveTransportSource: "default",
+                effectiveSessionMode: null,
+                effectiveSessionModeSource: "default",
+                effectiveRuntimeMode: "InProcess",
+                effectiveRuntimeModeSource: "default",
+                effectiveMcpPath: null,
+                effectiveMcpPathSource: "default",
+                config: PoshMcp.ConfigurationLoader.LoadPowerShellConfiguration(configFile.Path, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, "InProcess"),
+                tools: [],
+                resourceDefinitions: preSuppliedResources,
+                promptDefinitions: preSuppliedPrompts);
+
+            var payload = JsonNode.Parse(json)?.AsObject();
+            var resDefs = payload!["resourceDefinitions"]?.AsArray();
+            Assert.NotNull(resDefs);
+            Assert.Equal("poshmcp://preloaded/res", resDefs![0]?["Uri"]?.GetValue<string>());
+            var promptDefs = payload["promptDefinitions"]?.AsArray();
+            Assert.NotNull(promptDefs);
+            Assert.Equal("preloaded-prompt", promptDefs![0]?["Name"]?.GetValue<string>());
+        }
+        finally
+        {
+            configFile.Dispose();
+        }
+    }
+
     private sealed class DoctorConfigFile : IDisposable
     {
         public string Path { get; }
 
         public DoctorConfigFile(
             bool includeAuthentication = false,
+            bool includeAuthWithSecret = false,
             bool includeResource = false,
             bool includePrompt = false)
         {
@@ -199,13 +278,21 @@ public class ProgramDoctorConfigCoverageTests
                 System.IO.Path.GetTempPath(),
                 $"poshmcp-doctor-coverage-{Guid.NewGuid():N}.json");
 
-            var authSection = includeAuthentication
-                ? """
+            var authSection = (includeAuthentication || includeAuthWithSecret)
+                ? (includeAuthWithSecret
+                    ? """
+  "Authentication": {
+    "Enabled": false,
+    "ClientId": "my-client-id",
+    "ClientSecret": "super-secret-value"
+  },
+"""
+                    : """
   "Authentication": {
     "Enabled": false,
     "DefaultScheme": "Bearer"
   },
-"""
+""")
                 : string.Empty;
 
             var resourceSection = includeResource

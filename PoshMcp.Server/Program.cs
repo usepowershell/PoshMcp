@@ -899,8 +899,8 @@ public class Program
         var rawConfig = new ConfigurationBuilder()
             .AddJsonFile(settings.FinalConfigPath, optional: true, reloadOnChange: false)
             .Build();
-        var authenticationConfig = LoadFlatConfigSection(rawConfig, "Authentication");
-        var loggingConfig = LoadFlatConfigSection(rawConfig, "Logging");
+        var authenticationConfig = RedactSensitiveConfigValues(LoadFlatConfigSection(rawConfig, "Authentication"));
+        var loggingConfig = RedactSensitiveConfigValues(LoadFlatConfigSection(rawConfig, "Logging"));
         var environmentVariables = CollectEnvironmentVariables();
         var (resourcesDefinitionsConfig, promptsDefinitionsConfig) = TryLoadResourcesAndPromptsDefinitions(settings.FinalConfigPath);
         var tools = await DiscoverToolsAsync(config, loggerFactory, logger, settings.FinalConfigPath);
@@ -1159,13 +1159,16 @@ public class Program
             var rawConfig = new ConfigurationBuilder()
                 .AddJsonFile(configurationPath, optional: true, reloadOnChange: false)
                 .Build();
-            authenticationConfig ??= LoadFlatConfigSection(rawConfig, "Authentication");
-            loggingConfig ??= LoadFlatConfigSection(rawConfig, "Logging");
+            authenticationConfig ??= RedactSensitiveConfigValues(LoadFlatConfigSection(rawConfig, "Authentication"));
+            loggingConfig ??= RedactSensitiveConfigValues(LoadFlatConfigSection(rawConfig, "Logging"));
         }
         environmentVariables ??= CollectEnvironmentVariables();
-        var (resDefsConfig, promDefsConfig) = TryLoadResourcesAndPromptsDefinitions(configurationPath);
-        resourceDefinitions ??= resDefsConfig;
-        promptDefinitions ??= promDefsConfig;
+        if (resourceDefinitions is null || promptDefinitions is null)
+        {
+            var (resDefsConfig, promDefsConfig) = TryLoadResourcesAndPromptsDefinitions(configurationPath);
+            resourceDefinitions ??= resDefsConfig;
+            promptDefinitions ??= promDefsConfig;
+        }
 
         var resourcesSummary = new
         {
@@ -1250,6 +1253,16 @@ public class Program
             ["ASPNETCORE_ENVIRONMENT"] = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
         };
     }
+
+    private static readonly string[] _sensitiveKeyPatterns =
+        ["password", "secret", "key", "token", "connectionstring", "credential", "pwd", "apikey", "clientsecret"];
+
+    private static bool IsSensitiveKey(string key) =>
+        _sensitiveKeyPatterns.Any(pattern => key.Contains(pattern, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Returns a copy of <paramref name="config"/> with values whose keys match sensitive patterns replaced with <c>[REDACTED]</c>.</summary>
+    private static Dictionary<string, string?> RedactSensitiveConfigValues(Dictionary<string, string?> config) =>
+        config.ToDictionary(kvp => kvp.Key, kvp => IsSensitiveKey(kvp.Key) ? "[REDACTED]" : kvp.Value);
 
     private static Dictionary<string, string?> LoadFlatConfigSection(IConfiguration configuration, string sectionName)
     {
