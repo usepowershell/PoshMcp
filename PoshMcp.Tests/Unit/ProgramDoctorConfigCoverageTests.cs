@@ -11,7 +11,7 @@ namespace PoshMcp.Tests.Unit;
 public class ProgramDoctorConfigCoverageTests
 {
     [Fact]
-    public async Task DoctorJson_IncludesEnvironmentVariables_WithSevenExpectedKeys()
+    public async Task DoctorJson_IncludesEnvironmentVariables_WithExpectedKeys()
     {
         using var configFile = new DoctorConfigFile();
         using var capture = new DoctorConsoleCapture();
@@ -23,7 +23,7 @@ public class ProgramDoctorConfigCoverageTests
         Assert.NotNull(payload);
         var envVars = payload!["environmentVariables"]?.AsObject();
         Assert.NotNull(envVars);
-        Assert.True(envVars!.ContainsKey("POSHMCP_CONFIG"));
+        Assert.True(envVars!.ContainsKey("POSHMCP_CONFIGURATION"));
         Assert.True(envVars.ContainsKey("POSHMCP_TRANSPORT"));
         Assert.True(envVars.ContainsKey("POSHMCP_LOG_LEVEL"));
         Assert.True(envVars.ContainsKey("POSHMCP_SESSION_MODE"));
