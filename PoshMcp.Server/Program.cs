@@ -1568,7 +1568,7 @@ public class Program
         return normalized.ToLowerInvariant();
     }
 
-    internal sealed record ConfiguredFunctionStatus(
+    public sealed record ConfiguredFunctionStatus(
         string FunctionName,
         string ExpectedToolName,
         bool Found,
