@@ -1048,37 +1048,6 @@ public class Program
         };
     }
 
-    private static readonly string[] _sensitiveKeyPatterns =
-        ["password", "secret", "key", "token", "connectionstring", "credential", "pwd", "apikey", "clientsecret"];
-
-    private static bool IsSensitiveKey(string key) =>
-        _sensitiveKeyPatterns.Any(pattern => key.Contains(pattern, StringComparison.OrdinalIgnoreCase));
-
-    /// <summary>Returns a copy of <paramref name="config"/> with values whose keys match sensitive patterns replaced with <c>[REDACTED]</c>.</summary>
-    private static Dictionary<string, string?> RedactSensitiveConfigValues(Dictionary<string, string?> config) =>
-        config.ToDictionary(kvp => kvp.Key, kvp => IsSensitiveKey(kvp.Key) ? "[REDACTED]" : kvp.Value);
-
-    private static Dictionary<string, string?> LoadFlatConfigSection(IConfiguration configuration, string sectionName)
-    {
-        return configuration.GetSection(sectionName)
-            .AsEnumerable(makePathsRelative: true)
-            .Where(kvp => kvp.Value is not null)
-            .ToDictionary(kvp => kvp.Key, kvp => (string?)kvp.Value);
-    }
-
-    private static (IReadOnlyList<McpResourceConfiguration> Resources, IReadOnlyList<McpPromptConfiguration> Prompts) TryLoadResourcesAndPromptsDefinitions(string configPath)
-    {
-        try
-        {
-            var (resourcesConfig, promptsConfig) = ConfigurationLoader.LoadResourcesAndPromptsConfiguration(configPath);
-            return (resourcesConfig.Resources, promptsConfig.Prompts);
-        }
-        catch
-        {
-            return (Array.Empty<McpResourceConfiguration>(), Array.Empty<McpPromptConfiguration>());
-        }
-    }
-
     internal static string SerializeEffectivePowerShellConfiguration(PowerShellConfiguration config, bool writeIndented = false)
     {
         return JsonSerializer.Serialize(config, new JsonSerializerOptions
