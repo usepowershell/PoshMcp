@@ -896,13 +896,7 @@ public class Program
         var logger = loggerFactory.CreateLogger("Doctor");
 
         var config = ConfigurationLoader.LoadPowerShellConfiguration(settings.FinalConfigPath, logger, settings.RuntimeMode.Value);
-        var rawConfig = new ConfigurationBuilder()
-            .AddJsonFile(settings.FinalConfigPath, optional: true, reloadOnChange: false)
-            .Build();
-        var authenticationConfig = RedactSensitiveConfigValues(LoadFlatConfigSection(rawConfig, "Authentication"));
-        var loggingConfig = RedactSensitiveConfigValues(LoadFlatConfigSection(rawConfig, "Logging"));
         var environmentVariables = CollectEnvironmentVariables();
-        var (resourcesDefinitionsConfig, promptsDefinitionsConfig) = TryLoadResourcesAndPromptsDefinitions(settings.FinalConfigPath);
         var tools = await DiscoverToolsAsync(config, loggerFactory, logger, settings.FinalConfigPath);
         var discoveredToolNames = GetDiscoveredToolNames(tools);
         var configuredFunctionStatus = BuildConfiguredFunctionStatus(config.GetEffectiveCommandNames(), discoveredToolNames);
@@ -911,11 +905,8 @@ public class Program
             : GetExpectedToolNames(configuredFunctionStatus, config.EnableDynamicReloadTools);
         var diagnostics = CollectPowerShellDiagnostics();
         var oopModulePaths = ResolveConfiguredModulePathsForOop(config, settings.FinalConfigPath);
-        var effectivePowerShellConfiguration = JsonNode.Parse(SerializeEffectivePowerShellConfiguration(config));
 
-        var foundFunctions = configuredFunctionStatus.Where(f => f.Found).Select(f => f.FunctionName).ToList();
         var missingFunctions = configuredFunctionStatus.Where(f => !f.Found).Select(f => f.FunctionName).ToList();
-
         if (missingFunctions.Count > 0)
         {
             var resolutionReasons = DiagnoseMissingCommands(missingFunctions, config);
@@ -927,186 +918,50 @@ public class Program
         var warnings = BuildConfigurationWarnings(config);
         var (resourcesDiag, promptsDiag) = ConfigurationLoader.TryValidateResourcesAndPrompts(settings.FinalConfigPath);
 
+        var report = DoctorReport.Build(
+            configurationPath: settings.FinalConfigPath,
+            configurationPathSource: settings.ConfigPath.Source,
+            effectiveLogLevel: settings.LogLevel.Value,
+            effectiveLogLevelSource: settings.LogLevel.Source,
+            effectiveTransport: settings.Transport.Value,
+            effectiveTransportSource: settings.Transport.Source,
+            effectiveSessionMode: settings.SessionMode.Value,
+            effectiveSessionModeSource: settings.SessionMode.Source,
+            effectiveRuntimeMode: settings.RuntimeMode.Value,
+            effectiveRuntimeModeSource: settings.RuntimeMode.Source,
+            effectiveMcpPath: settings.McpPath.Value,
+            effectiveMcpPathSource: settings.McpPath.Source,
+            configuredFunctionStatus: configuredFunctionStatus,
+            toolNames: toolNames,
+            powerShellVersion: diagnostics.PowerShellVersion,
+            modulePathEntries: diagnostics.ModulePathEntries,
+            modulePaths: diagnostics.ModulePaths,
+            oopModulePaths: oopModulePaths,
+            resourcesDiagnostics: resourcesDiag,
+            promptsDiagnostics: promptsDiag,
+            warnings: warnings,
+            environmentVariables: environmentVariables);
+
         if (format == "json")
         {
-            Console.WriteLine(BuildDoctorJson(
-                configurationPath: settings.FinalConfigPath,
-                configurationPathSource: settings.ConfigPath.Source,
-                effectiveLogLevel: settings.LogLevel.Value,
-                effectiveLogLevelSource: settings.LogLevel.Source,
-                effectiveTransport: settings.Transport.Value,
-                effectiveTransportSource: settings.Transport.Source,
-                effectiveSessionMode: settings.SessionMode.Value,
-                effectiveSessionModeSource: settings.SessionMode.Source,
-                effectiveRuntimeMode: settings.RuntimeMode.Value,
-                effectiveRuntimeModeSource: settings.RuntimeMode.Source,
-                effectiveMcpPath: settings.McpPath.Value,
-                effectiveMcpPathSource: settings.McpPath.Source,
-                config: config,
-                tools: tools,
-                precomputedFunctionStatus: configuredFunctionStatus,
-                resourcesDiagnostics: resourcesDiag,
-                promptsDiagnostics: promptsDiag,
-                authenticationConfig: authenticationConfig,
-                loggingConfig: loggingConfig,
-                environmentVariables: environmentVariables,
-                resourceDefinitions: resourcesDefinitionsConfig,
-                promptDefinitions: promptsDefinitionsConfig));
+            Console.WriteLine(BuildDoctorJson(report));
             return;
         }
 
-        Console.WriteLine("PoshMcp doctor");
-        Console.WriteLine($"Configuration: {settings.FinalConfigPath} (source: {settings.ConfigPath.Source})");
-        Console.WriteLine($"Effective log level: {settings.LogLevel.Value} (source: {settings.LogLevel.Source})");
-        Console.WriteLine($"Effective transport: {settings.Transport.Value} (source: {settings.Transport.Source})");
-        Console.WriteLine($"Effective session mode: {settings.SessionMode.Value ?? "(not set)"} (source: {settings.SessionMode.Source})");
-        Console.WriteLine($"Effective runtime mode: {settings.RuntimeMode.Value} (source: {settings.RuntimeMode.Source})");
-        Console.WriteLine($"Effective MCP path: {settings.McpPath.Value ?? "(not set)"} (source: {settings.McpPath.Source})");
-        Console.WriteLine("Effective PowerShell configuration:");
-        Console.WriteLine(SerializeEffectivePowerShellConfiguration(config, writeIndented: true));
-        Console.WriteLine($"Tools discovered: {tools.Count}");
-        Console.WriteLine($"Configured functions found: {foundFunctions.Count}/{configuredFunctionStatus.Count}");
-        if (configuredFunctionStatus.Count > 0)
-        {
-            Console.WriteLine("Configured function status:");
-            foreach (var functionStatus in configuredFunctionStatus)
-            {
-                var statusText = functionStatus.Found ? "FOUND" : "MISSING";
-                var detail = functionStatus.Found
-                    ? $"matched tools: {string.Join(", ", functionStatus.MatchedToolNames)}"
-                    : "configured, but no generated tool matched";
-                Console.WriteLine($"- {functionStatus.FunctionName} -> {functionStatus.ExpectedToolName} [{statusText}] {detail}");
-                if (!functionStatus.Found && functionStatus.ResolutionReason is not null)
-                {
-                    Console.WriteLine($"  reason: {functionStatus.ResolutionReason}");
-                }
-            }
-        }
-        if (missingFunctions.Count > 0)
-        {
-            Console.WriteLine("Missing configured functions:");
-            foreach (var missing in missingFunctions)
-            {
-                Console.WriteLine($"- {missing}");
-            }
-        }
-        if (toolNames.Count > 0)
-        {
-            Console.WriteLine("Tool names:");
-            foreach (var toolName in toolNames)
-            {
-                Console.WriteLine($"- {toolName}");
-            }
-        }
-        Console.WriteLine($"PowerShell version: {diagnostics.PowerShellVersion}");
-        Console.WriteLine($"PSModulePath entries: {diagnostics.ModulePathEntries}");
-        if (diagnostics.ModulePaths.Length > 0)
-        {
-            Console.WriteLine("PSModulePath values:");
-            foreach (var modulePath in diagnostics.ModulePaths)
-            {
-                Console.WriteLine($"- {modulePath}");
-            }
-        }
-        Console.WriteLine($"Configured OOP module path entries: {oopModulePaths.Length}");
-        if (oopModulePaths.Length > 0)
-        {
-            Console.WriteLine("Configured OOP module path values:");
-            foreach (var modulePath in oopModulePaths)
-            {
-                Console.WriteLine($"- {modulePath}");
-            }
-        }
-        if (warnings.Count > 0)
-        {
-            Console.WriteLine("Warnings:");
-            foreach (var warning in warnings)
-            {
-                Console.WriteLine($"  ⚠ {warning}");
-            }
-            if (config.HasLegacyFunctionNames)
-            {
-                Console.WriteLine("  💡 To migrate: poshmcp update-config --add-command Get-Process --remove-function Get-Process");
-            }
-        }
-
-        // Resources validation
-        Console.WriteLine($"Resources configured: {resourcesDiag.Configured} | valid: {resourcesDiag.Valid}");
-        if (resourcesDiag.Errors.Count > 0)
-        {
-            Console.WriteLine("Resource errors:");
-            foreach (var error in resourcesDiag.Errors)
-                Console.WriteLine($"  ✖ {error}");
-        }
-        if (resourcesDiag.Warnings.Count > 0)
-        {
-            Console.WriteLine("Resource warnings:");
-            foreach (var warning in resourcesDiag.Warnings)
-                Console.WriteLine($"  ⚠ {warning}");
-        }
-
-        // Prompts validation
-        Console.WriteLine($"Prompts configured: {promptsDiag.Configured} | valid: {promptsDiag.Valid}");
-        if (promptsDiag.Errors.Count > 0)
-        {
-            Console.WriteLine("Prompt errors:");
-            foreach (var error in promptsDiag.Errors)
-                Console.WriteLine($"  ✖ {error}");
-        }
-        if (promptsDiag.Warnings.Count > 0)
-        {
-            Console.WriteLine("Prompt warnings:");
-            foreach (var warning in promptsDiag.Warnings)
-                Console.WriteLine($"  ⚠ {warning}");
-        }
-
-        Console.WriteLine("Environment variables:");
-        foreach (var kvp in environmentVariables)
-            Console.WriteLine($"  {kvp.Key}={kvp.Value ?? "(not set)"}");
-
-        Console.WriteLine("Authentication config:");
-        if (authenticationConfig.Count > 0)
-        {
-            foreach (var kvp in authenticationConfig)
-                Console.WriteLine($"  {kvp.Key}={kvp.Value}");
-        }
-        else
-        {
-            Console.WriteLine("  (none)");
-        }
-
-        Console.WriteLine("Logging config:");
-        if (loggingConfig.Count > 0)
-        {
-            foreach (var kvp in loggingConfig)
-                Console.WriteLine($"  {kvp.Key}={kvp.Value}");
-        }
-        else
-        {
-            Console.WriteLine("  (none)");
-        }
-
-        if (resourcesDefinitionsConfig.Count > 0)
-        {
-            Console.WriteLine("Resource definitions:");
-            foreach (var resource in resourcesDefinitionsConfig)
-                Console.WriteLine($"  - {resource.Uri} ({resource.Name})");
-        }
-
-        if (promptsDefinitionsConfig.Count > 0)
-        {
-            Console.WriteLine("Prompt definitions:");
-            foreach (var prompt in promptsDefinitionsConfig)
-                Console.WriteLine($"  - {prompt.Name}");
-        }
+        Console.WriteLine(DoctorTextRenderer.Render(report));
     }
 
-    internal static string BuildDoctorJson(
+    internal static string BuildDoctorJson(DoctorReport report)
+    {
+        return JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    internal static DoctorReport BuildDoctorReportFromConfig(
         string configurationPath,
         string configurationPathSource,
         string? effectiveLogLevel,
         string effectiveLogLevelSource,
-        string? effectiveTransport,
+        string effectiveTransport,
         string effectiveTransportSource,
         string? effectiveSessionMode,
         string effectiveSessionModeSource,
@@ -1115,31 +970,15 @@ public class Program
         string? effectiveMcpPath,
         string effectiveMcpPathSource,
         PowerShellConfiguration config,
-        List<McpServerTool> tools,
-        List<ConfiguredFunctionStatus>? precomputedFunctionStatus = null,
-        McpResourcesDiagnostics? resourcesDiagnostics = null,
-        McpPromptsDiagnostics? promptsDiagnostics = null,
-        Dictionary<string, string?>? authenticationConfig = null,
-        Dictionary<string, string?>? loggingConfig = null,
-        Dictionary<string, string?>? environmentVariables = null,
-        IReadOnlyList<McpResourceConfiguration>? resourceDefinitions = null,
-        IReadOnlyList<McpPromptConfiguration>? promptDefinitions = null)
+        List<McpServerTool> tools)
     {
         var discoveredToolNames = GetDiscoveredToolNames(tools);
-        var configuredFunctionStatus = precomputedFunctionStatus
-            ?? BuildConfiguredFunctionStatus(config.GetEffectiveCommandNames(), discoveredToolNames);
+        var configuredFunctionStatus = BuildConfiguredFunctionStatus(config.GetEffectiveCommandNames(), discoveredToolNames);
         var toolNames = discoveredToolNames.Count > 0
             ? discoveredToolNames
             : GetExpectedToolNames(configuredFunctionStatus, config.EnableDynamicReloadTools);
-        var diagnostics = CollectPowerShellDiagnostics();
-        var oopModulePaths = ResolveConfiguredModulePathsForOop(config, configurationPath);
-        var effectivePowerShellConfiguration = JsonNode.Parse(SerializeEffectivePowerShellConfiguration(config));
-        var foundFunctions = configuredFunctionStatus.Where(f => f.Found).Select(f => f.FunctionName).ToList();
         var missingFunctions = configuredFunctionStatus.Where(f => !f.Found).Select(f => f.FunctionName).ToList();
-
-        // Only diagnose missing commands if ResolutionReason has not already been populated
-        // (e.g., by RunDoctorAsync pre-computing and passing precomputedFunctionStatus).
-        if (missingFunctions.Count > 0 && configuredFunctionStatus.All(s => s.Found || s.ResolutionReason is null))
+        if (missingFunctions.Count > 0)
         {
             var resolutionReasons = DiagnoseMissingCommands(missingFunctions, config);
             configuredFunctionStatus = configuredFunctionStatus
@@ -1147,83 +986,35 @@ public class Program
                 .ToList();
         }
 
+        var diagnostics = CollectPowerShellDiagnostics();
+        var oopModulePaths = ResolveConfiguredModulePathsForOop(config, configurationPath);
         var warnings = BuildConfigurationWarnings(config);
+        var (resourcesDiag, promptsDiag) = ConfigurationLoader.TryValidateResourcesAndPrompts(configurationPath);
+        var environmentVariables = CollectEnvironmentVariables();
 
-        // Compute resource/prompt diagnostics if not pre-supplied
-        resourcesDiagnostics ??= ConfigurationLoader.TryValidateResourcesAndPrompts(configurationPath).Resources;
-        promptsDiagnostics ??= ConfigurationLoader.TryValidateResourcesAndPrompts(configurationPath).Prompts;
-
-        // Compute new diagnostic sections if not pre-supplied
-        if (authenticationConfig is null || loggingConfig is null)
-        {
-            var rawConfig = new ConfigurationBuilder()
-                .AddJsonFile(configurationPath, optional: true, reloadOnChange: false)
-                .Build();
-            authenticationConfig ??= RedactSensitiveConfigValues(LoadFlatConfigSection(rawConfig, "Authentication"));
-            loggingConfig ??= RedactSensitiveConfigValues(LoadFlatConfigSection(rawConfig, "Logging"));
-        }
-        environmentVariables ??= CollectEnvironmentVariables();
-        if (resourceDefinitions is null || promptDefinitions is null)
-        {
-            var (resDefsConfig, promDefsConfig) = TryLoadResourcesAndPromptsDefinitions(configurationPath);
-            resourceDefinitions ??= resDefsConfig;
-            promptDefinitions ??= promDefsConfig;
-        }
-
-        var resourcesSummary = new
-        {
-            configured = resourcesDiagnostics.Configured,
-            valid = resourcesDiagnostics.Valid,
-            errors = resourcesDiagnostics.Errors,
-            warnings = resourcesDiagnostics.Warnings
-        };
-
-        var promptsSummary = new
-        {
-            configured = promptsDiagnostics.Configured,
-            valid = promptsDiagnostics.Valid,
-            errors = promptsDiagnostics.Errors,
-            warnings = promptsDiagnostics.Warnings
-        };
-
-        var payload = new
-        {
-            configurationPath,
-            configurationPathSource,
-            effectiveLogLevel,
-            effectiveLogLevelSource,
-            effectiveTransport,
-            effectiveTransportSource,
-            effectiveSessionMode,
-            effectiveSessionModeSource,
-            effectiveRuntimeMode,
-            effectiveRuntimeModeSource,
-            effectiveMcpPath,
-            effectiveMcpPathSource,
-            effectivePowerShellConfiguration,
-            toolCount = tools.Count,
-            toolNames,
-            configuredFunctionCount = configuredFunctionStatus.Count,
-            configuredFunctionsFound = foundFunctions,
-            configuredFunctionsMissing = missingFunctions,
-            configuredFunctionStatus,
-            warnings,
-            powershellVersion = diagnostics.PowerShellVersion,
-            modulePathEntries = diagnostics.ModulePathEntries,
-            modulePaths = diagnostics.ModulePaths,
-            oopModulePathEntries = oopModulePaths.Length,
-            oopModulePaths,
-            resources = resourcesSummary,
-            prompts = promptsSummary,
-            environmentVariables,
-            authenticationConfig,
-            loggingConfig,
-            resourceDefinitions,
-            promptDefinitions,
-            generatedAtUtc = DateTime.UtcNow
-        };
-
-        return JsonSerializer.Serialize(payload);
+        return DoctorReport.Build(
+            configurationPath: configurationPath,
+            configurationPathSource: configurationPathSource,
+            effectiveLogLevel: effectiveLogLevel,
+            effectiveLogLevelSource: effectiveLogLevelSource,
+            effectiveTransport: effectiveTransport,
+            effectiveTransportSource: effectiveTransportSource,
+            effectiveSessionMode: effectiveSessionMode,
+            effectiveSessionModeSource: effectiveSessionModeSource,
+            effectiveRuntimeMode: effectiveRuntimeMode,
+            effectiveRuntimeModeSource: effectiveRuntimeModeSource,
+            effectiveMcpPath: effectiveMcpPath,
+            effectiveMcpPathSource: effectiveMcpPathSource,
+            configuredFunctionStatus: configuredFunctionStatus,
+            toolNames: toolNames,
+            powerShellVersion: diagnostics.PowerShellVersion,
+            modulePathEntries: diagnostics.ModulePathEntries,
+            modulePaths: diagnostics.ModulePaths,
+            oopModulePaths: oopModulePaths,
+            resourcesDiagnostics: resourcesDiag,
+            promptsDiagnostics: promptsDiag,
+            warnings: warnings,
+            environmentVariables: environmentVariables);
     }
 
     private static List<string> BuildConfigurationWarnings(PowerShellConfiguration config)
@@ -1244,45 +1035,18 @@ public class Program
     {
         return new Dictionary<string, string?>
         {
-            ["POSHMCP_CONFIG"] = Environment.GetEnvironmentVariable("POSHMCP_CONFIG"),
             ["POSHMCP_TRANSPORT"] = Environment.GetEnvironmentVariable("POSHMCP_TRANSPORT"),
             ["POSHMCP_LOG_LEVEL"] = Environment.GetEnvironmentVariable("POSHMCP_LOG_LEVEL"),
+            ["POSHMCP_LOG_FILE"] = Environment.GetEnvironmentVariable("POSHMCP_LOG_FILE"),
             ["POSHMCP_SESSION_MODE"] = Environment.GetEnvironmentVariable("POSHMCP_SESSION_MODE"),
             ["POSHMCP_RUNTIME_MODE"] = Environment.GetEnvironmentVariable("POSHMCP_RUNTIME_MODE"),
             ["POSHMCP_MCP_PATH"] = Environment.GetEnvironmentVariable("POSHMCP_MCP_PATH"),
-            ["ASPNETCORE_ENVIRONMENT"] = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+            ["POSHMCP_CONFIGURATION"] = Environment.GetEnvironmentVariable("POSHMCP_CONFIGURATION"),
+            ["POSHMCP_FUNCTION_NAMES"] = Environment.GetEnvironmentVariable("POSHMCP_FUNCTION_NAMES"),
+            ["POSHMCP_COMMAND_NAMES"] = Environment.GetEnvironmentVariable("POSHMCP_COMMAND_NAMES"),
+            ["ASPNETCORE_ENVIRONMENT"] = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"),
+            ["DOTNET_ENVIRONMENT"] = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT"),
         };
-    }
-
-    private static readonly string[] _sensitiveKeyPatterns =
-        ["password", "secret", "key", "token", "connectionstring", "credential", "pwd", "apikey", "clientsecret"];
-
-    private static bool IsSensitiveKey(string key) =>
-        _sensitiveKeyPatterns.Any(pattern => key.Contains(pattern, StringComparison.OrdinalIgnoreCase));
-
-    /// <summary>Returns a copy of <paramref name="config"/> with values whose keys match sensitive patterns replaced with <c>[REDACTED]</c>.</summary>
-    private static Dictionary<string, string?> RedactSensitiveConfigValues(Dictionary<string, string?> config) =>
-        config.ToDictionary(kvp => kvp.Key, kvp => IsSensitiveKey(kvp.Key) ? "[REDACTED]" : kvp.Value);
-
-    private static Dictionary<string, string?> LoadFlatConfigSection(IConfiguration configuration, string sectionName)
-    {
-        return configuration.GetSection(sectionName)
-            .AsEnumerable(makePathsRelative: true)
-            .Where(kvp => kvp.Value is not null)
-            .ToDictionary(kvp => kvp.Key, kvp => (string?)kvp.Value);
-    }
-
-    private static (IReadOnlyList<McpResourceConfiguration> Resources, IReadOnlyList<McpPromptConfiguration> Prompts) TryLoadResourcesAndPromptsDefinitions(string configPath)
-    {
-        try
-        {
-            var (resourcesConfig, promptsConfig) = ConfigurationLoader.LoadResourcesAndPromptsConfiguration(configPath);
-            return (resourcesConfig.Resources, promptsConfig.Prompts);
-        }
-        catch
-        {
-            return (Array.Empty<McpResourceConfiguration>(), Array.Empty<McpPromptConfiguration>());
-        }
     }
 
     internal static string SerializeEffectivePowerShellConfiguration(PowerShellConfiguration config, bool writeIndented = false)
@@ -1568,7 +1332,7 @@ public class Program
         return normalized.ToLowerInvariant();
     }
 
-    internal sealed record ConfiguredFunctionStatus(
+    public sealed record ConfiguredFunctionStatus(
         string FunctionName,
         string ExpectedToolName,
         bool Found,
@@ -2201,7 +1965,8 @@ public class Program
                 logger.LogInformation("Processing configuration troubleshooting request");
 
                 var config = ConfigurationLoader.LoadPowerShellConfiguration(configurationPath, logger, effectiveRuntimeMode);
-                return Task.FromResult(BuildDoctorJson(
+                var tools = registeredToolsProvider();
+                var report = BuildDoctorReportFromConfig(
                     configurationPath: configurationPath,
                     configurationPathSource: "runtime",
                     effectiveLogLevel: LoggingHelpers.InferEffectiveLogLevel(logger),
@@ -2215,7 +1980,9 @@ public class Program
                     effectiveMcpPath: effectiveMcpPath,
                     effectiveMcpPathSource: "runtime",
                     config: config,
-                    tools: registeredToolsProvider()));
+                    tools: tools);
+
+                return Task.FromResult(BuildDoctorJson(report));
             }
             catch (Exception ex)
             {
@@ -2231,7 +1998,7 @@ public class Program
         return McpServerTool.Create(troubleshootingDelegate, new McpServerToolCreateOptions
         {
             Name = "get-configuration-troubleshooting",
-            Description = "Returns doctor-style configuration diagnostics for the running server",
+            Description = "Returns doctor-style configuration diagnostics for the running server. Output includes runtime settings, environment variables, PowerShell info, configured functions, and MCP definitions. Always returns structured text output.",
             Title = "Get Configuration Troubleshooting",
             ReadOnly = true,
             Destructive = false,

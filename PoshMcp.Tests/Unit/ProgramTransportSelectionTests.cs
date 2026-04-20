@@ -26,7 +26,7 @@ public class ProgramTransportSelectionTests
         Assert.Equal(0, result);
         var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
         Assert.NotNull(payload);
-        Assert.Equal("stdio", payload!["effectiveTransport"]?.GetValue<string>());
+        Assert.Equal("stdio", payload!["runtimeSettings"]?["transport"]?["value"]?.GetValue<string>());
     }
 
     [Fact]
@@ -41,8 +41,8 @@ public class ProgramTransportSelectionTests
         Assert.Equal(0, result);
         var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
         Assert.NotNull(payload);
-        Assert.Equal("http", payload!["effectiveTransport"]?.GetValue<string>());
-        Assert.Equal("env", payload["effectiveTransportSource"]?.GetValue<string>());
+        Assert.Equal("http", payload!["runtimeSettings"]?["transport"]?["value"]?.GetValue<string>());
+        Assert.Equal("env", payload["runtimeSettings"]?["transport"]?["source"]?.GetValue<string>());
     }
 
     [Fact]
@@ -57,8 +57,8 @@ public class ProgramTransportSelectionTests
         Assert.Equal(0, result);
         var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
         Assert.NotNull(payload);
-        Assert.Equal("stdio", payload!["effectiveTransport"]?.GetValue<string>());
-        Assert.Equal("cli", payload["effectiveTransportSource"]?.GetValue<string>());
+        Assert.Equal("stdio", payload!["runtimeSettings"]?["transport"]?["value"]?.GetValue<string>());
+        Assert.Equal("cli", payload["runtimeSettings"]?["transport"]?["source"]?.GetValue<string>());
     }
 
     [Fact]
@@ -73,8 +73,8 @@ public class ProgramTransportSelectionTests
         Assert.Equal(0, result);
         var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
         Assert.NotNull(payload);
-        Assert.Equal("http", payload!["effectiveTransport"]?.GetValue<string>());
-        Assert.Equal("cli", payload["effectiveTransportSource"]?.GetValue<string>());
+        Assert.Equal("http", payload!["runtimeSettings"]?["transport"]?["value"]?.GetValue<string>());
+        Assert.Equal("cli", payload["runtimeSettings"]?["transport"]?["source"]?.GetValue<string>());
     }
 
     [Fact]
@@ -91,10 +91,10 @@ public class ProgramTransportSelectionTests
         Assert.Equal(0, result);
         var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
         Assert.NotNull(payload);
-        Assert.Equal("multi", payload!["effectiveSessionMode"]?.GetValue<string>());
-        Assert.Equal("env", payload["effectiveSessionModeSource"]?.GetValue<string>());
-        Assert.Equal("/env-mcp", payload["effectiveMcpPath"]?.GetValue<string>());
-        Assert.Equal("env", payload["effectiveMcpPathSource"]?.GetValue<string>());
+        Assert.Equal("multi", payload!["runtimeSettings"]?["sessionMode"]?["value"]?.GetValue<string>());
+        Assert.Equal("env", payload["runtimeSettings"]?["sessionMode"]?["source"]?.GetValue<string>());
+        Assert.Equal("/env-mcp", payload["runtimeSettings"]?["mcpPath"]?["value"]?.GetValue<string>());
+        Assert.Equal("env", payload["runtimeSettings"]?["mcpPath"]?["source"]?.GetValue<string>());
     }
 
     [Fact]
@@ -118,10 +118,10 @@ public class ProgramTransportSelectionTests
         Assert.Equal(0, result);
         var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
         Assert.NotNull(payload);
-        Assert.Equal("multi", payload!["effectiveSessionMode"]?.GetValue<string>());
-        Assert.Equal("cli", payload["effectiveSessionModeSource"]?.GetValue<string>());
-        Assert.Equal("/cli-mcp", payload["effectiveMcpPath"]?.GetValue<string>());
-        Assert.Equal("cli", payload["effectiveMcpPathSource"]?.GetValue<string>());
+        Assert.Equal("multi", payload!["runtimeSettings"]?["sessionMode"]?["value"]?.GetValue<string>());
+        Assert.Equal("cli", payload["runtimeSettings"]?["sessionMode"]?["source"]?.GetValue<string>());
+        Assert.Equal("/cli-mcp", payload["runtimeSettings"]?["mcpPath"]?["value"]?.GetValue<string>());
+        Assert.Equal("cli", payload["runtimeSettings"]?["mcpPath"]?["source"]?.GetValue<string>());
     }
 
     [Fact]
@@ -137,7 +137,7 @@ public class ProgramTransportSelectionTests
         Assert.Equal(0, result);
         var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
         Assert.NotNull(payload);
-        Assert.Equal("OutOfProcess", payload!["effectiveRuntimeMode"]?.GetValue<string>());
+        Assert.Equal("OutOfProcess", payload!["runtimeSettings"]?["runtimeMode"]?["value"]?.GetValue<string>());
         Assert.True(
             PayloadContainsConfiguredModulePath(payload, moduleDirectory.Path),
             $"Expected doctor output to include configured OOP module path '{moduleDirectory.Path}' in diagnostics output.");
@@ -162,8 +162,8 @@ public class ProgramTransportSelectionTests
         Assert.Equal(0, result);
         var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
         Assert.NotNull(payload);
-        Assert.Equal("OutOfProcess", payload!["effectiveRuntimeMode"]?.GetValue<string>());
-        Assert.Equal("cli", payload["effectiveRuntimeModeSource"]?.GetValue<string>());
+        Assert.Equal("OutOfProcess", payload!["runtimeSettings"]?["runtimeMode"]?["value"]?.GetValue<string>());
+        Assert.Equal("cli", payload["runtimeSettings"]?["runtimeMode"]?["source"]?.GetValue<string>());
         Assert.True(
             PayloadContainsConfiguredModulePath(payload, moduleDirectory.Path),
             $"Expected doctor output to include configured OOP module path '{moduleDirectory.Path}' in diagnostics output.");
@@ -173,26 +173,13 @@ public class ProgramTransportSelectionTests
     {
         var normalizedExpected = NormalizePath(expectedPath);
 
-        var configuredModulePaths = payload["effectivePowerShellConfiguration"]?["Environment"]?["ModulePaths"]?.AsArray()
+        var oopModulePaths = payload["powerShell"]?["oopModulePaths"]?.AsArray()
             ?.Select(n => n?.GetValue<string>())
             .Where(v => !string.IsNullOrWhiteSpace(v))
             .Cast<string>()
             .Select(NormalizePath)
             .ToList()
             ?? new();
-
-        var oopModulePaths = payload["oopModulePaths"]?.AsArray()
-            ?.Select(n => n?.GetValue<string>())
-            .Where(v => !string.IsNullOrWhiteSpace(v))
-            .Cast<string>()
-            .Select(NormalizePath)
-            .ToList()
-            ?? new();
-
-        if (!configuredModulePaths.Contains(normalizedExpected))
-        {
-            return false;
-        }
 
         return oopModulePaths.Contains(normalizedExpected);
     }

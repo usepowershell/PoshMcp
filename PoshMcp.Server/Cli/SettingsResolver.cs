@@ -8,6 +8,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
 namespace PoshMcp;
@@ -404,7 +405,10 @@ internal static class SettingsResolver
     }
 }
 
-internal sealed record ResolvedSetting(string? Value, string Source);
+/// <summary>A configuration value paired with its resolution source.</summary>
+public sealed record ResolvedSetting(
+    [property: JsonPropertyName("value")] string? Value,
+    [property: JsonPropertyName("source")] string Source);
 
 internal sealed record ResolvedCommandSettings(
     ResolvedSetting ConfigPath,

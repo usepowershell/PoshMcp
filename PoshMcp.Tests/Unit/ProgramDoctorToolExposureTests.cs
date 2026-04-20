@@ -53,15 +53,14 @@ public class ProgramDoctorToolExposureTests
 
         var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
         Assert.NotNull(payload);
-        Assert.True(payload!["effectivePowerShellConfiguration"]?["EnableConfigurationTroubleshootingTool"]?.GetValue<bool>());
-
+        // Verify the summary reflects the enabled tool via functionsTools section
         var toolNames = GetToolNames(capture.StandardOutput);
         Assert.Contains("get-configuration-troubleshooting", toolNames);
     }
 
     private static string[] GetToolNames(string standardOutput)
     {
-        return JsonNode.Parse(standardOutput.Trim())?["toolNames"]?.AsArray()
+        return JsonNode.Parse(standardOutput.Trim())?["functionsTools"]?["toolNames"]?.AsArray()
             .Select(node => node?.GetValue<string>())
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Cast<string>()
