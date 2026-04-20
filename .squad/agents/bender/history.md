@@ -103,6 +103,29 @@
 
 ## Learnings
 
+### 2026-07-28: PR #139 — Secrets redaction in doctor output (commit c2e8814)
+
+**Problem:** `IConfiguration.GetSection("Authentication")` and `GetSection("Logging")` values were surfaced verbatim into doctor JSON and text output, risking exposure of secrets (API keys, passwords, tokens, etc.).
+
+**Solution:**
+- Added `_sensitiveKeyPatterns` array (password, secret, key, token, connectionstring, credential, pwd, apikey, clientsecret)
+- `IsSensitiveKey(string key)` — case-insensitive substring check across patterns
+- `RedactSensitiveConfigValues(Dictionary<string,string?>)` — returns copy with sensitive-keyed values replaced by `[REDACTED]`
+- Applied immediately after `LoadFlatConfigSection` in both `RunDoctorAsync` (before passing to `BuildDoctorJson`) and in the null-coalescing fallback path inside `BuildDoctorJson`
+- Result: both text and JSON output paths always get redacted values
+
+**Guard fix:** `TryLoadResourcesAndPromptsDefinitions` was called unconditionally on line 1166 even when `resourceDefinitions` and `promptDefinitions` were already pre-supplied. Wrapped it in `if (resourceDefinitions is null || promptDefinitions is null)` — matching the auth/logging pattern used 3 lines above.
+
+**Tests added (3):**
+1. `DoctorJson_SensitiveAuthConfigValues_AreRedacted` — ClientSecret is `[REDACTED]`, ClientId is not
+2. `DoctorText_SensitiveAuthConfigValues_AreRedacted` — text output contains `ClientSecret=[REDACTED]`, not the raw value
+3. `BuildDoctorJson_WithPreSuppliedResourceAndPromptDefs_UsesPreSupplied` — pre-supplied defs appear in JSON output
+
+**Patterns to remember:**
+- Any config section surfaced to diagnostic/observability output should run through redaction before it gets anywhere near serialization.
+- `??=` is not enough to avoid a wasted call — need an explicit `if (x is null || y is null)` guard matching the pattern used for peer sections.
+- `LoadPowerShellConfiguration(path, ILogger logger, ...)` will throw if `logger` is null — use `NullLogger.Instance` in unit tests.
+
 ### 2026-07-28 (continued): PR #135 merged, worktree cleaned up
 
 PR #135 squash-merged to main (commit `5cb6533`). All 4 Copilot inline comments had been replied to in `f209175`. Summary comment posted, squash merge succeeded, remote branch deleted. Worktree `poshmcp-refactor-1-4` removed, local branch `refactor/program-cs-extract-1-4` deleted. Main pulled and fast-forwarded. Next PRs are E-G (remaining Program.cs extractions per `specs/program-cs-refactor.md`).
@@ -110,3 +133,9 @@ PR #135 squash-merged to main (commit `5cb6533`). All 4 Copilot inline comments 
 ## Archive Note
 
 Detailed prior history was archived to `history-archive.md` on 2026-04-14 when this file exceeded the 15 KB Scribe threshold.
+
+## Cross-Agent: PR #138 Feedback Resolved (2026-04-20)
+
+- Amy fixed PR #138 orphaned COPY line issue
+- PR #138 now approved (worktree poshmcp-136)
+- Both PRs approved and integrated

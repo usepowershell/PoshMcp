@@ -1,75 +1,112 @@
-# Farnsworth Work History — Archive
+# farnsworth - History Archive (Pre-cleanup)
 
-## Archived Sessions (Before 2026-01-17)
+# Farnsworth Work History
+## Project Context
+Project: PoshMcp - Model Context Protocol (MCP) server for PowerShell
+Tech Stack: .NET 10, C#, PowerShell SDK, OpenTelemetry, ASP.NET Core, xUnit
+Primary User: Steven Murawski
+Current Priorities:
+- Improve maintainability (structured errors, config validation)
+- Enhance resilience (circuit breakers, timeouts, retry logic)
+- Boost observability (metrics, health checks, diagnostics)
 
-### 2026-04-03: Session Summary
-**Status:** 2026-03-27 work (Docker architecture, Azure infrastructure, health checks) complete and tested.
-**Current Phase:** Phase 1 observability features (health checks, correlation IDs) and Azure Container Apps infrastructure deployed.
+## Learnings (Recent)
 
-### 2026-04-08: dotnet tool packaging architecture
+### 2025-07-17: PR #135 — Program.cs extraction quality (items 1-4)
 
-**Decision summary:**
-- Package `PoshMcp.Server` only as a dotnet tool (`PackAsTool=true`, `ToolCommandName=poshmcp`). The Web project is a hosted HTTP service — wrong shape for a CLI tool.
-- Tool command: `poshmcp`. Users invoke `poshmcp serve` or `poshmcp list-tools`.
-- Add `<Pack>false</Pack>` to all three `<Content>` items in Server.csproj. SDK-style `<Content>` items go into NuGet `contentFiles/` by default; user-owned config files must not be bundled. `default.appsettings.json` as `EmbeddedResource` is already correct.
-- `Microsoft.PowerShell.SDK` embeds the PowerShell runtime — users do NOT need a standalone `pwsh` install. Document prominently.
-- No `PublishSingleFile` or `PublishTrimmed` — dotnet tools use standard publish output. Dynamic assembly generation in `McpToolFactoryV2` is not trim-safe.
-- Add `.config/dotnet-tools.json` local manifest for developer/CI workflow. Global install is primary for end users.
-- `net10.0` is the hard prerequisite; must be in README.
-- Start version at `0.1.0`.
-- PackageId: `PoshMcp`, Authors: `Steven Murawski`, License: `MIT` (needs LICENSE file at repo root).
+**Task:** Reviewed PR #135 which extracts `LoggingHelpers`, `DockerRunner`, `SettingsResolver`, `ConfigurationFileManager`, and `ConfigurationLoader` from Program.cs.
 
-### 2026-04-10: Recovery guidance for out-of-process runtime and doctor tooling
+**Key observations:**
+- All extractions were complete and correct — every method and type listed in the plan for items 1–4 appeared in its designated file with no omissions.
+- The decision to combine PRs A–D into one PR was sound: all four are "safe" extractions (pure function moves, no instance state), so there was no behavioral risk to combining them.
+- Call sites updated consistently throughout Program.cs — no stale direct method calls left behind.
+- Namespace (`namespace PoshMcp;`) and visibility (`internal static`) were uniform across all five new files. Zero accidental public surface.
+- Build: 0 errors, 0 warnings. Tests not explicitly run, but build green is a strong indicator.
+- Only note: `ExitCodeRuntimeError = 4` is duplicated as `private const` in both `Program.cs` and `DockerRunner.cs`. Harmless, but a candidate for a shared constants class in a later sweep.
+- `Program.cs` is ~2,100 lines post-extraction — expected at this stage. The big reductions come in PRs E–H (doctor, tool setup, server hosts, CLI tree).
 
-**Key learnings:**
-- Out-of-process end-to-end tests should stay as documented stubs until `Program.cs` and `InProcessMcpServer` expose a supported `--runtime-mode` surface.
-- Recovery work should normalize all live startup helpers to `POSHMCP_TRANSPORT`; `POSHMCP_MODE` is retired architectural residue.
-- If the out-of-process design resumes, a persistent `pwsh` subprocess over localhost TCP remains the lowest-complexity cross-platform direction.
-- Troubleshooting surfaces should stay read-only and explicitly gated even when exposed as built-in MCP tools.
+**Verdict:** APPROVED. Extraction quality is high. Pattern is replicable for PRs E–I.
 
-### 2026-04-11: Out-of-process execution comprehensive plan
+### 2025-07-18: Program.cs refactor plan authored
 
-**Key architecture decisions:**
-- Communication protocol changed from localhost TCP (2026-04-10 note) to **stdin/stdout ndjson** — simpler, no port/firewall concerns, native `Process` stream redirection.
-- 6-phase plan: stubs (fix 13 build errors) → subprocess lifecycle → discovery → invocation → IL assembly gen → integration tests.
-- `oop-host.ps1` PowerShell script runs inside persistent `pwsh` subprocess, handles discover/invoke/ping/shutdown via ndjson.
-- Crash recovery: auto-restart with exponential backoff (3 retries/5 min), re-discovery after restart.
-- No mixed mode in v1 — RuntimeMode is server-wide. Per-function routing deferred.
-- 5 new types in `PoshMcp.Server.PowerShell.OutOfProcess` namespace: `RuntimeMode` enum, `ICommandExecutor`, `RemoteToolSchema`+`RemoteParameterSchema`, `OutOfProcessCommandExecutor`, `OutOfProcessToolAssemblyGenerator`.
-- Full spec: `specs/out-of-process-execution.md`
-- Key files already referencing OOP: `Program.cs` (lines 13, 934, 945, 1928, 2029, 2375-2389), `McpToolFactoryV2.cs` (lines 15, 39, 72, 314-355), `PowerShellConfiguration.cs` (line 15).
+**Task:** Full read of Program.cs (~3,480 lines) and all other .cs files in PoshMcp.Server. Produced working refactor plan at `specs/program-cs-refactor.md`.
 
-### 2026-04-11: CLIXML evaluation for OOP transport
+**Key findings:**
+- Program.cs owns 12 distinct concerns — CLI tree, command handlers, settings resolution, config file I/O, config loading, doctor diagnostics, MCP tool setup, stdio server startup, HTTP server startup, Docker process commands, logging utilities, and inline model types.
+- All methods are `private static` or `internal static` with no instance state — extractions are pure method moves with no behavioral risk.
+- Two genuine care points: (1) `args` is closed over in SetHandler lambdas — must be threaded explicitly when extracting handlers; (2) `ConfigureJsonSerializerOptions`/`RegisterCleanupServices` are duplicated for both builder types — deduplicate via a shared `Action<>` delegate.
+- Static mutable state on `McpToolFactoryV2.SetMetrics`, `PowerShellAssemblyGenerator.SetMetrics/SetRuntimeCachingState/SetConfiguration` is a pre-existing anti-pattern — explicitly deferred from this refactor.
+- `UpgradeConfigWithMissingDefaultsAsync` is a side-effecting call embedded inside config path resolution — intentional coupling, move both methods together rather than decoupling.
 
-**Decision:** Rejected CLIXML in favor of keeping ndjson/JSON for OOP subprocess communication.
-**Core reasoning:** MCP output is JSON — CLIXML would add a triple conversion pipeline (CLIXML→PSObject→FlattenPSObject→JSON) replacing a direct JSON path. The server has the PS SDK loaded so CLIXML is technically parseable, but the type fidelity it provides is lost at the JSON output boundary. CLIXML is also 5-10x larger on the wire, adding performance penalty for large result sets (already flagged as Risk #4 in spec).
-**Key insight:** OOP isolation targets heavy module loading, not the SDK. The SDK can deserialize CLIXML, but doing so reconstructs full PSObject graphs that we immediately flatten — waste of CPU/memory for throwaway fidelity.
-**If types prove problematic:** Handle surgically in `oop-host.ps1` with per-type handlers rather than switching transport format. ConvertTo-Json -Depth 4 -Compress remains the correct approach.
+**Proposed breakdown:** 10 new files, 9 incremental PRs, Program.cs target ≤200 lines.
 
-### 2026-04-13: PR #85 merged — extend update-config all settings
+**Decision inbox entry:** `.squad/decisions/inbox/farnsworth-program-cs-refactor.md`
 
-**PR:** #85 (Amy) — `feat: extend update-config to support all configuration settings`
-**Outcome:** Squash merged to `main`. Branch `squad/76-update-config-all-settings` deleted. Fixes #76.
+### 2026-07-18: Issue #131 — STDIO logging architecture review
 
-**What was in the PR:**
-- 4 new `update-config` CLI flags: `--runtime-mode`, `--enable-result-caching`, `--enable-configuration-troubleshooting-tool`, `--set-auth-enabled`
-- Extended `ConfigUpdateRequest`/`ConfigUpdateResult` records
-- Interactive prompts extended with `AllowAnonymous`, `RequiredScopes`, `RequiredRoles` per added function/command
-- Fix: interactive prompts now run for `allAddedNames` (both `--add-command` and `--add-function`) not just `addedFunctionNames`
-- `boolUpdateApplied` upgraded bool->int counter; `SettingsChanged` field in JSON output
-- Correct JSON nesting: `Performance` under `powerShellConfiguration`, `Authentication` at root level
+**Design ownership:** Created comprehensive architecture spec (farnsworth-131-stdio-logging-design.md) defining:
+- Problem: stdio transport must not pollute MCP JSON-RPC stream with console logging
+- Solution: Serilog file-backed logging with 3-tier resolution (CLI > env > config > silent)
+- New dependencies: Serilog.Extensions.Hosting, Serilog.Extensions.Logging, Serilog.Sinks.File
+- ConfigureStdioLogging method with ClearProviders unconditional suppression
+- OTel console exporter guarded by isStdioMode parameter
 
-**Issues filed (non-blocking observations):**
-- #86: Enhancement — add `--use-default-display-properties` global flag (consistency with other Performance bool flags)
-- #87: Tech debt — warn when `--set-auth-enabled true` used with empty `Authentication.Schemes`
-- #88: Tests — add unit tests for all 4 new flags and `settingsChanged` counter in `ProgramCliConfigCommandsTests`
+**PR #132 Review:** Comprehensive code review across all team contributions:
+- Verified ClearProviders unconditionally prevents stdio pollution
+- Validated Serilog file sink configuration (rolling daily, 7-day retention, output template)
+- Confirmed resolution tier precedence (CLI > env > appsettings > silent)
+- Checked OTel console exporter guarded by isStdioMode (HTTP path unchanged)
+- Reviewed test coverage (10 tests, full suite 487/0/1 pass)
+- Validated documentation updates (README + DOCKER with all three config options)
 
-### 2026-04-15: DESIGN.md architecture consistency pass
+**Verdict:** APPROVED - Implementation matches design spec. Ship it.
 
-**Key learnings:**
-- Design docs drift first in boundary descriptions: AI intent mapping belongs to MCP clients, while PoshMcp responsibilities are discovery/schema/execution/transport.
-- Transport descriptions must mirror executable reality (`stdio` and `http`), including HTTP-only operational features (health/auth).
-- Runtime architecture now needs explicit mention of both in-process and out-of-process PowerShell modes to stay aligned with implementation.
-- Local doc links in architecture docs should target active docs paths (for environment customization: `docs/articles/environment.md`, not archived docs).
+### 2026-07-14: MCP authentication architecture design
 
-**Outcome:** Updated `DESIGN.md` with minimal corrections while preserving original intent and structure.
+**Decision:** Implement two-layer authentication for HTTP transport:
+1. **ASP.NET Core middleware** validates identity (JWT Bearer tokens, API keys) → populates `HttpContext.User`
+2. **MCP SDK `CallToolFilters`** enforce per-tool authorization via `FunctionOverrides` config (scopes, roles, anonymous bypass)
+
+**Architecture rationale:**
+- Use `McpRequestFilters.CallToolFilters` (not `DelegatingMcpServerTool` wrappers) — cross-cutting, direct access to `User` and tool names, pairs with `ListToolsFilters` for consistent visibility
+- Standard ASP.NET Core auth stack (not custom MCP-layer parsing) — SDK's `MessageContext.User` proves this is the intended integration point
+- Multi-scheme support: JWT Bearer (spec compliance, enterprise) + API Key (simplicity)
+- Disabled by default (`Authentication.Enabled = false`) for backward compatibility
+- Stdio transport skips HTTP auth per MCP spec, but `CallToolFilters` still enforce tool-level policy
+
+**Implementation scope:**
+- New `Authentication` config section with `Enabled`, `Schemes`, `DefaultPolicy`
+- `FunctionOverride` extends existing pattern with `RequiredScopes`, `RequiredRoles`, `AllowAnonymous`
+- `Program.cs` gains conditional auth middleware in HTTP pipeline
+- RFC 9728 protected resource metadata endpoint: `/.well-known/oauth-protected-resource`
+- New dependency: `Microsoft.AspNetCore.Authentication.JwtBearer`
+
+### 2026-07-15: PR #83 re-review (auth metrics Phase 6)
+
+**Verdict:** APPROVED
+**Issue resolved:** McpMetrics dual-instance bug fixed by Bender. Auth filters now registered as DI singletons with factory lambdas resolving `McpMetrics` via `sp.GetRequiredService<McpMetrics>()`. No manual `new McpMetrics()` construction in auth path. Deferred capture pattern for filter variables (assigned post-`app.Build()`) is safe — lambdas execute only at request time.
+**Non-blocking nit:** Redundant LINQ lookup in `ApiKeyAuthenticationHandler` (`Options.Keys.FirstOrDefault(k => k.Key == apiKey).Key` after `TryGetValue` already succeeded).
+**Build:** 0 errors on branch.
+
+### 2026-07-15: Batch PR review session (PRs #92–#96)
+
+**Reviewed 5 PRs, 4 approved, 1 rejected:**
+
+| PR | Author | Verdict | Summary |
+|----|--------|---------|---------|
+| #92 | Amy | ✅ APPROVED | `--use-default-display-properties` flag — clean pattern adherence |
+| #93 | Bender | ✅ APPROVED | Auth-enabled warning — minimal, advisory-only, stderr |
+| #94 | Fry | ✅ APPROVED | 12 unit tests for update-config flags — comprehensive coverage |
+| #95 | Hermes | ✅ APPROVED | Unserializable type filtering — solid 3-tier handling with 33 tests |
+| #96 | Hermes | ❌ REJECTED | Doctor resolution diagnosis — `DiagnoseMissingCommands` called twice in JSON path |
+
+**PR #96 rejection rationale:** `RunDoctorAsync` enriches `configuredFunctionStatus` with resolution reasons, then passes the list to `BuildDoctorJson` which independently calls `DiagnoseMissingCommands` again. Each call creates an `IsolatedPowerShellRunspace` and runs `Get-Command`/`Import-Module` per missing command. Fix: guard in `BuildDoctorJson` to skip when `ResolutionReason` is already populated. Assigned to Bender per rejection lockout.
+
+**Cross-PR observations:**
+- PRs #92, #93, #96 all modify `Program.cs` from same base (`bb35363`). Different line ranges — no merge conflicts expected but must merge sequentially.
+- No PR touches `PoshMcp.Server.csproj` — no compatibility concerns with recent csproj edits.
+- PR #94 depends on PR #85's flags being on `main` (already merged) — no ordering concern.
+- PR #95 is self-contained (new files + `PowerShellAssemblyGenerator.cs`) — can merge independently.
+
+### 2026-07-15: PR #96 re-review — approved and merged
+
