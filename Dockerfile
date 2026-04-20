@@ -5,8 +5,7 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 
 WORKDIR /src
 
-# Copy solution and project files first (stable layer - benefits from layer caching)
-COPY PoshMcp.sln ./
+# Copy project files first (stable layer - benefits from layer caching)
 COPY PoshMcp.Server/PoshMcp.csproj ./PoshMcp.Server/
 
 # Restore dependencies in one stage for efficiency
