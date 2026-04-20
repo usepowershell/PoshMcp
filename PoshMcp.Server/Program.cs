@@ -896,6 +896,13 @@ public class Program
         var logger = loggerFactory.CreateLogger("Doctor");
 
         var config = ConfigurationLoader.LoadPowerShellConfiguration(settings.FinalConfigPath, logger, settings.RuntimeMode.Value);
+        var rawConfig = new ConfigurationBuilder()
+            .AddJsonFile(settings.FinalConfigPath, optional: true, reloadOnChange: false)
+            .Build();
+        var authenticationConfig = LoadFlatConfigSection(rawConfig, "Authentication");
+        var loggingConfig = LoadFlatConfigSection(rawConfig, "Logging");
+        var environmentVariables = CollectEnvironmentVariables();
+        var (resourcesDefinitionsConfig, promptsDefinitionsConfig) = TryLoadResourcesAndPromptsDefinitions(settings.FinalConfigPath);
         var tools = await DiscoverToolsAsync(config, loggerFactory, logger, settings.FinalConfigPath);
         var discoveredToolNames = GetDiscoveredToolNames(tools);
         var configuredFunctionStatus = BuildConfiguredFunctionStatus(config.GetEffectiveCommandNames(), discoveredToolNames);
@@ -939,7 +946,12 @@ public class Program
                 tools: tools,
                 precomputedFunctionStatus: configuredFunctionStatus,
                 resourcesDiagnostics: resourcesDiag,
-                promptsDiagnostics: promptsDiag));
+                promptsDiagnostics: promptsDiag,
+                authenticationConfig: authenticationConfig,
+                loggingConfig: loggingConfig,
+                environmentVariables: environmentVariables,
+                resourceDefinitions: resourcesDefinitionsConfig,
+                promptDefinitions: promptsDefinitionsConfig));
             return;
         }
 
@@ -1047,6 +1059,46 @@ public class Program
             foreach (var warning in promptsDiag.Warnings)
                 Console.WriteLine($"  ⚠ {warning}");
         }
+
+        Console.WriteLine("Environment variables:");
+        foreach (var kvp in environmentVariables)
+            Console.WriteLine($"  {kvp.Key}={kvp.Value ?? "(not set)"}");
+
+        Console.WriteLine("Authentication config:");
+        if (authenticationConfig.Count > 0)
+        {
+            foreach (var kvp in authenticationConfig)
+                Console.WriteLine($"  {kvp.Key}={kvp.Value}");
+        }
+        else
+        {
+            Console.WriteLine("  (none)");
+        }
+
+        Console.WriteLine("Logging config:");
+        if (loggingConfig.Count > 0)
+        {
+            foreach (var kvp in loggingConfig)
+                Console.WriteLine($"  {kvp.Key}={kvp.Value}");
+        }
+        else
+        {
+            Console.WriteLine("  (none)");
+        }
+
+        if (resourcesDefinitionsConfig.Count > 0)
+        {
+            Console.WriteLine("Resource definitions:");
+            foreach (var resource in resourcesDefinitionsConfig)
+                Console.WriteLine($"  - {resource.Uri} ({resource.Name})");
+        }
+
+        if (promptsDefinitionsConfig.Count > 0)
+        {
+            Console.WriteLine("Prompt definitions:");
+            foreach (var prompt in promptsDefinitionsConfig)
+                Console.WriteLine($"  - {prompt.Name}");
+        }
     }
 
     internal static string BuildDoctorJson(
@@ -1066,7 +1118,12 @@ public class Program
         List<McpServerTool> tools,
         List<ConfiguredFunctionStatus>? precomputedFunctionStatus = null,
         McpResourcesDiagnostics? resourcesDiagnostics = null,
-        McpPromptsDiagnostics? promptsDiagnostics = null)
+        McpPromptsDiagnostics? promptsDiagnostics = null,
+        Dictionary<string, string?>? authenticationConfig = null,
+        Dictionary<string, string?>? loggingConfig = null,
+        Dictionary<string, string?>? environmentVariables = null,
+        IReadOnlyList<McpResourceConfiguration>? resourceDefinitions = null,
+        IReadOnlyList<McpPromptConfiguration>? promptDefinitions = null)
     {
         var discoveredToolNames = GetDiscoveredToolNames(tools);
         var configuredFunctionStatus = precomputedFunctionStatus
@@ -1095,6 +1152,20 @@ public class Program
         // Compute resource/prompt diagnostics if not pre-supplied
         resourcesDiagnostics ??= ConfigurationLoader.TryValidateResourcesAndPrompts(configurationPath).Resources;
         promptsDiagnostics ??= ConfigurationLoader.TryValidateResourcesAndPrompts(configurationPath).Prompts;
+
+        // Compute new diagnostic sections if not pre-supplied
+        if (authenticationConfig is null || loggingConfig is null)
+        {
+            var rawConfig = new ConfigurationBuilder()
+                .AddJsonFile(configurationPath, optional: true, reloadOnChange: false)
+                .Build();
+            authenticationConfig ??= LoadFlatConfigSection(rawConfig, "Authentication");
+            loggingConfig ??= LoadFlatConfigSection(rawConfig, "Logging");
+        }
+        environmentVariables ??= CollectEnvironmentVariables();
+        var (resDefsConfig, promDefsConfig) = TryLoadResourcesAndPromptsDefinitions(configurationPath);
+        resourceDefinitions ??= resDefsConfig;
+        promptDefinitions ??= promDefsConfig;
 
         var resourcesSummary = new
         {
@@ -1141,6 +1212,11 @@ public class Program
             oopModulePaths,
             resources = resourcesSummary,
             prompts = promptsSummary,
+            environmentVariables,
+            authenticationConfig,
+            loggingConfig,
+            resourceDefinitions,
+            promptDefinitions,
             generatedAtUtc = DateTime.UtcNow
         };
 
@@ -1159,6 +1235,41 @@ public class Program
             warnings.Add("FunctionNames is deprecated. Migrate to CommandNames in your appsettings.json (rename the \"FunctionNames\" array to \"CommandNames\").");
         }
         return warnings;
+    }
+
+    private static Dictionary<string, string?> CollectEnvironmentVariables()
+    {
+        return new Dictionary<string, string?>
+        {
+            ["POSHMCP_CONFIG"] = Environment.GetEnvironmentVariable("POSHMCP_CONFIG"),
+            ["POSHMCP_TRANSPORT"] = Environment.GetEnvironmentVariable("POSHMCP_TRANSPORT"),
+            ["POSHMCP_LOG_LEVEL"] = Environment.GetEnvironmentVariable("POSHMCP_LOG_LEVEL"),
+            ["POSHMCP_SESSION_MODE"] = Environment.GetEnvironmentVariable("POSHMCP_SESSION_MODE"),
+            ["POSHMCP_RUNTIME_MODE"] = Environment.GetEnvironmentVariable("POSHMCP_RUNTIME_MODE"),
+            ["POSHMCP_MCP_PATH"] = Environment.GetEnvironmentVariable("POSHMCP_MCP_PATH"),
+            ["ASPNETCORE_ENVIRONMENT"] = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+        };
+    }
+
+    private static Dictionary<string, string?> LoadFlatConfigSection(IConfiguration configuration, string sectionName)
+    {
+        return configuration.GetSection(sectionName)
+            .AsEnumerable(makePathsRelative: true)
+            .Where(kvp => kvp.Value is not null)
+            .ToDictionary(kvp => kvp.Key, kvp => (string?)kvp.Value);
+    }
+
+    private static (IReadOnlyList<McpResourceConfiguration> Resources, IReadOnlyList<McpPromptConfiguration> Prompts) TryLoadResourcesAndPromptsDefinitions(string configPath)
+    {
+        try
+        {
+            var (resourcesConfig, promptsConfig) = ConfigurationLoader.LoadResourcesAndPromptsConfiguration(configPath);
+            return (resourcesConfig.Resources, promptsConfig.Prompts);
+        }
+        catch
+        {
+            return (Array.Empty<McpResourceConfiguration>(), Array.Empty<McpPromptConfiguration>());
+        }
     }
 
     internal static string SerializeEffectivePowerShellConfiguration(PowerShellConfiguration config, bool writeIndented = false)
