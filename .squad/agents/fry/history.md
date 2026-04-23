@@ -136,3 +136,16 @@
 
 
 Detailed prior history (2026-03-27 through 2026-04-07) archived to `history-archive.md` when this file exceeded 15 KB threshold on 2026-04-18.
+
+## [2026-04-23T15:08:26] Deploy Source Image Test Tasks
+
+**Session:** Deploy source image support implementation (spec 007)
+**Contribution:** Created test tasks checklist for spec 007
+
+**Key Learnings:**
+- Test checklist: specs/007-deploy-source-image/tasks.md
+- Comprehensive test coverage planning
+- Coordinated with Farnsworth (spec) and Amy (implementation)
+- Test-driven approach validates implementation
+
+**Artifacts:** specs/007-deploy-source-image/tasks.md

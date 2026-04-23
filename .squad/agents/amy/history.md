@@ -136,3 +136,17 @@ Detailed session history was archived to `history-archive.md` on 2026-04-10 when
 ## Learnings
 
 - **Version management:** Project version is maintained solely in PoshMcp.Server/PoshMcp.csproj under the <Version> element. No distributed version configuration across multiple files (e.g., Directory.Build.props). Bumped  .7.1 →  .8.0.
+
+## [2026-04-23T15:08:26] Source Image Implementation
+
+**Session:** Deploy source image support implementation (spec 007)
+**Contribution:** Implemented -SourceImage and -UseRegistryCache parameters
+
+**Key Learnings:**
+- Parameters added to infrastructure/azure/deploy.ps1
+- -SourceImage: specify container source image
+- -UseRegistryCache: control registry caching behavior
+- Implements parameter validation and integration
+- Coordinated with Farnsworth (spec) and Fry (testing)
+
+**Artifacts:** infrastructure/azure/deploy.ps1

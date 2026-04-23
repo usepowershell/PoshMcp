@@ -209,3 +209,15 @@ Source: earned patterns from PRs #92–#96 and agent histories.
 - `✖` (U+2716) vs `✗` (U+2717) inconsistency in `RenderMcpDefinitions` vs `StatusSymbol`
 - Auth/logging config removed from output (technically FR-109 information loss, but defensible per spec's "placeholder" language)
 - Extra env vars added beyond spec's 8 (POSHMCP_FUNCTION_NAMES, POSHMCP_COMMAND_NAMES, DOTNET_ENVIRONMENT) — additive, fine
+
+## [2026-04-23T15:08:26] Deploy Source Image Spec
+
+**Session:** Deploy source image support implementation (spec 007)
+**Contribution:** Authored specification for -SourceImage parameter support
+
+**Key Learnings:**
+- Spec document: specs/007-deploy-source-image/spec.md
+- Defines parameters for source image support in deploy.ps1
+- Coordinated with Amy (implementation) and Fry (testing)
+
+**Artifacts:** specs/007-deploy-source-image/spec.md
