@@ -53,6 +53,16 @@
 - Pushed to `squad/136-fix-container-image-build`; replied to PR with confirmation comment.
 - Key lesson: when switching from solution-level to project-level restore/build in a Dockerfile, audit all COPY lines in the build stage — any files that no longer appear in RUN commands become orphaned layers that add noise without value.
 
+## Learnings
+
+### poshmcp build CLI
+
+- `poshmcp build` is a subcommand of the **poshmcp** dotnet global tool (packaged in `PoshMcp.Server/PoshMcp.csproj` with `<PackAsTool>true</PackAsTool>` and `<ToolCommandName>poshmcp</ToolCommandName>`).
+- Accepts `--tag <image:tag>` (single tag only), `--modules`, `--type`, `--docker-file` options.
+- Under the hood it calls `DockerRunner.BuildDockerBuildArgs` → `docker/podman build -f Dockerfile -t <tag> .` with auto-detection of docker vs podman.
+- Because `poshmcp build` only supports one `--tag`, building both a versioned tag and `latest` requires: call `poshmcp build --tag $VersionedTag` once, then `docker tag $VersionedTag $latestTag` to alias the result — avoiding a double build.
+- The deploy script's `Build-AndPushImage` was updated to use this pattern (replaced the direct `docker build -t … -t … -f Dockerfile .` line).
+
 ## Archive Note
 
 Detailed session history was archived to `history-archive.md` on 2026-04-10 when this file exceeded the 15 KB Scribe threshold.

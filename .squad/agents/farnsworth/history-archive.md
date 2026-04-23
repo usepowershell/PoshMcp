@@ -110,3 +110,52 @@ Current Priorities:
 
 ### 2026-07-15: PR #96 re-review — approved and merged
 
+
+
+### 2025-07-17: PR #135 re-review — second pass confirmation
+
+**PR:** #135 — `refactor: extract LoggingHelpers, DockerRunner, SettingsResolver, ConfigurationFileManager, ConfigurationLoader from Program.cs`
+**Verdict:** APPROVED (comment — self-approval blocked by GitHub)
+
+**Second-pass validation (independent of Steven's self-review):**
+- Verified all 5 files contain exactly the methods specified in items 1–4 of `specs/program-cs-refactor.md`
+- Scanned all 60+ call sites in Program.cs — every one uses the new class prefix (`LoggingHelpers.`, `DockerRunner.`, `SettingsResolver.`, `ConfigurationFileManager.`, `ConfigurationLoader.`). Zero stale unqualified calls.
+- Confirmed no method definitions are duplicated between Program.cs and the new files via `private static|internal static` scan.
+- Namespace (`namespace PoshMcp;`) and visibility (`internal static`) uniform across all 5 files.
+- Program.cs is 2,100 lines — expected intermediate state. Bulk reduction in PRs E–H.
+- `ExitCodeRuntimeError = 4` duplication noted again (Program.cs + DockerRunner.cs). Non-blocking. Candidate for shared constants.
+- `args` closure, static mutable state, `UpgradeConfigWithMissingDefaultsAsync` coupling — all handled per plan.
+
+**Pattern for future PRs:** The combined A–D approach worked well for "safe" extractions (pure function moves). PRs E–G (doctor, tool setup, server hosts) have more cross-cutting dependencies and should be individual PRs as the plan recommends.
+
+
+
+### 2025-07-18: PR #138 review — approved (Dockerfile restore/build fix)
+
+**PR:** #138 (fixes #136) — `fix(#136): Fix Dockerfile restore/build`
+**Verdict:** APPROVED
+
+**Fix:** Two-line change: `dotnet restore PoshMcp.sln` → `dotnet restore PoshMcp.Server/PoshMcp.csproj`, `dotnet build PoshMcp.sln` → `dotnet build PoshMcp.Server/PoshMcp.csproj`. Fixes container build failure when only PoshMcp.Server.csproj is copied in the early layer but restore/build targeted the full solution (which references TestClient and PoshMcp.Tests not present in the container).
+
+**Non-blocking nit:** `COPY PoshMcp.sln ./` on line 9 is now dead weight — no build command references it. Candidate for cleanup.
+
+
+
+### 2025-07-18: PR #139 review — approved (doctor config coverage)
+
+**PR:** #139 (fixes #137) — `feat(#137): Add auth, logging, env vars, MCP definitions to doctor`
+**Verdict:** APPROVED
+
+**Implementation quality:** 4 new diagnostic sections in both text and JSON output. 12 tests with well-designed disposable helpers (`DoctorConfigFile`, `DoctorConsoleCapture`, `DoctorEnvVarScope`). All 7 env vars covered. `BuildDoctorJson` new parameters use `= null` defaults with null-coalescing fallback — zero impact on existing callers. `[Collection("TransportSelectionTests")]` correctly prevents parallel execution. No trailing whitespace.
+
+**Non-blocking nits:**
+1. `TryLoadResourcesAndPromptsDefinitions` called unconditionally in `BuildDoctorJson` even when both values pre-supplied — should be guarded like auth/logging 3 lines above (same class of issue as PR #96 rejection, but much lower cost).
+2. `POSHMCP_LOG_FILE` (added in PR #132) absent from env vars list — follow-up candidate.
+
+**Pattern noted:** The precomputed-optional-parameter pattern (from PR #96) continues to be the correct approach for `BuildDoctorJson` — compute expensive data once in `RunDoctorAsync`, pass via optional params, let `BuildDoctorJson` self-compute only when called standalone.
+
+## Cross-Agent: PR Review Approved (2026-04-20)
+
+- Amy fixed PR #138 feedback (worktree poshmcp-136) 
+- Bender fixed PR #139 feedback (worktree poshmcp-137)
+- Both PRs approved with nits resolved

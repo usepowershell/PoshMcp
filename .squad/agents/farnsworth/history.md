@@ -9,6 +9,8 @@
 
 **Rejection lockout pattern validated:** Hermes wrote the bug, was locked out, Bender delivered the fix cleanly. Pattern works — fresh eyes caught what the original author missed.
 
+
+
 ### 2026-07-15: Authored 4 new team skills from history review
 
 Skills created: worktree-pr-merge, precomputed-optional-parameter, unserializable-type-handling, cli-bool-flag-pattern.
@@ -16,6 +18,8 @@ All at confidence: medium (except unserializable-type-handling: high — 33 test
 Source: earned patterns from PRs #92–#96 and agent histories.
 
 📌 Team update (2026-04-14T00:00:00Z): Docs publishing now uses a dedicated GitHub Pages workflow with docs-only path trigger and prebuilt `docs/_site` artifact strategy — decided by Amy.
+
+
 
 ### 2026-07-15: MCP Resources and Prompts spec authored
 
@@ -33,6 +37,8 @@ Source: earned patterns from PRs #92–#96 and agent histories.
 - FR numbering starts at FR-018 (after FR-017 from spec 001); SC numbering starts at SC-009 (after SC-008)
 - Doctor validation contract fully specified including severity levels and JSON output shape
 
+
+
 ### 2026-04-17: Spec restructure — loose specs → speckit format
 
 **What was done:**
@@ -46,6 +52,8 @@ Source: earned patterns from PRs #92–#96 and agent histories.
 - "Fail-fast" is the right default for prompt behavior; structured prompt response is P2 (requires fail-fast infrastructure first)
 - Property filtering via `DefaultDisplayPropertySet` should be ON by default (95%+ payload reduction); result caching via `Tee-Object` should be OFF by default (most callers never use replay tools)
 - Spec 003 (prompt handling) logically precedes spec 004 (OOP) because the OOP interactive prompt strategy is defined as "defer to spec 003 / fail-fast in OOP mode"
+
+
 
 ### 2026-07-18: PR #130 review — approved (MimeType nullable fix)
 
@@ -62,11 +70,15 @@ Source: earned patterns from PRs #92–#96 and agent histories.
 - Build: 0 errors; Tests: 471 passed, 0 failed
 
 **Key pattern:** When a config property has a protocol-level default, keep the model nullable to distinguish "not configured" from "explicitly configured to the default value". Apply the default at the last responsible moment (the handler constructing the response).
+
+
 ### 2026-04-18: PR #130 review (issue #129 — MimeType fix)
 
 **Verdict:** ✅ APPROVED
 **Summary:** MimeType model nullable change restores validator signal while maintaining runtime fallback behavior. All 471 tests pass, 0 build warnings. Validator correctly flags missing MimeType in config; handler provides runtime "text/plain" default in HandleListAsync and HandleReadAsync.
 **Key takeaway:** Model defaults that prevent validators from firing should be moved to runtime handlers. This preserves diagnostic signals while keeping runtime contracts stable.
+
+
 
 ### 2026-07-18: Issue #131 triage — STDIO logging to file
 
@@ -85,6 +97,8 @@ Source: earned patterns from PRs #92–#96 and agent histories.
 - **Amy** — OTel console suppression, `appsettings.json` schema (`Logging.File.Path`), documentation (README.md, DOCKER.md, appsettings.environment-example.json)
 
 **GitHub note:** Label addition and issue comment blocked by Enterprise Managed User policy — triage notes saved to `.squad/decisions/inbox/farnsworth-131-stdio-logging-design.md` instead.
+
+
 
 ### 2026-07-18: PR #132 review — approved (STDIO logging suppression)
 
@@ -106,6 +120,8 @@ Source: earned patterns from PRs #92–#96 and agent histories.
 - Root handler (bare `poshmcp`) doesn't resolve `POSHMCP_LOG_FILE` — legacy path, low priority
 - Pattern: `CreateLoggerFactory` didn't need changes because it's never called from the stdio server path — design spec was overcautious on this point
 
+
+
 ### 2026-07-18: PR #134 review — approved (docker buildx missing build context path)
 
 **PR:** #134 (fixes #133) — `fix(#133): add missing build context path to docker buildx build command`
@@ -121,49 +137,7 @@ Source: earned patterns from PRs #92–#96 and agent histories.
 
 **Pattern noted:** When a CLI tool wraps an external command, every required positional argument must be present in the assembled arg string. The `File.Exists` guard doubles as implicit CWD validation — a pattern worth documenting for future Docker command wrappers.
 
-### 2025-07-17: PR #135 re-review — second pass confirmation
 
-**PR:** #135 — `refactor: extract LoggingHelpers, DockerRunner, SettingsResolver, ConfigurationFileManager, ConfigurationLoader from Program.cs`
-**Verdict:** APPROVED (comment — self-approval blocked by GitHub)
-
-**Second-pass validation (independent of Steven's self-review):**
-- Verified all 5 files contain exactly the methods specified in items 1–4 of `specs/program-cs-refactor.md`
-- Scanned all 60+ call sites in Program.cs — every one uses the new class prefix (`LoggingHelpers.`, `DockerRunner.`, `SettingsResolver.`, `ConfigurationFileManager.`, `ConfigurationLoader.`). Zero stale unqualified calls.
-- Confirmed no method definitions are duplicated between Program.cs and the new files via `private static|internal static` scan.
-- Namespace (`namespace PoshMcp;`) and visibility (`internal static`) uniform across all 5 files.
-- Program.cs is 2,100 lines — expected intermediate state. Bulk reduction in PRs E–H.
-- `ExitCodeRuntimeError = 4` duplication noted again (Program.cs + DockerRunner.cs). Non-blocking. Candidate for shared constants.
-- `args` closure, static mutable state, `UpgradeConfigWithMissingDefaultsAsync` coupling — all handled per plan.
-
-**Pattern for future PRs:** The combined A–D approach worked well for "safe" extractions (pure function moves). PRs E–G (doctor, tool setup, server hosts) have more cross-cutting dependencies and should be individual PRs as the plan recommends.
-
-### 2025-07-18: PR #138 review — approved (Dockerfile restore/build fix)
-
-**PR:** #138 (fixes #136) — `fix(#136): Fix Dockerfile restore/build`
-**Verdict:** APPROVED
-
-**Fix:** Two-line change: `dotnet restore PoshMcp.sln` → `dotnet restore PoshMcp.Server/PoshMcp.csproj`, `dotnet build PoshMcp.sln` → `dotnet build PoshMcp.Server/PoshMcp.csproj`. Fixes container build failure when only PoshMcp.Server.csproj is copied in the early layer but restore/build targeted the full solution (which references TestClient and PoshMcp.Tests not present in the container).
-
-**Non-blocking nit:** `COPY PoshMcp.sln ./` on line 9 is now dead weight — no build command references it. Candidate for cleanup.
-
-### 2025-07-18: PR #139 review — approved (doctor config coverage)
-
-**PR:** #139 (fixes #137) — `feat(#137): Add auth, logging, env vars, MCP definitions to doctor`
-**Verdict:** APPROVED
-
-**Implementation quality:** 4 new diagnostic sections in both text and JSON output. 12 tests with well-designed disposable helpers (`DoctorConfigFile`, `DoctorConsoleCapture`, `DoctorEnvVarScope`). All 7 env vars covered. `BuildDoctorJson` new parameters use `= null` defaults with null-coalescing fallback — zero impact on existing callers. `[Collection("TransportSelectionTests")]` correctly prevents parallel execution. No trailing whitespace.
-
-**Non-blocking nits:**
-1. `TryLoadResourcesAndPromptsDefinitions` called unconditionally in `BuildDoctorJson` even when both values pre-supplied — should be guarded like auth/logging 3 lines above (same class of issue as PR #96 rejection, but much lower cost).
-2. `POSHMCP_LOG_FILE` (added in PR #132) absent from env vars list — follow-up candidate.
-
-**Pattern noted:** The precomputed-optional-parameter pattern (from PR #96) continues to be the correct approach for `BuildDoctorJson` — compute expensive data once in `RunDoctorAsync`, pass via optional params, let `BuildDoctorJson` self-compute only when called standalone.
-
-## Cross-Agent: PR Review Approved (2026-04-20)
-
-- Amy fixed PR #138 feedback (worktree poshmcp-136) 
-- Bender fixed PR #139 feedback (worktree poshmcp-137)
-- Both PRs approved with nits resolved
 
 ### 2026-04-20: Spec 006 — Doctor Output Restructure milestone created
 
@@ -185,6 +159,8 @@ Source: earned patterns from PRs #92–#96 and agent histories.
 - Phase 8 (Cleanup/Validation): T024=#163, T025=#164, T026=#165, T027=#166
 
 **Note:** Push to main required rebase to remove a pre-existing merge commit (a77dfcc) that violated repo rules.
+
+
 
 ### 2026-07-28: PR #167 review — approved (Spec 006: Doctor Output Restructure)
 
@@ -221,6 +197,8 @@ Source: earned patterns from PRs #92–#96 and agent histories.
 - Coordinated with Amy (implementation) and Fry (testing)
 
 **Artifacts:** specs/007-deploy-source-image/spec.md
+
+
 
 ### 2026-04-23: Added session-recall skill
 

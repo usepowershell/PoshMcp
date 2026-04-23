@@ -106,3 +106,31 @@
 **What:** Wrote manual test checklist for deploy.ps1 source image feature
 **Why:** Need verification procedures for the three execution modes and error cases
 
+
+# Decision: Use `poshmcp build` in deploy.ps1 instead of `docker build`
+
+**Date:** 2026-07-18
+**Author:** Amy (DevOps/Platform)
+**Context:** `infrastructure/azure/deploy.ps1` — `Build-AndPushImage` function
+
+## Decision
+
+The `Build-AndPushImage` function in the Azure deploy script now uses `poshmcp build --tag <image>` instead of calling `docker build` directly.
+
+## Rationale
+
+Steven requested that any image-building step in the deploy pipeline go through the `poshmcp build` CLI, which:
+- Auto-detects docker vs podman
+- Is the canonical build interface for this project
+- Ensures consistent build behavior with the rest of the toolchain
+
+## Implementation Detail
+
+`poshmcp build` only supports a single `--tag` argument per invocation. The original `docker build` call applied both the versioned tag and `latest` in one pass (`-t $FullImageName -t $latestImage`). To keep a single build, we call `poshmcp build --tag $FullImageName` for the build step, then `docker tag $FullImageName $latestImage` to alias the result. The push logic is unchanged.
+
+## Impact
+
+- `Build-AndPushImage` no longer calls `docker build` directly.
+- `docker tag` (not `docker build`) is used to apply the `latest` alias — this is acceptable because the restriction was specifically on the build operation.
+- `poshmcp` must be installed as a dotnet global tool on the machine or agent running the deploy script.
+

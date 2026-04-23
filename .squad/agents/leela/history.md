@@ -6,6 +6,8 @@
 - **20260418T201500Z**: ✓ v0.6.0 Release Notes & Resources/Prompts Documentation — Audited docs for gaps (Resources/Prompts methods and config were undocumented), created comprehensive `docs/articles/resources-and-prompts.md` user guide (4,600 words with configuration, examples, MCP methods, best practices, troubleshooting), added release notes at `docs/release-notes/0.6.0.md`, updated README.md with feature mentions, and added resources-and-prompts to docs/toc.yml. Committed and pushed.
 # Leela — History
 
+
+
 ## Project Context (Seeded on Join)
 
 **Project:** poshmcp - Model Context Protocol (MCP) server that dynamically transforms PowerShell scripts, cmdlets, and modules into secure, discoverable AI-consumable tools
@@ -26,9 +28,15 @@
 
 **Current Work:** Phase 1 quick wins implemented (health checks, correlation IDs), Azure Container Apps deployment infrastructure created, multi-tenant support added. Ready for Phase 2 (structured error codes, configuration validation, command timeouts) or documentation improvements.
 
+
+
 ## Learnings
 
-### 2026-03-27: First Assignment - README Revision and Documentation Audit
+
+
+#
+
+## 2026-03-27: First Assignment - README Revision and Documentation Audit
 
 **Task:** Conducted comprehensive documentation audit and revised root README.md to match GitHub best practices.
 
@@ -76,7 +84,11 @@
 
 **Outcome:** Created developer-friendly README with clear value proposition, concrete examples, and comprehensive navigation to detailed docs. Maintained technical accuracy while improving accessibility for new users.
 
-### 2026-03-27: Documentation Standards Formalized
+
+
+#
+
+## 2026-03-27: Documentation Standards Formalized
 
 **Update:** Documentation standards proposal submitted to decision inbox and merged to decisions.md.
 
@@ -101,7 +113,11 @@
 
 **Impact:** Clear baseline for all future documentation work. README.md revision demonstrates standards in practice. Team now has consistent approach for contributor guidance.
 
-### 2025-07-24: Documentation consistency and deduplication review
+
+
+#
+
+## 2025-07-24: Documentation consistency and deduplication review
 
 **Task:** Reviewed all 13 project markdown files (excluding .squad/ and .copilot/ internal files) for consistency, duplication, and cross-referencing.
 
@@ -155,7 +171,11 @@
 
 - **20260419T201500Z**: ✓ Reconciled orphaned `docs/user-guide.md` into articles. Migrated "Installing Preview Builds" section (87 lines, complete GitHub Packages workflow) into `docs/articles/getting-started.md` after "Building from Source" as new subsection. Verified no other unique content in user-guide.md warranted migration (configuration, basic setup, etc. already covered in articles). Updated README.md link from `docs/user-guide.md#installing-preview-builds` to `docs/articles/getting-started.md#installing-preview-builds`. Deleted orphaned user-guide.md (1,590 lines removed). Committed and pushed. ToC remains wired to articles/ only—no conflicts.
 
-### 2026-07-18: Issue #131 — Stdio Logging to File Documentation
+
+
+#
+
+## 2026-07-18: Issue #131 — Stdio Logging to File Documentation
 
 **Task:** Document the new `--log-file` CLI option, `POSHMCP_LOG_FILE` environment variable, and `Logging.File.Path` appsettings configuration for stdio logging feature (Farnsworth issue #131 architecture decision).
 
@@ -181,7 +201,11 @@
 
 **Outcome:** Issue #131 documentation complete. Users can now discover and understand the three configuration methods for stdio logging, and operators have clear guidance on containerized deployment with persistent logs.
 
-### 2026-04-19: Created v0.7.0 and v0.7.1 Release Notes
+
+
+#
+
+## 2026-04-19: Created v0.7.0 and v0.7.1 Release Notes
 
 **Task:** Author release notes for v0.7.0 and v0.7.1 following the established format from 0.6.0.
 
@@ -211,7 +235,11 @@
 
 **Outcome:** Both release notes files created and toc.yml updated. Documentation follows established patterns and provides clear upgrade guidance for each release.
 
-### 2026-04-19: Fixed DocFX Release Notes Build Content
+
+
+#
+
+## 2026-04-19: Fixed DocFX Release Notes Build Content
 
 **Task:** Fix DocFX build configuration to include release-notes in the documentation site build.
 
@@ -223,7 +251,11 @@
 
 **Outcome:** Release notes now included in DocFX build and will be published to the documentation site. Commit: `5a498c8`.
 
-### 2026-04-20: Created v0.8.0 Release Notes
+
+
+#
+
+## 2026-04-20: Created v0.8.0 Release Notes
 
 **Task:** Author release notes for v0.8.0 highlighting the Docker build deadlock fix and doctor command enhancements.
 
@@ -243,6 +275,8 @@
 - **Cross-links:** Pointed to Docker, Configuration, and doctor documentation for deeper dives
 
 **Outcome:** v0.8.0 release notes created following established format. Docker hang fix prominently featured as significant UX regression fix. Ready for publication without commit (coordinator handles).
+
+
 
 ## TOC Update for v0.8.0
 **Date:** 2026-04-20 16:20:52
