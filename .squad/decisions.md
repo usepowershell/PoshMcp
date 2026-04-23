@@ -2,6 +2,15 @@
 
 ## Recent Decisions
 
+### 2026-07-18: Canonical Infrastructure Defaults for PoshMcp Azure Deployment
+**By:** Amy (DevOps / Platform / Azure Engineer)
+**Status:** Applied
+**What:** Aligned all deploy scripts to match canonical defaults defined in `main.bicep` and `parameters.json`. Updated `deploy.ps1`, `deploy.sh`, and `validate.ps1` to use `rg-poshmcp` instead of `poshmcp-rg` for resource group default.
+**Why:** Bicep/parameters.json is source of truth; scripts using different defaults would deploy to wrong resource group. Running with script defaults would create duplicate resource group.
+**Rule Going Forward:** Bicep and parameters.json are the authoritative sources for infrastructure defaults. Deploy scripts are wrappers — their defaults must mirror Bicep/parameters, not diverge.
+
+
+
 ### 2026-04-23 10:03: Implemented spec 007 - deploy.ps1 source image support
 **By:** Amy
 **What:** Added -SourceImage and -UseRegistryCache parameters to deploy.ps1; added Mode A (docker pull + re-tag), Mode B (az acr import), and Mode C (existing build) routing
