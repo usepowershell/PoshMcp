@@ -160,3 +160,32 @@ Detailed session history was archived to `history-archive.md` on 2026-04-10 when
 - Coordinated with Farnsworth (spec) and Fry (testing)
 
 **Artifacts:** infrastructure/azure/deploy.ps1
+
+## [2026-07-18] Resource Group Default Alignment
+
+**Session:** Fix mismatched `$ResourceGroup` default between deploy scripts and Bicep
+**Contribution:** Aligned all three deploy-side files to the canonical value defined in Bicep/parameters
+
+**Key Learnings:**
+- **Canonical resource group name is `rg-poshmcp`** — Azure naming convention uses type-prefix-first (e.g., `rg-`, `ca-`, `acr-`). The authoritative source is `infrastructure/azure/main.bicep` and `parameters.json`.
+- Three files contained the stale value `poshmcp-rg`:
+  - `infrastructure/azure/deploy.ps1` — `$ResourceGroup` default fixed to `'rg-poshmcp'`
+  - `infrastructure/azure/deploy.sh` — `RESOURCE_GROUP` default fixed to `rg-poshmcp`
+  - `infrastructure/azure/validate.ps1` — help text updated to `rg-poshmcp`
+- Other defaults (`location = eastus`, `containerAppName = poshmcp`) were already consistent across all files.
+- Rule: Bicep + parameters.json are the source of truth for infrastructure defaults. Deploy scripts must follow, not define.
+
+**Artifacts:** infrastructure/azure/deploy.ps1, infrastructure/azure/deploy.sh, infrastructure/azure/validate.ps1
+
+## [2026-07-18] ACR Pull — Managed Identity Auth for Container App
+
+**Session:** Fix Container App UNAUTHORIZED error pulling from ACR
+**Contribution:** Wired user-assigned managed identity to AcrPull role on ACR; updated registries config to use identity instead of credentials
+
+**Key Learnings:**
+- See Learnings section below for the complete ACR → Container App auth pattern.
+
+**Artifacts:** infrastructure/azure/resources.bicep
+
+- **ACR -> Container App auth (managed identity pattern):** When a Container App needs to pull from ACR without credentials, the correct pattern is: (1) declare a conditional `existing` reference to the ACR resource in the same resource group, (2) add a `Microsoft.Authorization/roleAssignments` scoped to the ACR granting AcrPull (`7f951dda-4ed3-4680-a7ca-43fe172d538d`) to the managed identity's `principalId`, and (3) set `registries[].identity` to the managed identity's resource ID (user-assigned) — no `passwordSecretRef` needed. Add `dependsOn: [acrPullRoleAssignment]` on the Container App so ARM sequences the role before the app revision is created. Both the existing ACR ref and role assignment should be conditional on `!empty(containerRegistryServer)` for backward compatibility. The ACR registry name is derived via `split(containerRegistryServer, '.')[0]`. No changes to deploy.ps1 needed — Bicep handles the role assignment entirely at resource group scope.
+
