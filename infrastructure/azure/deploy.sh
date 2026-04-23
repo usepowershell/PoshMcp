@@ -23,7 +23,7 @@ BICEP_FILE="$SCRIPT_DIR/main.bicep"
 PARAMETERS_FILE="$SCRIPT_DIR/parameters.json"
 
 # Default values (can be overridden by environment variables)
-RESOURCE_GROUP="${RESOURCE_GROUP:-poshmcp-rg}"
+RESOURCE_GROUP="${RESOURCE_GROUP:-rg-poshmcp}"
 LOCATION="${LOCATION:-eastus}"
 CONTAINER_APP_NAME="${CONTAINER_APP_NAME:-poshmcp}"
 REGISTRY_NAME="${REGISTRY_NAME:-}"

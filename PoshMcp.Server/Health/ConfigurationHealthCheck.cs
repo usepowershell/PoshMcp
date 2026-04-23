@@ -43,8 +43,10 @@ public class ConfigurationHealthCheck : IHealthCheck
                 return Task.FromResult(HealthCheckResult.Unhealthy("Configuration is null"));
             }
 
-            // Check if we have any functions or modules configured
-            var hasFunctions = config.FunctionNames?.Any() == true;
+            var effectiveCommandNames = config.GetEffectiveCommandNames();
+
+            // Check if we have any commands or modules configured
+            var hasFunctions = effectiveCommandNames.Any();
             var hasModules = config.Modules?.Any() == true;
             var hasIncludes = config.IncludePatterns?.Any() == true;
 
@@ -57,7 +59,7 @@ public class ConfigurationHealthCheck : IHealthCheck
 
             var data = new System.Collections.Generic.Dictionary<string, object>
             {
-                ["FunctionCount"] = config.FunctionNames?.Count ?? 0,
+                ["FunctionCount"] = effectiveCommandNames.Count,
                 ["ModuleCount"] = config.Modules?.Count ?? 0,
                 ["IncludePatternCount"] = config.IncludePatterns?.Count ?? 0,
                 ["ExcludePatternCount"] = config.ExcludePatterns?.Count ?? 0

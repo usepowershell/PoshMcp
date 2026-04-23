@@ -372,13 +372,13 @@ public class Program
             var parsedLogLevel = SettingsResolver.ParseLogLevel(resolvedSettings.LogLevel.Value);
             var transportMode = SettingsResolver.ResolveTransportMode(resolvedSettings.Transport.Value);
 
-            IConfiguration? fileConfig = null;
+            var fileConfigBuilder = new ConfigurationBuilder();
             if (!string.IsNullOrWhiteSpace(resolvedSettings.FinalConfigPath) && File.Exists(resolvedSettings.FinalConfigPath))
             {
-                fileConfig = new ConfigurationBuilder()
-                    .AddJsonFile(resolvedSettings.FinalConfigPath, optional: true, reloadOnChange: false)
-                    .Build();
+                fileConfigBuilder.AddJsonFile(resolvedSettings.FinalConfigPath, optional: true, reloadOnChange: false);
             }
+            fileConfigBuilder.AddEnvironmentVariables();
+            IConfiguration fileConfig = fileConfigBuilder.Build();
             var resolvedLogFile = SettingsResolver.ResolveLogFilePath(logFile, fileConfig);
 
             try
@@ -390,14 +390,14 @@ public class Program
 
                 if (transportMode == TransportMode.Stdio)
                 {
-                    await RunMcpServerAsync(args, parsedLogLevel, resolvedSettings.FinalConfigPath, resolvedSettings.RuntimeMode.Value, resolvedLogFile.Value);
+                    await RunMcpServerAsync(args, parsedLogLevel, resolvedSettings.FinalConfigPath, resolvedSettings.ConfigPath.Source, resolvedSettings.RuntimeMode.Value, resolvedLogFile.Value);
                     Environment.ExitCode = ExitCodeSuccess;
                     return;
                 }
 
                 if (transportMode == TransportMode.Http)
                 {
-                    await RunHttpTransportServerAsync(args, parsedLogLevel, resolvedSettings.FinalConfigPath, resolvedSettings.RuntimeMode.Value, url, resolvedSettings.McpPath.Value);
+                    await RunHttpTransportServerAsync(args, parsedLogLevel, resolvedSettings.FinalConfigPath, resolvedSettings.ConfigPath.Source, resolvedSettings.RuntimeMode.Value, url, resolvedSettings.McpPath.Value);
                     Environment.ExitCode = ExitCodeSuccess;
                     return;
                 }
@@ -801,7 +801,7 @@ public class Program
         {
             var payload = new
             {
-                configurationPath = finalConfigPath,
+                configurationPath = DescribeConfigurationPath(finalConfigPath),
                 runtimeMode = config.RuntimeMode.ToString(),
                 toolCount = tools.Count,
                 commandNames = config.GetEffectiveCommandNames(),
@@ -811,7 +811,7 @@ public class Program
             return;
         }
 
-        Console.WriteLine($"Configuration: {finalConfigPath}");
+        Console.WriteLine($"Configuration: {DescribeConfigurationPath(finalConfigPath)}");
         Console.WriteLine($"Runtime mode: {config.RuntimeMode}");
         Console.WriteLine($"Discovered tools: {tools.Count}");
         Console.WriteLine("Configured command names:");
@@ -837,7 +837,7 @@ public class Program
             var payload = new
             {
                 valid = !hasErrors,
-                configurationPath = finalConfigPath,
+                configurationPath = DescribeConfigurationPath(finalConfigPath),
                 runtimeMode = config.RuntimeMode.ToString(),
                 commandCount = config.GetEffectiveCommandNames().Count,
                 moduleCount = config.Modules.Count,
@@ -869,7 +869,7 @@ public class Program
         {
             Console.WriteLine("Configuration validation succeeded.");
         }
-        Console.WriteLine($"Configuration: {finalConfigPath}");
+        Console.WriteLine($"Configuration: {DescribeConfigurationPath(finalConfigPath)}");
         Console.WriteLine($"Runtime mode: {config.RuntimeMode}");
         Console.WriteLine($"Commands: {config.GetEffectiveCommandNames().Count} | Modules: {config.Modules.Count} | Tools: {tools.Count}");
         Console.WriteLine($"Resources configured: {resourcesDiag.Configured} | valid: {resourcesDiag.Valid}");
@@ -914,7 +914,7 @@ public class Program
         var (resourcesDiag, promptsDiag) = ConfigurationLoader.TryValidateResourcesAndPrompts(settings.FinalConfigPath);
 
         var report = DoctorReport.Build(
-            configurationPath: settings.FinalConfigPath,
+            configurationPath: DescribeConfigurationPath(settings.FinalConfigPath),
             configurationPathSource: settings.ConfigPath.Source,
             effectiveLogLevel: settings.LogLevel.Value,
             effectiveLogLevelSource: settings.LogLevel.Source,
@@ -988,7 +988,7 @@ public class Program
         var environmentVariables = CollectEnvironmentVariables();
 
         return DoctorReport.Build(
-            configurationPath: configurationPath,
+            configurationPath: DescribeConfigurationPath(configurationPath),
             configurationPathSource: configurationPathSource,
             effectiveLogLevel: effectiveLogLevel,
             effectiveLogLevelSource: effectiveLogLevelSource,
@@ -1434,7 +1434,7 @@ public class Program
         var configPath = Path.Combine(appDirectory, "appsettings.json");
 
         string finalConfigPath = await ResolveConfigurationPath(configPath);
-        logger.LogInformation($"Loading configuration from: {finalConfigPath}");
+        logger.LogInformation("Loading configuration from: {ConfigurationPath}", DescribeConfigurationPath(finalConfigPath));
         return finalConfigPath;
     }
 
@@ -1444,7 +1444,7 @@ public class Program
             ? new ResolvedSetting(configPath, SettingsResolver.CliSource)
             : new ResolvedSetting(null, SettingsResolver.DefaultSource);
         var resolvedConfigPath = await SettingsResolver.ResolveConfigurationPathWithSourceAsync(preferredConfigPath);
-        return resolvedConfigPath.Value ?? throw new InvalidOperationException("Resolved configuration path was empty.");
+        return resolvedConfigPath.Value ?? string.Empty;
     }
 
     private static async Task<List<McpServerTool>> DiscoverToolsAsync(PowerShellConfiguration config, ILoggerFactory loggerFactory, ILogger logger, string configurationPath)
@@ -1502,7 +1502,7 @@ public class Program
         Console.Error.WriteLine($"Error: {ex.Message}");
     }
 
-    private static async Task RunMcpServerAsync(string[] args, LogLevel? overrideLogLevel = null, string? explicitConfigPath = null, string? runtimeModeOverride = null, string? logFilePath = null)
+    private static async Task RunMcpServerAsync(string[] args, LogLevel? overrideLogLevel = null, string? explicitConfigPath = null, string? configurationPathSource = null, string? runtimeModeOverride = null, string? logFilePath = null)
     {
         var builder = Host.CreateApplicationBuilder(args);
         ConfigureStdioLogging(builder, overrideLogLevel, logFilePath);
@@ -1510,11 +1510,11 @@ public class Program
         var serviceProvider = builder.Services.BuildServiceProvider();
         var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
         var logger = loggerFactory.CreateLogger("PoshMcpLogger");
-        logger.LogInformation("Using configuration file: {ConfigurationPath}", finalConfigPath);
+        logger.LogInformation("Using configuration source: {ConfigurationPath}", DescribeConfigurationPath(finalConfigPath));
         var config = ConfigurationLoader.LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
         var resourcesConfig = ConfigurationLoader.LoadMcpResourcesConfiguration(finalConfigPath, logger);
         await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger, finalConfigPath);
-        var tools = await SetupMcpToolsAsync(loggerFactory, config, logger, finalConfigPath, executorLease?.Executor);
+        var tools = await SetupMcpToolsAsync(loggerFactory, config, logger, finalConfigPath, configurationPathSource ?? InferConfigurationPathSource(finalConfigPath), executorLease?.Executor);
         var promptsConfig = ConfigurationLoader.LoadPromptsConfiguration(finalConfigPath);
         var configDirectory = Path.GetDirectoryName(finalConfigPath) ?? Directory.GetCurrentDirectory();
         var promptHandler = new McpPromptHandler(promptsConfig, configDirectory, loggerFactory.CreateLogger<McpPromptHandler>());
@@ -1526,6 +1526,7 @@ public class Program
         string[] args,
         LogLevel logLevel,
         string finalConfigPath,
+        string configurationPathSource,
         string? runtimeModeOverride,
         string? url,
         string? mcpPath)
@@ -1543,7 +1544,11 @@ public class Program
             builder.WebHost.UseUrls(url);
         }
 
-        builder.Configuration.AddJsonFile(finalConfigPath, optional: false, reloadOnChange: true);
+        if (!string.IsNullOrWhiteSpace(finalConfigPath) && File.Exists(finalConfigPath))
+        {
+            builder.Configuration.AddJsonFile(finalConfigPath, optional: false, reloadOnChange: true);
+        }
+        builder.Configuration.AddEnvironmentVariables();
         builder.Services.Configure<PowerShellConfiguration>(
             builder.Configuration.GetSection("PowerShellConfiguration"));
         builder.Services.Configure<McpPromptsConfiguration>(
@@ -1575,9 +1580,9 @@ public class Program
         builder.Services.AddSingleton<IHttpContextAccessor>(sharedHttpContextAccessor);
         builder.Services.AddSingleton<IPowerShellRunspace>(sharedSessionRunspace);
 
-        logger.LogInformation("Using configuration file: {ConfigurationPath}", finalConfigPath);
+        logger.LogInformation("Using configuration source: {ConfigurationPath}", DescribeConfigurationPath(finalConfigPath));
 
-        var tools = await SetupHttpMcpToolsAsync(bootstrapLoggerFactory, config, logger, finalConfigPath, sharedSessionRunspace, executorLease?.Executor);
+        var tools = await SetupHttpMcpToolsAsync(bootstrapLoggerFactory, config, logger, finalConfigPath, configurationPathSource, sharedSessionRunspace, executorLease?.Executor);
         var resourcesConfig = ConfigurationLoader.LoadMcpResourcesConfiguration(finalConfigPath, logger);
         var resourcesConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? ".";
         var resourceLogger = bootstrapLoggerFactory.CreateLogger<McpResourceHandler>();
@@ -1655,7 +1660,14 @@ public class Program
         }).AllowAnonymous();
         app.MapHealthChecks("/health/ready", new HealthCheckOptions
         {
-            Predicate = _ => true
+            Predicate = _ => true,
+            ResponseWriter = WriteHealthCheckResponseAsync,
+            ResultStatusCodes =
+            {
+                [Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Healthy] = StatusCodes.Status200OK,
+                [Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Degraded] = StatusCodes.Status503ServiceUnavailable,
+                [Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy] = StatusCodes.Status503ServiceUnavailable
+            }
         }).AllowAnonymous();
 
         var normalizedMcpPath = SettingsResolver.NormalizeMcpPath(mcpPath);
@@ -1768,6 +1780,7 @@ public class Program
         PowerShellConfiguration config,
         ILogger logger,
         string finalConfigPath,
+        string configurationPathSource,
         IPowerShellRunspace sessionAwareRunspace,
         ICommandExecutor? commandExecutor)
     {
@@ -1781,7 +1794,7 @@ public class Program
 
         if (config.EnableDynamicReloadTools)
         {
-            var reloadTools = CreateConfigurationReloadTools(loggerFactory, toolFactory, config, finalConfigPath);
+            var reloadTools = CreateConfigurationReloadTools(loggerFactory, toolFactory, config, finalConfigPath, configurationPathSource, "http", config.RuntimeMode.ToString(), null, () => tools);
             AddConfigurationReloadToolsToList(tools, reloadTools);
             logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools)");
         }
@@ -1839,7 +1852,11 @@ public class Program
     private static async Task<string> ConfigureServerConfiguration(HostApplicationBuilder builder, string? explicitConfigPath)
     {
         var finalConfigPath = await ConfigurationLoader.ResolveExplicitOrDefaultConfigPath(explicitConfigPath);
-        builder.Configuration.AddJsonFile(finalConfigPath, optional: false, reloadOnChange: true);
+        if (!string.IsNullOrWhiteSpace(finalConfigPath) && File.Exists(finalConfigPath))
+        {
+            builder.Configuration.AddJsonFile(finalConfigPath, optional: false, reloadOnChange: true);
+        }
+        builder.Configuration.AddEnvironmentVariables();
         builder.Services.Configure<PowerShellConfiguration>(
             builder.Configuration.GetSection("PowerShellConfiguration"));
         builder.Services.Configure<McpPromptsConfiguration>(
@@ -1860,11 +1877,18 @@ public class Program
     {
         var logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("PoshMcpLogger");
         var config = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<PowerShellConfiguration>>().Value;
-        logger.LogInformation($"Using configuration file: {finalConfigPath}");
+        logger.LogInformation("Using configuration source: {ConfigurationPath}", DescribeConfigurationPath(finalConfigPath));
         return (logger, config);
     }
 
-    private static async Task<List<McpServerTool>> SetupMcpToolsAsync(ILoggerFactory loggerFactory, PowerShellConfiguration config, ILogger logger, string finalConfigPath, ICommandExecutor? commandExecutor)
+    private static string DescribeConfigurationPath(string? configurationPath)
+    {
+        return string.IsNullOrWhiteSpace(configurationPath)
+            ? "(environment-only configuration)"
+            : configurationPath;
+    }
+
+    private static async Task<List<McpServerTool>> SetupMcpToolsAsync(ILoggerFactory loggerFactory, PowerShellConfiguration config, ILogger logger, string finalConfigPath, string configurationPathSource, ICommandExecutor? commandExecutor)
     {
         // Create RuntimeCachingState singleton and wire into assembly generator static state
         var runtimeCachingState = new RuntimeCachingState();
@@ -1877,7 +1901,7 @@ public class Program
 
         if (config.EnableDynamicReloadTools)
         {
-            var reloadTools = CreateConfigurationReloadTools(loggerFactory, toolFactory, config, finalConfigPath);
+            var reloadTools = CreateConfigurationReloadTools(loggerFactory, toolFactory, config, finalConfigPath, configurationPathSource, "stdio", config.RuntimeMode.ToString(), null, () => tools);
             AddConfigurationReloadToolsToList(tools, reloadTools);
             logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools)");
         }
@@ -2083,12 +2107,35 @@ public class Program
         }
     }
 
-    private static ConfigurationReloadTools CreateConfigurationReloadTools(ILoggerFactory loggerFactory, McpToolFactoryV2 toolFactory, PowerShellConfiguration config, string finalConfigPath)
+    private static ConfigurationReloadTools CreateConfigurationReloadTools(
+        ILoggerFactory loggerFactory,
+        McpToolFactoryV2 toolFactory,
+        PowerShellConfiguration config,
+        string finalConfigPath,
+        string configurationPathSource,
+        string effectiveTransport,
+        string? effectiveRuntimeMode,
+        string? effectiveMcpPath,
+        Func<List<McpServerTool>> registeredToolsProvider)
     {
         var reloadServiceLogger = loggerFactory.CreateLogger<PowerShellConfigurationReloadService>();
         var reloadService = new PowerShellConfigurationReloadService(reloadServiceLogger, toolFactory, config, finalConfigPath);
         var reloadToolsLogger = loggerFactory.CreateLogger<ConfigurationReloadTools>();
-        return new ConfigurationReloadTools(reloadService, reloadToolsLogger);
+        return new ConfigurationReloadTools(
+            reloadService,
+            finalConfigPath,
+            configurationPathSource,
+            effectiveTransport,
+            null,
+            effectiveRuntimeMode,
+            effectiveMcpPath,
+            registeredToolsProvider,
+            reloadToolsLogger);
+    }
+
+    private static string InferConfigurationPathSource(string? configurationPath)
+    {
+        return string.IsNullOrWhiteSpace(configurationPath) ? SettingsResolver.EnvSource : "runtime";
     }
 
     private static void AddConfigurationReloadToolsToList(List<McpServerTool> tools, ConfigurationReloadTools reloadTools)

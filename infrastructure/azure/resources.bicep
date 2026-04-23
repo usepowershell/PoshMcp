@@ -50,6 +50,14 @@ param enableDynamicReloadTools bool = true
 @description('Resource tags for cost tracking and organization')
 param tags object = {}
 
+var acrPullRoleDefinitionId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+var containerRegistryName = !empty(containerRegistryServer) ? split(containerRegistryServer, '.')[0] : 'unused'
+var normalizedPowerShellFunctions = [for functionName in split(powerShellFunctions, ','): trim(functionName)]
+var powerShellCommandEnvVars = [for (commandName, index) in normalizedPowerShellFunctions: {
+  name: 'PowerShellConfiguration__CommandNames__${index}'
+  value: commandName
+}]
+
 // Log Analytics Workspace for Container Apps logs and metrics
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
   name: '${containerAppName}-logs'
@@ -102,6 +110,22 @@ resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-
   tags: tags
 }
 
+// Reference the existing ACR (assumed to be in the same resource group)
+resource existingAcr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = if (!empty(containerRegistryServer)) {
+  name: containerRegistryName
+}
+
+// Grant the managed identity AcrPull access on the container registry (no passwords required)
+resource acrPullRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(containerRegistryServer)) {
+  name: guid(containerRegistryServer, managedIdentity.id, acrPullRoleDefinitionId)
+  scope: existingAcr
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRoleDefinitionId)
+    principalId: managedIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 // Container App running PoshMcp in web/HTTP mode
 resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
   name: containerAppName
@@ -136,7 +160,14 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
               passwordSecretRef: 'registry-password'
             }
           ]
-        : []
+        : !empty(containerRegistryServer)
+          ? [
+              {
+                server: containerRegistryServer
+                identity: managedIdentity.id
+              }
+            ]
+          : []
       secrets: containerRegistryPassword != ''
         ? [
             {
@@ -165,36 +196,35 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
             cpu: json(cpuCores)
             memory: '${memoryGi}Gi'
           }
-          env: [
-            {
-              name: 'ASPNETCORE_ENVIRONMENT'
-              value: 'Production'
-            }
-            {
-              name: 'ASPNETCORE_URLS'
-              value: 'http://+:8080'
-            }
-            {
-              name: 'POSHMCP_TRANSPORT'
-              value: 'http'
-            }
-            {
-              name: 'PowerShellConfiguration__FunctionNames__0'
-              value: powerShellFunctions
-            }
-            {
-              name: 'PowerShellConfiguration__EnableDynamicReloadTools'
-              value: string(enableDynamicReloadTools)
-            }
-            {
-              name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
-              secretRef: 'appinsights-connection-string'
-            }
-            {
-              name: 'AZURE_CLIENT_ID'
-              value: managedIdentity.properties.clientId
-            }
-          ]
+          env: concat(
+            [
+              {
+                name: 'ASPNETCORE_ENVIRONMENT'
+                value: 'Production'
+              }
+              {
+                name: 'ASPNETCORE_URLS'
+                value: 'http://+:8080'
+              }
+              {
+                name: 'POSHMCP_TRANSPORT'
+                value: 'http'
+              }
+              {
+                name: 'PowerShellConfiguration__EnableDynamicReloadTools'
+                value: string(enableDynamicReloadTools)
+              }
+              {
+                name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+                secretRef: 'appinsights-connection-string'
+              }
+              {
+                name: 'AZURE_CLIENT_ID'
+                value: managedIdentity.properties.clientId
+              }
+            ],
+            powerShellCommandEnvVars
+          )
           probes: [
             {
               type: 'Liveness'
@@ -251,6 +281,9 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
       }
     }
   }
+  dependsOn: [
+    acrPullRoleAssignment
+  ]
 }
 
 // Outputs for reference and automation

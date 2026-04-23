@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using PoshMcp.Server.PowerShell;
 using PoshMcp.Server.PowerShell.OutOfProcess;
 using System;
+using System.Collections;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -30,6 +31,14 @@ internal static class SettingsResolver
     private const string RuntimeModeEnvVar = "POSHMCP_RUNTIME_MODE";
     private const string LogLevelEnvVar = "POSHMCP_LOG_LEVEL";
     private const string LogFileEnvVar = "POSHMCP_LOG_FILE";
+    private static readonly string[] AppSettingsEnvironmentPrefixes =
+    [
+        "PowerShellConfiguration__",
+        "Authentication__",
+        "McpResources__",
+        "McpPrompts__",
+        "Logging__"
+    ];
 
     internal static LogLevel ParseLogLevel(string? logLevelText, string? environmentVariableName = null)
     {
@@ -177,17 +186,19 @@ internal static class SettingsResolver
 
     internal static ResolvedSetting ResolveEffectiveRuntimeModeFromConfiguration(string? configurationPath)
     {
+        var builder = new ConfigurationBuilder();
         if (!string.IsNullOrWhiteSpace(configurationPath) && File.Exists(configurationPath))
         {
-            var configuration = new ConfigurationBuilder()
-                .AddJsonFile(configurationPath, optional: false, reloadOnChange: false)
-                .Build();
+            builder.AddJsonFile(configurationPath, optional: false, reloadOnChange: false);
+        }
 
-            var configuredRuntimeMode = configuration.GetSection("PowerShellConfiguration")[nameof(PowerShellConfiguration.RuntimeMode)];
-            if (!string.IsNullOrWhiteSpace(configuredRuntimeMode))
-            {
-                return new ResolvedSetting(NormalizeRuntimeModeValue(configuredRuntimeMode), ConfigSource);
-            }
+        builder.AddEnvironmentVariables();
+        var configuration = builder.Build();
+
+        var configuredRuntimeMode = configuration.GetSection("PowerShellConfiguration")[nameof(PowerShellConfiguration.RuntimeMode)];
+        if (!string.IsNullOrWhiteSpace(configuredRuntimeMode))
+        {
+            return new ResolvedSetting(NormalizeRuntimeModeValue(configuredRuntimeMode), ConfigSource);
         }
 
         return new ResolvedSetting(RuntimeMode.InProcess.ToString(), DefaultSource);
@@ -312,6 +323,11 @@ internal static class SettingsResolver
             return new ResolvedSetting(userConfigPath, UserSource);
         }
 
+        if (HasEnvironmentAppSettingsOverrides())
+        {
+            return new ResolvedSetting(string.Empty, EnvSource);
+        }
+
         await InstallEmbeddedDefaultConfigToUserLocationAsync(userConfigPath);
         return new ResolvedSetting(userConfigPath, EmbeddedDefaultSource);
     }
@@ -384,6 +400,25 @@ internal static class SettingsResolver
         }
 
         return changed;
+    }
+
+    internal static bool HasEnvironmentAppSettingsOverrides()
+    {
+        var variables = Environment.GetEnvironmentVariables();
+        foreach (DictionaryEntry entry in variables)
+        {
+            if (entry.Key is not string name)
+            {
+                continue;
+            }
+
+            if (AppSettingsEnvironmentPrefixes.Any(prefix => name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     internal static string LoadEmbeddedDefaultConfig()

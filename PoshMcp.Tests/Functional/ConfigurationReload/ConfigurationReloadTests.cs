@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -168,22 +169,91 @@ public class ConfigurationReloadTests : PowerShellTestBase
             serviceLogger, toolFactory, config, "/test/path");
 
         var toolsLogger = loggerFactory.CreateLogger<ConfigurationReloadTools>();
-        var reloadTools = new ConfigurationReloadTools(reloadService, toolsLogger);
+        var registeredTools = new List<ModelContextProtocol.Server.McpServerTool>();
+        var reloadTools = new ConfigurationReloadTools(
+            reloadService,
+            "/test/path",
+            SettingsResolver.CwdSource,
+            "http",
+            null,
+            config.RuntimeMode.ToString(),
+            null,
+            () => registeredTools,
+            toolsLogger);
 
         // Act
         var result = await reloadTools.GetConfigurationStatus(CancellationToken.None);
 
         // Assert
         Assert.NotNull(result);
-        var resultObj = JsonSerializer.Deserialize<JsonElement>(result);
-        Assert.True(resultObj.GetProperty("success").GetBoolean());
+        var resultObj = JsonNode.Parse(result)?.AsObject();
+        Assert.NotNull(resultObj);
+        Assert.DoesNotContain("success", resultObj!);
+        Assert.NotNull(resultObj["summary"]);
+        Assert.Equal("/test/path", resultObj["runtimeSettings"]?["configurationPath"]?["value"]?.GetValue<string>());
+        Assert.Equal(SettingsResolver.CwdSource, resultObj["runtimeSettings"]?["configurationPath"]?["source"]?.GetValue<string>());
+        Assert.Equal("file-backed", resultObj["runtimeSettings"]?["configurationMode"]?["value"]?.GetValue<string>());
+        Assert.Equal("http", resultObj["runtimeSettings"]?["transport"]?["value"]?.GetValue<string>());
+        Assert.Equal(config.RuntimeMode.ToString(), resultObj["runtimeSettings"]?["runtimeMode"]?["value"]?.GetValue<string>());
+        Assert.Equal(2, resultObj["functionsTools"]?["configuredFunctionStatus"]?.AsArray().Count);
 
-        var status = resultObj.GetProperty("status");
-        Assert.Equal(2, status.GetProperty("functionNamesCount").GetInt32());
-        Assert.Equal(1, status.GetProperty("modulesCount").GetInt32());
-        Assert.Equal(1, status.GetProperty("excludePatternsCount").GetInt32());
-        Assert.Equal(1, status.GetProperty("includePatternsCount").GetInt32());
-        Assert.Equal("/test/path", status.GetProperty("configurationFilePath").GetString());
+        var expectedReport = Program.BuildDoctorReportFromConfig(
+            configurationPath: "/test/path",
+            configurationPathSource: SettingsResolver.CwdSource,
+            effectiveLogLevel: "Debug",
+            effectiveLogLevelSource: "runtime",
+            effectiveTransport: "http",
+            effectiveTransportSource: "runtime",
+            effectiveSessionMode: null,
+            effectiveSessionModeSource: "runtime",
+            effectiveRuntimeMode: config.RuntimeMode.ToString(),
+            effectiveRuntimeModeSource: "runtime",
+            effectiveMcpPath: null,
+            effectiveMcpPathSource: "runtime",
+            config: config,
+            tools: registeredTools);
+        var expectedObj = JsonNode.Parse(Program.BuildDoctorJson(expectedReport))?.AsObject();
+
+        Assert.NotNull(expectedObj);
+        Assert.Equal(expectedObj!["runtimeSettings"]?.ToJsonString(), resultObj["runtimeSettings"]?.ToJsonString());
+    }
+
+    [Fact]
+    public async Task ConfigurationReloadTools_GetStatus_WithEnvironmentOnlyConfiguration_ReturnsEnvironmentOnlyMode()
+    {
+        // Arrange
+        var config = new PowerShellConfiguration
+        {
+            CommandNames = new List<string> { "Get-Date" }
+        };
+
+        var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Information));
+        var serviceLogger = loggerFactory.CreateLogger<PowerShellConfigurationReloadService>();
+        var toolFactory = new McpToolFactoryV2();
+        var reloadService = new PowerShellConfigurationReloadService(serviceLogger, toolFactory, config, string.Empty);
+
+        var toolsLogger = loggerFactory.CreateLogger<ConfigurationReloadTools>();
+        var reloadTools = new ConfigurationReloadTools(
+            reloadService,
+            string.Empty,
+            SettingsResolver.EnvSource,
+            "http",
+            null,
+            config.RuntimeMode.ToString(),
+            null,
+            static () => new List<ModelContextProtocol.Server.McpServerTool>(),
+            toolsLogger);
+
+        // Act
+        var result = await reloadTools.GetConfigurationStatus(CancellationToken.None);
+
+        // Assert
+        var resultObj = JsonNode.Parse(result)?.AsObject();
+        Assert.NotNull(resultObj);
+        Assert.Equal("(environment-only configuration)", resultObj!["runtimeSettings"]?["configurationPath"]?["value"]?.GetValue<string>());
+        Assert.Equal(SettingsResolver.EnvSource, resultObj["runtimeSettings"]?["configurationPath"]?["source"]?.GetValue<string>());
+        Assert.Equal("environment-only", resultObj["runtimeSettings"]?["configurationMode"]?["value"]?.GetValue<string>());
+        Assert.Equal(SettingsResolver.EnvSource, resultObj["runtimeSettings"]?["configurationMode"]?["source"]?.GetValue<string>());
     }
 
     [Fact]

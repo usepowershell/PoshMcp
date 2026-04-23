@@ -8,7 +8,7 @@
 [CmdletBinding()]
 param(
     [Parameter()]
-    [string]$ResourceGroup = $env:RESOURCE_GROUP ?? 'poshmcp-rg',
+    [string]$ResourceGroup = $env:RESOURCE_GROUP ?? 'rg-poshmcp',
     
     [Parameter()]
     [string]$Location = $env:LOCATION ?? 'eastus',
@@ -16,7 +16,7 @@ param(
     [Parameter()]
     [string]$ContainerAppName = $env:CONTAINER_APP_NAME ?? 'poshmcp',
     
-    [Parameter(Mandatory)]
+    [Parameter()]
     [string]$RegistryName,
     
     [Parameter()]
@@ -26,7 +26,13 @@ param(
     [string]$Subscription = $env:AZURE_SUBSCRIPTION,
     
     [Parameter()]
-    [string]$TenantId = $env:AZURE_TENANT_ID
+    [string]$TenantId = $env:AZURE_TENANT_ID,
+
+    [Parameter()]
+    [string]$SourceImage,
+
+    [Parameter()]
+    [switch]$UseRegistryCache
 )
 
 $ErrorActionPreference = 'Stop'
@@ -196,6 +202,80 @@ function Invoke-AcrLoginWithRetry {
         }
 
         Write-Error "ACR login failed after $attempt attempt(s). Output: $snippet" -Category InvalidOperation -ErrorAction Stop
+    }
+}
+
+function Invoke-DockerPullWithRetry {
+    param(
+        [Parameter(Mandatory)]
+        [string]$ImageName
+    )
+
+    for ($attempt = 1; $attempt -le $script:PushMaxAttempts; $attempt++) {
+        Write-Information "Pulling image (attempt $attempt/$($script:PushMaxAttempts)): $ImageName" -Tags 'Status'
+        Write-Verbose "Executing: docker pull $ImageName"
+
+        $commandOutput = (docker pull $ImageName 2>&1 | Out-String)
+        if ($LASTEXITCODE -eq 0) {
+            Write-Information "✓ Pull succeeded: $ImageName" -Tags 'Success'
+            return
+        }
+
+        $snippet = Get-CommandOutputSnippet -Output $commandOutput
+        $isTransient = Test-IsTransientNetworkError -Message $commandOutput
+        $isAuthError = Test-IsAuthenticationError -Message $commandOutput
+
+        if ($isTransient -and $attempt -lt $script:PushMaxAttempts) {
+            $delay = Get-RetryDelaySeconds -Attempt $attempt
+            Write-Warning "Docker pull failed with a transient network error for $ImageName. Retrying in $delay seconds..."
+            if ($snippet) {
+                Write-Warning "Docker pull output: $snippet"
+            }
+            Start-Sleep -Seconds $delay
+            continue
+        }
+
+        if ($isAuthError -and -not $isTransient) {
+            Write-Error "Docker pull failed due to authentication/authorization for $ImageName. Verify you are logged in to the source registry. Run 'docker login <registry>' if needed. Output: $snippet" -Category AuthenticationError -ErrorAction Stop
+        }
+
+        Write-Error "Docker pull failed for '$ImageName' after $attempt attempt(s). Verify the image exists and is accessible. Output: $snippet" -Category InvalidOperation -ErrorAction Stop
+    }
+}
+
+function Invoke-AcrImportWithRetry {
+    param(
+        [Parameter(Mandatory)]
+        [string]$SourceImageRef,
+
+        [Parameter(Mandatory)]
+        [string]$TargetTag
+    )
+
+    for ($attempt = 1; $attempt -le $script:PushMaxAttempts; $attempt++) {
+        Write-Information "Importing image into ACR (attempt $attempt/$($script:PushMaxAttempts)): $SourceImageRef -> $TargetTag" -Tags 'Status'
+        Write-Verbose "Executing: az acr import --registry $RegistryName --source $SourceImageRef --image $TargetTag"
+
+        $commandOutput = (az acr import --registry $RegistryName --source $SourceImageRef --image $TargetTag 2>&1 | Out-String)
+        if ($LASTEXITCODE -eq 0) {
+            Write-Information "✓ ACR import succeeded: $TargetTag" -Tags 'Success'
+            return
+        }
+
+        $snippet = Get-CommandOutputSnippet -Output $commandOutput
+        $isTransient = Test-IsTransientNetworkError -Message $commandOutput
+
+        if ($isTransient -and $attempt -lt $script:PushMaxAttempts) {
+            $delay = Get-RetryDelaySeconds -Attempt $attempt
+            Write-Warning "ACR import failed with a transient network error. Retrying in $delay seconds..."
+            if ($snippet) {
+                Write-Warning "ACR import output: $snippet"
+            }
+            Start-Sleep -Seconds $delay
+            continue
+        }
+
+        Write-Error "ACR import failed for source image '$SourceImageRef' after $attempt attempt(s). Verify the source registry is accessible and the image exists. Output: $snippet" -Category InvalidOperation -ErrorAction Stop
     }
 }
 
@@ -380,6 +460,52 @@ function Initialize-ContainerRegistry {
     Write-Information "Registry server: $RegistryServer" -Tags 'Status'
 }
 
+# Pull a pre-built source image, re-tag it for ACR, and push (Mode A)
+function Invoke-SourceImagePull {
+    Write-Information "Using source image (no local build): $SourceImage" -Tags 'Status'
+
+    Test-AcrReachability
+    Invoke-AcrLoginWithRetry
+
+    Invoke-DockerPullWithRetry -ImageName $SourceImage
+
+    $script:FullImageName = "${RegistryServer}/poshmcp:${ImageTag}"
+    $latestImage = "${RegistryServer}/poshmcp:latest"
+
+    Write-Information "Re-tagging $SourceImage for ACR..." -Tags 'Status'
+    Write-Verbose "Executing: docker tag $SourceImage $script:FullImageName"
+    docker tag $SourceImage $script:FullImageName
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to re-tag source image '$SourceImage' as '$script:FullImageName'" -Category InvalidOperation -ErrorAction Stop
+    }
+
+    Write-Verbose "Executing: docker tag $SourceImage $latestImage"
+    docker tag $SourceImage $latestImage
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to re-tag source image '$SourceImage' as '$latestImage'" -Category InvalidOperation -ErrorAction Stop
+    }
+
+    Write-Information "Pushing re-tagged images to registry..." -Tags 'Status'
+    Invoke-DockerPushWithRetry -ImageName $script:FullImageName
+    Invoke-DockerPushWithRetry -ImageName $latestImage
+
+    Write-Information "✓ Source image pulled, re-tagged, and pushed to: $script:RegistryServer" -Tags 'Success'
+}
+
+# Import a pre-built source image directly into ACR via az acr import (Mode B)
+function Invoke-SourceImageCache {
+    Write-Information "Using ACR import (pull-through cache) for source image: $SourceImage" -Tags 'Status'
+
+    Invoke-AcrLoginWithRetry
+
+    $script:FullImageName = "${RegistryServer}/poshmcp:${ImageTag}"
+
+    Invoke-AcrImportWithRetry -SourceImageRef $SourceImage -TargetTag "poshmcp:${ImageTag}"
+    Invoke-AcrImportWithRetry -SourceImageRef $SourceImage -TargetTag "poshmcp:latest"
+
+    Write-Information "✓ Source image imported into ACR: $script:FullImageName" -Tags 'Success'
+}
+
 # Build and push container image
 function Build-AndPushImage {
     Write-Information "Building container image..." -Tags 'Status'
@@ -392,9 +518,13 @@ function Build-AndPushImage {
         
         Write-Verbose "Building Docker image: $FullImageName"
         Write-Verbose "Tagging as latest: $latestImage"
-        docker build -t $FullImageName -t $latestImage -f Dockerfile .
+        poshmcp build --tag $FullImageName
         if ($LASTEXITCODE -ne 0) {
-            Write-Error "Docker build failed" -Category InvalidOperation -ErrorAction Stop
+            Write-Error "poshmcp build failed" -Category InvalidOperation -ErrorAction Stop
+        }
+        docker tag $FullImageName $latestImage
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Docker tag failed" -Category InvalidOperation -ErrorAction Stop
         }
         
         Write-Information "✓ Image built: $FullImageName" -Tags 'Success'
@@ -476,27 +606,40 @@ function Get-DeploymentInfo {
         
         # Test health endpoint
         Write-Information "Testing health endpoint..." -Tags 'Status'
-        Write-Verbose "Waiting 10 seconds for application to start"
-        Start-Sleep -Seconds 10  # Wait for app to start
-        
-        try {
-            Write-Verbose "Testing: https://$appUrl/health/ready"
-            $response = Invoke-WebRequest -Uri "https://$appUrl/health/ready" -UseBasicParsing -ErrorAction SilentlyContinue
-            if ($response.StatusCode -eq 200) {
-                Write-Information "✓ Health check passed" -Tags 'Success'
+        $healthUrl = "https://$appUrl/health/ready"
+        $healthCheckPassed = $false
+        $healthCheckAttempts = 6
+        $healthCheckDelaySeconds = 10
+
+        for ($attempt = 1; $attempt -le $healthCheckAttempts; $attempt++) {
+            try {
+                Write-Verbose "Testing ($attempt/$healthCheckAttempts): $healthUrl"
+                $response = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -TimeoutSec 15 -ErrorAction Stop
+                if ($response.StatusCode -eq 200) {
+                    Write-Information "✓ Health check passed" -Tags 'Success'
+                    $healthCheckPassed = $true
+                    break
+                }
+
+                Write-Warning "Health check attempt $attempt returned status: $($response.StatusCode)"
             }
-            else {
-                Write-Warning "Health check returned status: $($response.StatusCode)"
+            catch {
+                Write-Warning "Health check attempt $attempt failed: $($_.Exception.Message)"
+            }
+
+            if ($attempt -lt $healthCheckAttempts) {
+                Start-Sleep -Seconds $healthCheckDelaySeconds
             }
         }
-        catch {
-            Write-Warning "Health check failed - application may still be starting: $_"
+
+        if (-not $healthCheckPassed) {
+            Write-Warning "Health check failed after $healthCheckAttempts attempts. The app may still be starting or not ready."
         }
         
         Write-Host ""
         Write-Information "Deployment Summary:" -Tags 'Status'
         Write-Host "  Application URL: https://$appUrl" -ForegroundColor Cyan
-        Write-Host "  Health Check: https://$appUrl/health" -ForegroundColor Cyan
+        Write-Host "  Health Check: $healthUrl" -ForegroundColor Cyan
         Write-Host "  Resource Group: $ResourceGroup" -ForegroundColor Cyan
         Write-Host "  Container App: $ContainerAppName" -ForegroundColor Cyan
     }
@@ -509,16 +652,33 @@ function Get-DeploymentInfo {
 function Invoke-Deployment {
     Write-Information "Starting PoshMcp deployment to Azure Container Apps" -Tags 'Status'
     Write-Host ""
-    
+
+    if ($UseRegistryCache -and -not $SourceImage) {
+        Write-Error "Parameter -UseRegistryCache requires -SourceImage to be provided" -Category InvalidArgument -ErrorAction Stop
+        exit 2
+    }
+
     Test-Prerequisites
     Set-AzureTenant
     Set-AzureSubscription
     New-ResourceGroupIfNeeded
     Initialize-ContainerRegistry
-    Build-AndPushImage
+
+    if ($SourceImage) {
+        if ($UseRegistryCache) {
+            Invoke-SourceImageCache
+        }
+        else {
+            Invoke-SourceImagePull
+        }
+    }
+    else {
+        Build-AndPushImage
+    }
+
     Deploy-Infrastructure
     Get-DeploymentInfo
-    
+
     Write-Host ""
     Write-Information "✓ Deployment completed successfully!" -Tags 'Success'
 }

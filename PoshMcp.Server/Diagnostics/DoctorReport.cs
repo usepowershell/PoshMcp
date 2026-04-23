@@ -96,6 +96,7 @@ public sealed record DoctorReport
             RuntimeSettings = new RuntimeSettingsSection
             {
                 ConfigurationPath = new ResolvedSetting(configurationPath, configurationPathSource),
+                ConfigurationMode = ResolveConfigurationMode(configurationPath, configurationPathSource),
                 Transport = new ResolvedSetting(effectiveTransport, effectiveTransportSource),
                 LogLevel = new ResolvedSetting(effectiveLogLevel, effectiveLogLevelSource),
                 SessionMode = new ResolvedSetting(effectiveSessionMode, effectiveSessionModeSource),
@@ -153,6 +154,17 @@ public sealed record DoctorReport
             },
         };
     }
+
+    private static ResolvedSetting ResolveConfigurationMode(string configurationPath, string configurationPathSource)
+    {
+        if (string.Equals(configurationPathSource, SettingsResolver.EnvSource, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(configurationPath, "(environment-only configuration)", StringComparison.Ordinal))
+        {
+            return new ResolvedSetting("environment-only", configurationPathSource);
+        }
+
+        return new ResolvedSetting("file-backed", configurationPathSource);
+    }
 }
 
 /// <summary>Overall health summary for the doctor report.</summary>
@@ -191,6 +203,10 @@ public sealed record RuntimeSettingsSection
     /// <summary>Resolved configuration file path.</summary>
     [JsonPropertyName("configurationPath")]
     public ResolvedSetting ConfigurationPath { get; init; } = Empty;
+
+    /// <summary>Resolved configuration mode (<c>file-backed</c> or <c>environment-only</c>).</summary>
+    [JsonPropertyName("configurationMode")]
+    public ResolvedSetting ConfigurationMode { get; init; } = Empty;
 
     /// <summary>Resolved transport mode.</summary>
     [JsonPropertyName("transport")]

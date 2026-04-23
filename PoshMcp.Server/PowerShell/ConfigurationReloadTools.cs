@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using ModelContextProtocol.Server;
 
 namespace PoshMcp.Server.PowerShell;
 
@@ -13,13 +14,50 @@ namespace PoshMcp.Server.PowerShell;
 public class ConfigurationReloadTools
 {
     private readonly PowerShellConfigurationReloadService _reloadService;
+    private readonly string _configurationPath;
+    private readonly string _configurationPathSource;
+    private readonly string _effectiveTransport;
+    private readonly string? _effectiveSessionMode;
+    private readonly string? _effectiveRuntimeMode;
+    private readonly string? _effectiveMcpPath;
+    private readonly Func<List<McpServerTool>> _registeredToolsProvider;
     private readonly ILogger<ConfigurationReloadTools> _logger;
 
     public ConfigurationReloadTools(
         PowerShellConfigurationReloadService reloadService,
         ILogger<ConfigurationReloadTools> logger)
+        : this(
+            reloadService,
+            reloadService.GetStatus().ConfigurationFilePath,
+            InferConfigurationPathSource(reloadService.GetStatus().ConfigurationFilePath),
+            "stdio",
+            null,
+            reloadService.CurrentConfiguration.RuntimeMode.ToString(),
+            null,
+            static () => new List<McpServerTool>(),
+            logger)
+    {
+    }
+
+    public ConfigurationReloadTools(
+        PowerShellConfigurationReloadService reloadService,
+        string configurationPath,
+        string configurationPathSource,
+        string effectiveTransport,
+        string? effectiveSessionMode,
+        string? effectiveRuntimeMode,
+        string? effectiveMcpPath,
+        Func<List<McpServerTool>> registeredToolsProvider,
+        ILogger<ConfigurationReloadTools> logger)
     {
         _reloadService = reloadService ?? throw new ArgumentNullException(nameof(reloadService));
+        _configurationPath = configurationPath ?? string.Empty;
+        _configurationPathSource = string.IsNullOrWhiteSpace(configurationPathSource) ? "runtime" : configurationPathSource;
+        _effectiveTransport = effectiveTransport ?? throw new ArgumentNullException(nameof(effectiveTransport));
+        _effectiveSessionMode = effectiveSessionMode;
+        _effectiveRuntimeMode = effectiveRuntimeMode;
+        _effectiveMcpPath = effectiveMcpPath;
+        _registeredToolsProvider = registeredToolsProvider ?? throw new ArgumentNullException(nameof(registeredToolsProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -156,29 +194,24 @@ public class ConfigurationReloadTools
         {
             _logger.LogInformation("Processing get configuration status request");
 
-            var status = _reloadService.GetStatus();
             var currentConfig = _reloadService.CurrentConfiguration;
+            var report = Program.BuildDoctorReportFromConfig(
+                configurationPath: _configurationPath,
+                configurationPathSource: _configurationPathSource,
+                effectiveLogLevel: LoggingHelpers.InferEffectiveLogLevel(_logger),
+                effectiveLogLevelSource: "runtime",
+                effectiveTransport: _effectiveTransport,
+                effectiveTransportSource: "runtime",
+                effectiveSessionMode: _effectiveSessionMode,
+                effectiveSessionModeSource: "runtime",
+                effectiveRuntimeMode: _effectiveRuntimeMode,
+                effectiveRuntimeModeSource: "runtime",
+                effectiveMcpPath: _effectiveMcpPath,
+                effectiveMcpPathSource: "runtime",
+                config: currentConfig,
+                tools: _registeredToolsProvider());
 
-            return await Task.FromResult(JsonSerializer.Serialize(new
-            {
-                success = true,
-                status = new
-                {
-                    configurationFilePath = status.ConfigurationFilePath,
-                    functionNamesCount = status.FunctionNamesCount,
-                    modulesCount = status.ModulesCount,
-                    includePatternsCount = status.IncludePatternsCount,
-                    excludePatternsCount = status.ExcludePatternsCount,
-                    toolCount = status.ToolCount
-                },
-                currentConfiguration = new
-                {
-                    functionNames = currentConfig.FunctionNames,
-                    modules = currentConfig.Modules,
-                    includePatterns = currentConfig.IncludePatterns,
-                    excludePatterns = currentConfig.ExcludePatterns
-                }
-            }, new JsonSerializerOptions { WriteIndented = true }));
+            return await Task.FromResult(Program.BuildDoctorJson(report));
         }
         catch (Exception ex)
         {
@@ -189,5 +222,10 @@ public class ConfigurationReloadTools
                 error = $"Unexpected error: {ex.Message}"
             }, new JsonSerializerOptions { WriteIndented = true });
         }
+    }
+
+    private static string InferConfigurationPathSource(string configurationPath)
+    {
+        return string.IsNullOrWhiteSpace(configurationPath) ? SettingsResolver.EnvSource : "runtime";
     }
 }

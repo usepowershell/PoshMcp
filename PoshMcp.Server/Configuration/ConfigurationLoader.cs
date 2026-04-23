@@ -22,7 +22,7 @@ internal static class ConfigurationLoader
             : new ResolvedSetting(explicitConfigPath, SettingsResolver.CliSource);
 
         var resolvedConfigPath = await SettingsResolver.ResolveConfigurationPathWithSourceAsync(preferredConfigPath);
-        return resolvedConfigPath.Value ?? throw new InvalidOperationException("Resolved configuration path was empty.");
+        return resolvedConfigPath.Value ?? string.Empty;
     }
 
     internal static PowerShellConfiguration LoadPowerShellConfiguration(string configPath, ILogger logger)
@@ -32,9 +32,7 @@ internal static class ConfigurationLoader
 
     internal static PowerShellConfiguration LoadPowerShellConfiguration(string configPath, ILogger logger, string? runtimeModeOverride)
     {
-        var configuration = new ConfigurationBuilder()
-            .AddJsonFile(configPath, optional: false, reloadOnChange: false)
-            .Build();
+        var configuration = BuildRootConfiguration(configPath, reloadOnChange: false);
 
         var config = new PowerShellConfiguration();
         configuration.GetSection("PowerShellConfiguration").Bind(config);
@@ -58,9 +56,7 @@ internal static class ConfigurationLoader
 
     internal static (McpResourcesConfiguration Resources, McpPromptsConfiguration Prompts) LoadResourcesAndPromptsConfiguration(string configPath)
     {
-        var configuration = new ConfigurationBuilder()
-            .AddJsonFile(configPath, optional: false, reloadOnChange: false)
-            .Build();
+        var configuration = BuildRootConfiguration(configPath, reloadOnChange: false);
 
         var resourcesConfig = new McpResourcesConfiguration();
         configuration.GetSection("McpResources").Bind(resourcesConfig);
@@ -110,9 +106,7 @@ internal static class ConfigurationLoader
 
     internal static McpResourcesConfiguration LoadMcpResourcesConfiguration(string configPath, ILogger logger)
     {
-        var configuration = new ConfigurationBuilder()
-            .AddJsonFile(configPath, optional: false, reloadOnChange: false)
-            .Build();
+        var configuration = BuildRootConfiguration(configPath, reloadOnChange: false);
 
         var config = new McpResourcesConfiguration();
         configuration.GetSection("McpResources").Bind(config);
@@ -123,12 +117,23 @@ internal static class ConfigurationLoader
 
     internal static McpPromptsConfiguration LoadPromptsConfiguration(string configPath)
     {
-        var configuration = new ConfigurationBuilder()
-            .AddJsonFile(configPath, optional: false, reloadOnChange: false)
-            .Build();
+        var configuration = BuildRootConfiguration(configPath, reloadOnChange: false);
 
         var config = new McpPromptsConfiguration();
         configuration.GetSection("McpPrompts").Bind(config);
         return config;
+    }
+
+    internal static IConfigurationRoot BuildRootConfiguration(string? configPath, bool reloadOnChange)
+    {
+        var builder = new ConfigurationBuilder();
+
+        if (!string.IsNullOrWhiteSpace(configPath) && File.Exists(configPath))
+        {
+            builder.AddJsonFile(configPath, optional: false, reloadOnChange: reloadOnChange);
+        }
+
+        builder.AddEnvironmentVariables();
+        return builder.Build();
     }
 }

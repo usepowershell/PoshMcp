@@ -167,6 +167,50 @@ export POSHMCP_SESSION_TIMEOUT_MINUTES=120
 export POSHMCP_MODULES="Az.Accounts Az.Resources Az.Storage"
 ```
 
+You can also provide full appsettings-style configuration purely through environment variables (no physical `appsettings.json` required):
+
+```bash
+# Expose Get-Process and Get-Service without mounting a config file
+export PowerShellConfiguration__CommandNames__0=Get-Process
+export PowerShellConfiguration__CommandNames__1=Get-Service
+export PowerShellConfiguration__EnableDynamicReloadTools=true
+```
+
+PoshMcp resolves this as an environment-only configuration source.
+
+## Configuration Source In Doctor Output
+
+`poshmcp doctor` reports both the configuration path and configuration mode under Runtime Settings.
+
+- `configurationPath` indicates the resolved file path, or `(environment-only configuration)` when no file is used.
+- `configurationMode` indicates either `file-backed` or `environment-only`.
+- Both entries include a `source` value (for example `cwd`, `user`, `env`, `cli`).
+
+Example text output snippet:
+
+```text
+── Runtime Settings ──────────────────────────
+  configuration: (environment-only configuration) (env)
+  config-mode  : environment-only                (env)
+```
+
+Example JSON output snippet (`poshmcp doctor --format json`):
+
+```json
+{
+  "runtimeSettings": {
+    "configurationPath": {
+      "value": "(environment-only configuration)",
+      "source": "env"
+    },
+    "configurationMode": {
+      "value": "environment-only",
+      "source": "env"
+    }
+  }
+}
+```
+
 ## Startup Scripts
 
 Run PowerShell code when the server starts:

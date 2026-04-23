@@ -199,5 +199,9 @@ public class DoctorReportTests
         Assert.True(summary.ContainsKey("functionCount"), "summary.functionCount missing (camelCase)");
         Assert.True(summary.ContainsKey("foundCount"), "summary.foundCount missing (camelCase)");
         Assert.True(summary.ContainsKey("warningCount"), "summary.warningCount missing (camelCase)");
+
+        var runtimeSettings = node["runtimeSettings"]?.AsObject();
+        Assert.NotNull(runtimeSettings);
+        Assert.True(runtimeSettings!.ContainsKey("configurationMode"), "runtimeSettings.configurationMode missing (camelCase)");
     }
 }

@@ -53,6 +53,23 @@ public class DoctorTextRendererTests
     }
 
     [Fact]
+    public void Render_RuntimeSettings_ContainsConfigurationModeRow()
+    {
+        var report = BuildMinimalReport("healthy") with
+        {
+            RuntimeSettings = new RuntimeSettingsSection
+            {
+                ConfigurationMode = new ResolvedSetting("environment-only", "env")
+            }
+        };
+
+        var output = DoctorTextRenderer.Render(report);
+        Assert.Contains("config-mode", output);
+        Assert.Contains("environment-only", output);
+        Assert.Contains("(env)", output);
+    }
+
+    [Fact]
     public void Render_ContainsEnvironmentVariablesSectionHeader()
     {
         var report = BuildMinimalReport("healthy");

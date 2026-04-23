@@ -399,6 +399,52 @@ public class ProgramTests : PowerShellTestBase
     }
 
     [Fact]
+    public void LoadPowerShellConfiguration_WithoutFile_UsesEnvironmentVariables()
+    {
+        // Arrange
+        const string commandName = "Get-Date";
+        var originalCommandName = Environment.GetEnvironmentVariable("PowerShellConfiguration__CommandNames__0");
+        var originalDynamicReload = Environment.GetEnvironmentVariable("PowerShellConfiguration__EnableDynamicReloadTools");
+
+        Environment.SetEnvironmentVariable("PowerShellConfiguration__CommandNames__0", commandName);
+        Environment.SetEnvironmentVariable("PowerShellConfiguration__EnableDynamicReloadTools", "true");
+
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+        var logger = loggerFactory.CreateLogger("Test");
+
+        try
+        {
+            // Act
+            var config = ConfigurationLoader.LoadPowerShellConfiguration(string.Empty, logger);
+
+            // Assert
+            Assert.Contains(commandName, config.GetEffectiveCommandNames());
+            Assert.True(config.EnableDynamicReloadTools);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PowerShellConfiguration__CommandNames__0", originalCommandName);
+            Environment.SetEnvironmentVariable("PowerShellConfiguration__EnableDynamicReloadTools", originalDynamicReload);
+        }
+    }
+
+    [Fact]
+    public void HasEnvironmentAppSettingsOverrides_WithPowerShellConfigurationPrefix_ReturnsTrue()
+    {
+        var originalCommandName = Environment.GetEnvironmentVariable("PowerShellConfiguration__CommandNames__0");
+        Environment.SetEnvironmentVariable("PowerShellConfiguration__CommandNames__0", "Get-Process");
+
+        try
+        {
+            Assert.True(SettingsResolver.HasEnvironmentAppSettingsOverrides());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PowerShellConfiguration__CommandNames__0", originalCommandName);
+        }
+    }
+
+    [Fact]
     public void SerializeEffectivePowerShellConfiguration_IncludesPerformanceAndEffectiveSettings()
     {
         // Arrange
@@ -513,5 +559,36 @@ public class ProgramTests : PowerShellTestBase
         var expectedResolvedPath = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(configPath))!, relativeModulePath));
         Assert.Contains(expectedResolvedPath, oopModulePaths);
         Assert.Equal(oopModulePaths.Length, root["powerShell"]?["oopModulePathEntries"]?.GetValue<int>());
+    }
+
+    [Fact]
+    public void BuildDoctorReportFromConfig_EnvironmentOnlyConfiguration_SetsEnvironmentOnlyMode()
+    {
+        // Arrange
+        var config = new PowerShellConfiguration
+        {
+            FunctionNames = new() { "Get-Date" }
+        };
+
+        // Act
+        var report = Program.BuildDoctorReportFromConfig(
+            configurationPath: "(environment-only configuration)",
+            configurationPathSource: SettingsResolver.EnvSource,
+            effectiveLogLevel: "Information",
+            effectiveLogLevelSource: "test",
+            effectiveTransport: "http",
+            effectiveTransportSource: "test",
+            effectiveSessionMode: null,
+            effectiveSessionModeSource: "test",
+            effectiveRuntimeMode: "InProcess",
+            effectiveRuntimeModeSource: "test",
+            effectiveMcpPath: null,
+            effectiveMcpPathSource: "test",
+            config: config,
+            tools: new List<ModelContextProtocol.Server.McpServerTool>());
+
+        // Assert
+        Assert.Equal("environment-only", report.RuntimeSettings.ConfigurationMode.Value);
+        Assert.Equal(SettingsResolver.EnvSource, report.RuntimeSettings.ConfigurationMode.Source);
     }
 }

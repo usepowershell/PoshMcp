@@ -7,5 +7,5 @@ set -e
 
 # Run poshmcp serve with transport mode from environment or default to http
 POSHMCP_TRANSPORT=${POSHMCP_TRANSPORT:-http}
-exec /app/server/poshmcp serve --transport "$POSHMCP_TRANSPORT"
+exec dotnet /app/server/PoshMcp.dll serve --transport "$POSHMCP_TRANSPORT"
 

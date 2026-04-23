@@ -50,9 +50,13 @@ public class ConfigurationGuidanceTools
         {
             _logger.LogInformation("Processing configuration guidance request");
 
-            var rootConfiguration = new ConfigurationBuilder()
-                .AddJsonFile(_configurationPath, optional: false, reloadOnChange: false)
-                .Build();
+            var configurationBuilder = new ConfigurationBuilder();
+            if (!string.IsNullOrWhiteSpace(_configurationPath) && System.IO.File.Exists(_configurationPath))
+            {
+                configurationBuilder.AddJsonFile(_configurationPath, optional: false, reloadOnChange: false);
+            }
+            configurationBuilder.AddEnvironmentVariables();
+            var rootConfiguration = configurationBuilder.Build();
 
             var powerShellConfiguration = new PowerShellConfiguration();
             rootConfiguration.GetSection("PowerShellConfiguration").Bind(powerShellConfiguration);

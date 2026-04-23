@@ -166,7 +166,7 @@ Edit `parameters.json` to customize your deployment:
   "maxReplicas": 10,                       // Maximum instances (autoscaling)
   "cpuCores": "0.5",                       // CPU cores per instance (0.25, 0.5, 1.0, etc)
   "memoryGi": "1.0",                       // Memory in GB per instance (0.5, 1.0, 1.5, 2.0, etc)
-  "powerShellFunctions": "Get-SomeData",   // Comma-separated function names to expose
+  "powerShellFunctions": "Get-Process",   // Comma-separated function names to expose
   "enableDynamicReloadTools": true         // Enable runtime configuration reload
 }
 ```
@@ -189,10 +189,30 @@ The deployment automatically configures these environment variables in the Conta
 - `ASPNETCORE_ENVIRONMENT`: Production
 - `ASPNETCORE_URLS`: http://+:8080
 - `POSHMCP_TRANSPORT`: http
-- `PowerShellConfiguration__FunctionNames__0`: Your configured functions
+- `PowerShellConfiguration__CommandNames__{n}`: Indexed command names derived from `powerShellFunctions`
 - `PowerShellConfiguration__EnableDynamicReloadTools`: true/false
 - `APPLICATIONINSIGHTS_CONNECTION_STRING`: Auto-configured for Application Insights
 - `AZURE_CLIENT_ID`: Managed Identity client ID (auto-assigned)
+
+Health endpoint behavior:
+
+- `GET /health`: liveness signal (process is running)
+- `GET /health/ready`: readiness signal (returns `503` when health checks are degraded or unhealthy, including invalid or insufficient command configuration)
+
+This default deployment model is environment-only configuration: settings are provided via appsettings-format environment variables and no physical `appsettings.json` mount is required.
+
+To verify active source and mode in the running app, use doctor output:
+
+```bash
+poshmcp doctor
+poshmcp doctor --format json
+```
+
+Look for:
+
+- `runtimeSettings.configurationPath.value`: `(environment-only configuration)`
+- `runtimeSettings.configurationMode.value`: `environment-only`
+- `runtimeSettings.configurationPath.source` and `runtimeSettings.configurationMode.source`: typically `env`
 
 ### Custom Environment Variables
 
@@ -518,7 +538,7 @@ Edit `parameters.json` to customize your deployment:
   "maxReplicas": 10,                       // Maximum instances (autoscaling)
   "cpuCores": "0.5",                       // CPU cores per instance
   "memoryGi": "1.0",                       // Memory in GB per instance
-  "powerShellFunctions": "Get-SomeData",   // Comma-separated function names
+  "powerShellFunctions": "Get-Process",   // Comma-separated function names
   "enableDynamicReloadTools": true         // Enable runtime configuration reload
 }
 ```

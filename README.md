@@ -165,6 +165,18 @@ Configure which PowerShell commands to expose in `appsettings.json`:
 }
 ```
 
+### Configuration source diagnostics
+
+Use doctor to verify whether the server is running from a file-backed config or environment-only appsettings-style variables:
+
+```bash
+poshmcp doctor
+poshmcp doctor --format json
+```
+
+Look for `runtimeSettings.configurationPath` and `runtimeSettings.configurationMode`.
+When no physical `appsettings.json` is loaded, doctor reports `(environment-only configuration)` and mode `environment-only`.
+
 ### CLI Configuration Commands
 
 Manage configuration files directly from the PoshMcp CLI:

@@ -45,13 +45,13 @@ param minReplicas int = 1
 param maxReplicas int = 10
 
 @description('CPU cores per replica (0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0)')
-param cpuCores string = '0.5'
+param cpuCores string = '1.5'
 
 @description('Memory per replica in Gi (0.5, 1.0, 1.5, 2.0, 3.0, 3.5, 4.0)')
-param memoryGi string = '1.0'
+param memoryGi string = '3.0'
 
 @description('PowerShell function names to expose (comma-separated)')
-param powerShellFunctions string = 'Get-SomeData'
+param powerShellFunctions string = 'Get-Process'
 
 @description('Enable dynamic reload tools')
 param enableDynamicReloadTools bool = true

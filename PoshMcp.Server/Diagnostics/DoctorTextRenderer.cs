@@ -58,6 +58,7 @@ public static class DoctorTextRenderer
 
         return string.Join("\n",
             Row("configuration", section.ConfigurationPath),
+            Row("config-mode", section.ConfigurationMode),
             Row("transport", section.Transport),
             Row("log-level", section.LogLevel),
             Row("session-mode", section.SessionMode),

@@ -145,7 +145,7 @@ if ($env:RESOURCE_GROUP) {
 }
 else {
     Write-Host "  RESOURCE_GROUP: " -NoNewline
-    Write-Host "Not set (will use default: poshmcp-rg)" -ForegroundColor Yellow
+    Write-Host "Not set (will use default: rg-poshmcp)" -ForegroundColor Yellow
 }
 
 # Check location

@@ -39,7 +39,7 @@
       "value": "1.0"
     },
     "powerShellFunctions": {
-      "value": "Get-SomeData"
+      "value": "Get-Process"
     },
     "enableDynamicReloadTools": {
       "value": true
