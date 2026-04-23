@@ -221,3 +221,7 @@ Source: earned patterns from PRs #92–#96 and agent histories.
 - Coordinated with Amy (implementation) and Fry (testing)
 
 **Artifacts:** specs/007-deploy-source-image/spec.md
+
+### 2026-04-23: Added session-recall skill
+
+Created `.squad/skills/session-recall/SKILL.md` — project-level skill documenting the `session-recall` CLI tool for coordinator startup context recovery. Covers the lean 3-command startup sequence, how to pass recovered context into spawn prompts, fallback to the SQL-based `session-recovery` template skill, and anti-patterns. This is the preferred pattern over raw `session_store` SQL queries when the CLI is installed.
