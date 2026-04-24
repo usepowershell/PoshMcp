@@ -326,3 +326,10 @@
 
 **Design Decision:** Patch release focused on Docker deployment workflow improvements. Changes reduce setup friction for users generating custom Dockerfiles by eliminating the need to maintain local `install-modules.ps1` and ensuring generated templates reference the production base image.
 
+
+## Release Notes for v0.8.9–0.8.11
+**Date:** 2026-04-24
+**Task:** Write release notes for three patch releases following v0.8.8.
+
+**Learnings:**
+Release notes for v0.8.9–0.8.11: PSModule docs in Dockerfile, --appsettings build option, fix for poshmcp build outside repo

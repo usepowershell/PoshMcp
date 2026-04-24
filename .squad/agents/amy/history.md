@@ -349,3 +349,5 @@ Released v0.8.8: bundled install-modules.ps1 in base image, fixed --generate-doc
 - Install new version: dotnet tool install -g poshmcp --add-source ./artifacts --version 0.8.10 → successfully installed.
 - Verified: poshmcp --version → 0.8.10+216689bc436d8739a4b5a91c1ec75fc56b39221d.
 - Bumped to 0.8.10 — added --appsettings option to poshmcp build
+
+Pushed main + tagged v0.8.11 after Leela added release notes
