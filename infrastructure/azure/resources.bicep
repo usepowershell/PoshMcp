@@ -41,22 +41,14 @@ param cpuCores string = '0.5'
 @description('Memory in GB allocated to each container instance')
 param memoryGi string = '1.0'
 
-@description('PowerShell functions to expose as MCP tools (comma-separated)' )
-param powerShellFunctions string = 'Get-Process,Get-Service'
-
-@description('Enable dynamic reload tools for hot configuration updates')
-param enableDynamicReloadTools bool = true
+@description('Additional environment variables derived from the MCP server appsettings.json. Each entry must have name and value string properties.')
+param serverEnvVars array = []
 
 @description('Resource tags for cost tracking and organization')
 param tags object = {}
 
 var acrPullRoleDefinitionId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
 var containerRegistryName = !empty(containerRegistryServer) ? split(containerRegistryServer, '.')[0] : 'unused'
-var normalizedPowerShellFunctions = [for functionName in split(powerShellFunctions, ','): trim(functionName)]
-var powerShellCommandEnvVars = [for (commandName, index) in normalizedPowerShellFunctions: {
-  name: 'PowerShellConfiguration__CommandNames__${index}'
-  value: commandName
-}]
 
 // Log Analytics Workspace for Container Apps logs and metrics
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
@@ -211,10 +203,6 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
                 value: 'http'
               }
               {
-                name: 'PowerShellConfiguration__EnableDynamicReloadTools'
-                value: string(enableDynamicReloadTools)
-              }
-              {
                 name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
                 secretRef: 'appinsights-connection-string'
               }
@@ -223,7 +211,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
                 value: managedIdentity.properties.clientId
               }
             ],
-            powerShellCommandEnvVars
+            serverEnvVars
           )
           probes: [
             {

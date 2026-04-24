@@ -50,11 +50,8 @@ param cpuCores string = '1.5'
 @description('Memory per replica in Gi (0.5, 1.0, 1.5, 2.0, 3.0, 3.5, 4.0)')
 param memoryGi string = '3.0'
 
-@description('PowerShell function names to expose (comma-separated)')
-param powerShellFunctions string = 'Get-Process'
-
-@description('Enable dynamic reload tools')
-param enableDynamicReloadTools bool = true
+@description('Additional environment variables from the MCP server appsettings.json. Each entry: { name: string, value: string }.')
+param serverEnvVars array = []
 
 @description('Azure role to assign to Managed Identity at subscription scope')
 @allowed([
@@ -93,8 +90,7 @@ module resources 'resources.bicep' = {
     maxReplicas: maxReplicas
     cpuCores: cpuCores
     memoryGi: memoryGi
-    powerShellFunctions: powerShellFunctions
-    enableDynamicReloadTools: enableDynamicReloadTools
+    serverEnvVars: serverEnvVars
     tags: tags
   }
 }

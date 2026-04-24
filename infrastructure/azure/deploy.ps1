@@ -5,45 +5,501 @@
 # - Infrastructure deployment via Bicep
 # - Post-deployment verification
 
+<#
+.SYNOPSIS
+Deploys PoshMcp to Azure Container Apps.
+
+.DESCRIPTION
+Builds (or imports) a container image, pushes it to ACR, and deploys infrastructure
+using Bicep. Deployment values can come from CLI arguments, environment variables,
+or an appsettings-style JSON file.
+
+Precedence for deployment settings is:
+1) Explicit CLI parameters
+2) Environment variables
+3) App settings file values
+4) Script defaults
+
+.PARAMETER AppSettingsFile
+Optional path to an appsettings JSON file that includes an AzureDeployment section.
+You can also set DEPLOY_APPSETTINGS_FILE. CLI path overrides the environment value.
+
+.PARAMETER ServerAppSettingsFile
+Optional path to the MCP server's own appsettings.json (e.g. PoshMcp.Server/appsettings.json).
+You can also set POSHMCP_APPSETTINGS_FILE. Settings in this file are translated to Container App
+environment variables and merged with the hardcoded variables defined in resources.bicep.  If not
+provided, the script auto-discovers 'appsettings.json' or 'poshmcp.appsettings.json' in the same
+directory as deploy.ps1.
+
+.EXAMPLE
+./deploy.ps1 -RegistryName myregistry
+
+.EXAMPLE
+./deploy.ps1 -AppSettingsFile ./deploy.appsettings.json -RegistryName myregistry
+
+.EXAMPLE
+$env:DEPLOY_APPSETTINGS_FILE = './deploy.appsettings.json'
+$env:REGISTRY_NAME = 'myregistry'
+./deploy.ps1
+#>
+
 [CmdletBinding()]
 param(
     [Parameter()]
-    [string]$ResourceGroup = $env:RESOURCE_GROUP ?? 'rg-poshmcp',
+    [string]$ResourceGroup,
     
     [Parameter()]
-    [string]$Location = $env:LOCATION ?? 'eastus',
+    [string]$Location,
     
     [Parameter()]
-    [string]$ContainerAppName = $env:CONTAINER_APP_NAME ?? 'poshmcp',
+    [string]$ContainerAppName,
     
     [Parameter()]
     [string]$RegistryName,
     
     [Parameter()]
-    [string]$ImageTag = (Get-Date -Format 'yyyyMMdd-HHmmss'),
+    [string]$ImageTag,
     
     [Parameter()]
-    [string]$Subscription = $env:AZURE_SUBSCRIPTION,
+    [string]$Subscription,
     
     [Parameter()]
-    [string]$TenantId = $env:AZURE_TENANT_ID,
+    [string]$TenantId,
 
     [Parameter()]
     [string]$SourceImage,
 
     [Parameter()]
-    [switch]$UseRegistryCache
+    [switch]$UseRegistryCache,
+
+    [Parameter()]
+    [string]$AppSettingsFile,
+
+    [Parameter()]
+    [string]$ServerAppSettingsFile
 )
 
 $ErrorActionPreference = 'Stop'
 # Enable information stream by default for user-facing messages
 $InformationPreference = 'Continue'
 
+# Preserve script-level bound parameters so nested helper functions can reliably
+# evaluate whether a value was explicitly provided via CLI.
+$script:InvocationBoundParameters = @{}
+foreach ($entry in $PSBoundParameters.GetEnumerator()) {
+    $script:InvocationBoundParameters[$entry.Key] = $entry.Value
+}
+
 # Get script directory
 $ScriptDir = $PSScriptRoot
 $ProjectRoot = Join-Path $ScriptDir '..' '..' | Resolve-Path
 $BicepFile = Join-Path $ScriptDir 'main.bicep'
 $ParametersFile = Join-Path $ScriptDir 'parameters.json'
+
+function Get-TrimmedString {
+    param(
+        [Parameter()]
+        [object]$Value
+    )
+
+    if ($null -eq $Value) {
+        return $null
+    }
+
+    $stringValue = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($stringValue)) {
+        return $null
+    }
+
+    return $stringValue.Trim()
+}
+
+function ConvertTo-NullableBoolean {
+    param(
+        [Parameter()]
+        [object]$Value,
+
+        [Parameter(Mandatory)]
+        [string]$Context
+    )
+
+    if ($null -eq $Value) {
+        return $null
+    }
+
+    if ($Value -is [bool]) {
+        return [bool]$Value
+    }
+
+    if ($Value -is [System.Management.Automation.SwitchParameter]) {
+        return [bool]$Value.IsPresent
+    }
+
+    if ($Value -is [int] -or $Value -is [long]) {
+        if ([int64]$Value -eq 1) { return $true }
+        if ([int64]$Value -eq 0) { return $false }
+    }
+
+    $normalized = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($normalized)) {
+        return $null
+    }
+
+    switch -Regex ($normalized.Trim().ToLowerInvariant()) {
+        '^(true|1|yes|y|on)$' { return $true }
+        '^(false|0|no|n|off)$' { return $false }
+    }
+
+    Write-Error "Invalid boolean value '$Value' for $Context. Allowed values: true/false, 1/0, yes/no, on/off." -Category InvalidArgument -ErrorAction Stop
+}
+
+function Get-AppSettingsDeploymentSection {
+    param(
+        [Parameter()]
+        [string]$ResolvedAppSettingsFile
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ResolvedAppSettingsFile)) {
+        return @{}
+    }
+
+    if (-not (Test-Path -Path $ResolvedAppSettingsFile)) {
+        Write-Error "App settings file '$ResolvedAppSettingsFile' was not found." -Category ObjectNotFound -ErrorAction Stop
+    }
+
+    Write-Information "Loading deployment settings from appsettings file: $ResolvedAppSettingsFile" -Tags 'Status'
+
+    try {
+        $root = Get-Content -Path $ResolvedAppSettingsFile -Raw | ConvertFrom-Json -Depth 50 -AsHashtable
+    }
+    catch {
+        Write-Error "Failed to parse appsettings file '$ResolvedAppSettingsFile': $($_.Exception.Message)" -Category InvalidData -ErrorAction Stop
+    }
+
+    if (-not ($root -is [hashtable])) {
+        return @{}
+    }
+
+    if ($root.ContainsKey('AzureDeployment') -and $root.AzureDeployment -is [hashtable]) {
+        return $root.AzureDeployment
+    }
+
+    if ($root.ContainsKey('Deployment') -and $root.Deployment -is [hashtable]) {
+        $deployment = $root.Deployment
+        if ($deployment.ContainsKey('Azure') -and $deployment.Azure -is [hashtable]) {
+            return $deployment.Azure
+        }
+    }
+
+    return @{}
+}
+
+function Resolve-StringSetting {
+    param(
+        [Parameter(Mandatory)]
+        [string]$SettingName,
+
+        [Parameter(Mandatory)]
+        [bool]$CliProvided,
+
+        [Parameter()]
+        [string]$CliValue,
+
+        [Parameter()]
+        [string]$EnvironmentVariableName,
+
+        [Parameter()]
+        [hashtable]$AppSettingsSection,
+
+        [Parameter()]
+        [string]$AppSettingsKey,
+
+        [Parameter()]
+        [string]$DefaultValue,
+
+        [Parameter()]
+        [switch]$Required
+    )
+
+    $cliResolved = Get-TrimmedString -Value $CliValue
+    if ($CliProvided -and $cliResolved) {
+        return @{ Value = $cliResolved; Source = 'cli' }
+    }
+
+    if ($EnvironmentVariableName) {
+        $environmentValue = Get-TrimmedString -Value ([Environment]::GetEnvironmentVariable($EnvironmentVariableName))
+        if ($environmentValue) {
+            return @{ Value = $environmentValue; Source = "env:$EnvironmentVariableName" }
+        }
+    }
+
+    if ($AppSettingsSection -and $AppSettingsKey -and $AppSettingsSection.ContainsKey($AppSettingsKey)) {
+        $appSettingsValue = Get-TrimmedString -Value $AppSettingsSection[$AppSettingsKey]
+        if ($appSettingsValue) {
+            return @{ Value = $appSettingsValue; Source = "appsettings:$AppSettingsKey" }
+        }
+    }
+
+    $defaultResolved = Get-TrimmedString -Value $DefaultValue
+    if ($defaultResolved) {
+        return @{ Value = $defaultResolved; Source = 'default' }
+    }
+
+    if ($Required) {
+        Write-Error "Required setting '$SettingName' was not provided. Set it via CLI, environment variable, or appsettings file." -Category InvalidArgument -ErrorAction Stop
+    }
+
+    return @{ Value = $null; Source = 'unset' }
+}
+
+function Resolve-BooleanSetting {
+    param(
+        [Parameter(Mandatory)]
+        [string]$SettingName,
+
+        [Parameter(Mandatory)]
+        [bool]$CliProvided,
+
+        [Parameter()]
+        [object]$CliValue,
+
+        [Parameter()]
+        [string]$EnvironmentVariableName,
+
+        [Parameter()]
+        [hashtable]$AppSettingsSection,
+
+        [Parameter()]
+        [string]$AppSettingsKey,
+
+        [Parameter(Mandatory)]
+        [bool]$DefaultValue
+    )
+
+    if ($CliProvided) {
+        $value = ConvertTo-NullableBoolean -Value $CliValue -Context "CLI parameter $SettingName"
+        return @{ Value = [bool]$value; Source = 'cli' }
+    }
+
+    if ($EnvironmentVariableName) {
+        $environmentRaw = Get-TrimmedString -Value ([Environment]::GetEnvironmentVariable($EnvironmentVariableName))
+        if ($environmentRaw) {
+            $value = ConvertTo-NullableBoolean -Value $environmentRaw -Context "environment variable $EnvironmentVariableName"
+            return @{ Value = [bool]$value; Source = "env:$EnvironmentVariableName" }
+        }
+    }
+
+    if ($AppSettingsSection -and $AppSettingsKey -and $AppSettingsSection.ContainsKey($AppSettingsKey)) {
+        $value = ConvertTo-NullableBoolean -Value $AppSettingsSection[$AppSettingsKey] -Context "appsettings key $AppSettingsKey"
+        if ($null -ne $value) {
+            return @{ Value = [bool]$value; Source = "appsettings:$AppSettingsKey" }
+        }
+    }
+
+    return @{ Value = $DefaultValue; Source = 'default' }
+}
+
+# Translate an MCP server appsettings.json into Container App environment variable objects.
+# Skips Logging, McpResources, and any keys believed to hold secrets or file paths.
+# Returns an array of @{ name = '...'; value = '...' } hashtables.
+function ConvertTo-McpServerEnvVars {
+    param(
+        [Parameter(Mandatory)]
+        [string]$FilePath
+    )
+
+    $envVars = [System.Collections.Generic.List[hashtable]]::new()
+
+    try {
+        $root = Get-Content -Path $FilePath -Raw | ConvertFrom-Json -Depth 50 -AsHashtable
+    }
+    catch {
+        Write-Error "Failed to parse MCP server appsettings file '$FilePath': $($_.Exception.Message)" -Category InvalidData -ErrorAction Stop
+    }
+
+    $psConfig = $root['PowerShellConfiguration']
+    if ($psConfig -is [hashtable]) {
+        # RuntimeMode → canonical POSHMCP_RUNTIME_MODE
+        if ($psConfig.ContainsKey('RuntimeMode')) {
+            $rawMode = [string]$psConfig['RuntimeMode']
+            $normalized = $rawMode.ToLowerInvariant() -replace '[-_]', ''
+            $envMode = switch ($normalized) {
+                'outofprocess' { 'OutOfProcess' }
+                'inprocess'    { 'InProcess' }
+                default        { $rawMode }
+            }
+            $envVars.Add(@{ name = 'POSHMCP_RUNTIME_MODE'; value = $envMode })
+        }
+
+        # SessionMode → canonical POSHMCP_SESSION_MODE
+        if ($psConfig.ContainsKey('SessionMode')) {
+            $envVars.Add(@{ name = 'POSHMCP_SESSION_MODE'; value = [string]$psConfig['SessionMode'] })
+        }
+
+        # CommandNames[] → PowerShellConfiguration__CommandNames__0, __1, …
+        $cmdNames = $psConfig['CommandNames']
+        if ($cmdNames -is [System.Collections.IList]) {
+            for ($i = 0; $i -lt $cmdNames.Count; $i++) {
+                $envVars.Add(@{ name = "PowerShellConfiguration__CommandNames__$i"; value = [string]$cmdNames[$i] })
+            }
+        }
+
+        # Modules[] → PowerShellConfiguration__Modules__0, __1, …
+        $modules = $psConfig['Modules']
+        if ($modules -is [System.Collections.IList]) {
+            for ($i = 0; $i -lt $modules.Count; $i++) {
+                $envVars.Add(@{ name = "PowerShellConfiguration__Modules__$i"; value = [string]$modules[$i] })
+            }
+        }
+
+        # IncludePatterns[] → PowerShellConfiguration__IncludePatterns__0, …
+        $includePatterns = $psConfig['IncludePatterns']
+        if ($includePatterns -is [System.Collections.IList]) {
+            for ($i = 0; $i -lt $includePatterns.Count; $i++) {
+                $envVars.Add(@{ name = "PowerShellConfiguration__IncludePatterns__$i"; value = [string]$includePatterns[$i] })
+            }
+        }
+
+        # ExcludePatterns[] → PowerShellConfiguration__ExcludePatterns__0, …
+        $excludePatterns = $psConfig['ExcludePatterns']
+        if ($excludePatterns -is [System.Collections.IList]) {
+            for ($i = 0; $i -lt $excludePatterns.Count; $i++) {
+                $envVars.Add(@{ name = "PowerShellConfiguration__ExcludePatterns__$i"; value = [string]$excludePatterns[$i] })
+            }
+        }
+
+        # EnableDynamicReloadTools (scalar bool)
+        if ($psConfig.ContainsKey('EnableDynamicReloadTools')) {
+            $envVars.Add(@{ name = 'PowerShellConfiguration__EnableDynamicReloadTools'; value = ([string]$psConfig['EnableDynamicReloadTools']).ToLowerInvariant() })
+        }
+
+        # EnableConfigurationTroubleshootingTool (scalar bool)
+        if ($psConfig.ContainsKey('EnableConfigurationTroubleshootingTool')) {
+            $envVars.Add(@{ name = 'PowerShellConfiguration__EnableConfigurationTroubleshootingTool'; value = ([string]$psConfig['EnableConfigurationTroubleshootingTool']).ToLowerInvariant() })
+        }
+
+        # Performance sub-section
+        $perf = $psConfig['Performance']
+        if ($perf -is [hashtable]) {
+            if ($perf.ContainsKey('EnableResultCaching')) {
+                $envVars.Add(@{ name = 'PowerShellConfiguration__Performance__EnableResultCaching'; value = ([string]$perf['EnableResultCaching']).ToLowerInvariant() })
+            }
+            if ($perf.ContainsKey('UseDefaultDisplayProperties')) {
+                $envVars.Add(@{ name = 'PowerShellConfiguration__Performance__UseDefaultDisplayProperties'; value = ([string]$perf['UseDefaultDisplayProperties']).ToLowerInvariant() })
+            }
+        }
+    }
+
+    $authConfig = $root['Authentication']
+    if ($authConfig -is [hashtable] -and $authConfig.ContainsKey('Enabled')) {
+        $envVars.Add(@{ name = 'Authentication__Enabled'; value = ([string]$authConfig['Enabled']).ToLowerInvariant() })
+    }
+
+    $loggingConfig = $root['Logging']
+    if ($loggingConfig -is [hashtable]) {
+        $logLevelConfig = $loggingConfig['LogLevel']
+        if ($logLevelConfig -is [hashtable] -and $logLevelConfig.ContainsKey('Default')) {
+            $envVars.Add(@{ name = 'Logging__LogLevel__Default'; value = [string]$logLevelConfig['Default'] })
+        }
+    }
+
+    return $envVars.ToArray()
+}
+
+# Resolve the MCP server appsettings file path, performing auto-discovery when not provided.
+function Resolve-McpAppSettingsFile {
+    param(
+        [Parameter()]
+        [string]$CliValue
+    )
+
+    $cliResolved = Get-TrimmedString -Value $CliValue
+    if (-not $cliResolved) {
+        $cliResolved = Get-TrimmedString -Value ([Environment]::GetEnvironmentVariable('POSHMCP_APPSETTINGS_FILE'))
+    }
+
+    if ($cliResolved) {
+        if (-not (Test-Path -Path $cliResolved)) {
+            Write-Error "ServerAppSettingsFile '$cliResolved' was not found." -Category ObjectNotFound -ErrorAction Stop
+        }
+        return (Resolve-Path -Path $cliResolved).Path
+    }
+
+    # Auto-discover: look in the script directory for known file names
+    foreach ($candidate in @('poshmcp.appsettings.json', 'appsettings.json')) {
+        $candidatePath = Join-Path $ScriptDir $candidate
+        if (Test-Path -Path $candidatePath) {
+            Write-Information "Auto-discovered MCP server appsettings: $candidatePath" -Tags 'Status'
+            return $candidatePath
+        }
+    }
+
+    return $null
+}
+
+function Initialize-DeploymentConfiguration {
+    $appSettingsFileFromEnv = Get-TrimmedString -Value ([Environment]::GetEnvironmentVariable('DEPLOY_APPSETTINGS_FILE'))
+    $resolvedAppSettingsFile = Get-TrimmedString -Value $AppSettingsFile
+    if (-not $resolvedAppSettingsFile) {
+        $resolvedAppSettingsFile = $appSettingsFileFromEnv
+    }
+
+    if ($resolvedAppSettingsFile) {
+        try {
+            $resolvedAppSettingsFile = (Resolve-Path -Path $resolvedAppSettingsFile -ErrorAction Stop).Path
+        }
+        catch {
+            Write-Error "App settings file '$resolvedAppSettingsFile' was not found." -Category ObjectNotFound -ErrorAction Stop
+        }
+    }
+
+    $deploymentSettings = Get-AppSettingsDeploymentSection -ResolvedAppSettingsFile $resolvedAppSettingsFile
+
+    $resourceGroupSetting = Resolve-StringSetting -SettingName 'ResourceGroup' -CliProvided $script:InvocationBoundParameters.ContainsKey('ResourceGroup') -CliValue $ResourceGroup -EnvironmentVariableName 'RESOURCE_GROUP' -AppSettingsSection $deploymentSettings -AppSettingsKey 'ResourceGroup' -DefaultValue 'rg-poshmcp'
+    $locationSetting = Resolve-StringSetting -SettingName 'Location' -CliProvided $script:InvocationBoundParameters.ContainsKey('Location') -CliValue $Location -EnvironmentVariableName 'LOCATION' -AppSettingsSection $deploymentSettings -AppSettingsKey 'Location' -DefaultValue 'eastus'
+    $containerAppNameSetting = Resolve-StringSetting -SettingName 'ContainerAppName' -CliProvided $script:InvocationBoundParameters.ContainsKey('ContainerAppName') -CliValue $ContainerAppName -EnvironmentVariableName 'CONTAINER_APP_NAME' -AppSettingsSection $deploymentSettings -AppSettingsKey 'ContainerAppName' -DefaultValue 'poshmcp'
+    $registryNameSetting = Resolve-StringSetting -SettingName 'RegistryName' -CliProvided $script:InvocationBoundParameters.ContainsKey('RegistryName') -CliValue $RegistryName -EnvironmentVariableName 'REGISTRY_NAME' -AppSettingsSection $deploymentSettings -AppSettingsKey 'RegistryName' -Required
+    $imageTagSetting = Resolve-StringSetting -SettingName 'ImageTag' -CliProvided $script:InvocationBoundParameters.ContainsKey('ImageTag') -CliValue $ImageTag -EnvironmentVariableName 'IMAGE_TAG' -AppSettingsSection $deploymentSettings -AppSettingsKey 'ImageTag' -DefaultValue (Get-Date -Format 'yyyyMMdd-HHmmss')
+    $subscriptionSetting = Resolve-StringSetting -SettingName 'Subscription' -CliProvided $script:InvocationBoundParameters.ContainsKey('Subscription') -CliValue $Subscription -EnvironmentVariableName 'AZURE_SUBSCRIPTION' -AppSettingsSection $deploymentSettings -AppSettingsKey 'Subscription'
+    $tenantIdSetting = Resolve-StringSetting -SettingName 'TenantId' -CliProvided $script:InvocationBoundParameters.ContainsKey('TenantId') -CliValue $TenantId -EnvironmentVariableName 'AZURE_TENANT_ID' -AppSettingsSection $deploymentSettings -AppSettingsKey 'TenantId'
+    $sourceImageSetting = Resolve-StringSetting -SettingName 'SourceImage' -CliProvided $script:InvocationBoundParameters.ContainsKey('SourceImage') -CliValue $SourceImage -EnvironmentVariableName 'SOURCE_IMAGE' -AppSettingsSection $deploymentSettings -AppSettingsKey 'SourceImage'
+    $useRegistryCacheSetting = Resolve-BooleanSetting -SettingName 'UseRegistryCache' -CliProvided $script:InvocationBoundParameters.ContainsKey('UseRegistryCache') -CliValue $UseRegistryCache -EnvironmentVariableName 'USE_REGISTRY_CACHE' -AppSettingsSection $deploymentSettings -AppSettingsKey 'UseRegistryCache' -DefaultValue $false
+
+    $script:ResourceGroup = $resourceGroupSetting.Value
+    $script:Location = $locationSetting.Value
+    $script:ContainerAppName = $containerAppNameSetting.Value
+    $script:RegistryName = $registryNameSetting.Value
+    $script:ImageTag = $imageTagSetting.Value
+    $script:Subscription = $subscriptionSetting.Value
+    $script:TenantId = $tenantIdSetting.Value
+    $script:SourceImage = $sourceImageSetting.Value
+    $script:UseRegistryCache = [bool]$useRegistryCacheSetting.Value
+
+    Write-Information "Resolved deployment setting sources:" -Tags 'Status'
+    Write-Information "  ResourceGroup: $($resourceGroupSetting.Source)" -Tags 'Status'
+    Write-Information "  Location: $($locationSetting.Source)" -Tags 'Status'
+    Write-Information "  ContainerAppName: $($containerAppNameSetting.Source)" -Tags 'Status'
+    Write-Information "  RegistryName: $($registryNameSetting.Source)" -Tags 'Status'
+    Write-Information "  ImageTag: $($imageTagSetting.Source)" -Tags 'Status'
+    Write-Information "  Subscription: $($subscriptionSetting.Source)" -Tags 'Status'
+    Write-Information "  TenantId: $($tenantIdSetting.Source)" -Tags 'Status'
+    Write-Information "  SourceImage: $($sourceImageSetting.Source)" -Tags 'Status'
+    Write-Information "  UseRegistryCache: $($useRegistryCacheSetting.Source)" -Tags 'Status'
+
+    # Resolve MCP server appsettings and derive server env vars
+    $resolvedMcpAppSettingsFile = Resolve-McpAppSettingsFile -CliValue $ServerAppSettingsFile
+    if ($resolvedMcpAppSettingsFile) {
+        Write-Information "Loading MCP server settings from: $resolvedMcpAppSettingsFile" -Tags 'Status'
+        $script:ServerEnvVars = ConvertTo-McpServerEnvVars -FilePath $resolvedMcpAppSettingsFile
+        Write-Information "  MCP server env vars derived: $($script:ServerEnvVars.Count)" -Tags 'Status'
+        foreach ($ev in $script:ServerEnvVars) {
+            Write-Verbose "    $($ev.name) = $($ev.value)"
+        }
+    }
+    else {
+        $script:ServerEnvVars = @()
+    }
+}
 
 # Retry configuration for transient ACR auth/network issues.
 $script:LoginMaxAttempts = 4
@@ -518,7 +974,7 @@ function Build-AndPushImage {
         
         Write-Verbose "Building Docker image: $FullImageName"
         Write-Verbose "Tagging as latest: $latestImage"
-        poshmcp build --tag $FullImageName
+        poshmcp build --type base --tag $FullImageName
         if ($LASTEXITCODE -ne 0) {
             Write-Error "poshmcp build failed" -Category InvalidOperation -ErrorAction Stop
         }
@@ -556,6 +1012,9 @@ function Deploy-Infrastructure {
     $params.parameters.containerImage.value = $FullImageName
     $params.parameters.containerRegistryServer.value = $RegistryServer
     $params.parameters.location.value = $Location
+
+    # Inject server env vars from MCP server appsettings
+    $params.parameters | Add-Member -NotePropertyName 'serverEnvVars' -NotePropertyValue ([pscustomobject]@{ value = $script:ServerEnvVars }) -Force
     
     # Save temporary parameters file
     $tempParams = New-TemporaryFile
@@ -652,6 +1111,8 @@ function Get-DeploymentInfo {
 function Invoke-Deployment {
     Write-Information "Starting PoshMcp deployment to Azure Container Apps" -Tags 'Status'
     Write-Host ""
+
+    Initialize-DeploymentConfiguration
 
     if ($UseRegistryCache -and -not $SourceImage) {
         Write-Error "Parameter -UseRegistryCache requires -SourceImage to be provided" -Category InvalidArgument -ErrorAction Stop

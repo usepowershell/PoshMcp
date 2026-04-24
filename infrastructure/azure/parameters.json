@@ -38,12 +38,6 @@
     "memoryGi": {
       "value": "1.0"
     },
-    "powerShellFunctions": {
-      "value": "Get-Process"
-    },
-    "enableDynamicReloadTools": {
-      "value": true
-    },
     "managedIdentityRole": {
       "value": "Reader"
     },

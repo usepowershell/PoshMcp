@@ -24,6 +24,10 @@ chmod +x validate.sh deploy.sh
 cd infrastructure/azure
 .\validate.ps1
 .\deploy.ps1 -RegistryName "myregistry" -ResourceGroup "poshmcp-rg" -Location "eastus"
+
+# Optional: source deployment settings from appsettings-style JSON
+Copy-Item .\deploy.appsettings.json.template .\deploy.appsettings.json
+.\deploy.ps1 -AppSettingsFile .\deploy.appsettings.json -RegistryName "myregistry"
 ```
 
 ## Common scenarios
