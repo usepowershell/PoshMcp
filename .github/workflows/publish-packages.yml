@@ -194,8 +194,8 @@ jobs:
           REPO="${{ github.repository }}"
           echo "name=ghcr.io/${REPO,,}/poshmcp" >> $GITHUB_OUTPUT
 
-      # Use the poshmcp CLI to build the container image.
-      # poshmcp build --tag delegates to: docker build -f Dockerfile -t <tag>
+      # Use the poshmcp CLI to build the container image from repo source.
+      # poshmcp build --type base --tag delegates to: docker build -f Dockerfile -t <tag>
       # dotnet run is used here so we don't need a global tool install in CI.
       - name: Build container image with poshmcp build
         run: |
@@ -203,7 +203,7 @@ jobs:
           echo "Building image: $IMAGE"
           dotnet run --project PoshMcp.Server/PoshMcp.csproj \
             --configuration Release --no-build \
-            -- build --tag "$IMAGE"
+            -- build --type base --tag "$IMAGE"
 
       - name: Tag image as latest (tag push only)
         if: github.event_name == 'push'
