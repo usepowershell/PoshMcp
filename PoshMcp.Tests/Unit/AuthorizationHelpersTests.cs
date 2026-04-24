@@ -13,7 +13,7 @@ public class AuthorizationHelpersTests
         var config = new PowerShellConfiguration
         {
             CommandNames = new List<string> { "Get-Process" },
-            FunctionOverrides = new Dictionary<string, FunctionOverride>(System.StringComparer.OrdinalIgnoreCase)
+            CommandOverrides = new Dictionary<string, FunctionOverride>(System.StringComparer.OrdinalIgnoreCase)
             {
                 ["get_process_name"] = new FunctionOverride
                 {
@@ -38,7 +38,7 @@ public class AuthorizationHelpersTests
         var config = new PowerShellConfiguration
         {
             CommandNames = new List<string> { "Get-Process" },
-            FunctionOverrides = new Dictionary<string, FunctionOverride>(System.StringComparer.OrdinalIgnoreCase)
+            CommandOverrides = new Dictionary<string, FunctionOverride>(System.StringComparer.OrdinalIgnoreCase)
             {
                 ["Get-Process"] = new FunctionOverride
                 {
@@ -59,7 +59,7 @@ public class AuthorizationHelpersTests
         var config = new PowerShellConfiguration
         {
             CommandNames = new List<string> { "Get-ProcessName", "Get-Process" },
-            FunctionOverrides = new Dictionary<string, FunctionOverride>(System.StringComparer.OrdinalIgnoreCase)
+            CommandOverrides = new Dictionary<string, FunctionOverride>(System.StringComparer.OrdinalIgnoreCase)
             {
                 ["Get-ProcessName"] = new FunctionOverride
                 {
@@ -107,7 +107,7 @@ public class AuthorizationHelpersTests
         var config = new PowerShellConfiguration
         {
             CommandNames = new List<string> { "Get-Process" },
-            FunctionOverrides = new Dictionary<string, FunctionOverride>(System.StringComparer.OrdinalIgnoreCase)
+            CommandOverrides = new Dictionary<string, FunctionOverride>(System.StringComparer.OrdinalIgnoreCase)
             {
                 ["Get-Service"] = new FunctionOverride
                 {

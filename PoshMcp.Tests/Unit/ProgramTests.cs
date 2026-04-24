@@ -472,7 +472,7 @@ public class ProgramTests : PowerShellTestBase
                 EnableResultCaching = true,
                 UseDefaultDisplayProperties = false
             },
-            FunctionOverrides =
+            CommandOverrides =
             {
                 ["Get-Process"] = new FunctionOverride
                 {
@@ -508,9 +508,9 @@ public class ProgramTests : PowerShellTestBase
         Assert.True(root["Environment"]?["AllowClobber"]?.GetValue<bool>());
         Assert.Equal(120, root["Environment"]?["InstallTimeoutSeconds"]?.GetValue<int>());
 
-        Assert.Equal("Name", root["FunctionOverrides"]?["Get-Process"]?["DefaultProperties"]?[0]?.GetValue<string>());
-        Assert.False(root["FunctionOverrides"]?["Get-Process"]?["EnableResultCaching"]?.GetValue<bool>());
-        Assert.True(root["FunctionOverrides"]?["Get-Process"]?["UseDefaultDisplayProperties"]?.GetValue<bool>());
+        Assert.Equal("Name", root["CommandOverrides"]?["Get-Process"]?["DefaultProperties"]?[0]?.GetValue<string>());
+        Assert.False(root["CommandOverrides"]?["Get-Process"]?["EnableResultCaching"]?.GetValue<bool>());
+        Assert.True(root["CommandOverrides"]?["Get-Process"]?["UseDefaultDisplayProperties"]?.GetValue<bool>());
     }
 
     [Fact]
