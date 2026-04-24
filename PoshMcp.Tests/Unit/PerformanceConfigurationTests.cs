@@ -291,10 +291,10 @@ public class PerformanceConfigurationTests : PowerShellTestBase
         Assert.False(useDefaultProps);  // falls through to global false
     }
 
-        [Fact]
-        public void PowerShellConfiguration_Bind_LegacyFunctionOverrides_StillAppliesToEffectiveCommandOverrides()
-        {
-                var json = """
+    [Fact]
+    public void PowerShellConfiguration_Bind_LegacyFunctionOverrides_StillAppliesToEffectiveCommandOverrides()
+    {
+        var json = """
 {
     "PowerShellConfiguration": {
         "FunctionOverrides": {
@@ -306,20 +306,20 @@ public class PerformanceConfigurationTests : PowerShellTestBase
 }
 """;
 
-                using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
-                var configuration = new ConfigurationBuilder().AddJsonStream(stream).Build();
-                var powerShellConfig = new PowerShellConfiguration();
-                configuration.GetSection("PowerShellConfiguration").Bind(powerShellConfig);
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+        var configuration = new ConfigurationBuilder().AddJsonStream(stream).Build();
+        var powerShellConfig = new PowerShellConfiguration();
+        configuration.GetSection("PowerShellConfiguration").Bind(powerShellConfig);
 
-                var effectiveOverrides = powerShellConfig.GetEffectiveCommandOverrides();
-                Assert.True(effectiveOverrides.ContainsKey("Get-Process"));
-                Assert.Equal("legacy", effectiveOverrides["Get-Process"].RequiredRoles![0]);
-        }
+        var effectiveOverrides = powerShellConfig.GetEffectiveCommandOverrides();
+        Assert.True(effectiveOverrides.ContainsKey("Get-Process"));
+        Assert.Equal("legacy", effectiveOverrides["Get-Process"].RequiredRoles![0]);
+    }
 
-        [Fact]
-        public void PowerShellConfiguration_Bind_CommandOverrides_TakesPrecedenceOverLegacyFunctionOverrides()
-        {
-                var json = """
+    [Fact]
+    public void PowerShellConfiguration_Bind_CommandOverrides_TakesPrecedenceOverLegacyFunctionOverrides()
+    {
+        var json = """
 {
     "PowerShellConfiguration": {
         "FunctionOverrides": {
@@ -336,13 +336,13 @@ public class PerformanceConfigurationTests : PowerShellTestBase
 }
 """;
 
-                using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
-                var configuration = new ConfigurationBuilder().AddJsonStream(stream).Build();
-                var powerShellConfig = new PowerShellConfiguration();
-                configuration.GetSection("PowerShellConfiguration").Bind(powerShellConfig);
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+        var configuration = new ConfigurationBuilder().AddJsonStream(stream).Build();
+        var powerShellConfig = new PowerShellConfiguration();
+        configuration.GetSection("PowerShellConfiguration").Bind(powerShellConfig);
 
-                var effectiveOverrides = powerShellConfig.GetEffectiveCommandOverrides();
-                Assert.True(effectiveOverrides.ContainsKey("Get-Process"));
-                Assert.Equal("command", effectiveOverrides["Get-Process"].RequiredRoles![0]);
-        }
+        var effectiveOverrides = powerShellConfig.GetEffectiveCommandOverrides();
+        Assert.True(effectiveOverrides.ContainsKey("Get-Process"));
+        Assert.Equal("command", effectiveOverrides["Get-Process"].RequiredRoles![0]);
+    }
 }

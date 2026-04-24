@@ -462,15 +462,15 @@ public class ProgramCliConfigCommandsTests
         Assert.Contains(requiredRoles, r => r?.GetValue<string>() == "operator");
     }
 
-        [Fact]
-        public async Task UpdateConfigCommand_WhenAdvancedPromptsRun_MigratesLegacyFunctionOverridesToCommandOverrides()
-        {
-                using var tempDirectory = new TemporaryDirectory();
-                using var currentDirectoryScope = new CurrentDirectoryScope(tempDirectory.Path);
-                using var capture = new ConsoleCapture("y\n\n\n\n\n\n\n");
+    [Fact]
+    public async Task UpdateConfigCommand_WhenAdvancedPromptsRun_MigratesLegacyFunctionOverridesToCommandOverrides()
+    {
+        using var tempDirectory = new TemporaryDirectory();
+        using var currentDirectoryScope = new CurrentDirectoryScope(tempDirectory.Path);
+        using var capture = new ConsoleCapture("y\n\n\n\n\n\n\n");
 
-                var configPath = System.IO.Path.Combine(tempDirectory.Path, "appsettings.json");
-                await File.WriteAllTextAsync(configPath, @"{
+        var configPath = System.IO.Path.Combine(tempDirectory.Path, "appsettings.json");
+        await File.WriteAllTextAsync(configPath, @"{
     ""PowerShellConfiguration"": {
         ""CommandNames"": [],
         ""Modules"": [],
@@ -484,25 +484,25 @@ public class ProgramCliConfigCommandsTests
     }
 }");
 
-                var result = await Program.Main(new[]
-                {
+        var result = await Program.Main(new[]
+        {
                         "update-config",
                         "--add-command", "Get-Service",
                         "--format", "json"
                 });
 
-                Assert.Equal(0, result);
+        Assert.Equal(0, result);
 
-                var updatedRoot = JsonNode.Parse(await File.ReadAllTextAsync(configPath))?.AsObject();
-                var psConfig = updatedRoot!["PowerShellConfiguration"]?.AsObject();
-                Assert.NotNull(psConfig);
-                Assert.Null(psConfig!["FunctionOverrides"]);
+        var updatedRoot = JsonNode.Parse(await File.ReadAllTextAsync(configPath))?.AsObject();
+        var psConfig = updatedRoot!["PowerShellConfiguration"]?.AsObject();
+        Assert.NotNull(psConfig);
+        Assert.Null(psConfig!["FunctionOverrides"]);
 
-                var commandOverrides = psConfig["CommandOverrides"]?.AsObject();
-                Assert.NotNull(commandOverrides);
-                Assert.NotNull(commandOverrides!["Get-Date"]);
-                Assert.NotNull(commandOverrides["Get-Service"]);
-        }
+        var commandOverrides = psConfig["CommandOverrides"]?.AsObject();
+        Assert.NotNull(commandOverrides);
+        Assert.NotNull(commandOverrides!["Get-Date"]);
+        Assert.NotNull(commandOverrides["Get-Service"]);
+    }
 
     private sealed class ConsoleCapture : IDisposable
     {
