@@ -284,6 +284,10 @@ public class Program
             aliases: new[] { "--dockerfile-output" },
             description: "Path for the generated Dockerfile (default: ./Dockerfile.generated)");
 
+        var buildAppSettingsOption = new Option<string?>(
+            aliases: new[] { "--appsettings" },
+            description: "Path to a local appsettings.json to bundle into the image at /app/server/appsettings.json");
+
         var buildCommand = new Command("build", "Build a Docker image; defaults to creating a custom image from the published GHCR base image");
         buildCommand.AddOption(buildModulesOption);
         buildCommand.AddOption(buildTypeOption);
@@ -293,6 +297,7 @@ public class Program
         buildCommand.AddOption(buildSourceTagOption);
         buildCommand.AddOption(buildGenerateDockerfileOption);
         buildCommand.AddOption(buildDockerfileOutputOption);
+        buildCommand.AddOption(buildAppSettingsOption);
 
         // Run command for Docker container execution
         var runModeOption = new Option<string?>(
@@ -674,6 +679,7 @@ public class Program
                 var sourceTag = context.ParseResult.GetValueForOption(buildSourceTagOption);
                 var generateDockerfile = context.ParseResult.GetValueForOption(buildGenerateDockerfileOption);
                 var dockerfileOutput = context.ParseResult.GetValueForOption(buildDockerfileOutputOption);
+                var appSettings = context.ParseResult.GetValueForOption(buildAppSettingsOption);
 
                 var buildType = string.IsNullOrWhiteSpace(type)
                     ? "custom"
@@ -691,11 +697,19 @@ public class Program
                     ? (buildType == "base" ? "Dockerfile" : "examples/Dockerfile.user")
                     : dockerFile;
 
-                // When generating a Dockerfile, the source can come from embedded resources —
-                // no need for the file to exist on disk. For actual docker builds it must exist.
-                if (!generateDockerfile && !File.Exists(imageFile))
+                // When the imageFile maps to an embedded resource or we're generating a Dockerfile,
+                // the file does not need to exist on disk. For custom Dockerfiles it must.
+                var hasEmbeddedDockerfile = DockerRunner.GetEmbeddedDockerfileName(imageFile) != null;
+                if (!generateDockerfile && !hasEmbeddedDockerfile && !File.Exists(imageFile))
                 {
                     Console.Error.WriteLine($"Error: Dockerfile not found at {imageFile}");
+                    Environment.ExitCode = ExitCodeConfigError;
+                    return;
+                }
+
+                if (!string.IsNullOrWhiteSpace(appSettings) && !File.Exists(appSettings))
+                {
+                    Console.Error.WriteLine($"Error: appsettings file not found: {appSettings}");
                     Environment.ExitCode = ExitCodeConfigError;
                     return;
                 }
@@ -712,8 +726,13 @@ public class Program
                         outputPath,
                         imageTag,
                         modules,
-                        buildType == "custom" ? resolvedSourceImage : null);
+                        buildType == "custom" ? resolvedSourceImage : null,
+                        appSettings);
                     Console.WriteLine($"Dockerfile written to: {writtenPath}");
+                    if (!string.IsNullOrWhiteSpace(appSettings))
+                    {
+                        Console.WriteLine($"Note: Copy {appSettings} to poshmcp-appsettings.json in your build context before building.");
+                    }
                     Console.WriteLine("To build manually, run:");
                     Console.WriteLine($"  docker build -f {writtenPath} -t {imageTag} .");
                     Environment.ExitCode = ExitCodeSuccess;
@@ -737,21 +756,49 @@ public class Program
                     Console.WriteLine($"Using source image: {resolvedSourceImage}");
                 }
 
-                var buildArgs = DockerRunner.BuildDockerBuildArgs(
-                    imageFile,
-                    imageTag,
-                    modules,
-                    buildType == "custom" ? resolvedSourceImage : null);
+                string? stagedAppSettings = null;
+                string? tempDockerfilePath = null;
+                var effectiveImageFile = imageFile;
 
-                var result = DockerRunner.ExecuteDockerCommand(dockerPath, buildArgs);
-                if (result != ExitCodeSuccess)
+                if (!string.IsNullOrWhiteSpace(appSettings) || hasEmbeddedDockerfile)
                 {
-                    Environment.ExitCode = result;
-                    return;
+                    stagedAppSettings = !string.IsNullOrWhiteSpace(appSettings)
+                        ? DockerRunner.PrepareAppSettingsForBuild(appSettings, ".")
+                        : null;
+                    tempDockerfilePath = ".poshmcp-build.dockerfile";
+                    DockerRunner.GenerateDockerfile(
+                        imageFile,
+                        tempDockerfilePath,
+                        imageTag,
+                        modules,
+                        buildType == "custom" ? resolvedSourceImage : null,
+                        appSettings);
+                    effectiveImageFile = tempDockerfilePath;
                 }
 
-                Console.WriteLine($"Successfully built image: {imageTag}");
-                Environment.ExitCode = ExitCodeSuccess;
+                try
+                {
+                    var buildArgs = DockerRunner.BuildDockerBuildArgs(
+                        effectiveImageFile,
+                        imageTag,
+                        modules,
+                        buildType == "custom" ? resolvedSourceImage : null);
+
+                    var result = DockerRunner.ExecuteDockerCommand(dockerPath, buildArgs);
+                    if (result != ExitCodeSuccess)
+                    {
+                        Environment.ExitCode = result;
+                        return;
+                    }
+
+                    Console.WriteLine($"Successfully built image: {imageTag}");
+                    Environment.ExitCode = ExitCodeSuccess;
+                }
+                finally
+                {
+                    DockerRunner.CleanupTempFile(tempDockerfilePath);
+                    DockerRunner.CleanupTempFile(stagedAppSettings);
+                }
             }
             catch (Exception ex)
             {

@@ -18,11 +18,26 @@ USER root
 # install-modules.ps1 is bundled in the base image at /app/install-modules.ps1
 # No COPY needed — it's already available
 
+# $PSModulePath entries available in this image:
+#   AllUsers (build + runtime): /usr/local/share/powershell/Modules
+#     - install-modules.ps1 installs here by default (Scope=AllUsers)
+#     - Writable during USER root build steps; readable by all users at runtime
+#   Built-in PowerShell modules: /opt/microsoft/powershell/7/Modules
+#     - Ships with the PowerShell apt package (Microsoft.PowerShell.* etc.)
+#     - Read-only; do not install modules here
+#   CurrentUser (runtime only): /home/appuser/.local/share/powershell/Modules
+#     - Only populated if modules are installed at runtime as appuser
+#     - Not available during build
+
 # Install your required PowerShell modules
 # Modify this line to include the modules your organization needs
 ARG INSTALL_PS_MODULES=""
 ENV INSTALL_PS_MODULES=${INSTALL_PS_MODULES}
 RUN pwsh /app/install-modules.ps1
+
+# (Optional) Copy local modules into the AllUsers path
+# COPY MyModule/ /usr/local/share/powershell/Modules/MyModule/
+# COPY Modules/ /usr/local/share/powershell/Modules/
 
 # Copy your custom appsettings.json
 # Update this path to point to your own appsettings.json file

@@ -332,3 +332,20 @@ settings into Container App environment variables.
 
 ## Learnings
 Version bumped to 0.8.8 (phase 1 of coordinated release)
+Released v0.8.8: bundled install-modules.ps1 in base image, fixed --generate-dockerfile default, full pipeline: commit→push→tag→pack→global-install
+
+### Version bump 0.8.8 → 0.8.9
+
+- Updated PoshMcp.Server/PoshMcp.csproj: changed <Version>0.8.8</Version> to <Version>0.8.9</Version>.
+- Ran dotnet pack PoshMcp.Server/PoshMcp.csproj --configuration Release --output ./artifacts → produced poshmcp.0.8.9.nupkg (27.1 MB).
+- Uninstall cycle: dotnet tool uninstall -g poshmcp → removed version 0.8.8.
+- Install new version: dotnet tool install -g poshmcp --add-source ./artifacts --version 0.8.9 → successfully installed.
+- Verified: poshmcp --version → 0.8.9+216689bc436d8739a4b5a91c1ec75fc56b39221d.
+- Bumped to 0.8.9 — added PSModule path docs and local COPY examples to examples/Dockerfile.user
+
+### Version bump 0.8.9 → 0.8.10- Updated PoshMcp.Server/PoshMcp.csproj: changed <Version>0.8.9</Version> to <Version>0.8.10</Version>.
+- Ran dotnet pack PoshMcp.Server/PoshMcp.csproj --configuration Release --output ./artifacts → produced poshmcp.0.8.10.nupkg.
+- Uninstall cycle: dotnet tool uninstall -g poshmcp → removed version 0.8.9.
+- Install new version: dotnet tool install -g poshmcp --add-source ./artifacts --version 0.8.10 → successfully installed.
+- Verified: poshmcp --version → 0.8.10+216689bc436d8739a4b5a91c1ec75fc56b39221d.
+- Bumped to 0.8.10 — added --appsettings option to poshmcp build

@@ -166,6 +166,8 @@ DOTNET_ENVIRONMENT
 ## Learnings
 
 - `install-modules.ps1` is now bundled in the base image at `/app/install-modules.ps1`; `examples/Dockerfile.user` updated to use it directly.
+- Added PSModule path documentation to examples/Dockerfile.user — AllUsers=/usr/local/share/powershell/Modules, built-in=/opt/microsoft/powershell/7/Modules, CurrentUser(runtime)=/home/appuser/.local/share/powershell/Modules
+- Added commented COPY directive examples to examples/Dockerfile.user for local module installation (single module + bulk copy patterns)
 
 
 ### Embedding Dockerfiles in the assembly (2026-07-30)
@@ -213,3 +215,6 @@ Users who explicitly want the source-build Dockerfile can still pass `--type bas
 **Also updated:** `examples/Dockerfile.user` — clarified that `install-modules.ps1` must be
 downloaded from the repo, and that the `COPY appsettings.json` line is a placeholder the user
 should update to their own path (removed the repo-internal `examples/appsettings.basic.json` path).
+
+- Added --appsettings to poshmcp build: injects COPY line into generated Dockerfile; for build mode stages file to CWD as poshmcp-appsettings.json, uses temp Dockerfile (.poshmcp-build.dockerfile), cleans up both temp files after build
+- Fixed poshmcp build 'Dockerfile not found' — embedded resources bypass the disk check; always generate temp dockerfile from embedded resource so build works outside the poshmcp repo
