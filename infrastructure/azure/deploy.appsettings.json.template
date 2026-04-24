@@ -1,0 +1,19 @@
+// Azure deployment settings template — copy to deploy.appsettings.json and fill in your values.
+// This file controls WHERE to deploy (Azure resource names, region, registry, subscription).
+//
+// For MCP server runtime settings (PowerShell functions, logging, etc.) pass deploy.ps1 the
+// -ServerAppSettingsFile argument pointing at PoshMcp.Server/appsettings.json (or a profile of
+// it).  Those settings are automatically translated to Container App environment variables.
+{
+  "AzureDeployment": {
+    "ResourceGroup": "rg-poshmcp",
+    "Location": "eastus",
+    "ContainerAppName": "poshmcp",
+    "RegistryName": "myregistry",
+    "ImageTag": "latest",
+    "Subscription": "",
+    "TenantId": "",
+    "SourceImage": "",
+    "UseRegistryCache": false
+  }
+}
