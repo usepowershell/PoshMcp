@@ -70,7 +70,7 @@ public class ConfigurationHealthCheck : IHealthCheck
             data["AuthSchemes"] = authConfig?.Enabled == true && authConfig.Schemes.Count > 0
                 ? string.Join(", ", authConfig.Schemes.Keys)
                 : "none";
-            data["ToolsWithAuthOverrides"] = config.FunctionOverrides.Values
+            data["ToolsWithAuthOverrides"] = config.GetEffectiveCommandOverrides().Values
                 .Count(o => (o.RequiredScopes?.Count > 0) || (o.RequiredRoles?.Count > 0));
 
             _logger.LogDebug("Configuration health check passed");

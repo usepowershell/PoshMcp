@@ -27,7 +27,7 @@ public static class AuthorizationHelpers
     {
         foreach (var candidate in GetOverrideKeyCandidates(toolName, psConfig))
         {
-            if (psConfig.FunctionOverrides.TryGetValue(candidate, out var overrideConfig))
+            if (psConfig.TryGetCommandOverride(candidate, out var overrideConfig))
             {
                 return overrideConfig;
             }

@@ -160,10 +160,16 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
     /// Must be called after StartAsync() and before DiscoverCommandsAsync().
     /// Mirrors the ordering from PowerShellEnvironmentSetup.ApplyEnvironmentConfiguration().
     /// </summary>
+    /// <param name="discoveryModules">
+    /// Top-level Modules from PowerShellConfiguration. These are merged with
+    /// config.ImportModules so they are available to the startup script, which runs
+    /// before DiscoverCommandsAsync() imports them for command discovery.
+    /// </param>
     public async Task SetupAsync(
         EnvironmentConfiguration config,
         string? configFilePath = null,
         TimeSpan? setupRequestTimeout = null,
+        IEnumerable<string>? discoveryModules = null,
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -174,6 +180,13 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
 
         var resolvedModulePaths = config.ModulePaths
             .Select(p => Path.IsPathRooted(p) ? p : Path.GetFullPath(Path.Combine(baseDir, p)))
+            .ToArray();
+
+        // Merge discovery modules (config.Modules) with the explicitly configured
+        // ImportModules so both are available before the startup script runs.
+        var allImportModules = config.ImportModules
+            .Concat(discoveryModules ?? Enumerable.Empty<string>())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
         var setupParams = new
@@ -192,7 +205,7 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
                 skipPublisherCheck = m.SkipPublisherCheck,
                 allowPrerelease = m.AllowPrerelease,
             }).ToArray(),
-            importModules = config.ImportModules,
+            importModules = allImportModules,
             startupScriptPath = config.StartupScriptPath,
             startupScript = config.StartupScript,
             skipPublisherCheck = config.SkipPublisherCheck,

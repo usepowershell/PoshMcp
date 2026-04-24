@@ -83,10 +83,19 @@ internal static class ConfigurationFileManager
         var addedCommands = AddUniqueValues(commandNames, request.AddCommands, out var addedCommandNames);
         var removedCommands = RemoveValues(commandNames, request.RemoveCommands);
 
-        // FunctionNames is the legacy target for --add-function/--remove-function
-        var functionNames = GetOrCreateArray(powerShellConfiguration, "FunctionNames");
-        var addedFunctions = AddUniqueValues(functionNames, request.AddFunctions, out var addedFunctionNames);
-        var removedFunctions = RemoveValues(functionNames, request.RemoveFunctions);
+        // FunctionNames is the legacy target for --add-function/--remove-function.
+        // Only create it when legacy operations are requested to avoid adding obsolete empty blocks.
+        var addedFunctions = 0;
+        var removedFunctions = 0;
+        var addedFunctionNames = new List<string>();
+        var hasLegacyFunctionUpdates = HasAnyNonEmptyValues(request.AddFunctions) || HasAnyNonEmptyValues(request.RemoveFunctions);
+        var functionNames = powerShellConfiguration["FunctionNames"] as JsonArray;
+        if (functionNames is not null || hasLegacyFunctionUpdates)
+        {
+            functionNames ??= GetOrCreateArray(powerShellConfiguration, "FunctionNames");
+            addedFunctions = AddUniqueValues(functionNames, request.AddFunctions, out addedFunctionNames);
+            removedFunctions = RemoveValues(functionNames, request.RemoveFunctions);
+        }
 
         // Combine for advanced prompts
         var allAddedNames = addedCommandNames.Concat(addedFunctionNames).ToList();
@@ -152,7 +161,7 @@ internal static class ConfigurationFileManager
         var advancedPromptedFunctionCount = 0;
         if (!request.NonInteractive && allAddedNames.Count > 0)
         {
-            advancedPromptedFunctionCount = PromptForAdvancedFunctionConfiguration(powerShellConfiguration, allAddedNames);
+            advancedPromptedFunctionCount = PromptForAdvancedCommandConfiguration(powerShellConfiguration, allAddedNames);
         }
 
         var changed = addedCommands > 0 || removedCommands > 0 ||
@@ -183,34 +192,34 @@ internal static class ConfigurationFileManager
             boolUpdateApplied);
     }
 
-    private static int PromptForAdvancedFunctionConfiguration(JsonObject powerShellConfiguration, IEnumerable<string> addedFunctionNames)
+    private static int PromptForAdvancedCommandConfiguration(JsonObject powerShellConfiguration, IEnumerable<string> addedCommandNames)
     {
         var promptedCount = 0;
 
-        foreach (var functionName in addedFunctionNames)
+        foreach (var commandName in addedCommandNames)
         {
-            Console.Write($"Configure advanced settings for '{functionName}'? [y/N]: ");
+            Console.Write($"Configure advanced settings for '{commandName}'? [y/N]: ");
             if (!IsYesAnswer(Console.ReadLine()))
             {
                 continue;
             }
 
-            var functionOverrides = GetOrCreateObject(powerShellConfiguration, "FunctionOverrides");
-            var functionOverride = GetOrCreateObject(functionOverrides, functionName);
+            var commandOverrides = GetOrCreateCommandOverridesObject(powerShellConfiguration);
+            var commandOverride = GetOrCreateObject(commandOverrides, commandName);
 
-            var cachingOverride = PromptForNullableBoolean($"Override EnableResultCaching for {functionName} (true/false/skip): ");
+            var cachingOverride = PromptForNullableBoolean($"Override EnableResultCaching for {commandName} (true/false/skip): ");
             if (cachingOverride.HasValue)
             {
-                functionOverride["EnableResultCaching"] = cachingOverride.Value;
+                commandOverride["EnableResultCaching"] = cachingOverride.Value;
             }
 
-            var displayOverride = PromptForNullableBoolean($"Override UseDefaultDisplayProperties for {functionName} (true/false/skip): ");
+            var displayOverride = PromptForNullableBoolean($"Override UseDefaultDisplayProperties for {commandName} (true/false/skip): ");
             if (displayOverride.HasValue)
             {
-                functionOverride["UseDefaultDisplayProperties"] = displayOverride.Value;
+                commandOverride["UseDefaultDisplayProperties"] = displayOverride.Value;
             }
 
-            Console.Write($"Set DefaultProperties for {functionName} (comma-separated, blank to skip): ");
+            Console.Write($"Set DefaultProperties for {commandName} (comma-separated, blank to skip): ");
             var defaultPropertiesText = Console.ReadLine();
             if (!string.IsNullOrWhiteSpace(defaultPropertiesText))
             {
@@ -223,17 +232,17 @@ internal static class ConfigurationFileManager
 
                 if (propertyValues.Count > 0)
                 {
-                    functionOverride["DefaultProperties"] = new JsonArray(propertyValues.Select(value => (JsonNode?)value).ToArray());
+                    commandOverride["DefaultProperties"] = new JsonArray(propertyValues.Select(value => (JsonNode?)value).ToArray());
                 }
             }
 
-            var allowAnonymousOverride = PromptForNullableBoolean($"Set AllowAnonymous for {functionName} (true/false/skip): ");
+            var allowAnonymousOverride = PromptForNullableBoolean($"Set AllowAnonymous for {commandName} (true/false/skip): ");
             if (allowAnonymousOverride.HasValue)
             {
-                functionOverride["AllowAnonymous"] = allowAnonymousOverride.Value;
+                commandOverride["AllowAnonymous"] = allowAnonymousOverride.Value;
             }
 
-            Console.Write($"Set RequiredScopes for {functionName} (space-separated, blank to skip): ");
+            Console.Write($"Set RequiredScopes for {commandName} (space-separated, blank to skip): ");
             var requiredScopesText = Console.ReadLine();
             if (!string.IsNullOrWhiteSpace(requiredScopesText))
             {
@@ -246,11 +255,11 @@ internal static class ConfigurationFileManager
 
                 if (scopeValues.Count > 0)
                 {
-                    functionOverride["RequiredScopes"] = new JsonArray(scopeValues.Select(value => (JsonNode?)value).ToArray());
+                    commandOverride["RequiredScopes"] = new JsonArray(scopeValues.Select(value => (JsonNode?)value).ToArray());
                 }
             }
 
-            Console.Write($"Set RequiredRoles for {functionName} (space-separated, blank to skip): ");
+            Console.Write($"Set RequiredRoles for {commandName} (space-separated, blank to skip): ");
             var requiredRolesText = Console.ReadLine();
             if (!string.IsNullOrWhiteSpace(requiredRolesText))
             {
@@ -263,7 +272,7 @@ internal static class ConfigurationFileManager
 
                 if (roleValues.Count > 0)
                 {
-                    functionOverride["RequiredRoles"] = new JsonArray(roleValues.Select(value => (JsonNode?)value).ToArray());
+                    commandOverride["RequiredRoles"] = new JsonArray(roleValues.Select(value => (JsonNode?)value).ToArray());
                 }
             }
 
@@ -329,6 +338,24 @@ internal static class ConfigurationFileManager
         return created;
     }
 
+    private static JsonObject GetOrCreateCommandOverridesObject(JsonObject powerShellConfiguration)
+    {
+        if (powerShellConfiguration["CommandOverrides"] is JsonObject commandOverrides)
+        {
+            return commandOverrides;
+        }
+
+        if (powerShellConfiguration["FunctionOverrides"] is JsonObject legacyFunctionOverrides)
+        {
+            var migratedOverrides = (JsonObject)legacyFunctionOverrides.DeepClone();
+            powerShellConfiguration["CommandOverrides"] = migratedOverrides;
+            powerShellConfiguration.Remove("FunctionOverrides");
+            return migratedOverrides;
+        }
+
+        return GetOrCreateObject(powerShellConfiguration, "CommandOverrides");
+    }
+
     private static int AddUniqueValues(JsonArray array, IEnumerable<string> values, out List<string> addedValues)
     {
         var existing = new HashSet<string>(
@@ -387,6 +414,19 @@ internal static class ConfigurationFileManager
         }
 
         return removed;
+    }
+
+    private static bool HasAnyNonEmptyValues(IEnumerable<string> values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
 

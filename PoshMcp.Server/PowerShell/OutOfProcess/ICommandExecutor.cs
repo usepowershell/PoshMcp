@@ -30,10 +30,16 @@ public interface ICommandExecutor : IAsyncDisposable
     /// Send environment configuration (module installs, imports, startup scripts, etc.)
     /// to the executor. Must be called after StartAsync and before DiscoverCommandsAsync.
     /// </summary>
+    /// <param name="discoveryModules">
+    /// Top-level Modules from PowerShellConfiguration. These are merged with
+    /// config.ImportModules so they are available to the startup script, which runs
+    /// before DiscoverCommandsAsync() imports them for command discovery.
+    /// </param>
     Task SetupAsync(
         EnvironmentConfiguration config,
         string? configFilePath = null,
         TimeSpan? setupRequestTimeout = null,
+        IEnumerable<string>? discoveryModules = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

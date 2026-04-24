@@ -24,8 +24,8 @@ public class PerformanceConfiguration
 }
 
 /// <summary>
-/// Per-function overrides for performance and display settings.
-/// Keyed by PowerShell function name in the FunctionOverrides dictionary.
+/// Per-command overrides for performance and display settings.
+/// Keyed by PowerShell command name in the CommandOverrides dictionary.
 /// </summary>
 public class FunctionOverride
 {
@@ -36,29 +36,29 @@ public class FunctionOverride
     public List<string>? DefaultProperties { get; set; }
 
     /// <summary>
-    /// Override the global EnableResultCaching setting for this function.
+    /// Override the global EnableResultCaching setting for this command.
     /// Null means fall through to the global setting.
     /// </summary>
     public bool? EnableResultCaching { get; set; }
 
     /// <summary>
-    /// Override the global UseDefaultDisplayProperties setting for this function.
+    /// Override the global UseDefaultDisplayProperties setting for this command.
     /// Null means fall through to the global setting.
     /// </summary>
     public bool? UseDefaultDisplayProperties { get; set; }
 
     /// <summary>
-    /// Scopes required to invoke this function. Overrides the default policy when set.
+    /// Scopes required to invoke this command. Overrides the default policy when set.
     /// </summary>
     public List<string>? RequiredScopes { get; set; }
 
     /// <summary>
-    /// Roles required to invoke this function. Overrides the default policy when set.
+    /// Roles required to invoke this command. Overrides the default policy when set.
     /// </summary>
     public List<string>? RequiredRoles { get; set; }
 
     /// <summary>
-    /// When true, this function can be invoked without authentication even if the global
+    /// When true, this command can be invoked without authentication even if the global
     /// policy requires it.
     /// </summary>
     public bool? AllowAnonymous { get; set; }

@@ -92,19 +92,7 @@ public class Program
             aliases: new[] { "--non-interactive" },
             description: "Skip interactive advanced-configuration prompts during updates");
 
-        var addFunctionOption = new Option<string[]>(
-            aliases: new[] { "--add-function" },
-            description: "[Deprecated: use --add-command] Add function names to FunctionNames")
-        {
-            Arity = ArgumentArity.ZeroOrMore
-        };
 
-        var removeFunctionOption = new Option<string[]>(
-            aliases: new[] { "--remove-function" },
-            description: "[Deprecated: use --remove-command] Remove function names from FunctionNames")
-        {
-            Arity = ArgumentArity.ZeroOrMore
-        };
 
         var addCommandOption = new Option<string[]>(
             aliases: new[] { "--add-command" },
@@ -242,8 +230,6 @@ public class Program
         updateConfigCommand.AddOption(configOption);
         updateConfigCommand.AddOption(logLevelOption);
         updateConfigCommand.AddOption(formatOption);
-        updateConfigCommand.AddOption(addFunctionOption);
-        updateConfigCommand.AddOption(removeFunctionOption);
         updateConfigCommand.AddOption(addCommandOption);
         updateConfigCommand.AddOption(removeCommandOption);
         updateConfigCommand.AddOption(addModuleOption);
@@ -268,11 +254,11 @@ public class Program
         // Build command for Docker image creation
         var buildModulesOption = new Option<string?>(
             aliases: new[] { "--modules" },
-            description: "Space-separated module names to pre-install in the image (e.g., 'Pester Az.Accounts')");
+            description: "Space-separated module names to pre-install in custom images (e.g., 'Pester Az.Accounts')");
 
         var buildTypeOption = new Option<string?>(
             aliases: new[] { "--type", "--base" },
-            description: "Image type: 'base' (runtime only) or 'custom' (with modules). Default: base");
+            description: "Image type: 'custom' (derived from a source/base image) or 'base' (build local runtime source image). Default: custom");
 
         var buildTagOption = new Option<string?>(
             aliases: new[] { "--tag" },
@@ -282,11 +268,21 @@ public class Program
             aliases: new[] { "--docker-file" },
             description: "Custom Dockerfile path for advanced users");
 
-        var buildCommand = new Command("build", "Build a Docker image for PoshMcp container deployment");
+        var buildSourceImageOption = new Option<string?>(
+            aliases: new[] { "--source-image" },
+            description: "Source/base image repository or full reference for custom builds (default: ghcr.io/usepowershell/poshmcp/poshmcp:latest)");
+
+        var buildSourceTagOption = new Option<string?>(
+            aliases: new[] { "--source-tag" },
+            description: "Tag for --source-image when a repository is provided (default: latest)");
+
+        var buildCommand = new Command("build", "Build a Docker image; defaults to creating a custom image from the published GHCR base image");
         buildCommand.AddOption(buildModulesOption);
         buildCommand.AddOption(buildTypeOption);
         buildCommand.AddOption(buildTagOption);
         buildCommand.AddOption(buildDockerFileOption);
+        buildCommand.AddOption(buildSourceImageOption);
+        buildCommand.AddOption(buildSourceTagOption);
 
         // Run command for Docker container execution
         var runModeOption = new Option<string?>(
@@ -324,6 +320,15 @@ public class Program
         runCommand.AddOption(runVolumeOption);
         runCommand.AddOption(runInteractiveOption);
 
+        var scaffoldProjectPathOption = new Option<string?>(
+            aliases: new[] { "--project-path", "--path", "-p" },
+            description: "Target project directory where infra/azure files will be scaffolded (default: current directory)");
+
+        var scaffoldCommand = new Command("scaffold", "Scaffold embedded infrastructure artifacts into a target project");
+        scaffoldCommand.AddOption(scaffoldProjectPathOption);
+        scaffoldCommand.AddOption(forceOption);
+        scaffoldCommand.AddOption(formatOption);
+
         rootCommand.AddCommand(serveCommand);
         rootCommand.AddCommand(listToolsCommand);
         rootCommand.AddCommand(validateConfigCommand);
@@ -337,6 +342,7 @@ public class Program
         rootCommand.AddCommand(psModulePathCommand);
         rootCommand.AddCommand(buildCommand);
         rootCommand.AddCommand(runCommand);
+        rootCommand.AddCommand(scaffoldCommand);
 
         // Handler for the main command (default MCP server behavior)
         rootCommand.SetHandler(async (evaluateTools, verbose, debug, trace) =>
@@ -533,8 +539,6 @@ public class Program
             var configPath = context.ParseResult.GetValueForOption(configOption);
             var logLevelText = context.ParseResult.GetValueForOption(logLevelOption);
             var format = context.ParseResult.GetValueForOption(formatOption);
-            var addFunctions = context.ParseResult.GetValueForOption(addFunctionOption);
-            var removeFunctions = context.ParseResult.GetValueForOption(removeFunctionOption);
             var addCommands = context.ParseResult.GetValueForOption(addCommandOption);
             var removeCommands = context.ParseResult.GetValueForOption(removeCommandOption);
             var addModules = context.ParseResult.GetValueForOption(addModuleOption);
@@ -563,8 +567,8 @@ public class Program
                 }
 
                 var updateRequest = new ConfigUpdateRequest(
-                    addFunctions ?? Array.Empty<string>(),
-                    removeFunctions ?? Array.Empty<string>(),
+                    addCommands ?? Array.Empty<string>(),
+                    removeCommands ?? Array.Empty<string>(),
                     addCommands ?? Array.Empty<string>(),
                     removeCommands ?? Array.Empty<string>(),
                     addModules ?? Array.Empty<string>(),
@@ -594,6 +598,7 @@ public class Program
                         removedFunctions = result.RemovedFunctions,
                         addedCommands = result.AddedCommands,
                         removedCommands = result.RemovedCommands,
+                        advancedPromptedCommandCount = result.AdvancedPromptedFunctionCount,
                         advancedPromptedFunctionCount = result.AdvancedPromptedFunctionCount,
                         settingsChanged = result.SettingsChanged
                     };
@@ -605,14 +610,13 @@ public class Program
                         ? $"Updated configuration: {result.ConfigurationPath}"
                         : $"No changes applied to configuration: {result.ConfigurationPath}");
                     Console.WriteLine($"Added commands: {result.AddedCommands} | Removed commands: {result.RemovedCommands}");
-                    Console.WriteLine($"Added functions: {result.AddedFunctions} | Removed functions: {result.RemovedFunctions}");
                     if (result.SettingsChanged > 0)
                     {
                         Console.WriteLine($"Settings changed: {result.SettingsChanged}");
                     }
                     if (result.AdvancedPromptedFunctionCount > 0)
                     {
-                        Console.WriteLine($"Advanced prompts completed for {result.AdvancedPromptedFunctionCount} function(s).");
+                        Console.WriteLine($"Advanced prompts completed for {result.AdvancedPromptedFunctionCount} command(s).");
                     }
                 }
 
@@ -648,13 +652,20 @@ public class Program
         }, verboseOption, debugOption, traceOption);
 
         // Handler for the build command
-        buildCommand.SetHandler((modules, type, tag, dockerFile) =>
+        buildCommand.SetHandler((modules, type, tag, dockerFile, sourceImage, sourceTag) =>
         {
             try
             {
-                var buildType = string.IsNullOrWhiteSpace(type) ? "base" : type.ToLowerInvariant();
+                var buildType = string.IsNullOrWhiteSpace(type) ? "custom" : type.ToLowerInvariant();
                 var imageTag = string.IsNullOrWhiteSpace(tag) ? "poshmcp:latest" : tag;
                 var dockerPath = DockerRunner.DetectDockerCommand();
+
+                if (buildType != "base" && buildType != "custom")
+                {
+                    Console.Error.WriteLine("Error: --type must be 'custom' or 'base'");
+                    Environment.ExitCode = ExitCodeConfigError;
+                    return;
+                }
 
                 if (dockerPath == null)
                 {
@@ -666,7 +677,9 @@ public class Program
 
                 Console.WriteLine($"Building {buildType} PoshMcp image: {imageTag}");
 
-                var imageFile = string.IsNullOrWhiteSpace(dockerFile) ? "Dockerfile" : dockerFile;
+                var imageFile = string.IsNullOrWhiteSpace(dockerFile)
+                    ? (buildType == "base" ? "Dockerfile" : "examples/Dockerfile.user")
+                    : dockerFile;
                 if (!File.Exists(imageFile))
                 {
                     Console.Error.WriteLine($"Error: Dockerfile not found at {imageFile}");
@@ -674,7 +687,17 @@ public class Program
                     return;
                 }
 
-                var buildArgs = DockerRunner.BuildDockerBuildArgs(imageFile, imageTag, modules);
+                var resolvedSourceImage = DockerRunner.ResolveSourceImageReference(sourceImage, sourceTag);
+                if (buildType == "custom")
+                {
+                    Console.WriteLine($"Using source image: {resolvedSourceImage}");
+                }
+
+                var buildArgs = DockerRunner.BuildDockerBuildArgs(
+                    imageFile,
+                    imageTag,
+                    modules,
+                    buildType == "custom" ? resolvedSourceImage : null);
 
                 var result = DockerRunner.ExecuteDockerCommand(dockerPath, buildArgs);
                 if (result != ExitCodeSuccess)
@@ -691,7 +714,7 @@ public class Program
                 Console.Error.WriteLine($"Build error: {ex.Message}");
                 Environment.ExitCode = ExitCodeRuntimeError;
             }
-        }, buildModulesOption, buildTypeOption, buildTagOption, buildDockerFileOption);
+        }, buildModulesOption, buildTypeOption, buildTagOption, buildDockerFileOption, buildSourceImageOption, buildSourceTagOption);
 
         // Handler for the run command
         runCommand.SetHandler((mode, port, tag, config, volumes, interactive) =>
@@ -784,6 +807,54 @@ public class Program
                 Environment.ExitCode = ExitCodeRuntimeError;
             }
         }, runModeOption, runPortOption, runTagOption, runConfigOption, runVolumeOption, runInteractiveOption);
+
+        scaffoldCommand.SetHandler(async (projectPath, force, format) =>
+        {
+            var outputFormat = ConfigurationFileManager.NormalizeFormat(format);
+
+            try
+            {
+                var targetProjectPath = string.IsNullOrWhiteSpace(projectPath)
+                    ? Directory.GetCurrentDirectory()
+                    : projectPath;
+
+                var result = await InfrastructureScaffolder.ScaffoldAzureInfrastructureAsync(targetProjectPath, force);
+
+                if (outputFormat == "json")
+                {
+                    var payload = new
+                    {
+                        success = true,
+                        projectPath = result.ProjectPath,
+                        relativePath = result.RelativeInfraPath,
+                        filesWritten = result.FilesWritten,
+                        filesOverwritten = result.FilesOverwritten,
+                        force = result.Force
+                    };
+                    Console.WriteLine(JsonSerializer.Serialize(payload));
+                }
+                else
+                {
+                    Console.WriteLine($"Scaffolded {result.FilesWritten} infra file(s) to {Path.Combine(result.ProjectPath, result.RelativeInfraPath.Replace('/', Path.DirectorySeparatorChar))}");
+                    if (result.FilesOverwritten > 0)
+                    {
+                        Console.WriteLine($"Overwritten files: {result.FilesOverwritten}");
+                    }
+                }
+
+                Environment.ExitCode = ExitCodeSuccess;
+            }
+            catch (IOException ex)
+            {
+                Console.Error.WriteLine($"Scaffold error: {ex.Message}");
+                Environment.ExitCode = ExitCodeConfigError;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Scaffold error: {ex.Message}");
+                Environment.ExitCode = ExitCodeRuntimeError;
+            }
+        }, scaffoldProjectPathOption, forceOption, formatOption);
 
         return await rootCommand.InvokeAsync(args);
     }
@@ -2085,7 +2156,7 @@ public class Program
         if (config.Environment is not null)
         {
             using var setupCts = new CancellationTokenSource(setupTimeout);
-            await executor.SetupAsync(config.Environment, configFilePath, setupTimeout, setupCts.Token);
+            await executor.SetupAsync(config.Environment, configFilePath, setupTimeout, config.Modules, setupCts.Token);
             logger.LogInformation("Applied environment configuration to out-of-process executor");
         }
 

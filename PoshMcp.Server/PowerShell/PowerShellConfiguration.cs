@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json.Serialization;
+using Microsoft.Extensions.Configuration;
 using PoshMcp.Server.PowerShell.OutOfProcess;
 
 namespace PoshMcp.Server.PowerShell;
@@ -67,9 +69,17 @@ public class PowerShellConfiguration
     public PerformanceConfiguration Performance { get; set; } = new();
 
     /// <summary>
-    /// Per-function overrides for performance and display settings,
-    /// keyed by PowerShell function name (e.g. "Get-Process").
+    /// Per-command overrides for performance and display settings,
+    /// keyed by PowerShell command name (e.g. "Get-Process").
     /// </summary>
+    public Dictionary<string, FunctionOverride> CommandOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Legacy per-function overrides key, bound from FunctionOverrides.
+    /// Use CommandOverrides for new configuration.
+    /// </summary>
+    [ConfigurationKeyName("FunctionOverrides")]
+    [JsonIgnore]
     public Dictionary<string, FunctionOverride> FunctionOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
@@ -99,4 +109,40 @@ public class PowerShellConfiguration
     /// Gets all function names from all configuration sources (deprecated — use GetEffectiveCommandNames())
     /// </summary>
     public List<string> GetAllFunctionNames() => GetEffectiveCommandNames();
+
+    /// <summary>
+    /// Gets effective command overrides, merging legacy FunctionOverrides and CommandOverrides.
+    /// CommandOverrides entries take precedence when both keys define the same command.
+    /// </summary>
+    public Dictionary<string, FunctionOverride> GetEffectiveCommandOverrides()
+    {
+        var merged = new Dictionary<string, FunctionOverride>(FunctionOverrides, StringComparer.OrdinalIgnoreCase);
+        foreach (var item in CommandOverrides)
+        {
+            merged[item.Key] = item.Value;
+        }
+
+        return merged;
+    }
+
+    /// <summary>
+    /// Resolve a command override by name from CommandOverrides first, then legacy FunctionOverrides.
+    /// </summary>
+    public bool TryGetCommandOverride(string commandName, out FunctionOverride? commandOverride)
+    {
+        if (CommandOverrides.TryGetValue(commandName, out var overrideFromCommand))
+        {
+            commandOverride = overrideFromCommand;
+            return true;
+        }
+
+        if (FunctionOverrides.TryGetValue(commandName, out var overrideFromLegacy))
+        {
+            commandOverride = overrideFromLegacy;
+            return true;
+        }
+
+        commandOverride = null;
+        return false;
+    }
 }
