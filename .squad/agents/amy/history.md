@@ -145,8 +145,7 @@ Detailed session history was archived to `history-archive.md` on 2026-04-10 when
 
 ## Learnings
 
-- **Version management:** Project version is maintained solely in PoshMcp.Server/PoshMcp.csproj under the <Version> element. No distributed version configuration across multiple files (e.g., Directory.Build.props). Bumped  .7.1 →  .8.0.
-
+- **Version management:** Project version is maintained solely in PoshMcp.Server/PoshMcp.csproj under the <Version> element. No distributed version configuration across multiple files (e.g., Directory.Build.props). Bumped  .7.1 →  .8.0.- **Tool update access denied:** `dotnet tool update -g poshmcp` can fail with "Access to the path ... is denied" if the poshmcp process is currently running (e.g., as an MCP server in VS Code). Stop all poshmcp processes first (`Get-Process poshmcp | Stop-Process -Force`), then retry the update. This applies to 0.8.3 → 0.8.4 and any future in-place updates while the tool is active.
 ## [2026-04-23T15:08:26] Source Image Implementation
 
 **Session:** Deploy source image support implementation (spec 007)
@@ -261,3 +260,25 @@ settings into Container App environment variables.
 **Key Learnings:**
 - Current package/version source of truth remains `<Version>` in `PoshMcp.Server/PoshMcp.csproj`.
 - Release notes continuity requires both a new notes file and a matching entry in `docs/toc.yml`.
+
+## 2026-04-24: Release v0.8.3 pushed to origin
+
+**Learnings:**
+- Staged release files individually (csproj, release notes, toc.yml, squad state files) using explicit paths — never git add ..
+- Committed with message: chore: bump version to 0.8.3 and add release notes.
+- Release commit SHA: 492e3b.
+- Pushed commit to origin main successfully (7 commits ahead including prior session work).
+- Created annotated tag 0.8.3 with git tag -a v0.8.3 -m "Release v0.8.3" and pushed it.
+- GitHub reported a repository redirect (usepowershell/poshmcp -> usepowershell/PoshMcp) — push succeeded regardless; update remote URL when convenient.
+- GitHub also surfaced 1 moderate Dependabot vulnerability — flagged for follow-up.
+
+### 2026-04-24: v0.8.4 release push
+
+- Staged PoshMcp.Server/PoshMcp.csproj, docs/release-notes/0.8.4.md, docs/toc.yml individually.
+- Initial push to origin main was rejected due to a merge commit (b0a80e4) in local history (branch was 3 commits ahead, one being a merge).
+- Resolution: stashed unstaged changes, rebased --onto origin/main to drop the merge commit, reset main to rebased HEAD (f5583fe), restored stash. Branch became 1 commit ahead with no merge commits.
+- Push to origin main succeeded: 6d7a138..f5583fe.
+- Created annotated tag v0.8.4 and pushed successfully.
+- Commit SHA: f5583feeb3a49c7c8bd22ab7c150414241ca88b9
+- GitHub repository redirect (usepowershell/poshmcp -> usepowershell/PoshMcp) present but push succeeds; recommend updating remote URL.
+- Key learning: always check local log for merge commits before pushing to protected branch; use rebase --onto to cleanly remove them.

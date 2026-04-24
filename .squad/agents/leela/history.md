@@ -32,6 +32,23 @@
 
 ## Learnings
 
+### 2026-04-24: v0.8.4 Release Notes (Security Patch)
+
+**Task:** Created release notes for PoshMcp v0.8.4 and added TOC entry.
+
+**What was written:**
+- **Security Fixes section** — CVE-2026-40894, OpenTelemetry.Api 1.15.1 → 1.15.3, moderate DoS via BaggagePropagator/B3Propagator memory allocation, resolution statement.
+- Used a CVE detail table (CVE, Severity, Affected component, Impact, Resolution) for scannability.
+- Explicitly noted no code/config changes required — important for ops teams assessing upgrade risk.
+- Breaking Changes: None. Upgrade Notes: patch upgrade, no migration.
+
+**Style decisions:**
+- Security patch releases get a "Security Fixes" top-level section (not "What's New") so it's immediately visible.
+- Omitted the local-sync merge commit (b0a80e4) — not user-facing.
+- TOC entry inserted above v0.8.3 (newest first).
+
+
+
 ### 2026-04-24: v0.8.3 Release Notes
 
 **Task:** Replaced stub `docs/release-notes/0.8.3.md` with proper release notes for PoshMcp v0.8.3.
