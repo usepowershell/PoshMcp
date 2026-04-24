@@ -143,3 +143,32 @@ Steven requested that any image-building step in the deploy pipeline go through 
 - `docker tag` (not `docker build`) is used to apply the `latest` alias — this is acceptable because the restriction was specifically on the build operation.
 - `poshmcp` must be installed as a dotnet global tool on the machine or agent running the deploy script.
 
+### 2026-04-23T15:56:32-05:00: Deploy script config precedence and appsettings contract
+**By:** Amy
+**What:** Added appsettings-sourced deployment configuration to `infrastructure/azure/deploy.ps1` via `-AppSettingsFile` / `DEPLOY_APPSETTINGS_FILE`, with explicit precedence `CLI > env > appsettings > defaults`. Introduced `AzureDeployment` appsettings section (also supports `Deployment.Azure`) and added `infrastructure/azure/deploy.appsettings.json.template` as scaffold-ready template.
+**Why:** Preserve existing deploy workflow while enabling repeatable environment-specific deployment configuration from file, especially for CI/bootstrap scaffolds.
+
+### 2026-04-23T16:05:12Z: Add CLI scaffold command backed by embedded infra artifacts
+**By:** Bender
+**What:** Added `poshmcp scaffold` to materialize an `infra/azure` folder from assembly-embedded deployment files (`deploy.ps1`, bicep files, and parameters) into a target project directory with optional `--force` overwrite behavior.
+**Why:** Ensures scaffold works both from source and packaged tool installations without depending on repository-relative filesystem paths.
+
+### 2026-04-23T17:28:05Z: server appsettings to Container App env vars
+**By:** Amy (DevOps/Platform) - requested by Steven Murawski
+**What:** Translate MCP server appsettings.json into Container App environment variables via deploy.ps1.
+**Decisions:**
+- Removed `powerShellFunctions` Bicep param from `resources.bicep` and `main.bicep`. Covered by translated env var array.
+- Removed `enableDynamicReloadTools` Bicep param; its env var is now emitted from server appsettings translation.
+- Renamed Bicep `extraEnvVars` param to `serverEnvVars`.
+- Renamed `-McpAppSettingsFile` param in `deploy.ps1` to `-ServerAppSettingsFile`; added `POSHMCP_APPSETTINGS_FILE` env var support; kept auto-discovery.
+- Added translations for IncludePatterns, ExcludePatterns, EnableConfigurationTroubleshootingTool, and Logging.LogLevel.Default.
+- Fixed RuntimeMode normalization: server expects "InProcess"/"OutOfProcess". deploy.ps1 previously emitted "in-process"/"out-of-process" - corrected.
+**Why:** Single source of truth - container configured identically to local server from one appsettings file.
+
+### 2026-04-24: Version bump to 0.8.3 with release metadata alignment
+**By:** Amy
+**What:** Chose a patch release bump from `0.8.2` to `0.8.3`, aligned version-bearing artifacts by updating `PoshMcp.Server/PoshMcp.csproj`, and ensured release notes index coverage by adding `docs/release-notes/0.8.3.md` into `docs/toc.yml`.
+**Why:** Patch bump is the safest default when no target version is specified, and team convention requires release-notes TOC alignment whenever a new release notes file is added.
+**Operational Outcome:** Build and pack completed successfully and produced `artifacts/nupkg/poshmcp.0.8.3.nupkg`.
+**Merged from inbox:** `.squad/decisions/inbox/amy-version-bump-pack-update.md`
+

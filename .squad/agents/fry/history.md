@@ -149,3 +149,9 @@ Detailed prior history (2026-03-27 through 2026-04-07) archived to `history-arch
 - Test-driven approach validates implementation
 
 **Artifacts:** specs/007-deploy-source-image/tasks.md
+
+## [2026-04-23] deploy.ps1 precedence automation (CLI vs env vs appsettings)
+
+- Added a script-level integration test that invokes `infrastructure/azure/deploy.ps1` under a mocked PowerShell harness (mocked `az`, `docker`, `poshmcp`, and `Invoke-WebRequest`) so precedence behavior can be validated without live Azure or Docker dependencies.
+- Learned that script-level CLI parameter detection was broken because `Initialize-DeploymentConfiguration` was reading `$PSBoundParameters` inside a nested function scope (empty there), which silently made env win over CLI.
+- Reliable pattern: capture script invocation-bound parameters once at script scope and reference that captured hashtable in helper functions when precedence logic depends on "CLI was explicitly provided" semantics.

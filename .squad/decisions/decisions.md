@@ -86,6 +86,14 @@ Use the **existing user-assigned managed identity** (`poshmcp-identity`) on the 
 
 ## Active Decisions
 
+### 2026-04-24: Docker build defaults to custom layering from GHCR source image with CLI overrides
+**By:** Steven Murawski (via Copilot/Bender)
+**Status:** Active
+**Decision:** `poshmcp build` now defaults to `--type custom` and resolves the base source image from GHCR (`ghcr.io/usepowershell/poshmcp/poshmcp:latest`), while preserving explicit CLI overrides via `--source-image` and `--source-tag`; `--type base` remains available for local source-image builds.
+**Rationale:** Defaulting to a published source image speeds common custom-image builds and aligns with expected operator flow while preserving explicit base-image behavior.
+**Follow-up:** Fixed Docker build argument ordering so all `--build-arg` flags are emitted before the build context path to avoid invalid CLI invocation ordering.
+**Created:** 2026-04-24
+
 ### 2026-04-09T17:18Z: User directive — aggressive commit strategy
 **By:** Steven Murawski (via Copilot)
 **Status:** Active
@@ -581,5 +589,12 @@ The doctor output restructure spec was authored and approved. It needed to be nu
 - Milestone: https://github.com/usepowershell/PoshMcp/milestone/3
 - Issues: #140–#166
 - Spec: specs/006-doctor-output-restructure/spec.md
+
+### 2026-04-24: Source-image publish/build flows must pass `--type base`
+**By:** Amy
+**Status:** Active
+**Decision:** Any source-image publish/build path that runs `poshmcp build` must pass `--type base` explicitly.
+**Rationale:** The CLI default is `custom`; source-image publishing from local source for this repository must use base flow (`Dockerfile`) instead of derived/custom flow.
+**Applied In:** `.github/workflows/publish-packages.yml`, `infrastructure/azure/deploy.ps1`
 
 

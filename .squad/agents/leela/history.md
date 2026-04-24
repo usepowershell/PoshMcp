@@ -32,7 +32,79 @@
 
 ## Learnings
 
+### 2026-04-24: v0.8.3 Release Notes
 
+**Task:** Replaced stub `docs/release-notes/0.8.3.md` with proper release notes for PoshMcp v0.8.3.
+
+**What was written:**
+- **Deploy Script: Source Image Support** — full coverage of the new `-SourceImage` / `-UseRegistryCache` parameters from spec 007 (Modes A, B, C), user-benefit framing (skip local builds, artifact promotion, ACR import for bandwidth savings), plus parameter table and backward-compatibility callout.
+- **Code Quality Improvements** — brief user-facing mention of the refactor commit framed around reliability rather than internal structure.
+- **Breaking Changes** — explicitly none.
+- **Upgrade Notes** — install instructions and confirmation that no config migration is needed.
+
+**Style decisions:**
+- Matched v0.8.0 format exactly (uid frontmatter, `## What's New` subsection headers, Breaking Changes and Upgrade Notes always present, See Also links).
+- Omitted squad-internal commits (session-recall skill, scribe logs, decisions.md merges) — not user-facing.
+- Used parameter table for quick reference on the two new flags (mirrors what users would scan for first).
+
+### 2026-04-24: update-config CLI Docs Cleanup
+
+**Task:** Reviewed and corrected markdown examples that used obsolete `poshmcp update-config` switches.
+
+**What was updated:**
+- Replaced deprecated command flags in examples: `--add-function`/`--remove-function` -> `--add-command`/`--remove-command`.
+- Replaced removed module flags in examples: `--add-import-module` and `--add-install-module` -> `--add-module`.
+- Removed unsupported `update-config` examples for `--trust-psgallery`, `--skip-publisher-check`, `--install-timeout-seconds`, and `--add-module-path`.
+- Updated affected docs to either show valid `update-config` usage or point to `appsettings.json` for `PowerShellConfiguration.Environment` settings.
+
+**Validation:**
+- Cross-checked supported options against `PoshMcp.Server/Program.cs` (`updateConfigCommand.AddOption(...)`).
+- Searched all markdown for obsolete `update-config` switches and confirmed no remaining matches.
+
+### 2026-04-24: Docker Build Semantics Docs Alignment
+
+**Task:** Updated Docker-related documentation to match current `poshmcp build` semantics after source-image workflow changes.
+
+**Files updated:**
+- `README.md`
+- `DOCKER.md`
+- `docs/articles/docker.md`
+- `examples/README.md`
+
+**What was aligned:**
+1. Documented that `poshmcp build` defaults to `--type custom` and layers from GHCR base image (`ghcr.io/usepowershell/poshmcp/poshmcp:latest`).
+2. Added explicit `--type base` examples for local/source base image builds from repo `Dockerfile`.
+3. Added `--source-image` and `--source-tag` usage and clarified tag override behavior for custom builds.
+4. Removed/rewrote outdated Docker article patterns that implied old build args (`MODULES`, `POSHMCP_MODULES`) as primary guidance.
+5. Kept examples concise and consistent across root docs and examples docs to avoid contradictory defaults.
+
+**Validation:**
+- Performed targeted searches across updated docs to verify `poshmcp build` references now consistently reflect custom-by-default behavior and include source/base override options.
+
+### 2026-04-23: Server Configuration Documentation for Azure Deployment
+
+**Task:** Added comprehensive documentation for the new `-ServerAppSettingsFile` feature in `deploy.ps1`.
+
+**What Was Documented:**
+- New section: "Server Configuration with `-ServerAppSettingsFile`" in `docs/articles/azure-integration.md`
+- Placed after "Scaffold Then Deploy" section, logically connecting scaffold workflow to deployment with custom config
+- Covers: how it works, settings translation, practical examples (basic, environment-specific, integration patterns)
+- Cross-links to Configuration and Advanced Configuration articles
+
+**Key Content Added:**
+1. **How It Works** — 4-step explanation of the config translation flow
+2. **What Gets Translated** — Lists 6 categories (CommandNames, Modules, RuntimeMode, Logging, Auth, Health)
+3. **Basic Example** — Copy server config and deploy with `-ServerAppSettingsFile` parameter
+4. **Environment-Specific Configuration** — Using different appsettings files for dev/staging/prod
+5. **Integration with Scaffold Workflow** — Full end-to-end flow combining scaffold + custom config + deploy
+
+**Documentation Patterns Applied:**
+- Consistent tone with existing Azure Integration article (clear, step-by-step, code examples)
+- Markdown structure matches doc conventions (numbered steps, code blocks, bullet lists)
+- Examples use realistic paths and parameter conventions
+- Cross-links point to related docs (Configuration reference, Advanced Configuration)
+
+**Key Note:** The feature enables deployment teams to maintain identical server configuration between local dev and Azure production by passing the server's appsettings.json directly to the deployment script. Reduces configuration drift and simplifies ops workflows.
 
 #
 
@@ -217,8 +289,6 @@
 - **Cross-links:** Pointed to Docker, Configuration, and doctor documentation for deeper dives
 
 **Outcome:** v0.8.0 release notes created following established format. Docker hang fix prominently featured as significant UX regression fix. Ready for publication without commit (coordinator handles).
-
-
 
 ## TOC Update for v0.8.0
 **Date:** 2026-04-20 16:20:52

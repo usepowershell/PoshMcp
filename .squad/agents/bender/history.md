@@ -107,3 +107,58 @@ DOTNET_ENVIRONMENT
 ---
 
 **[Earlier history before 2026-04-21 archived to history-archive.md per Scribe threshold policy. Preserving last 90 days in main history.]**
+
+## Recent Work (2026-04-23)
+
+### CLI infra scaffolding with embedded deployment assets
+**Status:** Complete
+
+- Added a new `scaffold` CLI command in `Program.cs` with `--project-path|--path|-p` (default current directory), `--force`, and `--format text|json`.
+- Implemented `InfrastructureScaffolder.ScaffoldAzureInfrastructureAsync` to extract embedded infrastructure assets into `infra/azure` under the target project.
+- Embedded Azure deployment artifacts in `PoshMcp.csproj` (`deploy.ps1`, `validate.ps1`, `main.bicep`, `resources.bicep`, `parameters.json`, `parameters.local.json.template`) so scaffolding works from packaged tool output.
+- Added `ProgramCliScaffoldCommandTests` covering successful scaffold and existing-file behavior without force.
+
+**Key pattern:**
+- For tool packaging scenarios, embed source artifacts in the server assembly and resolve resource names by suffix to avoid brittle fully-qualified manifest names.
+
+## 2026-04-23 17:21 — appsettings → env var mapping (with Amy)
+
+- Added \ConvertTo-McpServerEnvVars\ to deploy.ps1: walks known PowerShellConfiguration/Authentication keys,
+  applies canonical POSHMCP_* names for RuntimeMode/SessionMode, falls through to __-separated names for the rest.
+- Added \Resolve-McpAppSettingsFile\: CLI override first, then auto-discovers poshmcp.appsettings.json / appsettings.json in script dir.
+- Added \-McpAppSettingsFile\ parameter to deploy.ps1 param block; distinct from \-AppSettingsFile\ (deploy-level settings).
+- Skips: Logging, McpResources, secrets, file paths.
+- Injects \xtraEnvVars\ into Bicep parameters JSON at deploy time.
+- Key file: infrastructure/azure/deploy.ps1
+
+## 2026-04-24 — Build flow defaults to remote GHCR base image
+
+- Changed `poshmcp build` default behavior from local source-image build assumptions to custom-image layering with published base image.
+- Added `--source-image` and `--source-tag` build options and defaulted source resolution to `ghcr.io/usepowershell/poshmcp/poshmcp:latest`.
+- Updated default Dockerfile selection to `examples/Dockerfile.user` for `--type custom` (now default), while preserving `--type base` for local `Dockerfile` source builds.
+- Updated `examples/Dockerfile.user` to support `BASE_IMAGE` and `INSTALL_PS_MODULES` build args so `--modules` remains effective in the new default flow.
+- Added/updated tests in `PoshMcp.Tests/Unit/DockerRunnerTests.cs` and `PoshMcp.Tests/Unit/ProgramCliBuildCommandTests.cs` for build arg construction and option/help coverage.
+
+## 2026-04-24 — Issue #169: update-config adds obsolete FunctionNames block
+
+- Reproduced issue locally: running `update-config --runtime-mode out-of-process` against config with only `CommandNames` added an empty legacy `FunctionNames` array.
+- Root cause in `ConfigurationFileManager.UpdateConfigurationFileAsync`: legacy function array was always created via `GetOrCreateArray(powerShellConfiguration, "FunctionNames")` even when no `--add-function/--remove-function` flags were used.
+- Fix: only create/update `FunctionNames` when legacy function updates are explicitly requested or the property already exists.
+- Added regression test in `ProgramCliConfigCommandsTests` to ensure runtime-mode updates do not introduce `FunctionNames` when absent.
+- Validation:
+  - `dotnet test PoshMcp.Tests/PoshMcp.Tests.csproj --filter "FullyQualifiedName~ProgramCliConfigCommandsTests"` => 16 passed.
+  - `dotnet build PoshMcp.Server/PoshMcp.csproj` => build succeeded (existing warnings unchanged).
+
+## 2026-04-24 — CommandOverrides rename with FunctionOverrides compatibility
+
+- Updated configuration nomenclature from `FunctionOverrides` to `CommandOverrides` across runtime access, update-config advanced prompt writes, appsettings templates/examples, and user-facing docs.
+- Added compatibility path in `PowerShellConfiguration`: legacy `FunctionOverrides` still binds and is merged via `GetEffectiveCommandOverrides()` while `CommandOverrides` takes precedence.
+- Updated runtime consumers (`AuthorizationHelpers`, `PowerShellAssemblyGenerator`, `ConfigurationHealthCheck`) to resolve overrides through command-first helpers.
+- Enhanced `update-config` advanced prompts to write `CommandOverrides` and migrate existing `FunctionOverrides` in-place when the command touches overrides.
+- Added/updated focused tests:
+  - `ProgramCliConfigCommandsTests`: assert `CommandOverrides` output and migration from legacy key.
+  - `PerformanceConfigurationTests`: binding compatibility coverage for legacy and precedence behavior.
+  - `ProgramTests` + `AuthorizationHelpersTests`: primary usage now points to `CommandOverrides`.
+- Validation:
+  - `dotnet build PoshMcp.Server/PoshMcp.csproj -p:UseSharedCompilation=false` => succeeded.
+  - Targeted unit tests (`ProgramCliConfigCommandsTests`, `PerformanceConfigurationTests`, `AuthorizationHelpersTests`, `ProgramTests`) => 73 passed.

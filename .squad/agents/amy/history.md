@@ -189,3 +189,75 @@ Detailed session history was archived to `history-archive.md` on 2026-04-10 when
 
 - **ACR -> Container App auth (managed identity pattern):** When a Container App needs to pull from ACR without credentials, the correct pattern is: (1) declare a conditional `existing` reference to the ACR resource in the same resource group, (2) add a `Microsoft.Authorization/roleAssignments` scoped to the ACR granting AcrPull (`7f951dda-4ed3-4680-a7ca-43fe172d538d`) to the managed identity's `principalId`, and (3) set `registries[].identity` to the managed identity's resource ID (user-assigned) — no `passwordSecretRef` needed. Add `dependsOn: [acrPullRoleAssignment]` on the Container App so ARM sequences the role before the app revision is created. Both the existing ACR ref and role assignment should be conditional on `!empty(containerRegistryServer)` for backward compatibility. The ACR registry name is derived via `split(containerRegistryServer, '.')[0]`. No changes to deploy.ps1 needed — Bicep handles the role assignment entirely at resource group scope.
 
+## [2026-04-23T15:56:32-05:00] Deploy Script AppSettings Parameter Sourcing
+
+**Session:** Extend infrastructure deployment script to source values from appsettings-style JSON while keeping existing workflow compatibility.
+**Contribution:** Added `-AppSettingsFile` and `DEPLOY_APPSETTINGS_FILE` support with explicit precedence (`CLI > env > appsettings > defaults`) in `infrastructure/azure/deploy.ps1`.
+
+**Key Learnings:**
+- PowerShell parameter defaults that directly read env vars make precedence opaque and harder to extend. Moving resolution into a dedicated initialization function enables transparent and testable precedence handling.
+- For deploy-specific configuration, a dedicated `AzureDeployment` section in an appsettings file is clear and avoids coupling to runtime server appsettings schemas.
+- Supporting both `AzureDeployment` and `Deployment.Azure` shapes provides backward-friendly flexibility for future scaffold/output conventions.
+- Boolean settings in mixed sources (switch/env/json) need explicit normalization; accepted values now include `true/false`, `1/0`, `yes/no`, and `on/off`.
+- Deploy script now logs source provenance per resolved setting, which improves debugging in CI and multi-tenant deployments.
+
+**Artifacts:**
+- `infrastructure/azure/deploy.ps1`
+- `infrastructure/azure/deploy.appsettings.json.template`
+- `infrastructure/azure/QUICKSTART.md`
+
+### 2026-04-23: Local release mechanics (0.8.1)
+
+- Bumped tool/package version in `PoshMcp.Server/PoshMcp.csproj` from `0.8.0` to `0.8.1` and packed with `dotnet pack -c Release -o .\artifacts\nupkg`.
+- Global update from local source initially failed with access denied uninstalling `C:\Users\stmuraws\.dotnet\tools\.store\poshmcp\0.8.0` because running `poshmcp` processes held the lock.
+- Safe recovery pattern: stop `poshmcp`/`PoshMcp` processes, then rerun `dotnet tool update -g poshmcp --add-source .\artifacts\nupkg --version 0.8.1 --ignore-failed-sources`.
+- Verification: `dotnet tool list -g` shows `poshmcp 0.8.1`; `poshmcp --version` reports `0.8.1+acf034bc2eb5d848c8c4e854c69abb587eb0a691`.
+
+
+## 2026-04-23 17:21 — appsettings → env var mapping (with Bender)
+
+- Added \xtraEnvVars array\ param to \
+esources.bicep\ (default = empty); concat into Container App env alongside hardcoded vars.
+- Added \xtraEnvVars\ passthrough param in \main.bicep\, wired into module call.
+- Both Bicep files re-embedded on next build (no csproj changes needed).
+- Key file: infrastructure/azure/resources.bicep, infrastructure/azure/main.bicep
+
+## 2026-04-23 — Server appsettings to Container App env vars
+
+**Task:** Wire deploy.ps1 to read PoshMcp.Server/appsettings.json and translate runtime
+settings into Container App environment variables.
+
+**Changes made:**
+- `deploy.ps1`: renamed `-McpAppSettingsFile` -> `-ServerAppSettingsFile`, added `POSHMCP_APPSETTINGS_FILE` env var support, added translations for `IncludePatterns`, `ExcludePatterns`, `EnableConfigurationTroubleshootingTool`, `Logging.LogLevel.Default`, fixed RuntimeMode values to emit "InProcess"/"OutOfProcess" (matching server enum `.ToString()`), renamed `ExtraEnvVars` -> `ServerEnvVars`, passes `serverEnvVars` to Bicep unconditionally.
+- `resources.bicep`: removed `powerShellFunctions` param + derived vars, removed `enableDynamicReloadTools` param + static env var entry, renamed `extraEnvVars` -> `serverEnvVars`.
+- `main.bicep`: removed `powerShellFunctions` and `enableDynamicReloadTools` params, renamed `extraEnvVars` -> `serverEnvVars` in module call.
+- `parameters.json`: removed `powerShellFunctions` and `enableDynamicReloadTools` entries.
+- `deploy.appsettings.json.template`: added clarifying header comment.
+
+**Key learnings:**
+- The server normalizes POSHMCP_RUNTIME_MODE via `NormalizeRuntimeModeValue()` in `Cli/SettingsResolver.cs` — strips `-`/`_`, lowercases, maps "inprocess" -> `RuntimeMode.InProcess.ToString()` = "InProcess". Always use PascalCase enum values for this env var.
+- `resources.bicep` uses `concat([...fixed vars], serverEnvVars)` — the fixed vars block always includes ASPNETCORE_ENVIRONMENT, ASPNETCORE_URLS, POSHMCP_TRANSPORT, APPLICATIONINSIGHTS_CONNECTION_STRING, AZURE_CLIENT_ID.
+- deploy.ps1 always passes `serverEnvVars` (empty array if no appsettings file) — no conditional injection.
+- Test filter: `FullyQualifiedName~DeployScript` — 1 test passes.
+
+## 2026-04-24: poshmcp build flow alignment for source-image publishing
+
+- Audited script/workflow code paths that execute `poshmcp build` under `.github/workflows/**`, `docker.ps1`, `docker.sh`, and repository scripts.
+- Confirmed only two executable call sites in this scope: `.github/workflows/publish-packages.yml` and `infrastructure/azure/deploy.ps1`.
+- Updated both source-image build paths to use explicit base build flow:
+  - `dotnet run ... -- build --type base --tag "$IMAGE"` in publish workflow.
+  - `poshmcp build --type base --tag $FullImageName` in Azure deploy script.
+- Rationale: `poshmcp build` defaults to `custom`; publishing/building this repo image from local source must explicitly set `--type base` to use `Dockerfile` runtime source build.
+- Quick validation completed: PowerShell parser reports no syntax errors for `infrastructure/azure/deploy.ps1`; grep verification confirms corrected command usage.
+
+## 2026-04-24: Release bump, pack, and consistency update (v0.8.3)
+
+- Bumped `PoshMcp.Server/PoshMcp.csproj` version from `0.8.2` to `0.8.3` (patch release).
+- Added `docs/release-notes/0.8.3.md` and wired it into `docs/toc.yml` under Release Notes.
+- Packed with `dotnet pack .\PoshMcp.Server\PoshMcp.csproj -c Release -o .\artifacts\nupkg`.
+- Produced artifact: `artifacts/nupkg/poshmcp.0.8.3.nupkg`.
+- Verified build with `dotnet build .\PoshMcp.Server\PoshMcp.csproj -c Release`.
+
+**Key Learnings:**
+- Current package/version source of truth remains `<Version>` in `PoshMcp.Server/PoshMcp.csproj`.
+- Release notes continuity requires both a new notes file and a matching entry in `docs/toc.yml`.

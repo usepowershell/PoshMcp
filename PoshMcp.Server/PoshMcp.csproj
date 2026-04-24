@@ -9,7 +9,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>poshmcp</ToolCommandName>
     <PackageId>poshmcp</PackageId>
-    <Version>0.8.0</Version>
+    <Version>0.8.3</Version>
     <Authors>Steven Murawski</Authors>
     <Description>A Model Context Protocol (MCP) server that exposes PowerShell commands and modules as AI-consumable tools.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -56,6 +56,13 @@
   <ItemGroup>
     <EmbeddedResource Include="default.appsettings.json" />
     <EmbeddedResource Include="PowerShell\OutOfProcess\oop-host.ps1" />
+    <EmbeddedResource Include="..\infrastructure\azure\deploy.ps1" Link="Infrastructure\Azure\deploy.ps1" />
+    <EmbeddedResource Include="..\infrastructure\azure\validate.ps1" Link="Infrastructure\Azure\validate.ps1" />
+    <EmbeddedResource Include="..\infrastructure\azure\main.bicep" Link="Infrastructure\Azure\main.bicep" />
+    <EmbeddedResource Include="..\infrastructure\azure\resources.bicep" Link="Infrastructure\Azure\resources.bicep" />
+    <EmbeddedResource Include="..\infrastructure\azure\parameters.json" Link="Infrastructure\Azure\parameters.json" />
+    <EmbeddedResource Include="..\infrastructure\azure\deploy.appsettings.json.template" Link="Infrastructure\Azure\deploy.appsettings.json.template" />
+    <EmbeddedResource Include="..\infrastructure\azure\parameters.local.json.template" Link="Infrastructure\Azure\parameters.local.json.template" />
 
     <Content Include="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
