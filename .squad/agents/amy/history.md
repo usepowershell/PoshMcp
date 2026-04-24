@@ -329,3 +329,6 @@ settings into Container App environment variables.
 - Uninstall cycle: dotnet tool uninstall -g poshmcp → removed version 0.8.6.
 - Install new version: dotnet tool install -g poshmcp --add-source ./artifacts --version 0.8.7 → successfully installed.
 - Verified: poshmcp --version →  .8.7+35c51ce6b51eb8e65ed6af5124741a87490c62da.
+
+## Learnings
+Version bumped to 0.8.8 (phase 1 of coordinated release)

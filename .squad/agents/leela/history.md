@@ -313,3 +313,16 @@
 **Team Directive:** Requested by Steven Murawski; Developer Advocate role as Leela
 **Action:** Added v0.8.0 as newest entry (first in list) following semantic versioning convention. Committed with co-author trailer and pushed to origin/main.
 
+## 2026-04-24: Created v0.8.8 Release Notes
+
+**Task:** Draft release notes for patch release v0.8.8 (0.8.7 → 0.8.8).
+
+**v0.8.8 Release Notes (`CHANGELOG.md`):**
+- Created new root-level CHANGELOG.md file following standard changelog conventions
+- **Primary fix:** `poshmcp build --generate-dockerfile` now emits a user deployment template based on the published `ghcr.io/usepowershell/poshmcp/poshmcp` base image instead of the source build Dockerfile
+- **Bug fix:** Generated Dockerfile was incorrectly using the base image's own source Dockerfile as the template
+- **Enhancement:** `install-modules.ps1` is now bundled in the base container image at `/app/install-modules.ps1` — generated Dockerfiles no longer require users to have this script locally
+- **Documentation:** `examples/Dockerfile.user` updated to reference the bundled script path and use the published base image
+
+**Design Decision:** Patch release focused on Docker deployment workflow improvements. Changes reduce setup friction for users generating custom Dockerfiles by eliminating the need to maintain local `install-modules.ps1` and ensuring generated templates reference the production base image.
+
