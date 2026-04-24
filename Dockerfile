@@ -54,6 +54,9 @@ RUN apt-get update \
 # Copy published server application from build stage
 COPY --from=build /app/publish/ .
 
+# Bundle the module installer so derived images can use it without copying from the build context
+COPY install-modules.ps1 /app/install-modules.ps1
+
 # Make startup script executable
 RUN chmod +x docker-entrypoint.sh
 

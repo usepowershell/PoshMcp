@@ -276,6 +276,14 @@ public class Program
             aliases: new[] { "--source-tag" },
             description: "Tag for --source-image when a repository is provided (default: latest)");
 
+        var buildGenerateDockerfileOption = new Option<bool>(
+            aliases: new[] { "--generate-dockerfile" },
+            description: "Write the generated Dockerfile to disk instead of building");
+
+        var buildDockerfileOutputOption = new Option<string?>(
+            aliases: new[] { "--dockerfile-output" },
+            description: "Path for the generated Dockerfile (default: ./Dockerfile.generated)");
+
         var buildCommand = new Command("build", "Build a Docker image; defaults to creating a custom image from the published GHCR base image");
         buildCommand.AddOption(buildModulesOption);
         buildCommand.AddOption(buildTypeOption);
@@ -283,6 +291,8 @@ public class Program
         buildCommand.AddOption(buildDockerFileOption);
         buildCommand.AddOption(buildSourceImageOption);
         buildCommand.AddOption(buildSourceTagOption);
+        buildCommand.AddOption(buildGenerateDockerfileOption);
+        buildCommand.AddOption(buildDockerfileOutputOption);
 
         // Run command for Docker container execution
         var runModeOption = new Option<string?>(
@@ -652,13 +662,23 @@ public class Program
         }, verboseOption, debugOption, traceOption);
 
         // Handler for the build command
-        buildCommand.SetHandler((modules, type, tag, dockerFile, sourceImage, sourceTag) =>
+        buildCommand.SetHandler((InvocationContext context) =>
         {
             try
             {
-                var buildType = string.IsNullOrWhiteSpace(type) ? "custom" : type.ToLowerInvariant();
+                var modules = context.ParseResult.GetValueForOption(buildModulesOption);
+                var type = context.ParseResult.GetValueForOption(buildTypeOption);
+                var tag = context.ParseResult.GetValueForOption(buildTagOption);
+                var dockerFile = context.ParseResult.GetValueForOption(buildDockerFileOption);
+                var sourceImage = context.ParseResult.GetValueForOption(buildSourceImageOption);
+                var sourceTag = context.ParseResult.GetValueForOption(buildSourceTagOption);
+                var generateDockerfile = context.ParseResult.GetValueForOption(buildGenerateDockerfileOption);
+                var dockerfileOutput = context.ParseResult.GetValueForOption(buildDockerfileOutputOption);
+
+                var buildType = string.IsNullOrWhiteSpace(type)
+                    ? "custom"
+                    : type.ToLowerInvariant();
                 var imageTag = string.IsNullOrWhiteSpace(tag) ? "poshmcp:latest" : tag;
-                var dockerPath = DockerRunner.DetectDockerCommand();
 
                 if (buildType != "base" && buildType != "custom")
                 {
@@ -666,6 +686,41 @@ public class Program
                     Environment.ExitCode = ExitCodeConfigError;
                     return;
                 }
+
+                var imageFile = string.IsNullOrWhiteSpace(dockerFile)
+                    ? (buildType == "base" ? "Dockerfile" : "examples/Dockerfile.user")
+                    : dockerFile;
+
+                // When generating a Dockerfile, the source can come from embedded resources —
+                // no need for the file to exist on disk. For actual docker builds it must exist.
+                if (!generateDockerfile && !File.Exists(imageFile))
+                {
+                    Console.Error.WriteLine($"Error: Dockerfile not found at {imageFile}");
+                    Environment.ExitCode = ExitCodeConfigError;
+                    return;
+                }
+
+                var resolvedSourceImage = DockerRunner.ResolveSourceImageReference(sourceImage, sourceTag);
+
+                if (generateDockerfile)
+                {
+                    var outputPath = string.IsNullOrWhiteSpace(dockerfileOutput)
+                        ? "./Dockerfile.generated"
+                        : dockerfileOutput;
+                    var writtenPath = DockerRunner.GenerateDockerfile(
+                        imageFile,
+                        outputPath,
+                        imageTag,
+                        modules,
+                        buildType == "custom" ? resolvedSourceImage : null);
+                    Console.WriteLine($"Dockerfile written to: {writtenPath}");
+                    Console.WriteLine("To build manually, run:");
+                    Console.WriteLine($"  docker build -f {writtenPath} -t {imageTag} .");
+                    Environment.ExitCode = ExitCodeSuccess;
+                    return;
+                }
+
+                var dockerPath = DockerRunner.DetectDockerCommand();
 
                 if (dockerPath == null)
                 {
@@ -677,17 +732,6 @@ public class Program
 
                 Console.WriteLine($"Building {buildType} PoshMcp image: {imageTag}");
 
-                var imageFile = string.IsNullOrWhiteSpace(dockerFile)
-                    ? (buildType == "base" ? "Dockerfile" : "examples/Dockerfile.user")
-                    : dockerFile;
-                if (!File.Exists(imageFile))
-                {
-                    Console.Error.WriteLine($"Error: Dockerfile not found at {imageFile}");
-                    Environment.ExitCode = ExitCodeConfigError;
-                    return;
-                }
-
-                var resolvedSourceImage = DockerRunner.ResolveSourceImageReference(sourceImage, sourceTag);
                 if (buildType == "custom")
                 {
                     Console.WriteLine($"Using source image: {resolvedSourceImage}");
@@ -714,7 +758,7 @@ public class Program
                 Console.Error.WriteLine($"Build error: {ex.Message}");
                 Environment.ExitCode = ExitCodeRuntimeError;
             }
-        }, buildModulesOption, buildTypeOption, buildTagOption, buildDockerFileOption, buildSourceImageOption, buildSourceTagOption);
+        });
 
         // Handler for the run command
         runCommand.SetHandler((mode, port, tag, config, volumes, interactive) =>

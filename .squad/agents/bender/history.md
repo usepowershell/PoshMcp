@@ -162,3 +162,54 @@ DOTNET_ENVIRONMENT
 - Validation:
   - `dotnet build PoshMcp.Server/PoshMcp.csproj -p:UseSharedCompilation=false` => succeeded.
   - Targeted unit tests (`ProgramCliConfigCommandsTests`, `PerformanceConfigurationTests`, `AuthorizationHelpersTests`, `ProgramTests`) => 73 passed.
+
+## Learnings
+
+- `install-modules.ps1` is now bundled in the base image at `/app/install-modules.ps1`; `examples/Dockerfile.user` updated to use it directly.
+
+
+### Embedding Dockerfiles in the assembly (2026-07-30)
+
+**Pattern:** To ship static files (Dockerfiles, templates) inside a dotnet global tool so they work without disk presence:
+
+1. Add `<EmbeddedResource>` entries in `.csproj` with `Link` paths using backslash separators to control the manifest resource name:
+   ```xml
+   <EmbeddedResource Include="..\Dockerfile" Link="Dockerfiles\Dockerfile" />
+   ```
+
+2. The manifest name is: `{AssemblyName}.{Link path with backslashes replaced by dots}`.  
+   **Important:** The prefix is the *assembly name* (`<AssemblyName>` or project name), not the namespace. For this project, the assembly is `PoshMcp`, so the resource is `PoshMcp.Dockerfiles.Dockerfile` — NOT `PoshMcp.Server.Dockerfiles.Dockerfile`.
+
+3. Read via `Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName)`.
+
+4. When the resource isn't found (e.g., file wasn't embedded, or path was custom), fall back to `File.ReadAllText()` so local dev still works.
+
+5. Skip disk-existence checks (`File.Exists`) for paths that are satisfied by embedded resources — in this case the `--generate-dockerfile` flow.
+
+### `--generate-dockerfile` default corrected to "custom" (fixed current session)
+
+**What was wrong:** The `build` command handler had:
+
+```csharp
+var buildType = string.IsNullOrWhiteSpace(type)
+    ? (generateDockerfile ? "base" : "custom")
+    : type.ToLowerInvariant();
+```
+
+This meant `poshmcp build --generate-dockerfile` defaulted to `buildType = "base"`, which maps
+to the repo root `Dockerfile` — the file for building PoshMcp from source. That is the wrong
+template for users; they want `examples/Dockerfile.user`, which extends the published base image.
+
+**How it was fixed:** Both paths (with and without `--generate-dockerfile`) now default to `"custom"`:
+
+```csharp
+var buildType = string.IsNullOrWhiteSpace(type)
+    ? "custom"
+    : type.ToLowerInvariant();
+```
+
+Users who explicitly want the source-build Dockerfile can still pass `--type base`.
+
+**Also updated:** `examples/Dockerfile.user` — clarified that `install-modules.ps1` must be
+downloaded from the repo, and that the `COPY appsettings.json` line is a placeholder the user
+should update to their own path (removed the repo-internal `examples/appsettings.basic.json` path).

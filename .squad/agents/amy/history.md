@@ -55,6 +55,17 @@
 
 ## Learnings
 
+### docker.ps1 -GenerateDockerfile switch
+
+- Added `-GenerateDockerfile` [switch] and `-OutputPath` [string] parameters to `docker.ps1`.
+- Works with `build`/`build-base` (reads `./Dockerfile`) and `build-custom` (reads `examples/Dockerfile.$Template`).
+- `-OutputPath` has no default in `param()` — computed dynamically: `./Dockerfile.generated` for base, `./Dockerfile.<Template>.generated` for custom. This follows the precomputed-optional-parameter skill pattern.
+- Header includes: generated-by comment, equivalent build command, ISO 8601 timestamp, and a reminder `docker build -f <output> -t <tag> .` command.
+- Azure template appends an extra env-var note line to the header.
+- Existing build paths are fully unchanged — switch is gated, no regressions on `run`, `stop`, `logs`, `clean`.
+- Cleaned all pre-existing trailing whitespace from the file while editing (file standard: no trailing whitespace).
+- Validated syntax with `[System.Management.Automation.Language.Parser]::ParseFile` — zero errors.
+
 ### poshmcp build CLI
 
 - `poshmcp build` is a subcommand of the **poshmcp** dotnet global tool (packaged in `PoshMcp.Server/PoshMcp.csproj` with `<PackAsTool>true</PackAsTool>` and `<ToolCommandName>poshmcp</ToolCommandName>`).
@@ -62,6 +73,15 @@
 - Under the hood it calls `DockerRunner.BuildDockerBuildArgs` → `docker/podman build -f Dockerfile -t <tag> .` with auto-detection of docker vs podman.
 - Because `poshmcp build` only supports one `--tag`, building both a versioned tag and `latest` requires: call `poshmcp build --tag $VersionedTag` once, then `docker tag $VersionedTag $latestTag` to alias the result — avoiding a double build.
 - The deploy script's `Build-AndPushImage` was updated to use this pattern (replaced the direct `docker build -t … -t … -f Dockerfile .` line).
+
+### poshmcp build --generate-dockerfile
+
+- Added `--generate-dockerfile` (bool/switch) and `--dockerfile-output` (string, default `./Dockerfile.generated`) to `poshmcp build`.
+- When `--generate-dockerfile` is set, the CLI reads the source Dockerfile, prepends a comment header (generated-by, equivalent build command, ISO 8601 timestamp), writes the result to the output path, prints a success message with the equivalent `docker build` command, and exits 0 — without invoking docker/podman at all.
+- Added `DockerRunner.GenerateDockerfile(sourceDockerfilePath, outputPath, imageTag, modules?, sourceImage?)` to `PoshMcp.Server/Cli/DockerRunner.cs`; added `using System.IO;` to that file.
+- Switched the build command handler from the typed-parameter `SetHandler` overload to `InvocationContext`-based pattern to cleanly accommodate the two extra options without hitting overload limits.
+- Existing `poshmcp build` behavior (without the flag) is fully unchanged — docker detection and build execution path are identical.
+- Build verified: `dotnet build PoshMcp.Server/PoshMcp.csproj --configuration Release -v quiet` → 0 errors.
 
 ## Archive Note
 
@@ -282,3 +302,30 @@ settings into Container App environment variables.
 - Commit SHA: f5583feeb3a49c7c8bd22ab7c150414241ca88b9
 - GitHub repository redirect (usepowershell/poshmcp -> usepowershell/PoshMcp) present but push succeeds; recommend updating remote URL.
 - Key learning: always check local log for merge commits before pushing to protected branch; use rebase --onto to cleanly remove them.
+
+## 2026-04-24: Version 0.8.5 bump and global tool update
+
+**Learnings:**
+- Bumped version from 0.8.4 to 0.8.5 in PoshMcp.Server/PoshMcp.csproj.
+- Packed with `dotnet pack PoshMcp.Server/PoshMcp.csproj --configuration Release --output ./artifacts`.
+- Uninstalled current global tool with dotnet tool uninstall -g poshmcp (0.8.4).
+- Reinstalled with dotnet tool install -g poshmcp --add-source ./artifacts --version 0.8.5.
+- Verified installation: poshmcp --version returned  .8.5+35c51ce6b51eb8e65ed6af5124741a87490c62da.
+- All steps completed successfully; global tool is now active at version 0.8.5.
+
+### 2026-current: Patch release 0.8.6
+
+- Bumped PoshMcp.Server/PoshMcp.csproj version from 0.8.5 to 0.8.6.
+- Packed with dotnet pack PoshMcp.Server/PoshMcp.csproj --configuration Release --output ./artifacts.
+- Uninstalled current global tool (0.8.5).
+- Installed 0.8.6 from local artifacts with dotnet tool install -g poshmcp --add-source ./artifacts --version 0.8.6.
+- Verified: poshmcp --version returns  .8.6+35c51ce6b51eb8e65ed6af5124741a87490c62da.
+- Version bump to 0.8.6 complete; global tool updated successfully.
+
+### Version bump 0.8.6 → 0.8.7
+
+- Updated PoshMcp.Server/PoshMcp.csproj: changed <Version>0.8.6</Version> to <Version>0.8.7</Version>.
+- Ran dotnet pack PoshMcp.Server/PoshMcp.csproj --configuration Release --output ./artifacts → produced poshmcp.0.8.7.nupkg.
+- Uninstall cycle: dotnet tool uninstall -g poshmcp → removed version 0.8.6.
+- Install new version: dotnet tool install -g poshmcp --add-source ./artifacts --version 0.8.7 → successfully installed.
+- Verified: poshmcp --version →  .8.7+35c51ce6b51eb8e65ed6af5124741a87490c62da.

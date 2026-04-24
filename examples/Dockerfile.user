@@ -15,17 +15,18 @@ FROM ${BASE_IMAGE}
 # Switch to root for installation (base image runs as non-root user)
 USER root
 
-# Copy the module installation script
-COPY install-modules.ps1 /tmp/
+# install-modules.ps1 is bundled in the base image at /app/install-modules.ps1
+# No COPY needed — it's already available
 
 # Install your required PowerShell modules
 # Modify this line to include the modules your organization needs
 ARG INSTALL_PS_MODULES=""
 ENV INSTALL_PS_MODULES=${INSTALL_PS_MODULES}
-RUN pwsh /tmp/install-modules.ps1 && rm /tmp/install-modules.ps1
+RUN pwsh /app/install-modules.ps1
 
 # Copy your custom appsettings.json
-COPY examples/appsettings.basic.json /app/server/appsettings.json
+# Update this path to point to your own appsettings.json file
+COPY appsettings.json /app/server/appsettings.json
 
 # (Optional) Copy custom startup scripts
 # COPY examples/startup.ps1 /app/startup.ps1

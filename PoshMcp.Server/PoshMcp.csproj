@@ -9,7 +9,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>poshmcp</ToolCommandName>
     <PackageId>poshmcp</PackageId>
-    <Version>0.8.4</Version>
+    <Version>0.8.7</Version>
     <Authors>Steven Murawski</Authors>
     <Description>A Model Context Protocol (MCP) server that exposes PowerShell commands and modules as AI-consumable tools.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -64,6 +64,11 @@
     <EmbeddedResource Include="..\infrastructure\azure\parameters.json" Link="Infrastructure\Azure\parameters.json" />
     <EmbeddedResource Include="..\infrastructure\azure\deploy.appsettings.json.template" Link="Infrastructure\Azure\deploy.appsettings.json.template" />
     <EmbeddedResource Include="..\infrastructure\azure\parameters.local.json.template" Link="Infrastructure\Azure\parameters.local.json.template" />
+
+    <EmbeddedResource Include="..\Dockerfile" Link="Dockerfiles\Dockerfile" />
+    <EmbeddedResource Include="..\examples\Dockerfile.user" Link="Dockerfiles\Dockerfile.user" />
+    <EmbeddedResource Include="..\examples\Dockerfile.azure" Link="Dockerfiles\Dockerfile.azure" />
+    <EmbeddedResource Include="..\examples\Dockerfile.custom" Link="Dockerfiles\Dockerfile.custom" />
 
     <Content Include="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
