@@ -2,6 +2,13 @@
 
 ## Recent Decisions
 
+### 2026-04-24: Release v0.8.4 Pushed
+**By:** Amy (DevOps/Platform Engineer)
+**Status:** Applied
+**What:** Bumped version to 0.8.4, built poshmcp.0.8.4.nupkg, updated global install, committed (f5583fe), created and pushed annotated tag v0.8.4. Rebase required to resolve merge commit rejected by branch protection.
+**Why:** Security patch release fixing CVE-2026-40894.
+**Rule Going Forward:** Rebase onto origin/main before pushing to avoid merge commit rejections on protected branches.
+
 ### 2026-07-18: Canonical Infrastructure Defaults for PoshMcp Azure Deployment
 **By:** Amy (DevOps / Platform / Azure Engineer)
 **Status:** Applied
