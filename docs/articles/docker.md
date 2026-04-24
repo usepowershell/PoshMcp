@@ -7,16 +7,31 @@ title: Docker Deployment
 
 Deploy PoshMcp in Docker containers for consistent environments and cloud deployment.
 
-## Building a Docker Image
+## Build Images with `poshmcp build`
 
-Clone and build:
+Use the CLI as the default workflow:
 
 ```bash
-git clone https://github.com/microsoft/poshmcp.git
-cd poshmcp
+# Default: build custom image from GHCR base image
+poshmcp build --tag myorg/poshmcp:latest
 
-docker build -t poshmcp:latest .
+# Custom image with pre-installed modules
+poshmcp build --modules "Az.Accounts Az.Resources" --tag myorg/poshmcp:azure
+
+# Local/source base image build from repository Dockerfile
+poshmcp build --type base --tag poshmcp:latest
+
+# Pin custom build source image and tag
+poshmcp build --source-image ghcr.io/usepowershell/poshmcp/poshmcp --source-tag 0.9.0
 ```
+
+### Build option semantics
+
+- `poshmcp build` defaults to `--type custom`.
+- `--type custom` uses `examples/Dockerfile.user` and layers on a source image.
+- `--type base` builds the local runtime/source image from the repo `Dockerfile`.
+- Default source image is `ghcr.io/usepowershell/poshmcp/poshmcp:latest`.
+- `--source-image` and `--source-tag` apply to custom builds.
 
 ## Running the Container
 
@@ -30,25 +45,6 @@ docker run -p 8080:8080 poshmcp:latest
 
 ```bash
 docker run -it poshmcp:latest poshmcp serve --transport stdio
-```
-
-## Pre-installing PowerShell Modules
-
-Build a custom image with modules pre-installed:
-
-```bash
-docker build \
-  --build-arg MODULES="Az.Accounts Az.Resources Az.Storage" \
-  -t poshmcp:azure .
-```
-
-Or configure at runtime:
-
-```bash
-docker run \
-  -e POSHMCP_MODULES="Az.Accounts Az.Resources" \
-  -p 8080:8080 \
-  poshmcp:latest
 ```
 
 ## Custom Configuration
@@ -67,9 +63,17 @@ docker run -v $(pwd)/appsettings.json:/app/appsettings.json \
 docker run \
   -e POSHMCP_TRANSPORT=http \
   -e POSHMCP_LOG_LEVEL=debug \
-  -e POSHMCP_MODULES="Az.Accounts" \
   -p 8080:8080 \
   poshmcp:latest
+```
+
+## Direct Docker Build (Advanced)
+
+If needed, you can still call Docker directly:
+
+```bash
+docker build -t poshmcp:latest .
+docker build -f examples/Dockerfile.user -t myorg/poshmcp:latest .
 ```
 
 ## Azure Container Apps Deployment

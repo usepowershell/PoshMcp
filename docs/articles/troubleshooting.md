@@ -37,7 +37,7 @@ cat ./appsettings.json
 pwsh -Command "Get-Command Get-Process"
 
 # Add commands manually
-poshmcp update-config --add-function Get-Process
+poshmcp update-config --add-command Get-Process
 poshmcp update-config --add-include-pattern "Get-*"
 ```
 
@@ -69,8 +69,8 @@ poshmcp serve --transport stdio --log-level debug
 # Test module installation manually
 pwsh -Command "Install-Module Az.Accounts -Force"
 
-# Configure timeout
-poshmcp update-config --install-timeout-seconds 600
+# Add module to discovery list
+poshmcp update-config --add-module Az.Accounts
 ```
 
 ### Slow performance

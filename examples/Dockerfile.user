@@ -9,7 +9,8 @@
 # Run:   docker run -d -p 8080:8080 my-poshmcp
 
 # Start from the PoshMcp base image
-FROM poshmcp:latest
+ARG BASE_IMAGE=ghcr.io/usepowershell/poshmcp/poshmcp:latest
+FROM ${BASE_IMAGE}
 
 # Switch to root for installation (base image runs as non-root user)
 USER root
@@ -19,7 +20,8 @@ COPY install-modules.ps1 /tmp/
 
 # Install your required PowerShell modules
 # Modify this line to include the modules your organization needs
-ENV INSTALL_PS_MODULES="Pester PSScriptAnalyzer"
+ARG INSTALL_PS_MODULES=""
+ENV INSTALL_PS_MODULES=${INSTALL_PS_MODULES}
 RUN pwsh /tmp/install-modules.ps1 && rm /tmp/install-modules.ps1
 
 # Copy your custom appsettings.json

@@ -22,9 +22,9 @@ PoshMcp discovers PowerShell commands and transforms them into AI-consumable too
 Expose only the commands you want:
 
 ```bash
-poshmcp update-config --add-function Get-Service
-poshmcp update-config --add-function Restart-Service
-poshmcp update-config --add-function Get-Process
+poshmcp update-config --add-command Get-Service
+poshmcp update-config --add-command Restart-Service
+poshmcp update-config --add-command Get-Process
 ```
 
 **Configuration:**
@@ -92,32 +92,16 @@ poshmcp update-config --add-exclude-pattern "Invoke-*"
 
 ## Module Management
 
-### Import Modules
+### Add Modules
 
-Load modules at startup:
-
-```bash
-poshmcp update-config --add-import-module Az.Accounts
-poshmcp update-config --add-import-module Microsoft.PowerShell.Management
-```
-
-### Install Modules
-
-Install from PowerShell Gallery:
+Add module names to discovery configuration:
 
 ```bash
-poshmcp update-config --add-install-module Az.Accounts --minimum-version 2.0.0
-poshmcp update-config --add-install-module Az.Resources --repository PSGallery
+poshmcp update-config --add-module Az.Accounts
+poshmcp update-config --add-module Microsoft.PowerShell.Management
 ```
 
-### Module Paths
-
-Load modules from custom directories:
-
-```bash
-poshmcp update-config --add-module-path /mnt/shared-modules
-poshmcp update-config --add-module-path ./custom-modules
-```
+Module install/import behavior and module search paths are configured in `appsettings.json` under `PowerShellConfiguration.Environment`.
 
 ## Built-In Utility Tools
 

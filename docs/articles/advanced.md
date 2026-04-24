@@ -40,15 +40,13 @@ poshmcp update-config --add-include-pattern "Get-Service"
 poshmcp update-config --add-exclude-pattern "Remove-*"
 poshmcp update-config --add-exclude-pattern "Invoke-*"
 
-poshmcp update-config --add-install-module Az.Accounts --minimum-version 2.0.0
-poshmcp update-config --add-install-module Az.Compute
-
-poshmcp update-config --add-import-module Az.Accounts
-poshmcp update-config --add-import-module Az.Compute
-
-poshmcp update-config --trust-psgallery
-poshmcp update-config --skip-publisher-check
+poshmcp update-config --add-module Az.Accounts
+poshmcp update-config --add-module Az.Compute
 ```
+
+## Azure Scaffold Workflow
+
+For Azure-first deployments, use the scaffold workflow documented in [Azure Integration](azure-integration.md) to generate `infra/azure` assets with `poshmcp scaffold` and then run `deploy.ps1` from the generated folder.
 
 ## Performance Tuning
 

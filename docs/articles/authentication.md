@@ -202,7 +202,7 @@ Make an authenticated request:
 curl -H "X-API-Key: key-reader" https://poshmcp.example.com/tools
 ```
 
-For per-tool authorization precedence with `PowerShellConfiguration.FunctionOverrides`, see [Configuration Guide](configuration.md#authentication).
+For per-tool authorization precedence with `PowerShellConfiguration.CommandOverrides`, see [Configuration Guide](configuration.md#authentication).
 
 ## Testing Authentication
 

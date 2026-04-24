@@ -7,8 +7,14 @@ PoshMcp containerization is CLI-first (`poshmcp build` / `poshmcp run`) with equ
 ## Quick Start
 
 ```bash
-# Build
+# Build (default is custom image layered from GHCR base image)
 poshmcp build --modules "Az.Accounts" --tag myorg/poshmcp:latest
+
+# Build local/source base image from this repo
+poshmcp build --type base --tag poshmcp:latest
+
+# Override custom build source image and tag
+poshmcp build --source-image ghcr.io/usepowershell/poshmcp/poshmcp --source-tag 0.9.0
 
 # Run
 poshmcp run --mode http --port 8080 --tag myorg/poshmcp:latest
@@ -24,6 +30,13 @@ Docker-native equivalent:
 docker build -t myorg/poshmcp:latest .
 docker run -d -p 8080:8080 -e POSHMCP_TRANSPORT=http myorg/poshmcp:latest
 ```
+
+### Build mode semantics
+- `poshmcp build` defaults to `--type custom`, using `examples/Dockerfile.user` and a source image reference.
+- Default source image reference is `ghcr.io/usepowershell/poshmcp/poshmcp:latest`.
+- `--type base` builds from the local repository `Dockerfile` (runtime/source image build).
+- `--source-image` sets the source repository or full reference for custom builds.
+- `--source-tag` applies a tag when `--source-image` is a repository (or overrides an existing tag).
 
 ## Architecture
 
@@ -95,6 +108,19 @@ USER appuser
 
 See [examples/](examples/) for reference Dockerfile patterns.
 
+If you want to stay in `poshmcp build`, use:
+
+```bash
+# Default custom flow from published source image
+poshmcp build --modules "YourModule1 YourModule2" --tag my-poshmcp:latest
+
+# Same flow, pinned source image/tag
+poshmcp build \
+  --source-image ghcr.io/usepowershell/poshmcp/poshmcp \
+  --source-tag 0.9.0 \
+  --tag my-poshmcp:0.9.0
+```
+
 ### Using docker-compose (legacy approach)
 If you prefer docker-compose, set `POSHMCP_TRANSPORT` per service:
 
@@ -131,7 +157,7 @@ Logs will be written to `/tmp/poshmcp-logs/poshmcp.log` on the host system.
 ### Image layering strategy
 
 ```
-Base layer:     poshmcp:latest (runtime only)
+Source layer:   ghcr.io/usepowershell/poshmcp/poshmcp:latest (published runtime base)
   └─ Your layer: module installation
   └─ Your layer: custom configuration
   └─ Your layer: custom scripts

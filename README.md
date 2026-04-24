@@ -114,9 +114,12 @@ PoshMcp uses the `poshmcp` CLI for containerized deployment—same commands loca
 
 ```bash
 # Build container image
-poshmcp build                                          # Build base runtime image
-poshmcp build --modules "Az.Accounts Pester"         # Pre-install modules
-poshmcp build --type custom --tag myorg/poshmcp:v1   # Custom image with tag
+poshmcp build                                          # Default: custom image from GHCR base image
+poshmcp build --modules "Az.Accounts Pester"         # Custom image with pre-installed modules
+poshmcp build --tag myorg/poshmcp:v1                 # Custom image with custom tag
+poshmcp build --type base                             # Build local/source base image from repository Dockerfile
+poshmcp build --source-image ghcr.io/usepowershell/poshmcp/poshmcp --source-tag 0.9.0
+                                                      # Pin custom build source image/tag
 
 # Run in a container
 poshmcp run --mode http --port 8080                  # Run HTTP server
@@ -186,13 +189,13 @@ Manage configuration files directly from the PoshMcp CLI:
 poshmcp create-config
 
 # Update the active configuration file (resolved with doctor rules)
-poshmcp update-config --add-function Get-Process
+poshmcp update-config --add-command Get-Process
 
 # Automation-friendly update (skip interactive advanced prompts)
 poshmcp update-config --non-interactive --add-module Az.Accounts
 
 # Update config for HTTP mode
-poshmcp update-config --add-function Get-Service
+poshmcp update-config --add-command Get-Service
 ```
 
 ### Built-in Utility Tools

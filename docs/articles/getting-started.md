@@ -166,8 +166,8 @@ Choose how to expose PowerShell commands:
 
 **Option A: Specific commands**
 ```bash
-poshmcp update-config --add-function Get-Process
-poshmcp update-config --add-function Get-Service
+poshmcp update-config --add-command Get-Process
+poshmcp update-config --add-command Get-Service
 ```
 
 **Option B: Include patterns**
@@ -178,7 +178,6 @@ poshmcp update-config --add-include-pattern "Get-*"
 **Option C: Modules**
 ```bash
 poshmcp update-config --add-module Az.Accounts
-poshmcp update-config --add-import-module Az.Accounts
 ```
 
 ### Step 3: Start the Server
@@ -263,8 +262,8 @@ Get-NetTCPConnection -LocalPort 8080  # Windows
 # Test module installation manually
 pwsh -Command "Install-Module Az.Accounts -Force"
 
-# Increase installation timeout
-poshmcp update-config --install-timeout-seconds 600
+# Add module to discovery list
+poshmcp update-config --add-module Az.Accounts
 ```
 
 ---

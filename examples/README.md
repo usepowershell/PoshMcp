@@ -81,7 +81,7 @@ docker build -t poshmcp:latest .
 Use `poshmcp build` for standard containerization:
 
 ```bash
-# Build base image
+# Build custom image from GHCR base image (default)
 poshmcp build
 
 # Build with pre-installed modules
@@ -90,6 +90,12 @@ poshmcp build --modules "Az.Accounts Az.Resources Az.Storage Az.Compute"
 
 # Build with a custom tag
 poshmcp build --tag myorg/poshmcp:latest
+
+# Build local/source base image from repository Dockerfile
+poshmcp build --type base --tag poshmcp:latest
+
+# Pin custom build source image/tag
+poshmcp build --source-image ghcr.io/usepowershell/poshmcp/poshmcp --source-tag 0.9.0
 
 # See all options
 poshmcp build --help

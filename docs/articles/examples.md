@@ -15,8 +15,8 @@ Expose service management commands:
 
 ```bash
 poshmcp create-config
-poshmcp update-config --add-function Get-Service
-poshmcp update-config --add-function Restart-Service
+poshmcp update-config --add-command Get-Service
+poshmcp update-config --add-command Restart-Service
 poshmcp update-config --add-exclude-pattern "*-Dangerous*"
 ```
 
@@ -28,15 +28,12 @@ Expose Azure management commands:
 
 ```bash
 poshmcp create-config
-poshmcp update-config --add-function Get-AzResource
-poshmcp update-config --add-function Get-AzResourceGroup
-poshmcp update-config --add-function Get-AzVM
+poshmcp update-config --add-command Get-AzResource
+poshmcp update-config --add-command Get-AzResourceGroup
+poshmcp update-config --add-command Get-AzVM
 
-poshmcp update-config --add-install-module Az.Accounts --minimum-version 2.0.0
-poshmcp update-config --add-install-module Az.Resources
-
-poshmcp update-config --add-import-module Az.Accounts
-poshmcp update-config --add-import-module Az.Resources
+poshmcp update-config --add-module Az.Accounts
+poshmcp update-config --add-module Az.Resources
 ```
 
 **Startup script:**
@@ -89,16 +86,9 @@ poshmcp update-config --add-include-pattern "Get-Process"
 poshmcp update-config --add-exclude-pattern "Remove-*"
 poshmcp update-config --add-exclude-pattern "Invoke-*"
 
-# Install and import modules
-poshmcp update-config --add-install-module Az.Accounts --minimum-version 2.0.0
-poshmcp update-config --add-install-module Az.Compute
-
-poshmcp update-config --add-import-module Az.Accounts
-poshmcp update-config --add-import-module Az.Compute
-
-# Configure module discovery
-poshmcp update-config --trust-psgallery
-poshmcp update-config --install-timeout-seconds 900
+# Add modules for discovery
+poshmcp update-config --add-module Az.Accounts
+poshmcp update-config --add-module Az.Compute
 ```
 
 ## Example 5: Container Deployment

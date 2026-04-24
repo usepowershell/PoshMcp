@@ -18,16 +18,15 @@ poshmcp create-config
 This creates `appsettings.json` with defaults. Customize using CLI commands:
 
 ```bash
-poshmcp update-config --add-function Get-Process
+poshmcp update-config --add-command Get-Process
 poshmcp update-config --add-module Az.Accounts
-poshmcp update-config --add-import-module Az.Accounts
 ```
 
 For developers building from source:
 
 ```bash
 dotnet run --project PoshMcp.Server -- create-config
-dotnet run --project PoshMcp.Server -- update-config --add-function Get-Process
+dotnet run --project PoshMcp.Server -- update-config --add-command Get-Process
 ```
 
 ## Configuration Options
@@ -37,9 +36,9 @@ dotnet run --project PoshMcp.Server -- update-config --add-function Get-Process
 **Specific command names (whitelist):**
 
 ```bash
-poshmcp update-config --add-function Get-Service
-poshmcp update-config --add-function Restart-Service
-poshmcp update-config --add-function Get-Process
+poshmcp update-config --add-command Get-Service
+poshmcp update-config --add-command Restart-Service
+poshmcp update-config --add-command Get-Process
 ```
 
 **Include patterns (wildcard):**
@@ -59,34 +58,14 @@ poshmcp update-config --add-exclude-pattern "Invoke-*"
 
 ### Module Management
 
-**Install modules:**
+**Add modules to discovery list:**
 
 ```bash
-poshmcp update-config --add-install-module Az.Accounts --minimum-version 2.0.0
-poshmcp update-config --add-install-module Az.Resources --repository PSGallery
+poshmcp update-config --add-module Az.Accounts
+poshmcp update-config --add-module Az.Resources
 ```
 
-**Import modules:**
-
-```bash
-poshmcp update-config --add-import-module Az.Accounts
-poshmcp update-config --add-import-module Microsoft.PowerShell.Management
-```
-
-**Add module paths:**
-
-```bash
-poshmcp update-config --add-module-path /mnt/shared-modules
-poshmcp update-config --add-module-path ./custom-modules
-```
-
-**Module gallery settings:**
-
-```bash
-poshmcp update-config --trust-psgallery
-poshmcp update-config --skip-publisher-check
-poshmcp update-config --install-timeout-seconds 600
-```
+Install/import behavior and module search paths are configured in `appsettings.json` under `PowerShellConfiguration.Environment`.
 
 ## appsettings.json Reference
 
@@ -337,7 +316,7 @@ PoshMcp supports both authentication modes in the same `Authentication` model:
     "Modules": [],
     "ExcludePatterns": [],
     "IncludePatterns": [],
-    "FunctionOverrides": {
+    "CommandOverrides": {
       "Get-Process": {
         "RequiredRoles": ["ops"]
       },
@@ -352,8 +331,8 @@ PoshMcp supports both authentication modes in the same `Authentication` model:
 Behavior:
 - `Authentication.DefaultPolicy.RequiredRoles` and `RequiredScopes` apply to all tools by default.
 - API key role and scope claims come from the matching `Schemes.ApiKey.Keys` entry.
-- `PowerShellConfiguration.FunctionOverrides.<ToolName>.RequiredRoles` and `RequiredScopes` take precedence over `Authentication.DefaultPolicy` for that tool.
-- `FunctionOverrides` matching checks exact tool names first (for example `get_process_name`), then normalized command-name candidates. Use command names (for example `Get-Process`) for stable configuration across generated parameter-set tool names.
+- `PowerShellConfiguration.CommandOverrides.<ToolName>.RequiredRoles` and `RequiredScopes` take precedence over `Authentication.DefaultPolicy` for that tool.
+- `CommandOverrides` matching checks exact tool names first (for example `get_process_name`), then normalized command-name candidates. Use command names (for example `Get-Process`) for stable configuration across generated parameter-set tool names.
 
 For full Entra ID and API key setup guidance, see [Authentication Guide](authentication.md).
 

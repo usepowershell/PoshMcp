@@ -193,7 +193,7 @@ without modifying the renderer's main control flow method.
 
 ── Warnings ──────────────────────────────
   ⚠ FunctionNames is deprecated. Migrate to CommandNames.
-    💡 poshmcp update-config --add-command Get-Process --remove-function Get-Process
+    💡 poshmcp update-config --add-command Get-Process --remove-command Get-Process
 ```
 
 ### JSON Output Design

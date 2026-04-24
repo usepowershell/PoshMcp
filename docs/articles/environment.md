@@ -59,9 +59,7 @@ Or load from a file:
 ### Module Installation
 
 ```bash
-poshmcp update-config --add-install-module Az.Accounts --minimum-version 2.0.0
-poshmcp update-config --add-import-module Az.Accounts
-poshmcp update-config --add-module-path /mnt/custom-modules
+poshmcp update-config --add-module Az.Accounts
 ```
 
 ---
