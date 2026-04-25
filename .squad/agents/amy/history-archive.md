@@ -1,3 +1,89 @@
+- Ran 5 sequential iterations of `dotnet clean` + `dotnet test --configuration Release` to diagnose reported flaky tests.
+- **Result: STABLE** — All 5 iterations passed with consistent test counts: 387 passed, 1 skipped, 0 failed (total 388).
+- Iteration times: 338.9s, 291.9s, 379.9s, 520.9s, 340s (variable duration due to system load, no correlation with failures).
+- No failing tests identified across any iteration. One test (`PoshMcp.Tests.Functional.ReturnType.GeneratedMethod.ShouldHandleGetChildItemCorrectly`) consistently skipped.
+- Verdict: No evidence of intermittent failures in test suite.
+
+### 2026-04-14: v0.5.4 tool update (local nupkg install)
+
+- Verified latest nupkg in `./nupkg/`: `poshmcp.0.5.4.nupkg`
+- Current global tool version: 0.5.3
+- PackageId and ToolCommandName both: `poshmcp` (confirmed in .csproj)
+- Update command: `dotnet tool update -g poshmcp --add-source ./nupkg --version 0.5.4`
+- Verified: `dotnet tool list -g | Select-String poshmcp` → `poshmcp         0.5.4        poshmcp`
+- Local .nupkg directory is specified with `--add-source ./nupkg` (relative path from working directory)
+
+### 2026-04-14: v0.5.6 patch release and GitHub Packages publish
+
+- Version source remains `PoshMcp.Server/PoshMcp.csproj` `<Version>`; bumped `0.5.5` → `0.5.6` as patch increment.
+- Packaging command: `dotnet pack .\PoshMcp.Server\PoshMcp.csproj -c Release -o .\nupkg`
+- Produced artifact: `nupkg/poshmcp.0.5.6.nupkg` (25,843,399 bytes).
+- GitHub Packages publish command used existing source alias and gh token: `dotnet nuget push .\nupkg\poshmcp.0.5.6.nupkg --api-key (gh auth token) --source github-poshmcp --skip-duplicate`.
+- Publish succeeded to `https://nuget.pkg.github.com/usepowershell`.
+- Local update command remains: `dotnet tool update -g poshmcp --version 0.5.6 --add-source .\nupkg --ignore-failed-sources`.
+- Verified installs: `dotnet tool list -g` shows `poshmcp 0.5.6`; `poshmcp --version` reports `0.5.6+31fa6372ec4b71d7dd68261ba45266c6c8b93817`.
+
+### 2026-07-18: Issue #131 — OTel stdio suppression and appsettings schema
+
+- Added `isStdioMode = false` parameter to `ConfigureOpenTelemetry(HostApplicationBuilder, bool)` in `Program.cs`.
+- Guarded `metricsBuilder.AddConsoleExporter()` behind `if (!isStdioMode)` so no OTel console output occurs in stdio transport mode.
+- Updated `ConfigureServerServices` call site (stdio-only path) to pass `isStdioMode: true` to `ConfigureOpenTelemetry`.
+- `ConfigureOpenTelemetryForHttp` (HTTP path) is a separate method and remains unchanged — HTTP console exporter unaffected.
+- `appsettings.json` already had `Logging.File.Path` added by Bender; added the same `Logging.File.Path: ""` schema key to `appsettings.environment-example.json`, `appsettings.azure.json`, and `appsettings.modules.json`.
+- Build: `dotnet build PoshMcp.Server/PoshMcp.csproj` → succeeded, 5 pre-existing warnings, 0 errors.
+- Committed and pushed to branch `squad/131-stdio-logging-to-file` (commit `8a10311`).
+
+
+
+### 2026-07-18: Issue #133 — docker buildx build missing PATH argument
+
+- **Root cause:** `PoshMcp.Server/Program.cs` line ~692, the `build` CLI command handler constructed `buildArgs` as `"build -f {imageFile} -t {imageTag}"` — missing the required build context PATH argument.
+- On modern Docker (buildx-as-default), `docker build` delegates to `docker buildx build` which requires a positional PATH/URL/`-` argument. Without it, Docker fails with `'docker buildx build' requires 1 argument`.
+- **Fix:** Changed to `$"build -f {imageFile} -t {imageTag} ."` — appending `.` (current directory) as the build context.
+- The CI workflow (`publish-packages.yml`) calls `dotnet run -- build --tag "$IMAGE"` which runs the CLI build handler; the Dockerfile is expected to exist in the working directory (repo root), consistent with using `.` as context.
+- **Key files:** `PoshMcp.Server/Program.cs` (handler for `buildCommand`), `.github/workflows/publish-packages.yml` (CI step that triggered the failure).
+- Branch: `squad/133-fix-docker-buildx-path`, commit `fadbd4d`, PR #134.
+- Build verified: `dotnet build PoshMcp.Server/PoshMcp.csproj -c Release` → 0 errors after fix.
+
+### 2026-07-18: PR #138 follow-up — remove orphaned COPY PoshMcp.sln line
+
+- Farnsworth's nit on PR #138: `COPY PoshMcp.sln ./` in the build stage was dead weight after switching restore/build to target `PoshMcp.Server/PoshMcp.csproj`.
+- Removed the line and updated the adjacent comment from "Copy solution and project files first" to "Copy project files first".
+- Committed as `fix(#136): remove orphaned COPY PoshMcp.sln line from Dockerfile` with Copilot co-author trailer.
+- Pushed to `squad/136-fix-container-image-build`; replied to PR with confirmation comment.
+- Key lesson: when switching from solution-level to project-level restore/build in a Dockerfile, audit all COPY lines in the build stage — any files that no longer appear in RUN commands become orphaned layers that add noise without value.
+
+## Learnings
+
+### docker.ps1 -GenerateDockerfile switch
+
+- Added `-GenerateDockerfile` [switch] and `-OutputPath` [string] parameters to `docker.ps1`.
+- Works with `build`/`build-base` (reads `./Dockerfile`) and `build-custom` (reads `examples/Dockerfile.$Template`).
+- `-OutputPath` has no default in `param()` — computed dynamically: `./Dockerfile.generated` for base, `./Dockerfile.<Template>.generated` for custom. This follows the precomputed-optional-parameter skill pattern.
+- Header includes: generated-by comment, equivalent build command, ISO 8601 timestamp, and a reminder `docker build -f <output> -t <tag> .` command.
+- Azure template appends an extra env-var note line to the header.
+- Existing build paths are fully unchanged — switch is gated, no regressions on `run`, `stop`, `logs`, `clean`.
+- Cleaned all pre-existing trailing whitespace from the file while editing (file standard: no trailing whitespace).
+- Validated syntax with `[System.Management.Automation.Language.Parser]::ParseFile` — zero errors.
+
+### poshmcp build CLI
+
+- `poshmcp build` is a subcommand of the **poshmcp** dotnet global tool (packaged in `PoshMcp.Server/PoshMcp.csproj` with `<PackAsTool>true</PackAsTool>` and `<ToolCommandName>poshmcp</ToolCommandName>`).
+- Accepts `--tag <image:tag>` (single tag only), `--modules`, `--type`, `--docker-file` options.
+- Under the hood it calls `DockerRunner.BuildDockerBuildArgs` → `docker/podman build -f Dockerfile -t <tag> .` with auto-detection of docker vs podman.
+- Because `poshmcp build` only supports one `--tag`, building both a versioned tag and `latest` requires: call `poshmcp build --tag $VersionedTag` once, then `docker tag $VersionedTag $latestTag` to alias the result — avoiding a double build.
+- The deploy script's `Build-AndPushImage` was updated to use this pattern (replaced the direct `docker build -t … -t … -f Dockerfile .` line).
+
+### poshmcp build --generate-dockerfile
+
+- Added `--generate-dockerfile` (bool/switch) and `--dockerfile-output` (string, default `./Dockerfile.generated`) to `poshmcp build`.
+- When `--generate-dockerfile` is set, the CLI reads the source Dockerfile, prepends a comment header (generated-by, equivalent build command, ISO 8601 timestamp), writes the result to the output path, prints a success message with the equivalent `docker build` command, and exits 0 — without invoking docker/podman at all.
+- Added `DockerRunner.GenerateDockerfile(sourceDockerfilePath, outputPath, imageTag, modules?, sourceImage?)` to `PoshMcp.Server/Cli/DockerRunner.cs`; added `using System.IO;` to that file.
+- Switched the build command handler from the typed-parameter `SetHandler` overload to `InvocationContext`-based pattern to cleanly accommodate the two extra options without hitting overload limits.
+- Existing `poshmcp build` behavior (without the flag) is fully unchanged — docker detection and build execution path are identical.
+- Build verified: `dotnet build PoshMcp.Server/PoshMcp.csproj --configuration Release -v quiet` → 0 errors.
+
+
 # amy - History Archive (Pre-cleanup)
 
 # Amy Work History
@@ -87,4 +173,5 @@
 - Force-push must specify the remote branch name explicitly (`git push --force-with-lease origin <branch>`) when the worktree branch has no upstream tracking configured.
 
 ### 2026-04-13: Intermittent test failure investigation
+
 
