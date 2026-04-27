@@ -18,6 +18,8 @@ using PoshMcp.Server.PowerShell.OutOfProcess;
 using PoshMcp.Server.Metrics;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 using System;
 using System.Collections.Generic;
 using System.CommandLine;
@@ -37,7 +39,6 @@ using PoshMcp.Server.Authentication;
 using PoshMcp.Server.McpPrompts;
 using PoshMcp.Server.McpResources;
 using ModelContextProtocol.Protocol;
-
 namespace PoshMcp;
 
 public class Program
@@ -1729,6 +1730,7 @@ public class Program
         RegisterHealthChecks(builder);
 
         ConfigureOpenTelemetryForHttp(builder);
+        ConfigureApplicationInsights(builder.Services, builder.Configuration, isStdioMode: false);
 
         using var bootstrapLoggerFactory = LoggingHelpers.CreateLoggerFactory(logLevel);
         var logger = bootstrapLoggerFactory.CreateLogger("PoshMcpHttpLogger");
@@ -2403,6 +2405,7 @@ public class Program
     {
         ConfigureJsonSerializerOptions(builder);
         ConfigureOpenTelemetry(builder, isStdioMode: true);
+        ConfigureApplicationInsights(builder.Services, builder.Configuration, isStdioMode: true);
         RegisterMcpServerServices(builder, tools, resourcesConfig, configFilePath, loggerFactory, promptHandler);
         RegisterCleanupServices(builder);
     }
@@ -2452,6 +2455,47 @@ public class Program
             options.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
             options.WriteIndented = false;
         });
+    }
+
+    private static void ConfigureApplicationInsights(
+        IServiceCollection services,
+        IConfiguration configuration,
+        bool isStdioMode)
+    {
+        var options = configuration.GetSection(PoshMcp.Server.ApplicationInsightsOptions.SectionName).Get<PoshMcp.Server.ApplicationInsightsOptions>()
+                      ?? new PoshMcp.Server.ApplicationInsightsOptions();
+
+        if (!options.Enabled)
+            return;
+
+        var connectionString = options.ConnectionString;
+        if (string.IsNullOrWhiteSpace(connectionString))
+            connectionString = Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING");
+
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            Console.Error.WriteLine("[WARN] Application Insights is enabled but no connection string was found. " +
+                                    "Set ApplicationInsights.ConnectionString in appsettings.json or the " +
+                                    "APPLICATIONINSIGHTS_CONNECTION_STRING environment variable.");
+            return;
+        }
+
+        var samplingPercentage = Math.Clamp(options.SamplingPercentage, 1, 100);
+        var transportMode = isStdioMode ? "stdio" : "http";
+
+        services.AddOpenTelemetry()
+            .UseAzureMonitor(azureMonitorOptions =>
+            {
+                azureMonitorOptions.ConnectionString = connectionString;
+                azureMonitorOptions.SamplingRatio = samplingPercentage / 100.0f;
+            })
+            .ConfigureResource(resource =>
+                resource.AddAttributes(new[]
+                {
+                    new KeyValuePair<string, object>("transport.mode", (object)transportMode)
+                }));
+
+        Console.Error.WriteLine($"[INFO] Application Insights enabled. Sampling: {samplingPercentage}%");
     }
 
     private static void RegisterMcpServerServices(
