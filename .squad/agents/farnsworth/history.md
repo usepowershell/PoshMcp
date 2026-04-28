@@ -216,3 +216,41 @@ Created `.squad/skills/session-recall/SKILL.md` — project-level skill document
 ## Learnings
 
 Spec: Application Insights optional logging — proposed Azure.Monitor.OpenTelemetry.AspNetCore integration, config-driven opt-in via appsettings ApplicationInsights section. File: specs/008-application-insights-logging/spec.md
+
+## 2026-04-27: Reviewed Wave 1 PRs #176 and #177
+
+**PR #176** (Azure.Monitor.OpenTelemetry.AspNetCore package): ✅ APPROVED
+- Package Azure.Monitor.OpenTelemetry.AspNetCore v1.4.0 correctly added per FR-306
+- Modern OpenTelemetry-based SDK (not legacy Microsoft.ApplicationInsights.AspNetCore)
+- Build: 0 errors, 9 warnings (pre-existing)
+
+**PR #177** (ApplicationInsights config section and binding model): ✅ APPROVED
+- ApplicationInsightsOptions class correctly implements binding model
+- Defaults spec-compliant: Enabled=false (FR-300), ConnectionString="" (FR-301), SamplingPercentage=100 (FR-302)
+- SectionName constant = "ApplicationInsights"
+- XML documentation on all public members
+- appsettings.json includes ApplicationInsights section with Enabled: false (FR-318)
+- Build: 0 errors, 9 warnings (pre-existing)
+
+Both PRs ready to merge. Wave 1 infrastructure complete for spec 008.
+
+### 2026-04-28: PR #180 review — REQUEST CHANGES (ConfigureApplicationInsights integration)
+
+**PR:** #180 (branch: squad/172-configure-app-insights) — `feat: ConfigureApplicationInsights() in Program.cs`
+**Verdict:** ❌ REQUEST CHANGES — return to original author
+
+**What passes:**
+- Core plumbing correct: `UseAzureMonitor()` with connection string, sampling, resource attributes
+- FR-303/304/305/306/307/308/309/316/317/318 all satisfied
+- Method signature exact match to spec
+- Placement after `ConfigureOpenTelemetry*` is architecturally sound
+- `AddOpenTelemetry()` idempotency correctly leveraged
+
+**What fails:**
+1. **FR-310 (BLOCKING):** Tool parameter names NOT added as custom properties — no enrichment mechanism exists. Needs Activity tags or ITelemetryInitializer in the tool execution path.
+2. **FR-311 (BLOCKING):** `UseAzureMonitor()` enables OTel log export by default. Existing code at `PowerShellAssemblyGenerator.cs:731-738` logs parameter VALUES at Debug level. While filtered by default log level, spec says MUST NOT — requires defensive suppression.
+3. **FR-312 (BLOCKING):** Same log export concern for PowerShell command output.
+
+**Recommended fix:** Suppress OTel log export in `UseAzureMonitor` config (only export traces + metrics). Add Activity tags for parameter names (comma-separated list, no values). This satisfies FR-310/311/312 without touching the existing logging infrastructure.
+
+**Key insight:** `UseAzureMonitor()` does three things: traces + metrics + logs export. For PoshMcp, we only want traces + metrics. The log exporter creates a security surface where Debug-level ILogger entries (containing parameter values per existing code) could leak to Azure Monitor if an operator adjusts log levels.

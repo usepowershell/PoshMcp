@@ -2,6 +2,23 @@
 
 ## Recent Work (2026-04-20 — CURRENT SESSION)
 
+### Issue #170: Azure.Monitor.OpenTelemetry.AspNetCore Package
+**Branch:** squad/170-azure-monitor-otel-package  
+**Status:** Complete
+**PR:** https://github.com/usepowershell/PoshMcp/pull/176
+
+- **Task**: Add Azure.Monitor.OpenTelemetry.AspNetCore NuGet package reference to PoshMcp.Server
+- **Implementation**: 
+  - `dotnet add` installed v1.4.0 with full transitive dependency tree (Azure.Core, Azure.Monitor.OpenTelemetry.Exporter, OpenTelemetry.Instrumentation.Http, etc.)
+  - Updated `PoshMcp.csproj` with new `<PackageReference>` entry
+- **Validation**: `dotnet build Release` succeeded with 10 warnings (9 pre-existing CS8602 nullable, 1 pre-existing NU1510)
+- **Outcome**: Committed and pushed; PR #176 opened for Spec 008 optional Application Insights telemetry export
+
+**Files modified:**
+- `PoshMcp.Server/PoshMcp.csproj` — added Azure.Monitor.OpenTelemetry.AspNetCore v1.4.0
+
+**NOTE:** The csproj filename is `PoshMcp.csproj` NOT `PoshMcp.Server.csproj`. Manifest resource names use assembly name prefix, not namespace.
+
 ### Docker Build Arguments Extraction and Testing
 **Branch:** background→sync  
 **Status:** Complete
@@ -168,6 +185,15 @@ DOTNET_ENVIRONMENT
 - `install-modules.ps1` is now bundled in the base image at `/app/install-modules.ps1`; `examples/Dockerfile.user` updated to use it directly.
 - Added PSModule path documentation to examples/Dockerfile.user — AllUsers=/usr/local/share/powershell/Modules, built-in=/opt/microsoft/powershell/7/Modules, CurrentUser(runtime)=/home/appuser/.local/share/powershell/Modules
 - Added commented COPY directive examples to examples/Dockerfile.user for local module installation (single module + bulk copy patterns)
+
+### ConfigureApplicationInsights pattern (2026-04-27)
+
+- `ApplicationInsightsOptions` must be in `PoshMcp.Server` namespace; Program.cs is in `PoshMcp` namespace — use fully-qualified `PoshMcp.Server.ApplicationInsightsOptions` in the method or add a using.
+- `ConfigureApplicationInsights(IServiceCollection, IConfiguration, bool)` must be called AFTER `ConfigureOpenTelemetry` / `ConfigureOpenTelemetryForHttp` in both paths (stdio and HTTP), so OpenTelemetry is already wired before Azure Monitor enriches it.
+- `UseAzureMonitor` chaining with `.ConfigureResource(...)` works cleanly on the same `OpenTelemetryBuilder` returned by `services.AddOpenTelemetry()`.
+- `SamplingRatio` is a float 0–1; divide `SamplingPercentage` by 100.0f — don't forget the float suffix.
+- `Math.Clamp(value, 1, 100)` guards the percentage before converting to ratio, preventing 0% or >100% from reaching Azure Monitor SDK.
+- When `Enabled: false` (the default), zero code runs — the guard at the top of the method is all that's needed for zero overhead.
 
 
 ### Embedding Dockerfiles in the assembly (2026-07-30)
