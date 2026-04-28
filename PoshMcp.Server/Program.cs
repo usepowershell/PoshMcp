@@ -18,6 +18,9 @@ using PoshMcp.Server.PowerShell.OutOfProcess;
 using PoshMcp.Server.Metrics;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 using System;
 using System.Collections.Generic;
 using System.CommandLine;
@@ -37,7 +40,6 @@ using PoshMcp.Server.Authentication;
 using PoshMcp.Server.McpPrompts;
 using PoshMcp.Server.McpResources;
 using ModelContextProtocol.Protocol;
-
 namespace PoshMcp;
 
 public class Program
@@ -1729,6 +1731,7 @@ public class Program
         RegisterHealthChecks(builder);
 
         ConfigureOpenTelemetryForHttp(builder);
+        ConfigureApplicationInsights(builder.Services, builder.Configuration, isStdioMode: false);
 
         using var bootstrapLoggerFactory = LoggingHelpers.CreateLoggerFactory(logLevel);
         var logger = bootstrapLoggerFactory.CreateLogger("PoshMcpHttpLogger");
@@ -1901,6 +1904,10 @@ public class Program
         builder.Services.AddSingleton<McpMetrics>();
 
         builder.Services.AddOpenTelemetry()
+            .WithTracing(tracingBuilder =>
+            {
+                tracingBuilder.AddSource(PowerShellAssemblyGenerator.ToolActivitySource.Name);
+            })
             .WithMetrics(metricsBuilder =>
             {
                 metricsBuilder
@@ -2403,6 +2410,7 @@ public class Program
     {
         ConfigureJsonSerializerOptions(builder);
         ConfigureOpenTelemetry(builder, isStdioMode: true);
+        ConfigureApplicationInsights(builder.Services, builder.Configuration, isStdioMode: true);
         RegisterMcpServerServices(builder, tools, resourcesConfig, configFilePath, loggerFactory, promptHandler);
         RegisterCleanupServices(builder);
     }
@@ -2413,6 +2421,10 @@ public class Program
         builder.Services.AddSingleton<McpMetrics>();
 
         builder.Services.AddOpenTelemetry()
+            .WithTracing(tracingBuilder =>
+            {
+                tracingBuilder.AddSource(PowerShellAssemblyGenerator.ToolActivitySource.Name);
+            })
             .WithMetrics(metricsBuilder =>
             {
                 metricsBuilder.AddMeter(McpMetrics.MeterName);
@@ -2452,6 +2464,60 @@ public class Program
             options.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
             options.WriteIndented = false;
         });
+    }
+
+    private static void ConfigureApplicationInsights(
+        IServiceCollection services,
+        IConfiguration configuration,
+        bool isStdioMode)
+    {
+        var options = configuration.GetSection(PoshMcp.Server.ApplicationInsightsOptions.SectionName).Get<PoshMcp.Server.ApplicationInsightsOptions>()
+                      ?? new PoshMcp.Server.ApplicationInsightsOptions();
+
+        if (!options.Enabled)
+            return;
+
+        var connectionString = options.ConnectionString;
+        if (string.IsNullOrWhiteSpace(connectionString))
+            connectionString = Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING");
+
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            Console.Error.WriteLine("[WARN] Application Insights is enabled but no connection string was found. " +
+                                    "Set ApplicationInsights.ConnectionString in appsettings.json or the " +
+                                    "APPLICATIONINSIGHTS_CONNECTION_STRING environment variable.");
+            return;
+        }
+
+        var samplingPercentage = Math.Clamp(options.SamplingPercentage, 1, 100);
+        var transportMode = isStdioMode ? "stdio" : "http";
+
+        services.AddOpenTelemetry()
+            .UseAzureMonitor(azureMonitorOptions =>
+            {
+                azureMonitorOptions.ConnectionString = connectionString;
+                azureMonitorOptions.SamplingRatio = samplingPercentage / 100.0f;
+            })
+            .ConfigureResource(resource =>
+                resource.AddAttributes(new[]
+                {
+                    new KeyValuePair<string, object>("transport.mode", (object)transportMode)
+                }));
+
+        // FR-311/FR-312: Suppress OTel log export to Azure Monitor.
+        // UseAzureMonitor() registers an OpenTelemetryLoggerProvider that would export
+        // all ILogger output (including parameter values logged at Debug level) to App Insights.
+        // We only want traces and metrics exported — not logs.
+        services.Configure<LoggerFilterOptions>(opts =>
+        {
+            opts.Rules.Add(new LoggerFilterRule(
+                providerName: "OpenTelemetry",
+                categoryName: null,
+                logLevel: LogLevel.None,
+                filter: null));
+        });
+
+        Console.Error.WriteLine($"[INFO] Application Insights enabled. Sampling: {samplingPercentage}%");
     }
 
     private static void RegisterMcpServerServices(

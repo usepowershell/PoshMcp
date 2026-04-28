@@ -44,6 +44,9 @@ public class PowerShellAssemblyGenerator
     // Static metrics instance for instrumentation
     private static McpMetrics? _metrics;
 
+    // ActivitySource for distributed tracing (FR-310: parameter names as custom properties)
+    internal static readonly ActivitySource ToolActivitySource = new("PoshMcp.Tools", "1.0.0");
+
     // Static configuration and runtime state for caching resolution
     private static PowerShellConfiguration? _powerShellConfig;
     private static RuntimeCachingState? _runtimeCachingState;
@@ -685,7 +688,18 @@ public class PowerShellAssemblyGenerator
         {
             using (OperationContext.BeginOperation(commandName))
             using (logger.BeginCorrelationScope())
+            using (var activity = ToolActivitySource.StartActivity("tool.invoke", ActivityKind.Internal))
             {
+                // FR-310: Add parameter names (NOT values) as custom properties for App Insights
+                activity?.SetTag("tool.name", commandName);
+                if (parameterInfos != null)
+                {
+                    var paramNames = string.Join(",", parameterInfos
+                        .Where(p => !p.Name.StartsWith("_", StringComparison.Ordinal))
+                        .Select(p => p.Name));
+                    activity?.SetTag("tool.parameter_names", paramNames);
+                }
+
                 var invocationId = OperationContext.CorrelationId;
                 var parameterCount = parameterValues?.Length ?? 0;
 
