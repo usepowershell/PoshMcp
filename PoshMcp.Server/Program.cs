@@ -2495,6 +2495,19 @@ public class Program
                     new KeyValuePair<string, object>("transport.mode", (object)transportMode)
                 }));
 
+        // FR-311/FR-312: Suppress OTel log export to Azure Monitor.
+        // UseAzureMonitor() registers an OpenTelemetryLoggerProvider that would export
+        // all ILogger output (including parameter values logged at Debug level) to App Insights.
+        // We only want traces and metrics exported — not logs.
+        services.Configure<LoggerFilterOptions>(opts =>
+        {
+            opts.Rules.Add(new LoggerFilterRule(
+                providerName: "OpenTelemetry",
+                categoryName: null,
+                logLevel: LogLevel.None,
+                filter: null));
+        });
+
         Console.Error.WriteLine($"[INFO] Application Insights enabled. Sampling: {samplingPercentage}%");
     }
 
