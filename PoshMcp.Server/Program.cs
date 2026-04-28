@@ -19,6 +19,7 @@ using PoshMcp.Server.Metrics;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using Azure.Monitor.OpenTelemetry.AspNetCore;
 using System;
 using System.Collections.Generic;
@@ -1903,6 +1904,10 @@ public class Program
         builder.Services.AddSingleton<McpMetrics>();
 
         builder.Services.AddOpenTelemetry()
+            .WithTracing(tracingBuilder =>
+            {
+                tracingBuilder.AddSource(PowerShellAssemblyGenerator.ToolActivitySource.Name);
+            })
             .WithMetrics(metricsBuilder =>
             {
                 metricsBuilder
@@ -2416,6 +2421,10 @@ public class Program
         builder.Services.AddSingleton<McpMetrics>();
 
         builder.Services.AddOpenTelemetry()
+            .WithTracing(tracingBuilder =>
+            {
+                tracingBuilder.AddSource(PowerShellAssemblyGenerator.ToolActivitySource.Name);
+            })
             .WithMetrics(metricsBuilder =>
             {
                 metricsBuilder.AddMeter(McpMetrics.MeterName);
