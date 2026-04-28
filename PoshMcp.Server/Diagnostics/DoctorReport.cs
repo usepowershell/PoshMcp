@@ -34,6 +34,10 @@ public sealed record DoctorReport
     [JsonPropertyName("mcpDefinitions")]
     public McpDefinitionsSection McpDefinitions { get; init; } = new();
 
+    /// <summary>Configuration errors collected across all sections.</summary>
+    [JsonPropertyName("configurationErrors")]
+    public List<string> ConfigurationErrors { get; init; } = [];
+
     /// <summary>Configuration warnings collected across all sections.</summary>
     [JsonPropertyName("warnings")]
     public List<string> Warnings { get; init; } = [];
@@ -46,7 +50,8 @@ public sealed record DoctorReport
     {
         if (report.FunctionsTools.ConfiguredFunctionsMissing > 0
             || report.McpDefinitions.Resources.Errors.Count > 0
-            || report.McpDefinitions.Prompts.Errors.Count > 0)
+            || report.McpDefinitions.Prompts.Errors.Count > 0
+            || report.ConfigurationErrors.Count > 0)
             return "errors";
         if (report.Warnings.Count > 0
             || report.McpDefinitions.Resources.Warnings.Count > 0
@@ -80,6 +85,7 @@ public sealed record DoctorReport
         McpResourcesDiagnostics resourcesDiagnostics,
         McpPromptsDiagnostics promptsDiagnostics,
         List<string> warnings,
+        List<string> configurationErrors,
         Dictionary<string, string?> environmentVariables)
     {
         var foundFunctions = configuredFunctionStatus
@@ -138,6 +144,7 @@ public sealed record DoctorReport
                     Warnings = promptsDiagnostics.Warnings,
                 },
             },
+            ConfigurationErrors = configurationErrors,
             Warnings = warnings,
         };
 

@@ -1074,7 +1074,7 @@ public class Program
                 .ToList();
         }
 
-        var warnings = BuildConfigurationWarnings(config);
+        var (warnings, configurationErrors) = BuildConfigurationWarnings(config, settings.FinalConfigPath);
         var (resourcesDiag, promptsDiag) = ConfigurationLoader.TryValidateResourcesAndPrompts(settings.FinalConfigPath);
 
         var report = DoctorReport.Build(
@@ -1099,6 +1099,7 @@ public class Program
             resourcesDiagnostics: resourcesDiag,
             promptsDiagnostics: promptsDiag,
             warnings: warnings,
+            configurationErrors: configurationErrors,
             environmentVariables: environmentVariables);
 
         if (format == "json")
@@ -1147,7 +1148,7 @@ public class Program
 
         var diagnostics = CollectPowerShellDiagnostics();
         var oopModulePaths = ResolveConfiguredModulePathsForOop(config, configurationPath);
-        var warnings = BuildConfigurationWarnings(config);
+        var (warnings, configurationErrors) = BuildConfigurationWarnings(config, configurationPath);
         var (resourcesDiag, promptsDiag) = ConfigurationLoader.TryValidateResourcesAndPrompts(configurationPath);
         var environmentVariables = CollectEnvironmentVariables();
 
@@ -1173,12 +1174,15 @@ public class Program
             resourcesDiagnostics: resourcesDiag,
             promptsDiagnostics: promptsDiag,
             warnings: warnings,
+            configurationErrors: configurationErrors,
             environmentVariables: environmentVariables);
     }
 
-    private static List<string> BuildConfigurationWarnings(PowerShellConfiguration config)
+    private static (List<string> Warnings, List<string> Errors) BuildConfigurationWarnings(PowerShellConfiguration config, string configPath)
     {
         var warnings = new List<string>();
+        var errors = new List<string>();
+
         if (config.HasBothCommandAndFunctionNames)
         {
             warnings.Add("Both CommandNames and FunctionNames are configured. CommandNames takes precedence; FunctionNames entries are ignored.");
@@ -1187,7 +1191,35 @@ public class Program
         {
             warnings.Add("FunctionNames is deprecated. Migrate to CommandNames in your appsettings.json (rename the \"FunctionNames\" array to \"CommandNames\").");
         }
-        return warnings;
+
+        // Validate ApplicationInsights configuration (FR-313, FR-314, FR-315 — no network calls)
+        var configuration = ConfigurationLoader.BuildRootConfiguration(configPath, reloadOnChange: false);
+        var appInsightsOptions = configuration.GetSection(PoshMcp.Server.ApplicationInsightsOptions.SectionName).Get<PoshMcp.Server.ApplicationInsightsOptions>()
+                                 ?? new PoshMcp.Server.ApplicationInsightsOptions();
+
+        if (appInsightsOptions.Enabled)
+        {
+            var connectionString = appInsightsOptions.ConnectionString;
+            if (string.IsNullOrWhiteSpace(connectionString))
+                connectionString = Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING");
+
+            if (string.IsNullOrWhiteSpace(connectionString))
+            {
+                errors.Add("ApplicationInsights is enabled but no connection string is configured. Set ApplicationInsights.ConnectionString in appsettings.json or the APPLICATIONINSIGHTS_CONNECTION_STRING environment variable.");
+            }
+            else if (!connectionString.StartsWith("InstrumentationKey=", StringComparison.OrdinalIgnoreCase)
+                     && !connectionString.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                warnings.Add("ApplicationInsights connection string format may be invalid. Expected format starting with 'InstrumentationKey=' or 'https://'.");
+            }
+
+            if (appInsightsOptions.SamplingPercentage < 1 || appInsightsOptions.SamplingPercentage > 100)
+            {
+                warnings.Add($"ApplicationInsights SamplingPercentage is {appInsightsOptions.SamplingPercentage}, which is outside the valid range of 1-100. It will be clamped at runtime.");
+            }
+        }
+
+        return (warnings, errors);
     }
 
     private static Dictionary<string, string?> CollectEnvironmentVariables()
