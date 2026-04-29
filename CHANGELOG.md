@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented here.
 
+## [0.9.0] - 2026-04-29
+
+### Added
+- **Application Insights integration** — Optional Azure Application Insights telemetry via OpenTelemetry. Enable with `ApplicationInsights.Enabled: true` in `appsettings.json`.
+- `ApplicationInsightsOptions` configuration model with `Enabled`, `ConnectionString`, and `SamplingPercentage` properties.
+- `ConfigureApplicationInsights()` method registers Azure Monitor OpenTelemetry when enabled, with support for connection string from config or `APPLICATIONINSIGHTS_CONNECTION_STRING` environment variable.
+- Configurable sampling percentage (1–100) to control telemetry volume.
+- `poshmcp doctor` validation for Application Insights configuration — validates connection string format and sampling range without network calls.
+- 6 unit tests for `ConfigureApplicationInsights` covering enabled/disabled states, env var fallback, and sampling config.
+- 4 integration tests for HTTP server with Application Insights enabled covering startup, logging, health endpoints, and tool discovery.
+- `Azure.Monitor.OpenTelemetry.AspNetCore 1.4.0` package reference.
+
 ## [0.8.11] - 2026-04-24
 
 ### Fixed
