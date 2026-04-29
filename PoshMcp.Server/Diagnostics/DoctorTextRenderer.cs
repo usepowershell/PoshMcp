@@ -25,6 +25,10 @@ public static class DoctorTextRenderer
         if (!string.IsNullOrEmpty(warningsBody))
             parts.Add(FormatSection("Warnings", warningsBody));
 
+        var errorsBody = RenderConfigurationErrors(report.ConfigurationErrors);
+        if (!string.IsNullOrEmpty(errorsBody))
+            parts.Add(FormatSection("Configuration Errors", errorsBody));
+
         return string.Join("\n\n", parts);
     }
 
@@ -144,6 +148,17 @@ public static class DoctorTextRenderer
         var lines = new List<string>(warnings.Count);
         foreach (var w in warnings)
             lines.Add($"  ⚠ {w}");
+        return string.Join("\n", lines);
+    }
+
+    private static string RenderConfigurationErrors(List<string> errors)
+    {
+        if (errors.Count == 0)
+            return string.Empty;
+
+        var lines = new List<string>(errors.Count);
+        foreach (var e in errors)
+            lines.Add($"  ✖ {e}");
         return string.Join("\n", lines);
     }
 }
