@@ -32,6 +32,8 @@
     href: articles/environment.md
   - name: Azure Integration
     href: articles/azure-integration.md
+  - name: Application Insights
+    href: articles/application-insights.md
     
 - name: Advanced Topics
   items:
