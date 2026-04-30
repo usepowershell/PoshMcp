@@ -1,6 +1,12 @@
 - name: Home
   href: index.md
   
+- name: The Squad Story
+  href: articles/squad-story.md
+
+- name: Squad Work Log
+  href: articles/squad-work-log.md
+  
 - name: Getting Started
   href: articles/getting-started.md
   

@@ -1,6 +1,54 @@
 # Fry Work History
 
+## Learnings
+
+### 2026-04-28: Issue #175 — Integration tests for AppInsights graceful degradation
+
+**Branch:** `squad/175-integration-test-appinsights` (worktree `poshmcp-175`)
+
+**New test file:** `PoshMcp.Tests/Integration/ApplicationInsightsIntegrationTests.cs`
+- 4 integration tests verifying SC-102, SC-104, SC-105 from Spec 008
+- `Server_StartsSuccessfully_WithAppInsightsEnabled_NoConnectionString` — health endpoints respond 200
+- `Server_LogsWarning_WhenAppInsightsEnabled_NoConnectionString` — warning about missing connection string appears in captured stderr
+- `Server_McpToolsStillRespond_WithAppInsightsEnabled` — MCP initialize + tools/list still works
+- `Server_StartsNormally_WithAppInsightsDisabled` — control test, no warning when disabled
+
+**Bug found & fixed:** `appsettings.json` had a duplicate `ApplicationInsights` key (lines 12 and 61), causing `SettingsResolver.MergeMissingProperties` to crash with `ArgumentException: An item with the same key has already been added`. Removed the duplicate at line 61.
+
+**Key patterns:**
+- Created `AppInsightsTestHttpServer` helper class (similar to `InProcessUnifiedHttpServer` but accepts `Dictionary<string, string> environmentOverrides`) for passing env vars like `ApplicationInsights__Enabled=true`
+- Server warning message to check: `"Application Insights is enabled but no connection string was found"` (from `Program.cs` `ConfigureApplicationInsights`)
+- Environment variable `APPLICATIONINSIGHTS_CONNECTION_STRING` must be explicitly removed from the process environment to test the "missing" path
+- Tests tagged `[Trait("Category", "Integration")]` for filtering
+
+**Result:** 4/4 passing. Committed `ee3bdf5`, pushed to origin. PR creation blocked by EMU auth — user needs to open PR manually.
+
 ## Recent Work (2026-04-20 — CURRENT SESSION)
+
+### 2026-04-28: Unit Tests for ConfigureApplicationInsights (#174)
+
+**Branch:** `squad/174-unit-tests-appinsights` (worktree `poshmcp-174`)
+**Status:** Complete — pushed, PR creation blocked by EMU auth
+
+**Test file created:** `PoshMcp.Tests/Unit/ConfigureApplicationInsightsTests.cs`
+
+**6 test cases covering SC-103 to SC-106 from Spec 008:**
+1. `Enabled_False_DoesNotRegisterAzureMonitor` — verifies no OTel/AzureMonitor service descriptors when Enabled=false
+2. `Enabled_True_WithConnectionString_RegistersAzureMonitor` — verifies OpenTelemetry services registered
+3. `Enabled_True_NoConnectionString_LogsWarning_NoCrash` — captures stderr, verifies warning message, no throw, no OTel services
+4. `SamplingPercentage_50_SetsSamplingRatio` — verifies stderr info message reports 50% sampling
+5. `Enabled_True_ConnectionString_FromEnvVar_RegistersAzureMonitor` — sets/restores env var, verifies OTel registered
+6. `Enabled_True_WithConnectionString_AddsLoggerFilterRule` — verifies LoggerFilterOptions configured for OTel suppression
+
+**Result:** 396 total unit tests — 396 passed, 0 failed ✅
+
+**Key patterns:**
+- `ConfigureApplicationInsights` is `private static` in `PoshMcp.Program` (namespace `PoshMcp`, not `PoshMcp.Server`)
+- Accessed via reflection (`BindingFlags.NonPublic | BindingFlags.Static`)
+- `InternalsVisibleTo("PoshMcp.Tests")` is set in csproj but doesn't help with private — reflection required
+- Tests use `ServiceCollection` inspection to verify registrations (checking `ServiceType.FullName` for "OpenTelemetry"/"AzureMonitor")
+- Env var tests save/restore original value in try/finally blocks
+- Stderr capture uses `Console.SetError` with `StringWriter`, restored in finally
 
 ### Docker Build Arguments Unit Tests
 **Branch:** background→sync  

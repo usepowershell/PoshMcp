@@ -196,6 +196,16 @@ DOTNET_ENVIRONMENT
 - When `Enabled: false` (the default), zero code runs — the guard at the top of the method is all that's needed for zero overhead.
 
 
+### Doctor AppInsights validation (2026-04-28)
+
+- `BuildConfigurationWarnings` now returns `(List<string> Warnings, List<string> Errors)` tuple and takes `string configPath` to load `ApplicationInsights` settings offline.
+- Added `ConfigurationErrors` property to `DoctorReport` at the top level — errors are separate from warnings so `ComputeStatus` can return `"errors"` when config problems are hard blockers (e.g., missing connection string).
+- Connection string validation: must start with `InstrumentationKey=` or `https://` — matches the patterns accepted by Azure Monitor SDK.
+- `SamplingPercentage` outside 1–100 is a warning (not error) because the runtime already `Math.Clamp`s it.
+- When `Enabled: false`, ALL App Insights validation is skipped entirely — no warnings, no errors.
+- `DoctorTextRenderer` renders `ConfigurationErrors` with `✖` prefix (same as MCP definition errors).
+- Key files: `Program.cs` (`BuildConfigurationWarnings`), `DoctorReport.cs` (`ConfigurationErrors`, `ComputeStatus`), `DoctorTextRenderer.cs`.
+
 ### Embedding Dockerfiles in the assembly (2026-07-30)
 
 **Pattern:** To ship static files (Dockerfiles, templates) inside a dotnet global tool so they work without disk presence:
