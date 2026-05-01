@@ -49,7 +49,7 @@ public static class DoctorTextRenderer
             "warnings" => "⚠",
             _ => "✗",
         };
-        var content = $"  PoshMcp Doctor  {symbol} {summary.Status}".PadRight(BannerInnerWidth);
+        var content = $"  PoshMcp v{summary.Version}  {symbol} {summary.Status}".PadRight(BannerInnerWidth);
         return string.Join("\n",
             $"╔{new string('═', BannerInnerWidth)}╗",
             $"║{content}║",

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
 using PoshMcp.Server.Authentication;
@@ -175,8 +176,18 @@ public sealed record DoctorReport
                 FunctionCount = configuredFunctionStatus.Count,
                 FoundCount = foundFunctions.Count,
                 WarningCount = warnings.Count,
+                Version = GetServerVersion(),
             },
         };
+    }
+
+    private static string GetServerVersion()
+    {
+        var raw = typeof(DoctorReport).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion ?? "unknown";
+        var plusIdx = raw.IndexOf('+');
+        return plusIdx >= 0 ? raw[..plusIdx] : raw;
     }
 
     private static AuthenticationSection BuildAuthenticationSection(AuthenticationConfiguration? authConfig)
@@ -268,6 +279,10 @@ public sealed record DoctorSummary
     /// <summary>Number of warnings collected across all sections.</summary>
     [JsonPropertyName("warningCount")]
     public int WarningCount { get; init; }
+
+    /// <summary>Server version string.</summary>
+    [JsonPropertyName("version")]
+    public string Version { get; init; } = string.Empty;
 }
 
 /// <summary>Resolved runtime settings with source annotations.</summary>
