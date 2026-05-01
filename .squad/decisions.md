@@ -1244,3 +1244,849 @@ No production path silently still on Single. Constructor-default Single is docum
 **Why:** Verified zero matches for `"PowerShell": { ... }` carrying these properties; 30+ matches for `"PowerShellConfiguration"` as the canonical section. Confirmed against `PoshMcp.Server/PowerShell/PowerShellConfiguration.cs` (binds to the `PowerShellConfiguration` section) and all repo configs/docs.
 **Rule for future release notes:** Spot-check every jsonc/json snippet's top-level keys against an actual shipping `appsettings.json` before publishing. Default-flip snippets are user-facing executable content — wrong keys are silent landmines, not cosmetic bugs.
 **Other claims in v0.11.0 release notes verified accurate:** Pool default flip in code, three-mode taxonomy, sizing knobs, cancellation propagation, benchmarks harness, bug fixes (#203, #189), security hardening, SECURITY.md table update. Format matches prior release notes.
+---
+
+## Recommendation
+
+Both PRs are ready to merge. Wave 1 infrastructure for spec 008 is complete.
+
+### 2026-05-01T15:30:29: Release process gate added
+**By:** Amy (DevOps)
+**What:** Release process now requires docs/release-notes/{version}.md to exist and be committed before pushing or tagging a release.
+**Why:** v0.9.3 release notes were written by Leela but not committed before Amy pushed and tagged. Gate prevents recurrence.
+
+
+# Amy: v0.9.4 Release Decision Log
+
+**Date:** 2026-05-01T16:16:11.622-05:00  
+**Task:** Execute v0.9.4 release — gate is clear  
+**Status:** ✅ COMPLETE
+
+## Release Summary
+
+| Field | Value |
+|-------|-------|
+| **Version Bumped** | 0.9.3 → 0.9.4 |
+| **Commit SHA** | 0cadd42 |
+| **Tag** | v0.9.4 (pushed) |
+| **CI Result** | ✅ GREEN (1m36s) |
+| **Gate Status** | ✅ PASSED (`docs/release-notes/0.9.4.md` verified) |
+
+## Files Committed
+
+**7 files included in release commit:**
+
+1. `PoshMcp.Server/PoshMcp.csproj` — Version bump 0.9.3 → 0.9.4
+2. `CHANGELOG.md` — New v0.9.4 entry (OAuth discovery + ApiKey metadata URL fixes)
+3. `PoshMcp.Server/Authentication/AuthenticationServiceExtensions.cs` — Bender's RFC 9728 fix
+4. `PoshMcp.Server/Authentication/ApiKeyAuthenticationHandler.cs` — Bender's ApiKey metadata URL fix
+5. `docs/release-notes/0.9.4.md` — Leela's detailed release notes (new, untracked)
+6. `docs/entra-id-auth-guide.md` — Leela's Entra ID auth guide update
+7. `docs/toc.yml` — Leela's table of contents update
+
+**Staging Approach:** Used explicit file paths (`git add <path1> <path2> ...`) instead of wildcard to ensure only intended files were staged. This prevented accidental staging of `.squad/` history files or other working changes.
+
+## CI Workflow Execution
+
+**Workflow Runs Triggered:**
+- Run ID `25233890105` — "CI" (primary build/test workflow)
+- Run ID `25233890078` — "Preview Packages" (package preview build)
+
+**CI Results (25233890105):**
+- ✅ Build: 1m36s
+- ✅ Checkout: PASS
+- ✅ Setup .NET: PASS
+- ✅ Restore dependencies: PASS
+- ✅ Verify formatting: PASS
+- ✅ Build: PASS (5 pre-existing nullable reference warnings — non-blocking)
+- ✅ Test (Unit): PASS
+- ✅ Test (Functional): PASS
+- ✅ Upload Test Results: PASS
+- Deprecation Notice: GitHub Actions Node.js 20 EOL (2026-06-02) — no action for this release
+
+**CI Gate Decision:** ✅ PASSED — Release approved for tagging.
+
+## Tag Creation and Push
+
+```
+git tag v0.9.4
+git push origin v0.9.4
+```
+
+**Result:** Tag successfully created and pushed to origin.
+- Remote confirmation: `* [new tag] v0.9.4 -> v0.9.4`
+- No conflicts or rejections
+
+## Key Decisions
+
+1. **Release Gate:** Enforced by verifying `docs/release-notes/0.9.4.md` existence before proceeding. Leela had already committed this file, so gate was clear from the start.
+
+2. **File Staging Strategy:** Used explicit file paths instead of `git add .` to avoid staging unrelated working changes (e.g., `.squad/` history updates, which were made after the release files were committed).
+
+3. **CI Blocking:** Applied `gh run watch --exit-status` to block on CI completion. This ensures tests pass before tagging, preventing bad releases.
+
+4. **Co-Author Trailer:** Commit message includes `Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>` per project standards.
+
+## Verification Checklist
+
+- [x] Gate file exists and has content
+- [x] Version bumped in .csproj
+- [x] CHANGELOG.md entry added
+- [x] All modified files staged (git status clean after staging)
+- [x] Commit created with proper message and co-author trailer
+- [x] Pushed to origin/main without conflicts
+- [x] CI workflows triggered and completed
+- [x] All CI jobs passed (tests, build, formatting)
+- [x] Tag created and pushed
+
+## Recommendations for Future Releases
+
+1. **Automate version bumping:** Consider adding a script that bumps version + updates CHANGELOG in a single operation to reduce manual steps.
+
+2. **Pre-flight validation:** Before `git push`, validate that all required release files are staged (using `git diff --cached --name-only` and a checklist).
+
+3. **CI dashboard monitoring:** Set up alerts for CI failures to enable faster feedback loops on future releases.
+
+4. **Release notes in PR:** Require release notes to be included in the feature/fix PR itself (not added in a separate step) to ensure documentation stays in sync with code changes.
+
+## Notes
+
+- Repository URL redirect (usepowershell/poshmcp → usepowershell/PoshMcp) was noted during git push; no action needed. Consider updating local remote URL when convenient.
+- No manual package publish needed; GitHub Actions workflows handle NuGet/GitHub Packages publishing automatically on tag push.
+
+
+# Auth Bypass Diagnosis: Unauthenticated Requests Still Served Despite v0.9.2 Fix
+
+**Date:** 2026-05-01  
+**Author:** Bender  
+**Server:** https://poshmcp.calmstone-9cfc4790.eastus.azurecontainerapps.io  
+**Image version confirmed running:** 0.9.2.0
+
+---
+
+## 1. Is the New Image Actually Running?
+
+**Yes.** The `initialize` response includes:
+```json
+"serverInfo": {"name":"PoshMcp","version":"0.9.2.0"}
+```
+Version 0.9.2.0 is confirmed deployed.
+
+---
+
+## 2. Does the `appsettings.json` Look Correct?
+
+**Yes.** The user's config at `C:\Users\stmuraws\source\emu\gim-home\AdvocacyBami\appsettings.json` (deployed to `PoshMcp/appsettings.json` in the container) has correct auth settings:
+```json
+"Authentication": {
+    "Enabled": true,
+    "DefaultScheme": "Bearer",
+    "DefaultPolicy": {
+        "RequireAuthentication": true,
+        "RequiredScopes": ["api://80939099-d811-4488-8333-83eb0409ed53/access_as_server"]
+    },
+    "Schemes": {
+        "Bearer": {
+            "Type": "JwtBearer",
+            "Authority": "https://login.microsoftonline.com/...",
+            "Audience": "api://80939099-d811-4488-8333-83eb0409ed53"
+        }
+    },
+    "ProtectedResource": { ... }
+}
+```
+
+---
+
+## 3. What the Running Server's Troubleshooter Says
+
+The `get-configuration-troubleshooting` tool returned `authentication.enabled: true`. **BUT THIS IS MISLEADING.** The troubleshooting and guidance tools read config directly from the file via `ConfigurationLoader.BuildRootConfiguration(configPath)` — NOT from the DI `IOptions<AuthenticationConfiguration>`. The file correctly has `Enabled: true`, so the tools report `true`. The DI runtime sees something different.
+
+**Key evidence that auth IS actually disabled in the runtime DI:**
+1. `/.well-known/oauth-protected-resource` returns **404** — `MapProtectedResourceMetadata` has an early return guard `if (!config.Enabled || config.ProtectedResource is null)`. 404 confirms `IOptions<AuthenticationConfiguration>.Value.Enabled` is `false` at runtime.
+2. No `WWW-Authenticate` header on any request — auth challenge never fires.
+3. `tools/list` returns ALL 7 tools to unauthenticated callers — `ToolListAuthorizationFilter` short-circuits when `authConfig.Enabled = false`.
+4. `tools/call get-configuration-troubleshooting` succeeds without a token.
+
+---
+
+## 4. Root Cause: Configuration Precedence Issue in `RunHttpTransportServerAsync`
+
+### The Problem
+
+`WebApplicationBuilder` starts with a `ConfigurationManager` that already contains the **baked-in `appsettings.json`** from the container image at `/app/server/appsettings.json`. This file has:
+```json
+"Authentication": { "Enabled": false, ... }
+```
+
+At line 1758 of `Program.cs`, the custom user config file (`PoshMcp/appsettings.json`, with `Enabled: true`) is added to `builder.Configuration`. In theory, later-added sources have higher priority. In practice, with `WebApplicationBuilder`'s `ConfigurationManager`, the baked-in `appsettings.json` was winning, causing:
+
+- `authConfigValue.Enabled = false` at line 1800 → auth filters NOT registered, `WithRequestFilters` NOT set up
+- `IOptions<AuthenticationConfiguration>.Value.Enabled = false` at middleware setup (line 1858-1864) → `UseAuthentication()` and `UseAuthorization()` NOT called
+- `RequireAuthorization("McpAccess")` NOT applied to the MCP endpoint (inside the same `if (authConfigForMiddleware.Value.Enabled)` block)
+- `AddPoshMcpAuthentication(builder.Configuration)` (line 1842) reads `Enabled: false` → returns early without registering JWT Bearer or the McpAccess policy
+
+### Why the v0.9.2 Fix Didn't Fix This
+
+The v0.9.2 fix addressed a **different bug**: when `Enabled: false` in config, `IOptions<AuthenticationConfiguration>` was not registered at all (the `services.Configure<T>()` call was inside the early-return guard). That fix moved `services.Configure<T>()` before the guard so IOptions always shows the real configured value.
+
+The **current bug** is upstream: `builder.Configuration` itself returns `Enabled: false` because the base `appsettings.json` overrides the custom file. The fix was applied to the wrong layer.
+
+### The Disconnect Between Diagnostic Tools and Runtime
+
+`BuildRootConfiguration(configPath)` used by all diagnostic tools (`get-configuration-troubleshooting`, `get-configuration-guidance`, `BuildDoctorReportFromConfig`) is:
+```csharp
+var builder = new ConfigurationBuilder();
+builder.AddJsonFile(configPath, ...);  // ONLY the custom file
+builder.AddEnvironmentVariables();
+return builder.Build();
+```
+
+This **does NOT include the base `appsettings.json`**. It only sees the custom file with `Enabled: true`. The runtime DI uses `builder.Configuration` (the `WebApplicationBuilder`'s `ConfigurationManager`) which starts with the base `appsettings.json` and has a precedence problem with the custom file.
+
+---
+
+## 5. The Fix
+
+Changed `RunHttpTransportServerAsync` to build a dedicated `authRootConfig` via `ConfigurationLoader.BuildRootConfiguration(finalConfigPath, reloadOnChange: false)` — reading ONLY from the custom file and env vars, exactly like the diagnostic tools.
+
+**Three call sites changed:**
+
+```csharp
+// NEW: build auth-specific config from custom file only
+var authRootConfig = ConfigurationLoader.BuildRootConfiguration(finalConfigPath, reloadOnChange: false);
+
+// IOptions now bound to authRootConfig (not builder.Configuration)
+builder.Services
+    .AddOptions<AuthenticationConfiguration>()
+    .Configure(opts => authRootConfig.GetSection("Authentication").Bind(opts))
+    .ValidateOnStart();
+
+// ...
+
+// authConfigValue from authRootConfig (not builder.Configuration)
+var authConfigValue = authRootConfig.GetSection("Authentication").Get<AuthenticationConfiguration>() ?? new();
+
+// ...
+
+// AddPoshMcpAuthentication reads from authRootConfig (not builder.Configuration)
+builder.Services.AddPoshMcpAuthentication(authRootConfig);
+```
+
+**Result:**
+- `authConfigValue.Enabled = true` → filters registered, `WithRequestFilters` set up ✓
+- `IOptions<AuthenticationConfiguration>.Value.Enabled = true` → `UseAuthentication()` and `UseAuthorization()` called ✓
+- `RequireAuthorization("McpAccess")` applied to MCP endpoint ✓
+- JWT Bearer scheme and McpAccess policy registered ✓
+
+**Tests:** 574 passing, 0 failing, 7 skipped.
+
+---
+
+## 6. Key Rule Going Forward
+
+> **Never use `WebApplicationBuilder.Configuration` as the source for security-gate decisions when a custom config file is involved.**
+>
+> The `WebApplicationBuilder` default config chain always includes the baked-in `appsettings.json` which has `Authentication.Enabled: false` as a safe default. This can unexpectedly win over the custom file due to configuration precedence issues with `ConfigurationManager`. Use `ConfigurationLoader.BuildRootConfiguration(configPath)` for auth configuration — it reads only what the user explicitly configured.
+
+---
+
+## 7. Remaining Action Items
+
+- [ ] **Deploy v0.9.3** with this fix. The current deployed v0.9.2 is still vulnerable.
+- [ ] **Consider a regression test** verifying `authConfigValue.Enabled` is correctly read from the custom config file in an HTTP server context (Fry's domain per `fry-auth-regression-tests.md`).
+- [ ] **Consider removing `Authentication.Enabled: false` from the baked-in `appsettings.json`** entirely — or at least document that the baked-in defaults are NOT for production use and will be overridden by custom configs only if there's no precedence race.
+
+
+# Decision: Auth Config Source Fix — ConfigureCorsForMcp
+
+**Date:** 2026-05-01  
+**Author:** Bender  
+**Commit:** 351c42c  
+**Status:** Applied
+
+## Context
+
+After the main auth bypass fix (building `authRootConfig` via `ConfigurationLoader.BuildRootConfiguration` for IOptions and `AddPoshMcpAuthentication`), a second instance of `builder.Configuration` usage for auth settings was found in `ConfigureCorsForMcp`.
+
+`ConfigureCorsForMcp` read `builder.Configuration.GetSection("Authentication")` to decide whether to open up CORS (`AllowAnyOrigin`) or restrict it. Because `builder.Configuration` includes the baked-in `appsettings.json` (where `Authentication.Enabled: false`), CORS would be opened wide even for deployments where the custom config had `Enabled: true` — a security gap.
+
+## Decision
+
+Extend `ConfigureCorsForMcp` to accept the `IConfigurationRoot authRootConfig` built from `ConfigurationLoader.BuildRootConfiguration(finalConfigPath)` and use it instead of `builder.Configuration`.
+
+## Change
+
+```csharp
+// Before
+private static void ConfigureCorsForMcp(WebApplicationBuilder builder)
+{
+    var authConfig = builder.Configuration.GetSection("Authentication").Get<AuthenticationConfiguration>()
+        ?? new AuthenticationConfiguration();
+    ...
+}
+
+// Call site
+ConfigureCorsForMcp(builder);
+
+// After
+private static void ConfigureCorsForMcp(WebApplicationBuilder builder, IConfigurationRoot authRootConfig)
+{
+    var authConfig = authRootConfig.GetSection("Authentication").Get<AuthenticationConfiguration>()
+        ?? new AuthenticationConfiguration();
+    ...
+}
+
+// Call site
+ConfigureCorsForMcp(builder, authRootConfig);
+```
+
+## Rationale
+
+`authRootConfig` is the canonical auth config source for this server session — it reads only from the user-resolved config file + env vars, bypassing the WebApplicationBuilder config chain that includes the baked-in base defaults. All auth-gated decisions must use this same source.
+
+## Verification
+
+- `dotnet build PoshMcp.Server\PoshMcp.csproj --no-incremental`: 0 errors, 10 pre-existing warnings
+- `dotnet test PoshMcp.Tests\PoshMcp.Tests.csproj`: 574 passed, 0 failed, 7 skipped
+
+## Rule for Future Work
+
+After any auth config source refactor, run:
+```
+grep -n "builder.Configuration.GetSection.*Authentication" Program.cs
+```
+Any remaining hits are potential auth bypass vectors.
+
+
+# Decision: Always Register AuthenticationConfiguration with IOptions
+
+**Date:** 2026-05-01
+**By:** Bender (Backend Developer)
+**Status:** Applied
+
+## What
+
+In `AuthenticationServiceExtensions.AddPoshMcpAuthentication()`, added `services.Configure<AuthenticationConfiguration>(configuration.GetSection("Authentication"))` **before** the early-return guard that exits when auth is disabled.
+
+## Why
+
+`IOptions<AuthenticationConfiguration>` was resolving to the default object (`Enabled = false`) throughout the application because the options system was never bound to configuration. The method used `.Get<AuthenticationConfiguration>()` for local decision-making but never called `services.Configure<>()` to wire up the DI options binding.
+
+Three consumers were broken as a result:
+- `Program.cs` (lines ~1859, ~1893): middleware and endpoint authorization guards both evaluated `false`, leaving the pipeline open to unauthenticated requests even when `Authentication.Enabled: true` in appsettings.
+- `ApiKeyAuthenticationHandler.cs` (line 79): handler received a default (blank) config.
+- `ConfigurationHealthCheck.cs` (line 24): health check evaluated against defaults, not real config.
+
+## Rule Going Forward
+
+When a service extension reads configuration via `.Get<T>()` for local logic AND consumers elsewhere depend on `IOptions<T>`, **always call `services.Configure<T>()` unconditionally** — regardless of whether the feature is enabled. The options registration must not be gated behind a feature flag because consumers may need to observe the real disabled state versus the default state.
+
+
+# Decision: Show server version in doctor/troubleshooter output
+
+**Author:** Bender (Backend Developer)  
+**Date:** 2026-05-01  
+**Status:** Implemented
+
+## Decision
+
+Add the PoshMcp server version string to both the `poshmcp doctor` CLI banner and the `get-configuration-troubleshooting` MCP tool JSON output.
+
+## Rationale
+
+Users and operators need to know which version of PoshMcp is running when diagnosing issues. The doctor/troubleshooter output is the natural place to surface this.
+
+## Implementation
+
+- Added `Version` property to `DoctorSummary` record (`DoctorReport.cs`).
+- Added private `GetServerVersion()` helper to `DoctorReport` that reads `AssemblyInformationalVersionAttribute` and strips any `+{commit-hash}` suffix.
+- Updated `DoctorReport.Build()` to populate `Version = GetServerVersion()`.
+- Updated `DoctorTextRenderer.RenderBanner()` to show `PoshMcp v{version}` instead of `PoshMcp Doctor`.
+
+## Version source
+
+`typeof(DoctorReport).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion`
+stripped of everything after `+`.
+
+The `.NET SDK` sets this automatically from `<Version>0.9.2</Version>` in `PoshMcp.csproj`.
+
+
+# Fix: VS Code OAuth Redirect to PoshMcp `/authorize`
+
+**Date:** 2026-05-01  
+**Author:** Bender (Backend Developer)  
+**Status:** Implemented — build clean, 574/574 tests pass
+
+---
+
+## What Was Fixed
+
+Two authentication handler bugs that together caused VS Code to redirect to PoshMcp's own `/authorize` endpoint instead of Entra ID.
+
+---
+
+## Fix 1: JwtBearer — inject `resource_metadata` into `WWW-Authenticate`
+
+**File:** `PoshMcp.Server/Authentication/AuthenticationServiceExtensions.cs`
+
+**Before:** JwtBearer was configured with no `Events`, so 401 responses emitted:
+```http
+WWW-Authenticate: Bearer
+```
+
+**After:** Added `JwtBearerEvents.OnChallenge` that emits:
+```http
+WWW-Authenticate: Bearer resource_metadata="https://<host>/.well-known/oauth-protected-resource"
+```
+
+Key implementation details:
+- `context.HandleResponse()` is called to suppress ASP.NET Core's default challenge pipeline (prevents a duplicate plain `Bearer` header being appended).
+- `context.Response.StatusCode = 401` is set explicitly after `HandleResponse()`.
+- The metadata URL is derived from `context.HttpContext.Request.Scheme + Request.Host` — never hardcoded.
+- The `OnChallenge` block is guarded by `cfg.Value.ProtectedResource?.Resource is not null` so it only fires when PRM is configured (auth-disabled deployments are unaffected).
+
+---
+
+## Fix 2: ApiKeyAuthenticationHandler — fix `resource_metadata` URL construction
+
+**File:** `PoshMcp.Server/Authentication/ApiKeyAuthenticationHandler.cs`
+
+**Before:**
+```csharp
+var metadataUrl = $"{authConfig.Value.ProtectedResource.Resource}/.well-known/oauth-protected-resource";
+// Produced: api://80939099-d811-4488-8333-83eb0409ed53/.well-known/oauth-protected-resource
+```
+
+**After:**
+```csharp
+var metadataUrl = $"{Request.Scheme}://{Request.Host}/.well-known/oauth-protected-resource";
+// Produces: https://poshmcp.calmstone-9cfc4790.eastus.azurecontainerapps.io/.well-known/oauth-protected-resource
+```
+
+---
+
+## Expected Post-Fix Behavior
+
+1. Unauthenticated request hits PoshMcp
+2. Server responds `401` with `WWW-Authenticate: Bearer resource_metadata="https://<host>/.well-known/oauth-protected-resource"`
+3. VS Code reads `resource_metadata`, fetches the PRM
+4. PRM returns `authorization_servers: ["https://login.microsoftonline.com/<tenant>"]`
+5. VS Code fetches Entra ID metadata, discovers `authorization_endpoint`
+6. Browser redirects to `login.microsoftonline.com/...` with VS Code's own `client_id=aebc6443-996d-45c2-90f0-388ff96faa56`
+
+---
+
+## Files Modified
+
+| File | Change |
+|------|--------|
+| `PoshMcp.Server/Authentication/AuthenticationServiceExtensions.cs` | Added `JwtBearerEvents.OnChallenge` with `resource_metadata` header; added `using System.Threading.Tasks` |
+| `PoshMcp.Server/Authentication/ApiKeyAuthenticationHandler.cs` | Fixed metadata URL to use `Request.Scheme + Request.Host` |
+
+---
+
+## Validation
+
+- `dotnet build PoshMcp.Server/PoshMcp.csproj -c Release` — 0 errors, 10 pre-existing warnings (unchanged)
+- `dotnet test PoshMcp.Tests/PoshMcp.Tests.csproj --no-build -c Release` — 574 passed, 0 failed, 7 skipped (pre-existing)
+
+
+# Diagnosis: VS Code Redirecting to PoshMcp's Own `/authorize` Endpoint
+
+**Date:** 2026-05-01  
+**Author:** Bender (Backend Developer)  
+**Status:** Diagnosis complete — awaiting fix approval
+
+---
+
+## The Symptom
+
+VS Code opens a browser tab to:
+```
+https://poshmcp.calmstone-9cfc4790.eastus.azurecontainerapps.io/authorize
+  ?client_id=80939099-d811-4488-8333-83eb0409ed53
+  &response_type=code
+  &code_challenge=DsFdRdRJrgNLeuzw_RsPo1Qv30blZiB0LfcPVbv2bQk
+  &code_challenge_method=S256
+  &redirect_uri=http%3A%2F%2F127.0.0.1%3A33418%2F
+  &state=HqfYeTV%2F%2Bxr48AmWc9Wjfg%3D%3D
+```
+
+VS Code should redirect to **Entra ID** (`login.microsoftonline.com/...`), not to PoshMcp itself.
+
+---
+
+## Investigation Findings
+
+### 1. What does the PRM return for `authorization_servers`?
+
+The PRM is correctly configured in the deployed `appsettings.json`
+(`C:\Users\stmuraws\source\emu\gim-home\AdvocacyBami\appsettings.json`):
+
+```json
+"ProtectedResource": {
+  "Resource": "api://80939099-d811-4488-8333-83eb0409ed53",
+  "ResourceName": "PoshMcp Server",
+  "AuthorizationServers": ["https://login.microsoftonline.com/d91aa5af-8c1e-442c-b77c-0b92988b387b"],
+  "ScopesSupported": ["api://80939099-d811-4488-8333-83eb0409ed53/user_impersonation"],
+  "BearerMethodsSupported": ["header"]
+}
+```
+
+**The PRM content itself is correct.** `authorization_servers` points to the right Entra ID tenant URL. This is NOT the bug.
+
+### 2. Does PoshMcp have a `/authorize` endpoint?
+
+**No.** There is no `app.MapGet("/authorize", ...)` or any route handling for `/authorize` anywhere in the codebase. The only auth-related endpoint PoshMcp maps is `/.well-known/oauth-protected-resource` via `ProtectedResourceMetadataEndpoint.MapProtectedResourceMetadata()`.
+
+So when VS Code hits `/authorize`, it will get a 404 or fall through to the MCP handler.
+
+### 3. Root Cause: JwtBearer 401 challenge omits `resource_metadata`
+
+**This is the bug.** In `AuthenticationServiceExtensions.cs`, the JwtBearer scheme is configured with default options only:
+
+```csharp
+authBuilder.AddJwtBearer(name, options =>
+{
+    options.Authority = scheme.Authority;
+    options.Audience = scheme.Audience;
+    options.RequireHttpsMetadata = scheme.RequireHttpsMetadata;
+    // ...
+    // ← NO Events.OnChallenge configured
+});
+```
+
+When an unauthenticated request hits a protected endpoint, ASP.NET Core's built-in JwtBearer handler issues a 401 with:
+```http
+WWW-Authenticate: Bearer
+```
+
+RFC 9728 (OAuth 2.0 Protected Resource Metadata) requires the 401 to include a `resource_metadata` parameter pointing to the PRM endpoint:
+```http
+WWW-Authenticate: Bearer resource_metadata="https://poshmcp.calmstone-9cfc4790.eastus.azurecontainerapps.io/.well-known/oauth-protected-resource"
+```
+
+Without this hint, VS Code's MCP OAuth client never discovers the PRM. It falls back to treating the resource server itself as the authorization server and constructs the authorization URL as `{resourceServerBaseUrl}/authorize`.
+
+### 4. Secondary Bug: ApiKeyAuthenticationHandler constructs a wrong `resource_metadata` URL
+
+`ApiKeyAuthenticationHandler.HandleChallengeAsync()` does attempt to set `resource_metadata`, but it has a bug:
+
+```csharp
+// BUGGY — uses the api:// URI, not the server's HTTP base URL
+var metadataUrl = $"{authConfig.Value.ProtectedResource.Resource}/.well-known/oauth-protected-resource";
+// Produces: api://80939099-d811-4488-8333-83eb0409ed53/.well-known/oauth-protected-resource
+```
+
+This is not a valid HTTP URL. It uses `ProtectedResource.Resource` (the `api://` URI identifier) instead of the server's actual HTTPS base URL. This doesn't affect the current deployment (which uses JwtBearer), but would break any future ApiKey deployment.
+
+### 5. The `client_id` discrepancy
+
+`client_id=80939099-d811-4488-8333-83eb0409ed53` in the browser redirect is **the PoshMcp App Registration's Application ID** — the same GUID used in `"Audience": "api://80939099-d811-4488-8333-83eb0409ed53"` in the deployed config.
+
+The documented VS Code pre-registered client ID for MCP is `aebc6443-996d-45c2-90f0-388ff96faa56`.
+
+**Why VS Code is using `80939099-d811-4488-8333-83eb0409ed53` as its client_id:**
+
+VS Code's MCP OAuth implementation has a fallback behavior. When it cannot resolve the authorization server via `WWW-Authenticate: Bearer resource_metadata=...`, it falls back to treating the resource server as the AS. In this fallback mode, VS Code extracts the GUID from the resource's `api://` URI and uses it as the `client_id` in the authorization request. This GUID (`80939099-d811-4488-8333-83eb0409ed53`) is exactly what's in the PRM's `resource` field.
+
+**This is confirmation** that VS Code is in fallback mode — it found the PRM but couldn't follow the `authorization_servers` metadata path (or never got the `resource_metadata` hint to find the PRM in the first place).
+
+---
+
+## Root Cause Summary
+
+**Primary cause:** `AuthenticationServiceExtensions.cs` does not configure `JwtBearerEvents.OnChallenge` to inject `WWW-Authenticate: Bearer resource_metadata="<serverBaseUrl>/.well-known/oauth-protected-resource"` into 401 responses. Without this header, VS Code cannot discover the PRM and falls back to using PoshMcp as the authorization server.
+
+**Contributing cause:** Even the ApiKey handler's `resource_metadata` URL would be wrong (using `api://` URI instead of the server's HTTP base URL), so neither scheme currently produces a correct `WWW-Authenticate` challenge.
+
+---
+
+## What the Fix Should Be
+
+### Fix 1: Add `OnChallenge` to JwtBearer configuration
+
+In `AuthenticationServiceExtensions.cs`, configure the JwtBearer events to inject the correct `WWW-Authenticate` header:
+
+```csharp
+authBuilder.AddJwtBearer(name, options =>
+{
+    options.Authority = scheme.Authority;
+    options.Audience = scheme.Audience;
+    options.RequireHttpsMetadata = scheme.RequireHttpsMetadata;
+    // ... existing config ...
+
+    options.Events = new JwtBearerEvents
+    {
+        OnChallenge = context =>
+        {
+            var authCfg = context.HttpContext.RequestServices
+                .GetRequiredService<IOptions<AuthenticationConfiguration>>();
+            if (authCfg.Value.ProtectedResource?.Resource is not null)
+            {
+                var request = context.HttpContext.Request;
+                var baseUrl = $"{request.Scheme}://{request.Host}";
+                context.Response.Headers["WWW-Authenticate"] =
+                    $"Bearer resource_metadata=\"{baseUrl}/.well-known/oauth-protected-resource\"";
+            }
+            return Task.CompletedTask;
+        }
+    };
+});
+```
+
+**Important:** The `baseUrl` must be derived from `HttpContext.Request` (the actual server URL), NOT from `ProtectedResource.Resource` (which is an `api://` URI).
+
+### Fix 2: Fix ApiKeyAuthenticationHandler
+
+Replace:
+```csharp
+var metadataUrl = $"{authConfig.Value.ProtectedResource.Resource}/.well-known/oauth-protected-resource";
+```
+With:
+```csharp
+var request = Context.Request;
+var metadataUrl = $"{request.Scheme}://{request.Host}/.well-known/oauth-protected-resource";
+```
+
+### Additional consideration: VS Code's pre-registered client_id
+
+Once VS Code can properly discover Entra ID via the PRM, it should use its own pre-registered client ID (`aebc6443-996d-45c2-90f0-388ff96faa56`) rather than the fallback GUID. Confirm this works post-fix by verifying that:
+1. The `WWW-Authenticate` header contains `resource_metadata`
+2. VS Code fetches the PRM and follows `authorization_servers` to Entra ID
+3. The browser redirect goes to `login.microsoftonline.com` with `client_id=aebc6443-996d-45c2-90f0-388ff96faa56`
+
+---
+
+## Files to Modify (when fix is approved)
+
+| File | Change |
+|------|--------|
+| `PoshMcp.Server/Authentication/AuthenticationServiceExtensions.cs` | Add `JwtBearerEvents.OnChallenge` to inject `resource_metadata` in `WWW-Authenticate` |
+| `PoshMcp.Server/Authentication/ApiKeyAuthenticationHandler.cs` | Fix `resource_metadata` URL construction to use `Request.Scheme + Request.Host` |
+
+---
+
+## Deployed Config Summary (for reference)
+
+- **App Registration Application ID / Audience:** `80939099-d811-4488-8333-83eb0409ed53`
+- **Tenant ID:** `d91aa5af-8c1e-442c-b77c-0b92988b387b`
+- **JwtBearer Authority:** `https://login.microsoftonline.com/d91aa5af-8c1e-442c-b77c-0b92988b387b`
+- **PRM `authorization_servers`:** `["https://login.microsoftonline.com/d91aa5af-8c1e-442c-b77c-0b92988b387b"]` ✅ correct
+- **VS Code expected client_id:** `aebc6443-996d-45c2-90f0-388ff96faa56` (per docs)
+- **VS Code actual client_id in redirect:** `80939099-d811-4488-8333-83eb0409ed53` ← fallback mode
+
+
+### 2026-05-01T15:30:29: User directive
+**By:** Steven Murawski (via Copilot)
+**What:** Amy must wait for Leela's release notes to be committed before cutting a release (version bump commit, push, CI, tag).
+**Why:** Release notes were not committed in time for v0.9.3 push — captured for team memory.
+
+
+# Auth Regression Tests — IOptions Registration Fix
+
+**From:** Fry (QA)
+**Date:** 2026-05-01
+**Related:** `AddPoshMcpAuthentication()` IOptions registration bug fix
+
+## Summary
+
+Added `PoshMcp.Tests/Unit/AuthenticationServiceExtensionsTests.cs` with 3 regression tests that directly prove `services.Configure<AuthenticationConfiguration>()` is called inside `AddPoshMcpAuthentication()`, so `IOptions<AuthenticationConfiguration>` always resolves to the configured values rather than the default.
+
+## Tests Added
+
+| Test | Scenario | Key Assertion |
+|---|---|---|
+| `WhenAuthEnabled_IOptionsAuthenticationConfiguration_ReflectsConfig` | Auth enabled with 2 schemes | `Enabled == true`, `DefaultScheme == "Bearer"`, `Schemes.Count == 2` |
+| `WhenAuthDisabled_IOptionsAuthenticationConfiguration_IsRegisteredWithEnabledFalse` | Auth disabled | `Enabled == false`, `DefaultScheme` reflects config value |
+| `WhenNoAuthSection_IOptionsAuthenticationConfiguration_DoesNotThrow` | No `Authentication` section in config | No exception, `Enabled == false` |
+
+## Test Pattern
+
+```csharp
+var config = new ConfigurationBuilder()
+    .AddInMemoryCollection(new Dictionary<string, string?> { ... })
+    .Build();
+var services = new ServiceCollection();
+services.AddPoshMcpAuthentication(config);
+var sp = services.BuildServiceProvider();
+var options = sp.GetRequiredService<IOptions<AuthenticationConfiguration>>();
+Assert.True(options.Value.Enabled);
+```
+
+## Status
+
+3/3 passing ✅ — no regressions in full suite.
+
+
+# Decision Memo: Entra ID Authentication Documentation Consolidation
+
+**Date:** 2026-05-01
+**Author:** Leela (Developer Advocate)
+**Status:** ✓ Implemented
+
+## Summary
+
+Consolidated two separate Entra ID authentication documents (`entra-id-mcp-auth.md` and `entra-id-auth-guide.md`) into a single comprehensive guide at `docs/entra-id-auth-guide.md`. The new file has been deleted after its content was folded in.
+
+## Inconsistencies Found & Resolved
+
+### 1. Scope Naming Convention
+- **New file** (`entra-id-mcp-auth.md`): Used `user_impersonation` as scope name example
+- **Existing file** (`entra-id-auth-guide.md`): Used `access_as_server` as scope name example
+- **Decision**: Keep `access_as_server` (more descriptive; already used throughout the guide for consistency)
+- **Impact**: Low — both are valid; users should pick meaningful names for their use case. Consolidated guide now explicitly states this is a user-choice with guidance on granular scope design.
+
+### 2. Protected Resource Metadata (PRM) Configuration
+- **New file**: Mentioned App Service EasyAuth automatic PRM generation via `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES` environment variable
+- **Existing file**: Covered manual `/.well-known/oauth-protected-resource` endpoint implementation for self-hosted deployments
+- **Decision**: Include both approaches in the guide
+- **Impact**: Informational addition. Users deploying on App Service now know they can use EasyAuth's auto-generation; self-hosted users already had guidance. No breaking changes.
+
+### 3. VS Code Pre-Registered Client ID Authorization (Critical Missing Step)
+- **New file**: Explicitly covered VS Code's pre-registered client ID (`aebc6443-996d-45c2-90f0-388ff96faa56`) and need to authorize it in "Authorized client applications"
+- **Existing file**: Did not mention VS Code client authorization or this critical setup step
+- **Decision**: Add as **Step 2b** in app registration setup (new step between scope creation and M2M credentials)
+- **Rationale**: This is essential guidance for VS Code MCP users. Without authorizing the pre-registered client ID, users get "Dynamic client registration not supported" error with no clear fix
+- **Impact**: High importance — prevents user confusion and support burden. New users will now see this step clearly
+
+### 4. Scope Consent Model Guidance
+- **New file**: Briefly mentioned consent model selection ("Admins only" vs "Admins and users")
+- **Existing file**: Covered this in detail with guidance on M2M scenarios
+- **Decision**: Existing guide's coverage is comprehensive; no changes needed
+- **Impact**: None — existing documentation already correct
+
+## Content Migration Summary
+
+| Content Area | Source | Location in Consolidated Guide |
+|--------------|--------|--------------------------------|
+| OAuth 2.1 + RFC 9728 basics | New file | VS Code MCP Integration subsection |
+| VS Code client ID authorization | New file | Step 2b (Authorize Client Applications) |
+| VS Code OAuth flow explanation | New file | VS Code MCP Integration subsection |
+| VS Code settings.json config | New file | VS Code MCP Integration subsection |
+| Protected Resource Metadata endpoint | New file | VS Code MCP Integration subsection |
+| PRM via App Service EasyAuth | New file | VS Code MCP Integration subsection |
+| VS Code troubleshooting | New file | VS Code MCP Integration subsection |
+| App Registration general guidance | Existing | Path A (unchanged) |
+| Managed Identity guidance | Existing | Path B (unchanged) |
+| Token validation & security | Existing | Token Validation & Security section (unchanged) |
+| Comprehensive troubleshooting | Existing | Troubleshooting section (enhanced with VS Code errors) |
+
+## Decision Authority
+
+**Authority**: Leela (Developer Advocate) — documentation structure and organization
+
+**Rationale for Keeping Existing File as Canonical**:
+- More comprehensive scope (covers app registration + managed identity + security + troubleshooting)
+- Better structured with clear paths and decision matrices
+- Established TOC and cross-references
+- More extensive testing and troubleshooting sections
+
+**Rationale for Adding VS Code as Subsection (Not Separate Doc)**:
+- Avoids link fragmentation — users looking for "Entra ID auth" now find everything in one place
+- VS Code is one implementation scenario, not a separate authentication method
+- Single source of truth for app registration steps (no duplication)
+- Easier to maintain consistency across both general and VS Code-specific guidance
+
+## Files Changed
+
+- **Modified**: `docs/entra-id-auth-guide.md` (added Step 2b and VS Code MCP Integration subsection)
+- **Deleted**: `docs/entra-id-mcp-auth.md` (content consolidated)
+- **Updated**: `.squad/agents/leela/history.md` (added learning notes)
+
+## Testing & Validation
+
+- ✓ No broken cross-references (only reference was in auto-generated DOCFX summary)
+- ✓ All VS Code-specific content from new file now in consolidated guide
+- ✓ All app registration and managed identity content from existing file preserved
+- ✓ Scope naming, terminology, and step sequence consistent throughout
+- ✓ No duplicate content in final guide
+
+## Recommendation for Future Entra ID Auth Docs
+
+If new authentication scenarios emerge (e.g., third-party OIDC providers, custom claims mapping), add them as subsections to `docs/entra-id-auth-guide.md` rather than creating separate files. Keep the main authentication guide as the single source of truth.
+
+If a scenario becomes large enough to warrant its own detailed guide, create a separate file and link to it from the main guide's TOC, but avoid duplication of core setup steps.
+
+
+# Decision: VS Code Scope Naming Requirements
+
+**Date:** 2026-05-01  
+**Status:** RESOLVED — No changes needed  
+**Owner:** Leela (Developer Advocate)  
+**Stakeholder:** Steven Murawski  
+
+## Question
+
+After consolidating Entra ID documentation and choosing `access_as_server` as the scope name, Steven flagged a concern: Does VS Code specifically require the scope name `user_impersonation` rather than custom scope names?
+
+## Investigation Results
+
+### 1. VS Code OAuth Flow with MCP
+
+VS Code's MCP client uses OAuth 2.1 with PKCE and a pre-registered client ID (`aebc6443-996d-45c2-90f0-388ff96faa56`). The flow:
+
+1. VS Code connects to the MCP server
+2. Server responds with `401 Unauthorized` + metadata URL
+3. **VS Code fetches Protected Resource Metadata (RFC 9728) from the server**
+4. **Metadata includes `scopes_supported` array listing available scopes**
+5. VS Code requests those scopes during the OAuth flow
+6. User authenticates and grants consent for the requested scopes
+7. VS Code receives a token with the approved scopes
+
+**Key insight:** VS Code does NOT hardcode scope names. It dynamically reads scope names from the server's Protected Resource Metadata endpoint.
+
+### 2. Scope Naming Conventions
+
+**`user_impersonation`** — Microsoft's built-in convention:
+- Used for Azure service permissions: `AzureServiceManagement/user_impersonation`, `https://management.azure.com/user_impersonation`
+- Indicates delegated access (acting on behalf of a user)
+- Owned by Microsoft services
+
+**`access_as_server`** — Custom scope owned by PoshMcp:
+- Follows the custom scope pattern: `api://app-id/scope-name`
+- Descriptive: clearly indicates delegated server access
+- Fully configurable (any name works)
+
+### 3. VS Code Compatibility
+
+✅ **VS Code is compatible with any scope name**, as long as:
+- The scope is declared in `ScopesSupported` in the Protected Resource Metadata
+- The scope is authorized in "Authorized client applications" for the VS Code client ID
+- The token includes the scope in its `scp` claim
+
+No special naming convention is required.
+
+## Decision
+
+**Keep `access_as_server` as the scope name for PoshMcp.**
+
+### Rationale
+
+1. **Ownership:** PoshMcp defines and owns its custom scopes; `user_impersonation` belongs to Microsoft services
+2. **Clarity:** `access_as_server` better describes the permission (delegated server access)
+3. **Flexibility:** Custom scope names are fully supported by VS Code's dynamic scope discovery
+4. **Standards compliance:** Follows OAuth 2.0 + RFC 9728 standards without constraint
+5. **Existing compatibility:** Already implemented and working in the current documentation
+
+## Documentation Status
+
+✅ **No changes needed.** The current documentation is accurate:
+- `access_as_server` is properly configured
+- VS Code section correctly explains the Protected Resource Metadata mechanism
+- Scope authorization step (Step 2b) is correct
+- All troubleshooting guidance is accurate
+
+## References
+
+- **RFC 8414**: OAuth 2.0 Authorization Server Metadata (well-known endpoint discovery)
+- **RFC 9728**: OAuth 2.0 Protected Resource Metadata (scope discovery)
+- **Microsoft Entra ID scopes documentation**: Custom scopes follow pattern `api://{app-id}/{scope-name}`
+- **VS Code MCP integration**: Uses RFC 9728 for dynamic scope discovery
+
+---
+
+**Next Steps:** None — document this finding in Leela's learnings and archive the decision.
+
+

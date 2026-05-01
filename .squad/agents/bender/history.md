@@ -1,6 +1,35 @@
 # Bender Work History
 
 **Status:** 42.8 KB (checked 2026-05-11: within 90-day retention, no archival required)
+**Status:** 37.6 KB (checked 2026-05-03: within 90-day retention, no archival required)
+## Recent Work (2026-05-01 — CURRENT SESSION)
+
+### Diagnosis: VS Code Auth Redirect to PoshMcp `/authorize`
+**Date:** 2026-05-01  
+**Status:** Diagnosis complete — awaiting fix approval  
+**Report:** `.squad/decisions/inbox/bender-vscode-auth-redirect-diagnosis.md`
+
+- **Task**: Diagnose why VS Code redirects authentication to PoshMcp's own `/authorize` endpoint instead of Entra ID
+- **Findings**:
+  - Root cause: `AuthenticationServiceExtensions.cs` does not configure `JwtBearerEvents.OnChallenge`, so JwtBearer 401 responses emit `WWW-Authenticate: Bearer` without the RFC 9728 `resource_metadata` parameter. VS Code can't discover the PRM and falls back to treating PoshMcp as the auth server → constructs `{serverBaseUrl}/authorize`.
+  - Secondary bug: `ApiKeyAuthenticationHandler.HandleChallengeAsync` constructs the `resource_metadata` URL from `ProtectedResource.Resource` (an `api://` URI) instead of the server's actual HTTP base URL. Produces an invalid non-HTTP URL.
+  - The `client_id=80939099-d811-4488-8333-83eb0409ed53` in the redirect is the PoshMcp App Registration's Application ID — confirms VS Code is in fallback mode (extracted GUID from PRM's `resource` field).
+  - The PRM content and `authorization_servers` configuration are correct; only the 401 challenge header is missing.
+- **Fix required**:
+  1. Add `JwtBearerEvents.OnChallenge` in `AuthenticationServiceExtensions.cs` to emit `WWW-Authenticate: Bearer resource_metadata="{request.Scheme}://{request.Host}/.well-known/oauth-protected-resource"`
+  2. Fix `ApiKeyAuthenticationHandler.HandleChallengeAsync` to use `Request.Scheme + Request.Host` for the metadata URL
+
+## Learnings
+
+- **RFC 9728 `resource_metadata` is required in `WWW-Authenticate`** — Without `resource_metadata="{url}"` in the 401 `WWW-Authenticate` header, VS Code's MCP OAuth client cannot discover the PRM. It falls back to treating the resource server as the authorization server and appends `/authorize` to the base URL.
+- **`ProtectedResource.Resource` is an `api://` URI, not an HTTP URL** — Never use it to construct HTTP endpoint URLs (like the PRM metadata URL). Always derive the server base URL from `HttpContext.Request.Scheme + Request.Host`.
+- **VS Code fallback `client_id` behavior** — When VS Code can't resolve the real auth server, it extracts the GUID from the PRM's `resource` field (e.g., `api://80939099-...`) and uses it as the OAuth `client_id` in the fallback authorization request. This GUID is the App Registration's Application ID, NOT VS Code's own client_id (`aebc6443-996d-45c2-90f0-388ff96faa56`).
+- **ApiKey scheme ≠ JwtBearer scheme for challenge handling** — Adding `WWW-Authenticate` logic to `ApiKeyAuthenticationHandler` does NOT cover the JwtBearer scheme. Each scheme must independently configure its challenge response.
+- **`context.HandleResponse()` is required when overriding JwtBearer challenge** — Calling `context.HandleResponse()` in `OnChallenge` suppresses the default JwtBearer challenge pipeline so you can set your own `StatusCode` and `WWW-Authenticate` header. Without it, ASP.NET Core writes a second `WWW-Authenticate: Bearer` header after your custom one, producing a malformed multi-value header.
+
+---
+
+## Recent Work (2026-04-20)
 
 ## Recent Work (2026-05-11 — CURRENT SESSION)
 
@@ -93,6 +122,27 @@
 ### Fix: RequiredRoles OR Semantics
 **Date:** 2026-05-03
 **Status:** Complete
+### Auth enforcement bypass despite Enabled: true (2026-05-01)
+
+- **Root cause:** `WebApplicationBuilder`'s `ConfigurationManager` starts with the container's baked-in `appsettings.json` (`Authentication.Enabled: false`). Even though the user's custom `PoshMcp/appsettings.json` (with `Enabled: true`) is added later via `builder.Configuration.AddJsonFile(...)`, the default `appsettings.json` was winning over the custom file, causing `authConfigValue.Enabled = false` at line 1800 and `IOptions<AuthenticationConfiguration>.Value.Enabled = false` at middleware setup time.
+- **Evidence of the bug:** `/.well-known/oauth-protected-resource` returned 404 (endpoint not mapped because `config.Enabled = false`). No `WWW-Authenticate` header on unauthenticated requests. `ToolListAuthorizationFilter` returned ALL tools to unauthenticated user (filter short-circuits when `authConfig.Enabled = false`).
+- **Misleading diagnostic:** The `get-configuration-troubleshooting` and `get-configuration-guidance` tools showed `enabled: true` — but they read from the config FILE directly via `ConfigurationLoader.BuildRootConfiguration(configurationPath)`, not from `IOptions`. The DI runtime had `Enabled: false` while the diagnostic tools showed `true`.
+- **Why the v0.9.2 IOptions fix didn't fix this:** That fix addressed a different case: `Enabled: false` → IOptions always showed the default `false` even when no guard was hit. The *current* bug is: even when `Enabled: true` in the custom file, `builder.Configuration` returns `false` due to the baked-in base `appsettings.json` winning the precedence battle.
+- **Fix (this session):** Changed `RunHttpTransportServerAsync` to build a dedicated `authRootConfig` via `ConfigurationLoader.BuildRootConfiguration(finalConfigPath, reloadOnChange: false)` — reading ONLY from the custom file + env vars, same as diagnostic tools. Three call sites updated:
+  - `authConfigValue` (line ~1806): now reads from `authRootConfig` instead of `builder.Configuration`
+  - `AddOptions<T>().Configure(opts => authRootConfig...)`: binds IOptions directly from `authRootConfig`
+  - `AddPoshMcpAuthentication(authRootConfig)`: JWT Bearer and McpAccess policy now configured from correct source
+- **Key rule:** Never use `WebApplicationBuilder.Configuration` as the source for security-gate decisions when a custom config file is involved. The `WebApplicationBuilder` default config chain always includes the baked-in `appsettings.json` which may have different (and unsafe) defaults. Use `ConfigurationLoader.BuildRootConfiguration(configPath)` for auth configuration — it reads only what the user explicitly configured.
+- **Files modified:** `PoshMcp.Server/Program.cs`
+
+### ConfigureCorsForMcp also used builder.Configuration (2026-05-01)
+
+- **Discovery:** After applying the main auth fix (authRootConfig for IOptions/AddPoshMcpAuthentication/authConfigValue), `ConfigureCorsForMcp` still read from `builder.Configuration`. This would cause CORS to silently open up (`AllowAnyOrigin`) even when auth is enabled, because `authConfig.Enabled` resolved to `false` from the baked-in base appsettings.
+- **Fix:** Changed method signature from `ConfigureCorsForMcp(WebApplicationBuilder builder)` to `ConfigureCorsForMcp(WebApplicationBuilder builder, IConfigurationRoot authRootConfig)`, replacing `builder.Configuration.GetSection("Authentication")` with `authRootConfig.GetSection("Authentication")`. Updated the call site at line ~1781 to pass `authRootConfig`.
+- **Pattern:** After applying an auth config source fix, grep ALL call sites for `builder.Configuration.GetSection("Authentication")` — any remaining uses are potential auth bypasses. The `authRootConfig` should be the single source of truth for all auth-gated decisions in the server setup method.
+- **Commit:** 351c42c
+- **Files modified:** `PoshMcp.Server/Program.cs`
+
 
 - Changed `HasRequiredRoles` in `AuthorizationHelpers.cs` from `.All()` to `.Any()`
 - Fixes AND/OR mismatch: users need any one role, not every role
@@ -199,3 +249,55 @@ Check the issue body for plan reference and dependency chain before starting.
 
 ### 2026-05-07: v0.11.0 release shipped (cross-agent note from Scribe)
 Your work landed in v0.11.0 (csproj 0.10.0 → 0.11.0, CHANGELOG entry, release notes at docs/release-notes/0.11.0.md). The release narrative credits the OOP maturity wave: Pool default flip (#196/#208), cancellation propagation across all modes (#207), benchmarks harness + findings (#193/#194/#195/#205), OOP host extraction (#190/#198), bug fixes (#203/#189), CWE-117 log-injection hardening, minimum workflow permissions, and SECURITY.md. Tag/push deferred to Steven.
+1. Add `<EmbeddedResource>` entries in `.csproj` with `Link` paths using backslash separators to control the manifest resource name:
+   ```xml
+   <EmbeddedResource Include="..\Dockerfile" Link="Dockerfiles\Dockerfile" />
+   ```
+
+2. The manifest name is: `{AssemblyName}.{Link path with backslashes replaced by dots}`.  
+   **Important:** The prefix is the *assembly name* (`<AssemblyName>` or project name), not the namespace. For this project, the assembly is `PoshMcp`, so the resource is `PoshMcp.Dockerfiles.Dockerfile` — NOT `PoshMcp.Server.Dockerfiles.Dockerfile`.
+
+3. Read via `Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName)`.
+
+4. When the resource isn't found (e.g., file wasn't embedded, or path was custom), fall back to `File.ReadAllText()` so local dev still works.
+
+5. Skip disk-existence checks (`File.Exists`) for paths that are satisfied by embedded resources — in this case the `--generate-dockerfile` flow.
+
+### `--generate-dockerfile` default corrected to "custom" (fixed current session)
+
+**What was wrong:** The `build` command handler had:
+
+```csharp
+var buildType = string.IsNullOrWhiteSpace(type)
+    ? (generateDockerfile ? "base" : "custom")
+    : type.ToLowerInvariant();
+```
+
+This meant `poshmcp build --generate-dockerfile` defaulted to `buildType = "base"`, which maps
+to the repo root `Dockerfile` — the file for building PoshMcp from source. That is the wrong
+template for users; they want `examples/Dockerfile.user`, which extends the published base image.
+
+**How it was fixed:** Both paths (with and without `--generate-dockerfile`) now default to `"custom"`:
+
+```csharp
+var buildType = string.IsNullOrWhiteSpace(type)
+    ? "custom"
+    : type.ToLowerInvariant();
+```
+
+Users who explicitly want the source-build Dockerfile can still pass `--type base`.
+
+**Also updated:** `examples/Dockerfile.user` — clarified that `install-modules.ps1` must be
+downloaded from the repo, and that the `COPY appsettings.json` line is a placeholder the user
+should update to their own path (removed the repo-internal `examples/appsettings.basic.json` path).
+
+- Added --appsettings to poshmcp build: injects COPY line into generated Dockerfile; for build mode stages file to CWD as poshmcp-appsettings.json, uses temp Dockerfile (.poshmcp-build.dockerfile), cleans up both temp files after build
+- Fixed poshmcp build 'Dockerfile not found' — embedded resources bypass the disk check; always generate temp dockerfile from embedded resource so build works outside the poshmcp repo
+
+### 2026-05-01T16:16:11Z - VS Code OAuth Redirect Fix - Release v0.9.4 (Bender contribution)
+
+- Diagnosed VS Code OAuth redirect root cause: missing resource_metadata in WWW-Authenticate header
+- Implemented Fix 1: JwtBearerEvents.OnChallenge in AuthenticationServiceExtensions.cs
+- Implemented Fix 2: ApiKeyAuthenticationHandler metadata URL configuration
+- All 574 tests passing (green build)
+- Coordination: Worked with Amy (release engineering), Leela (docs), Fry (regression tests)

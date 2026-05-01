@@ -213,3 +213,51 @@ Check the issue body for plan reference and dependency chain before starting.
 
 ### 2026-05-07: v0.11.0 release shipped (cross-agent note from Scribe)
 Your work landed in v0.11.0 (csproj 0.10.0 → 0.11.0, CHANGELOG entry, release notes at docs/release-notes/0.11.0.md). The release narrative credits the OOP maturity wave: Pool default flip (#196/#208), cancellation propagation across all modes (#207), benchmarks harness + findings (#193/#194/#195/#205), OOP host extraction (#190/#198), bug fixes (#203/#189), CWE-117 log-injection hardening, minimum workflow permissions, and SECURITY.md. Tag/push deferred to Steven.
+**Existing test files updated (T022):**
+- `ProgramDoctorConfigCoverageTests.cs` — replaced 12 failing tests: removed `authenticationConfig`/`loggingConfig`/old resource+prompt assertions; added `runtimeSettings`, `summary.status`, `mcpDefinitions.resources`, `mcpDefinitions.prompts`, new text section header checks (`── Environment Variables`, `── Runtime Settings`, `── MCP Definitions`), auth-absent test
+- `ProgramDoctorToolExposureTests.cs` — fixed `GetToolNames` to use `functionsTools.toolNames`; removed `effectivePowerShellConfiguration` assertion
+- `ProgramConfigurationGuidanceToolExposureTests.cs` — fixed `GetToolNames` to use `functionsTools.toolNames`
+- `ProgramTransportSelectionTests.cs` — updated all 8 tests: flat keys (`effectiveTransport`, `effectiveSessionMode`, etc.) → nested (`runtimeSettings.transport.value`, `runtimeSettings.sessionMode.value`, etc.); `PayloadContainsConfiguredModulePath` now checks `powerShell.oopModulePaths`
+- `ProgramTests.cs` — fixed `oopModulePaths`/`oopModulePathEntries` → `powerShell.oopModulePaths`/`powerShell.oopModulePathEntries`
+
+**Result:** 527 total — 520 passed, 7 skipped (pre-existing), 0 failed ✅
+`dotnet format --verify-no-changes` clean. Commit `f38b9b9` pushed.
+
+**Key patterns established:**
+- New JSON shape: all runtime settings under `runtimeSettings.{key}.value` / `.source`
+- Tool names under `functionsTools.toolNames`
+- OOP module paths under `powerShell.oopModulePaths`/`oopModulePathEntries`
+- No `authenticationConfig`, `loggingConfig`, `effectivePowerShellConfiguration` in new JSON
+- Text output sections use `── Section Name ──...` headers (44-char padded)
+
+
+
+Detailed prior history (2026-03-27 through 2026-04-07) archived to `history-archive.md` when this file exceeded 15 KB threshold on 2026-04-18.
+
+## [2026-04-23T15:08:26] Deploy Source Image Test Tasks
+
+**Session:** Deploy source image support implementation (spec 007)
+**Contribution:** Created test tasks checklist for spec 007
+
+**Key Learnings:**
+- Test checklist: specs/007-deploy-source-image/tasks.md
+- Comprehensive test coverage planning
+- Coordinated with Farnsworth (spec) and Amy (implementation)
+- Test-driven approach validates implementation
+
+**Artifacts:** specs/007-deploy-source-image/tasks.md
+
+## [2026-04-23] deploy.ps1 precedence automation (CLI vs env vs appsettings)
+
+- Added a script-level integration test that invokes `infrastructure/azure/deploy.ps1` under a mocked PowerShell harness (mocked `az`, `docker`, `poshmcp`, and `Invoke-WebRequest`) so precedence behavior can be validated without live Azure or Docker dependencies.
+- Learned that script-level CLI parameter detection was broken because `Initialize-DeploymentConfiguration` was reading `$PSBoundParameters` inside a nested function scope (empty there), which silently made env win over CLI.
+- Reliable pattern: capture script invocation-bound parameters once at script scope and reference that captured hashtable in helper functions when precedence logic depends on "CLI was explicitly provided" semantics.
+
+### 2026-05-01T16:16:11Z - Auth Regression Tests for v0.9.4 OAuth Fix (Fry QA)
+
+- Added comprehensive auth regression test suite
+- OAuth redirect scenarios covered (Fix 1 + Fix 2)
+- JWT bearer authentication flow validation
+- API key authentication with metadata validation
+- All regression tests passing
+- Coordination: Worked with Bender (fix implementation details), Leela (test docs scenarios)
