@@ -13,6 +13,9 @@ public static class AuthenticationServiceExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        services.Configure<AuthenticationConfiguration>(
+            configuration.GetSection("Authentication"));
+
         var authConfig = configuration
             .GetSection("Authentication")
             .Get<AuthenticationConfiguration>();
