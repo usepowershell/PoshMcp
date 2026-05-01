@@ -104,20 +104,42 @@ You now have:
 
 Scopes define what permissions clients can request. Create at least one scope that clients will use:
 
+**Before you add a scope, set the Application ID URI:**
+
 1. In the app registration, go to **Expose an API**
 2. Next to "Application ID URI," click **Set** (if not already set)
 3. Accept the default `api://{client-id}` or enter a custom URI like `api://poshmcp-prod`
-4. Click **Add a scope**
-5. Fill in:
-   - **Scope name:** `access_as_server` (or `read`, `write`, etc.)
-   - **Admin consent display name:** `Access PoshMcp Server`
-   - **Admin consent description:** `Allows authenticated users to execute PowerShell commands via PoshMcp`
-   - **User consent display name:** `Access PoshMcp Server`
-   - **User consent description:** `Allows you to execute PowerShell commands via PoshMcp`
-   - **State:** `Enabled`
-6. Click **Add scope**
+4. Click **Save**
 
-Now the scope URI is `api://poshmcp-prod/access_as_server` (or whatever you named it).
+**Now add the scope:**
+
+5. Click **Add a scope**
+6. Fill in all required fields:
+   - **Scope name** (required): `access_as_server` — becomes part of the full URI: `api://poshmcp-prod/access_as_server`
+   - **Who can consent?** (required): 
+     - Select **"Admins only"** for server-to-server (M2M) scenarios where PoshMcp acts on its own behalf
+     - Select **"Admins and users"** for delegated access where end-users grant consent
+   - **Admin consent display name** (required): `Access PoshMcp Server` — shown on admin consent approval screens
+   - **Admin consent description** (required): `Allows authenticated users to execute PowerShell commands via PoshMcp` — explain what the scope permits
+   - **User consent display name** (optional): `Access PoshMcp Server`
+   - **User consent description** (optional): `Allows you to execute PowerShell commands via PoshMcp`
+   - **State**: Ensure **Enabled** is selected
+7. Click **Add scope**
+
+**Complete the setup for machine-to-machine access:**
+
+If you selected "Admins only," you must grant admin consent on the client app that will use this scope:
+
+8. Go to the *client app registration* (the one that calls PoshMcp)
+9. Go to **API permissions**
+10. Click **Add a permission**
+11. Select **My APIs** → choose your PoshMcp Server app
+12. Select **Application permissions**
+13. Check the `access_as_server` scope
+14. Click **Add permissions**
+15. Click **Grant admin consent for [tenant name]** (only admins can do this)
+
+**Result**: The full scope URI is `api://poshmcp-prod/access_as_server` (used in `RequiredScopes` and `ScopesSupported`). When a token is issued, the scope appears in the `scp` claim as just `access_as_server`.
 
 #### Step 3: Create Credentials for M2M (Server-to-Server)
 

@@ -403,3 +403,218 @@ When `--generate-dockerfile` is **not** used (actual Docker build) without an ex
 **What:** Spec at specs/application-insights-logging.md. Proposes opt-in App Insights via appsettings using Azure.Monitor.OpenTelemetry.AspNetCore. Targets post-0.8.11.
 **Why:** Users running PoshMcp in Azure need logs/traces in App Insights without breaking existing logging.
 
+
+
+# Decision: ConfigureApplicationInsights Implementation Choices
+
+**Author**: Bender
+**Date**: 2026-04-27
+**Issue**: #172
+
+## Decision 1: Use `Console.Error.WriteLine` for startup logs
+
+The spec says "use the existing logging infrastructure" but the method signature `(IServiceCollection, IConfiguration, bool)` provides no `ILogger`. Rather than widening the signature (which would deviate from FR-307), startup messages are written to `Console.Error` — consistent with other early-startup log sites in `Program.cs` that precede host construction.
+
+## Decision 2: Call site placement — after existing OpenTelemetry wiring
+
+`ConfigureApplicationInsights` is called immediately after `ConfigureOpenTelemetryForHttp` (HTTP) and `ConfigureOpenTelemetry` (stdio). This ensures the existing OTel pipeline (McpMetrics, console exporter) is already registered before Azure Monitor is layered on, so FR-317 (McpMetrics flow through Azure Monitor) is satisfied without special ordering logic.
+
+## Decision 3: Transport mode as OpenTelemetry resource attribute
+
+FR-309 requires transport mode as a custom dimension. Implemented via `.ConfigureResource(resource => resource.AddAttributes(...))` on the `OpenTelemetryBuilder`. Resource attributes appear as custom dimensions in Azure Monitor and are set once at startup — zero per-request overhead.
+
+## Decision 4: Clamp `SamplingPercentage` at runtime
+
+`Math.Clamp(options.SamplingPercentage, 1, 100)` is applied before converting to ratio. This makes runtime behaviour predictable even with out-of-range config values. Doctor validation (future issue) will surface the out-of-range warning to users at config time.
+
+### 2026-04-28: Doctor AppInsights validation architecture
+**By:** Bender (Backend Dev)
+**What:** Added a `ConfigurationErrors` list to `DoctorReport` (separate from `Warnings`) so `ComputeStatus` can distinguish error-level config issues from warnings. `BuildConfigurationWarnings` now returns a `(Warnings, Errors)` tuple and accepts the config path to load `ApplicationInsights` settings via `BuildRootConfiguration`. This keeps validation offline (no network calls per FR-315).
+**Why:** Empty connection string with `Enabled: true` is a hard error (blocks telemetry), while a malformed format or out-of-range sampling is a softer warning. Keeping these separate preserves the existing `ComputeStatus` severity model.
+
+### 2026-04-27: User directive
+**By:** Steven Murawski (via Copilot)
+**What:** Never merge main back into a branch. Feature branches must stay clean — no back-merges from main. Rebase if needed.
+**Why:** User request — captured for team memory
+
+### 2026-04-29T15:11:29Z: User directive
+**By:** Steven Murawski (via Copilot)
+**What:** All GitHub posts (issue creation, issue comments, PR creation, PR comments, PR reviews) MUST include the name of the agent posting it. Format: **{emoji} {AgentName} ({Role})**  at the start of the message body.
+**Why:** User request - ensures traceability of which AI team member authored each GitHub interaction.
+
+### 2026-04-27T14:50:29Z: User directive
+**By:** Steven Murawski (via Copilot)
+**What:** Never merge main back into a branch. Feature branches should never have main merged into them.
+**Why:** User request — captured for team memory
+
+### 2026-04-27: User directive
+**By:** Steven Murawski (via Copilot)
+**What:** Always use rebase. When updating feature branches with upstream changes, use git rebase, never git merge.
+**Why:** User request — captured for team memory
+
+# PR #180 Review: ConfigureApplicationInsights() — REQUEST CHANGES
+
+**Reviewer:** Farnsworth (Lead/Architect)
+**Date:** 2026-04-28
+**Branch:** squad/172-configure-app-insights
+**Verdict:** REQUEST CHANGES
+
+---
+
+## Spec Compliance Summary
+
+| FR | Status | Notes |
+|----|--------|-------|
+| FR-303 | ✅ PASS | Early return when `!options.Enabled` — no SDK wiring |
+| FR-304 | ✅ PASS | Env var fallback via `Environment.GetEnvironmentVariable` |
+| FR-305 | ✅ PASS | `Console.Error.WriteLine` warning + return |
+| FR-306 | ✅ PASS | Package is `Azure.Monitor.OpenTelemetry.AspNetCore` v1.4.0 |
+| FR-307 | ✅ PASS | Exact method signature match |
+| FR-308 | ✅ PASS | `services.AddOpenTelemetry().UseAzureMonitor(...)` |
+| FR-309 | ✅ PASS | `transport.mode` resource attribute (becomes global dimension) |
+| FR-310 | ❌ FAIL | **Not implemented** — no telemetry enrichment adds parameter names |
+| FR-311 | ⚠️ GAP | No active suppression; Debug-level logs include parameter values |
+| FR-312 | ⚠️ GAP | No active suppression for PowerShell output |
+| FR-316 | ✅ PASS | Serilog untouched |
+| FR-317 | ✅ PASS | McpMetrics meter flows through shared OTel pipeline |
+| FR-318 | ✅ PASS | appsettings section present with `Enabled: false` |
+
+---
+
+## Required Changes
+
+### 1. FR-310: Tool parameter names as custom properties (BLOCKING)
+
+The spec requires tool parameter **names** to appear in custom properties on telemetry. The current implementation only wires the Azure Monitor exporter but adds no telemetry enrichment. This requires one of:
+
+- An `ITelemetryInitializer` that inspects incoming telemetry and adds parameter name tags
+- Activity tag additions in the tool execution path (in `PowerShellAssemblyGenerator.cs`)
+- A custom `ActivitySource` span wrapping tool invocations that includes `param.name.*` tags
+
+**Recommendation:** Add Activity tags at the point where tool parameters are resolved (around line 692-730 in `PowerShellAssemblyGenerator.cs`). Add tags like `tool.param.names = "Name,Id,Module"` (comma-separated list). This keeps VALUES out but exposes the schema.
+
+### 2. FR-311/FR-312: Active suppression of parameter values and output (BLOCKING)
+
+`UseAzureMonitor()` enables the OpenTelemetry **log exporter** by default. The existing code at `PowerShellAssemblyGenerator.cs:731-738` logs:
+
+```csharp
+logger.LogDebug("Tool parameter detail: ... Value={ParameterValue}", ..., paramValue);
+```
+
+And at line 801-808:
+```csharp
+logger.LogDebug("Bound parameter: ... Value={Value}", ..., convertedValue);
+```
+
+While these are at `Debug` level (suppressed by default `Information` filter), the spec says **MUST NOT** — meaning defensive suppression is required regardless of log level configuration. Options:
+
+**Option A (preferred):** Configure `UseAzureMonitor` to disable log export entirely — only export traces + metrics:
+```csharp
+services.AddOpenTelemetry()
+    .UseAzureMonitor(opts => { ... })
+    .WithLogging(logBuilder => logBuilder.AddFilter("*", LogLevel.None)); // suppress all OTel log export
+```
+
+**Option B:** Add a log filter category that excludes the `PowerShellAssemblyGenerator` category from OTel export.
+
+**Option C:** Strip the `Value=` fields from those log templates (replace with `HasValue={HasValue}` bool). This is the most invasive but cleanest long-term.
+
+**I recommend Option A** for this PR — it's additive, non-invasive, and satisfies FR-311/FR-312 definitively. FR-316 (Serilog continues unchanged) is also preserved since Serilog operates at the ILogger provider level, independent of OTel log export.
+
+---
+
+## Non-Blocking Observations
+
+1. **Double `AddOpenTelemetry()` call ordering:** The implementation correctly relies on `AddOpenTelemetry()` idempotency. Add a brief comment at the call site noting that this builds on the metrics registration from `ConfigureOpenTelemetry`/`ConfigureOpenTelemetryForHttp`.
+
+2. **`SamplingRatio` type:** The SDK's `SamplingRatio` is a `float`. The division `samplingPercentage / 100.0f` is correct but note that `Math.Clamp` returns `int`, so this always produces a clean float division. Fine.
+
+3. **Missing `SectionName` constant:** PR #177 (previously approved) included `public const string SectionName = "ApplicationInsights"` on the options class. This PR uses inline `"ApplicationInsights"` string. Minor inconsistency — prefer the constant.
+
+---
+
+## Architectural Assessment
+
+The plumbing is correct. The method placement (after `ConfigureOpenTelemetry*`), the early-return guard, the connection string resolution chain, and the `ConfigureResource` approach for global dimensions are all architecturally sound. The gaps are in telemetry enrichment and defensive security filtering — both required by spec.
+
+---
+
+## Assignment
+
+Return to original author for fixes. The changes are well-scoped additions to the existing method — no architectural rework needed.
+
+# Wave 1 Review — Spec 008 Application Insights Logging
+
+**Reviewer:** Farnsworth (Lead Architect)
+**Date:** 2026-04-27
+**Spec:** 008-application-insights-logging
+
+---
+
+## PR #176 — feat: add Azure.Monitor.OpenTelemetry.AspNetCore package reference
+
+**Branch:** squad/170-azure-monitor-otel-package
+**Verdict:** ✅ APPROVED
+
+### Findings
+
+| Check | Status | Notes |
+|-------|--------|-------|
+| Package name | ✅ Pass | Azure.Monitor.OpenTelemetry.AspNetCore (correct, not legacy) |
+| Package version | ✅ Pass | 1.4.0 |
+| FR-306 compliance | ✅ Pass | Uses modern OpenTelemetry-based SDK |
+| Build | ✅ Pass | 0 errors, 9 warnings (pre-existing) |
+
+### Diff Summary
+
+```diff
++    <PackageReference Include="Azure.Monitor.OpenTelemetry.AspNetCore" Version="1.4.0" />
+```
+
+---
+
+## PR #177 — feat: add ApplicationInsights config section and binding model
+
+**Branch:** squad/171-app-insights-config-section
+**Verdict:** ✅ APPROVED
+
+### Findings
+
+| Check | Status | Notes |
+|-------|--------|-------|
+| Enabled default | ✅ Pass | false (zero overhead) |
+| ConnectionString default | ✅ Pass | empty string |
+| SamplingPercentage default | ✅ Pass | 100 |
+| SectionName constant | ✅ Pass | "ApplicationInsights" |
+| XML documentation | ✅ Pass | All public members documented |
+| appsettings.json section | ✅ Pass | Present with Enabled: false |
+| FR-300 compliance | ✅ Pass | |
+| FR-301 compliance | ✅ Pass | |
+| FR-302 compliance | ✅ Pass | |
+| FR-318 compliance | ✅ Pass | |
+| Build | ✅ Pass | 0 errors, 9 warnings (pre-existing) |
+
+### Diff Summary — appsettings.json
+
+```diff
++  "ApplicationInsights": {
++    "Enabled": false,
++    "ConnectionString": "",
++    "SamplingPercentage": 100
++  },
+```
+
+### Diff Summary — ApplicationInsightsOptions.cs
+
+New file with correct structure:
+- `SectionName` constant
+- `Enabled` property (default: false)
+- `ConnectionString` property (default: empty)
+- `SamplingPercentage` property (default: 100)
+- XML docs on class and all properties
+
+---
+
+## Recommendation
+
+Both PRs are ready to merge. Wave 1 infrastructure for spec 008 is complete.
