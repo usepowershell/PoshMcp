@@ -53,11 +53,27 @@ Use App Registration to define OAuth scopes and control client access. Works any
 
 ### Expose API Scopes
 
+Before you can add scopes, you must first set the **Application ID URI**. This is the root identifier for your API and scopes.
+
 1. Go to **Expose an API**
-2. Set **Application ID URI** to `api://poshmcp-prod` (or custom value)
+2. If **Application ID URI** is not set, click **Set** and accept the default (`api://{client-id}`) or enter a custom URI like `api://poshmcp-prod`
 3. Click **Add a scope**
-4. Scope name: `access_as_server`
-5. Fill in consent prompts and save
+4. Fill in the scope details:
+   - **Scope name** (required): `access_as_server` — becomes part of the full scope URI: `api://poshmcp-prod/access_as_server`
+   - **Who can consent?**: Select "Admins only" for server-to-server (M2M) scenarios; "Admins and users" for delegated user consent
+   - **Admin consent display name** (required): e.g., `Access PoshMcp Server` — shown on admin consent screens
+   - **Admin consent description** (required): e.g., `Allows the app to execute PowerShell commands via PoshMcp` — shown on admin consent screens
+   - **User consent display name** (optional): e.g., `Access PoshMcp Server`
+   - **User consent description** (optional): e.g., `Allows you to execute PowerShell commands via PoshMcp`
+   - **State**: Ensure **Enabled** is selected
+5. Click **Add scope**
+
+**After creating the scope**, if you selected "Admins only" for a machine-to-machine scenario:
+- Go to **API permissions** on the *client app registration* that will use this scope
+- Add the newly created scope as an application permission
+- Click **Grant admin consent** (only admins can do this) to pre-authorize the client
+
+**Full scope URI**: The scope you configured becomes `{Application ID URI}/{scope name}` — use this in your `RequiredScopes` and `ScopesSupported` settings.
 
 ### Configure PoshMcp
 
@@ -308,6 +324,18 @@ Logs include:
 - Correlation ID (trace requests across systems)
 
 ## Troubleshooting
+
+### Use the Doctor Command for Diagnostics
+
+Run the `poshmcp doctor` command to validate your authentication configuration:
+
+```bash
+poshmcp doctor
+```
+
+The output includes:
+- **Authentication section**: Shows enabled state, configured schemes (JwtBearer/ApiKey), authority, audience, key count, default policy, and protected resources — **no secrets are exposed**
+- **Identity section** (HTTP transport only): Shows authenticated caller's principal name, assigned scopes, and roles
 
 ### 401 Unauthorized on every request
 
