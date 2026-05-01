@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -41,6 +42,33 @@ public static class AuthenticationServiceExtensions
                         }
                         options.TokenValidationParameters.ValidateIssuer = scheme.ValidIssuers.Count > 0;
                         options.TokenValidationParameters.ValidateAudience = !string.IsNullOrEmpty(scheme.Audience);
+
+                        // RFC 9728: inject resource_metadata into WWW-Authenticate so
+                        // clients (e.g. VS Code) can discover the PRM and find the real
+                        // authorization server instead of falling back to treating this
+                        // server as the AS.
+                        options.Events = new JwtBearerEvents
+                        {
+                            OnChallenge = context =>
+                            {
+                                var cfg = context.HttpContext.RequestServices
+                                    .GetRequiredService<IOptions<AuthenticationConfiguration>>();
+
+                                if (cfg.Value.ProtectedResource?.Resource is not null)
+                                {
+                                    var req = context.HttpContext.Request;
+                                    var metadataUrl = $"{req.Scheme}://{req.Host}/.well-known/oauth-protected-resource";
+
+                                    // Suppress the default challenge so we control the header.
+                                    context.HandleResponse();
+                                    context.Response.StatusCode = 401;
+                                    context.Response.Headers.WWWAuthenticate =
+                                        $"Bearer resource_metadata=\"{metadataUrl}\"";
+                                }
+
+                                return Task.CompletedTask;
+                            }
+                        };
                     });
                     break;
 

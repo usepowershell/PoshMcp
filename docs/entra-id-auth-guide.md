@@ -446,7 +446,8 @@ Expected response:
 | Error | Cause | Solution |
 |-------|-------|----------|
 | "Dynamic client registration not supported" | VS Code's pre-registered client ID is not authorized in your app registration | Go to **Expose an API** → **Authorized client applications** and add `aebc6443-996d-45c2-90f0-388ff96faa56` |
-| VS Code prompts auth against the app's own `/authorize` endpoint | PRM is misconfigured or missing | Verify `ProtectedResource` is configured and the endpoint returns the expected JSON |
+| VS Code redirects to `https://{poshmcp-host}/authorize` instead of Entra ID | Server's 401 response is missing the RFC 9728 `resource_metadata` header (PoshMcp v0.9.3 or earlier) | Upgrade to PoshMcp v0.9.4 or later. The server now emits the correct `WWW-Authenticate: Bearer resource_metadata="..."` header required for VS Code to discover the PRM endpoint. |
+| VS Code prompts auth against the app's own `/authorize` endpoint | PRM is misconfigured or missing (post-v0.9.4) | Verify `ProtectedResource` is configured and the endpoint returns the expected JSON (accessible at `https://{poshmcp-host}/.well-known/oauth-protected-resource`) |
 | 401 after successful VS Code login | Scope mismatch or token validation failure | Verify the token scope matches `ScopesSupported` in PRM; decode the token at jwt.io to inspect claims |
 | AADSTS650053 error | App needs admin consent | Grant admin consent in Azure Portal → App registrations → API permissions |
 

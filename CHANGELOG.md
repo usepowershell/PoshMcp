@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented here.
 
+## [0.9.4] - 2026-05-01
+
+### Fixed
+- **OAuth discovery for VS Code MCP clients:** JwtBearer 401 challenge now includes `WWW-Authenticate: Bearer resource_metadata="{url}"` per RFC 9728, enabling VS Code to discover the Protected Resource Metadata endpoint and correctly redirect OAuth flows to Entra ID instead of to PoshMcp's own base URL.
+- **ApiKey handler metadata URL:** Fixed invalid `api://` URI being used for PRM URL construction; now correctly uses `{scheme}://{host}/.well-known/oauth-protected-resource`.
+
 ## [0.9.3] - 2026-05-01
 
 ### Fixed

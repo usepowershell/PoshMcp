@@ -80,7 +80,7 @@ public class ApiKeyAuthenticationHandler(
 
         if (authConfig.Value.ProtectedResource?.Resource is not null)
         {
-            var metadataUrl = $"{authConfig.Value.ProtectedResource.Resource}/.well-known/oauth-protected-resource";
+            var metadataUrl = $"{Request.Scheme}://{Request.Host}/.well-known/oauth-protected-resource";
             Response.Headers["WWW-Authenticate"] =
                 $"Bearer resource_metadata=\"{metadataUrl}\"";
         }
