@@ -32,6 +32,56 @@
 
 ## Learnings
 
+### 2026-05-01: Consolidated Entra ID Authentication Documentation
+
+**Task:** Consolidate two separate Entra ID auth documents (`entra-id-mcp-auth.md` and `entra-id-auth-guide.md`) into a single comprehensive guide.
+
+**Status:** ✓ Complete. File consolidated at `docs/entra-id-auth-guide.md`, redundant file deleted.
+
+**What was consolidated:**
+- **Scope coverage** — `entra-id-mcp-auth.md` was VS Code MCP-specific; `entra-id-auth-guide.md` was general-purpose with App Registration and Managed Identity paths. Kept the existing guide as the canonical doc and folded VS Code-specific content in as a subsection.
+- **Key addition: Step 2b** — Added "Authorize Client Applications" step covering VS Code's pre-registered client ID (`aebc6443-996d-45c2-90f0-388ff96faa56`) in the Expose an API flow. This was critical guidance missing from the original guide.
+- **New subsection: VS Code MCP Integration** — Added under Path A Testing, explaining: (1) why pre-registered client ID is needed, (2) how VS Code OAuth + PKCE flow works, (3) VS Code settings.json config, (4) Protected Resource Metadata endpoint, (5) VS Code-specific troubleshooting table with error-to-fix mappings.
+- **Integrated references** — Consolidated scope naming and PRM configuration guidance from both docs (new file mentioned App Service `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES` env var for on-demand PRM generation; now reflected in guide).
+
+**Inconsistencies resolved:**
+- Scope naming: New file used `user_impersonation`, existing used `access_as_server`. Kept `access_as_server` (more descriptive, already used throughout the guide).
+- PRM coverage: New file mentioned App Service EasyAuth auto-generation; existing guide covered manual PRM endpoint for self-hosted. Both approaches now documented in the guide.
+- Client authorization: New file emphasized pre-registered client ID; existing guide lacked this critical step. Now fully covered in Step 2b.
+
+**Content preserved:** All unique and valuable content from both documents is in the consolidated guide. No useful information was lost.
+
+**Cross-references checked:** Searched docs/ for links to either file. Only reference was in DOCFX-BUILD-SUMMARY.md (doc index, auto-generated). No manual cross-ref updates needed.
+
+**Key insight:**
+- When consolidating docs with overlapping scope, preserve the more comprehensive/structured file as the canonical source and fold specialized guidance (e.g., VS Code) in as subsections. This creates a single, authoritative reference without fragmenting readers across multiple files. Critical integration points (e.g., client app authorization) must be called out explicitly if they were buried or missing in the original guide.
+
+---
+
+### 2026-05-01: v0.9.3 Release Notes (Security Patch — Configuration Precedence Override)
+
+**Task:** Create release notes for PoshMcp v0.9.3 security patch release.
+
+**Status:** ✓ File created at `docs/release-notes/0.9.3.md` with comprehensive security fix documentation.
+
+**What was documented:**
+- **Root cause deep-dive** — ASP.NET Core's `WebApplicationBuilder` loads base `appsettings.json` first, then adds custom config via `AddJsonFile()`. The base file has `Authentication.Enabled: false` as a default. Configuration precedence makes base file win, silently overriding custom `Enabled: true`.
+- **Relationship to v0.9.2** — Two *separate* auth bypass bugs: v0.9.2 fixed DI binding (config not registered), v0.9.3 fixes loading order (config bound but wrong precedence). Both independently caused auth bypass.
+- **Diagnostic parity problem** — Tools like `doctor` use `ConfigurationLoader.BuildRootConfiguration(finalConfigPath)` (custom only + env vars), never loading base file. They reported correct value (`enabled: true`) but runtime enforced wrong value (`enabled: false`). The fix unifies all auth gates to use the same source.
+- **Impact clearly scoped** — Container deployments with `Authentication.Enabled: true` in custom config affected; Stdio/CLI unaffected (no HTTP middleware).
+- **Technical fix** — All three auth gates in `Program.cs` now use `authRootConfig` built via `ConfigurationLoader.BuildRootConfiguration(finalConfigPath)`.
+- **Diagnostic parity assurance** — Highlighted that after v0.9.3, what `doctor` reports matches what runtime enforces.
+
+**Style observations (consistent with v0.9.2 pattern):**
+- Security patch = "Security Fix" top-level section (high visibility)
+- Frontmatter: uid, title, released date
+- Breaking Changes: None
+- Upgrade Notes: Action items (rebuild + redeploy), no config changes, verification steps, diagnostic guidance
+- See Also: Links to related guides
+
+**Key insight:**
+- When a security bug involves *configuration precedence* or *diagnostic divergence*, the root cause explanation must include "why did diagnostics work but runtime didn't?" This builds confidence that the fix is complete and diagnostic tools can now be trusted again.
+
 ### 2026-05-01: v0.9.2 Release Notes (Security Patch — Authentication Bypass)
 
 **Task:** Create release notes for PoshMcp v0.9.2 security patch release.
