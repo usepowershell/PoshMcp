@@ -204,4 +204,139 @@ public class DoctorReportTests
         Assert.NotNull(runtimeSettings);
         Assert.True(runtimeSettings!.ContainsKey("configurationMode"), "runtimeSettings.configurationMode missing (camelCase)");
     }
+
+    [Fact]
+    public void Build_WithAuthConfig_PopulatesAuthenticationSection()
+    {
+        var authConfig = new PoshMcp.Server.Authentication.AuthenticationConfiguration
+        {
+            Enabled = true,
+            DefaultScheme = "Bearer",
+            DefaultPolicy = new PoshMcp.Server.Authentication.AuthorizationPolicyConfiguration
+            {
+                RequireAuthentication = true,
+                RequiredScopes = ["mcp:read"],
+            },
+            Schemes = new System.Collections.Generic.Dictionary<string, PoshMcp.Server.Authentication.AuthSchemeConfiguration>
+            {
+                ["Bearer"] = new PoshMcp.Server.Authentication.AuthSchemeConfiguration
+                {
+                    Type = "JwtBearer",
+                    Authority = "https://login.microsoftonline.com/tenant",
+                    Audience = "api://my-app",
+                }
+            }
+        };
+
+        var report = DoctorReport.Build(
+            configurationPath: "test.json",
+            configurationPathSource: "test",
+            effectiveLogLevel: "Warning",
+            effectiveLogLevelSource: "default",
+            effectiveTransport: "stdio",
+            effectiveTransportSource: "default",
+            effectiveSessionMode: null,
+            effectiveSessionModeSource: "default",
+            effectiveRuntimeMode: "InProcess",
+            effectiveRuntimeModeSource: "default",
+            effectiveMcpPath: null,
+            effectiveMcpPathSource: "default",
+            configuredFunctionStatus: [],
+            toolNames: [],
+            powerShellVersion: "7.4.0",
+            modulePathEntries: 0,
+            modulePaths: [],
+            oopModulePaths: [],
+            resourcesDiagnostics: new PoshMcp.Server.McpResources.McpResourcesDiagnostics(0, 0, [], []),
+            promptsDiagnostics: new PoshMcp.Server.McpPrompts.McpPromptsDiagnostics(0, 0, [], []),
+            warnings: [],
+            configurationErrors: [],
+            environmentVariables: [],
+            authConfig: authConfig);
+
+        Assert.True(report.Authentication.Enabled);
+        Assert.Equal("Bearer", report.Authentication.DefaultScheme);
+        Assert.Equal(["mcp:read"], report.Authentication.RequiredScopes);
+        Assert.Single(report.Authentication.ConfiguredSchemes);
+        Assert.Equal("JwtBearer", report.Authentication.ConfiguredSchemes[0].Type);
+        Assert.True(report.Authentication.ConfiguredSchemes[0].HasAuthority);
+        Assert.True(report.Authentication.ConfiguredSchemes[0].HasAudience);
+    }
+
+    [Fact]
+    public void Build_WithNullAuthConfig_ReturnsDisabledAuthentication()
+    {
+        var report = DoctorReport.Build(
+            configurationPath: "test.json",
+            configurationPathSource: "test",
+            effectiveLogLevel: null,
+            effectiveLogLevelSource: "default",
+            effectiveTransport: "stdio",
+            effectiveTransportSource: "default",
+            effectiveSessionMode: null,
+            effectiveSessionModeSource: "default",
+            effectiveRuntimeMode: null,
+            effectiveRuntimeModeSource: "default",
+            effectiveMcpPath: null,
+            effectiveMcpPathSource: "default",
+            configuredFunctionStatus: [],
+            toolNames: [],
+            powerShellVersion: "7.4.0",
+            modulePathEntries: 0,
+            modulePaths: [],
+            oopModulePaths: [],
+            resourcesDiagnostics: new PoshMcp.Server.McpResources.McpResourcesDiagnostics(0, 0, [], []),
+            promptsDiagnostics: new PoshMcp.Server.McpPrompts.McpPromptsDiagnostics(0, 0, [], []),
+            warnings: [],
+            configurationErrors: [],
+            environmentVariables: []);
+
+        Assert.False(report.Authentication.Enabled);
+        Assert.False(report.Identity.Available);
+    }
+
+    [Fact]
+    public void Build_WithAuthenticatedIdentity_PopulatesIdentitySection()
+    {
+        var claims = new System.Collections.Generic.List<System.Security.Claims.Claim>
+        {
+            new(System.Security.Claims.ClaimTypes.Name, "test-user"),
+            new("scp", "mcp:read"),
+            new(System.Security.Claims.ClaimTypes.Role, "admin"),
+        };
+        var identity = new System.Security.Claims.ClaimsIdentity(claims, "TestScheme");
+        var principal = new System.Security.Claims.ClaimsPrincipal(identity);
+
+        var report = DoctorReport.Build(
+            configurationPath: "test.json",
+            configurationPathSource: "test",
+            effectiveLogLevel: null,
+            effectiveLogLevelSource: "default",
+            effectiveTransport: "http",
+            effectiveTransportSource: "default",
+            effectiveSessionMode: null,
+            effectiveSessionModeSource: "default",
+            effectiveRuntimeMode: null,
+            effectiveRuntimeModeSource: "default",
+            effectiveMcpPath: null,
+            effectiveMcpPathSource: "default",
+            configuredFunctionStatus: [],
+            toolNames: [],
+            powerShellVersion: "7.4.0",
+            modulePathEntries: 0,
+            modulePaths: [],
+            oopModulePaths: [],
+            resourcesDiagnostics: new PoshMcp.Server.McpResources.McpResourcesDiagnostics(0, 0, [], []),
+            promptsDiagnostics: new PoshMcp.Server.McpPrompts.McpPromptsDiagnostics(0, 0, [], []),
+            warnings: [],
+            configurationErrors: [],
+            environmentVariables: [],
+            currentIdentity: principal);
+
+        Assert.True(report.Identity.Available);
+        Assert.True(report.Identity.IsAuthenticated);
+        Assert.Equal("test-user", report.Identity.Name);
+        Assert.Contains("mcp:read", report.Identity.Scopes);
+        Assert.Contains("admin", report.Identity.Roles);
+    }
 }

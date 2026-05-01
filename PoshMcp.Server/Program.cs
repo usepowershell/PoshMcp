@@ -1055,6 +1055,8 @@ public class Program
         var logger = loggerFactory.CreateLogger("Doctor");
 
         var config = ConfigurationLoader.LoadPowerShellConfiguration(settings.FinalConfigPath, logger, settings.RuntimeMode.Value);
+        var authRootConfig = ConfigurationLoader.BuildRootConfiguration(settings.FinalConfigPath, reloadOnChange: false);
+        var authConfig = authRootConfig.GetSection("Authentication").Get<AuthenticationConfiguration>();
         var environmentVariables = CollectEnvironmentVariables();
         var tools = await DiscoverToolsAsync(config, loggerFactory, logger, settings.FinalConfigPath);
         var discoveredToolNames = GetDiscoveredToolNames(tools);
@@ -1100,7 +1102,8 @@ public class Program
             promptsDiagnostics: promptsDiag,
             warnings: warnings,
             configurationErrors: configurationErrors,
-            environmentVariables: environmentVariables);
+            environmentVariables: environmentVariables,
+            authConfig: authConfig);
 
         if (format == "json")
         {
@@ -1130,7 +1133,9 @@ public class Program
         string? effectiveMcpPath,
         string effectiveMcpPathSource,
         PowerShellConfiguration config,
-        List<McpServerTool> tools)
+        List<McpServerTool> tools,
+        AuthenticationConfiguration? authConfig = null,
+        System.Security.Claims.ClaimsPrincipal? currentIdentity = null)
     {
         var discoveredToolNames = GetDiscoveredToolNames(tools);
         var configuredFunctionStatus = BuildConfiguredFunctionStatus(config.GetEffectiveCommandNames(), discoveredToolNames);
@@ -1151,6 +1156,12 @@ public class Program
         var (warnings, configurationErrors) = BuildConfigurationWarnings(config, configurationPath);
         var (resourcesDiag, promptsDiag) = ConfigurationLoader.TryValidateResourcesAndPrompts(configurationPath);
         var environmentVariables = CollectEnvironmentVariables();
+
+        if (authConfig is null)
+        {
+            var rootConfig = ConfigurationLoader.BuildRootConfiguration(configurationPath, reloadOnChange: false);
+            authConfig = rootConfig.GetSection("Authentication").Get<AuthenticationConfiguration>();
+        }
 
         return DoctorReport.Build(
             configurationPath: DescribeConfigurationPath(configurationPath),
@@ -1175,7 +1186,9 @@ public class Program
             promptsDiagnostics: promptsDiag,
             warnings: warnings,
             configurationErrors: configurationErrors,
-            environmentVariables: environmentVariables);
+            environmentVariables: environmentVariables,
+            authConfig: authConfig,
+            currentIdentity: currentIdentity);
     }
 
     private static (List<string> Warnings, List<string> Errors) BuildConfigurationWarnings(PowerShellConfiguration config, string configPath)
@@ -1779,7 +1792,7 @@ public class Program
 
         logger.LogInformation("Using configuration source: {ConfigurationPath}", DescribeConfigurationPath(finalConfigPath));
 
-        var tools = await SetupHttpMcpToolsAsync(bootstrapLoggerFactory, config, logger, finalConfigPath, configurationPathSource, sharedSessionRunspace, executorLease?.Executor);
+        var tools = await SetupHttpMcpToolsAsync(bootstrapLoggerFactory, config, logger, finalConfigPath, configurationPathSource, sharedSessionRunspace, executorLease?.Executor, sharedHttpContextAccessor);
         var resourcesConfig = ConfigurationLoader.LoadMcpResourcesConfiguration(finalConfigPath, logger);
         var resourcesConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? ".";
         var resourceLogger = bootstrapLoggerFactory.CreateLogger<McpResourceHandler>();
@@ -1983,7 +1996,8 @@ public class Program
         string finalConfigPath,
         string configurationPathSource,
         IPowerShellRunspace sessionAwareRunspace,
-        ICommandExecutor? commandExecutor)
+        ICommandExecutor? commandExecutor,
+        IHttpContextAccessor? httpContextAccessor = null)
     {
         var runtimeCachingState = new RuntimeCachingState();
         PowerShellAssemblyGenerator.SetRuntimeCachingState(runtimeCachingState);
@@ -2009,7 +2023,7 @@ public class Program
         logger.LogInformation("Registered set-result-caching tool (always enabled)");
 
         AddConfigurationGuidanceToolToList(tools, config, finalConfigPath, "http", config.RuntimeMode.ToString(), null, loggerFactory);
-        AddConfigurationTroubleshootingToolToList(tools, config, finalConfigPath, "http", null, config.RuntimeMode.ToString(), null, logger);
+        AddConfigurationTroubleshootingToolToList(tools, config, finalConfigPath, "http", null, config.RuntimeMode.ToString(), null, logger, httpContextAccessor);
 
         return tools;
     }
@@ -2152,12 +2166,16 @@ public class Program
         string? effectiveSessionMode,
         string? effectiveRuntimeMode,
         string? effectiveMcpPath,
-        ILogger logger)
+        ILogger logger,
+        IHttpContextAccessor? httpContextAccessor = null)
     {
         if (!config.EnableConfigurationTroubleshootingTool)
         {
             return;
         }
+
+        Func<System.Security.Claims.ClaimsPrincipal?>? identityProvider =
+            httpContextAccessor is null ? null : () => httpContextAccessor.HttpContext?.User;
 
         tools.Add(CreateConfigurationTroubleshootingToolInstance(
             configurationPath,
@@ -2166,7 +2184,9 @@ public class Program
             effectiveRuntimeMode,
             effectiveMcpPath,
             () => tools,
-            logger));
+            logger,
+            authConfig: null,
+            identityProvider: identityProvider));
     }
 
     private static McpServerTool CreateConfigurationTroubleshootingToolInstance(
@@ -2176,7 +2196,9 @@ public class Program
         string? effectiveRuntimeMode,
         string? effectiveMcpPath,
         Func<List<McpServerTool>> registeredToolsProvider,
-        ILogger logger)
+        ILogger logger,
+        AuthenticationConfiguration? authConfig = null,
+        Func<System.Security.Claims.ClaimsPrincipal?>? identityProvider = null)
     {
         Func<CancellationToken, Task<string>> troubleshootingDelegate = cancellationToken =>
         {
@@ -2200,7 +2222,9 @@ public class Program
                     effectiveMcpPath: effectiveMcpPath,
                     effectiveMcpPathSource: "runtime",
                     config: config,
-                    tools: tools);
+                    tools: tools,
+                    authConfig: authConfig,
+                    currentIdentity: identityProvider?.Invoke());
 
                 return Task.FromResult(BuildDoctorJson(report));
             }
@@ -2218,7 +2242,7 @@ public class Program
         return McpServerTool.Create(troubleshootingDelegate, new McpServerToolCreateOptions
         {
             Name = "get-configuration-troubleshooting",
-            Description = "Returns doctor-style configuration diagnostics for the running server. Output includes runtime settings, environment variables, PowerShell info, configured functions, and MCP definitions. Always returns structured text output.",
+            Description = "Returns doctor-style configuration diagnostics for the running server. Output includes runtime settings, environment variables, PowerShell info, configured functions, MCP definitions, authentication configuration, and caller identity (when available).",
             Title = "Get Configuration Troubleshooting",
             ReadOnly = true,
             Destructive = false,

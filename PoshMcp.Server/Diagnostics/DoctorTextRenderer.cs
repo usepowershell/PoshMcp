@@ -19,6 +19,7 @@ public static class DoctorTextRenderer
             FormatSection("PowerShell",            RenderPowerShell(report.PowerShell)),
             FormatSection("Functions/Tools",       RenderFunctionsTools(report.FunctionsTools)),
             FormatSection("MCP Definitions",       RenderMcpDefinitions(report.McpDefinitions)),
+            FormatSection("Authentication",        RenderAuthentication(report.Authentication, report.Identity)),
         };
 
         var warningsBody = RenderWarnings(report.Warnings);
@@ -159,6 +160,61 @@ public static class DoctorTextRenderer
         var lines = new List<string>(errors.Count);
         foreach (var e in errors)
             lines.Add($"  ✖ {e}");
+        return string.Join("\n", lines);
+    }
+
+    private static string RenderAuthentication(AuthenticationSection auth, IdentitySection identity)
+    {
+        var lines = new List<string>
+        {
+            $"  enabled      : {(auth.Enabled ? "yes" : "no")}",
+        };
+
+        if (auth.Enabled)
+        {
+            lines.Add($"  default-scheme: {auth.DefaultScheme}");
+            lines.Add($"  require-authn : {(auth.RequireAuthentication ? "yes" : "no")}");
+
+            if (auth.RequiredScopes.Count > 0)
+                lines.Add($"  required-scopes: {string.Join(", ", auth.RequiredScopes)}");
+            if (auth.RequiredRoles.Count > 0)
+                lines.Add($"  required-roles : {string.Join(", ", auth.RequiredRoles)}");
+
+            foreach (var scheme in auth.ConfiguredSchemes)
+            {
+                lines.Add($"  scheme [{scheme.Name}]: type={scheme.Type}" +
+                    (scheme.HasAuthority ? " authority=set" : "") +
+                    (scheme.HasAudience ? " audience=set" : "") +
+                    (scheme.KeyCount > 0 ? $" keys={scheme.KeyCount}" : ""));
+            }
+
+            if (!string.IsNullOrEmpty(auth.ProtectedResourceUri))
+                lines.Add($"  protected-resource: {auth.ProtectedResourceUri}");
+
+            if (auth.CorsEnabled)
+            {
+                lines.Add($"  cors-origins  : {string.Join(", ", auth.AllowedOrigins)}");
+            }
+        }
+
+        lines.Add(string.Empty);
+        lines.Add($"  identity [{(identity.Available ? "live" : "n/a")}]");
+        if (identity.Available)
+        {
+            lines.Add($"    authenticated: {(identity.IsAuthenticated ? "yes" : "no")}");
+            if (identity.IsAuthenticated)
+            {
+                if (!string.IsNullOrEmpty(identity.Name))
+                    lines.Add($"    name         : {identity.Name}");
+                if (!string.IsNullOrEmpty(identity.AuthenticationScheme))
+                    lines.Add($"    scheme       : {identity.AuthenticationScheme}");
+                if (identity.Scopes.Count > 0)
+                    lines.Add($"    scopes       : {string.Join(", ", identity.Scopes)}");
+                if (identity.Roles.Count > 0)
+                    lines.Add($"    roles        : {string.Join(", ", identity.Roles)}");
+            }
+        }
+
         return string.Join("\n", lines);
     }
 }

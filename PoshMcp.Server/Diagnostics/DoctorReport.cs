@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Claims;
 using System.Text.Json.Serialization;
+using PoshMcp.Server.Authentication;
 using PoshMcp.Server.McpPrompts;
 using PoshMcp.Server.McpResources;
 
@@ -33,6 +35,14 @@ public sealed record DoctorReport
     /// <summary>MCP resource and prompt definition diagnostics.</summary>
     [JsonPropertyName("mcpDefinitions")]
     public McpDefinitionsSection McpDefinitions { get; init; } = new();
+
+    /// <summary>Authentication and authorization configuration diagnostics.</summary>
+    [JsonPropertyName("authentication")]
+    public AuthenticationSection Authentication { get; init; } = new();
+
+    /// <summary>Current caller identity diagnostics.</summary>
+    [JsonPropertyName("identity")]
+    public IdentitySection Identity { get; init; } = new();
 
     /// <summary>Configuration errors collected across all sections.</summary>
     [JsonPropertyName("configurationErrors")]
@@ -86,7 +96,9 @@ public sealed record DoctorReport
         McpPromptsDiagnostics promptsDiagnostics,
         List<string> warnings,
         List<string> configurationErrors,
-        Dictionary<string, string?> environmentVariables)
+        Dictionary<string, string?> environmentVariables,
+        AuthenticationConfiguration? authConfig = null,
+        ClaimsPrincipal? currentIdentity = null)
     {
         var foundFunctions = configuredFunctionStatus
             .Where(f => f.Found)
@@ -96,6 +108,9 @@ public sealed record DoctorReport
             .Where(f => !f.Found)
             .Select(f => f.FunctionName)
             .ToList();
+
+        var authentication = BuildAuthenticationSection(authConfig);
+        var identity = BuildIdentitySection(currentIdentity);
 
         var report = new DoctorReport
         {
@@ -144,6 +159,8 @@ public sealed record DoctorReport
                     Warnings = promptsDiagnostics.Warnings,
                 },
             },
+            Authentication = authentication,
+            Identity = identity,
             ConfigurationErrors = configurationErrors,
             Warnings = warnings,
         };
@@ -159,6 +176,57 @@ public sealed record DoctorReport
                 FoundCount = foundFunctions.Count,
                 WarningCount = warnings.Count,
             },
+        };
+    }
+
+    private static AuthenticationSection BuildAuthenticationSection(AuthenticationConfiguration? authConfig)
+    {
+        if (authConfig is null)
+            return new AuthenticationSection();
+
+        var schemes = authConfig.Schemes
+            .Select(kvp => new SchemeInfo
+            {
+                Name = kvp.Key,
+                Type = kvp.Value.Type,
+                HasAuthority = !string.IsNullOrWhiteSpace(kvp.Value.Authority),
+                HasAudience = !string.IsNullOrWhiteSpace(kvp.Value.Audience),
+                RequiresHttps = kvp.Value.RequireHttpsMetadata,
+                KeyCount = kvp.Value.Keys.Count,
+            })
+            .ToList();
+
+        return new AuthenticationSection
+        {
+            Enabled = authConfig.Enabled,
+            DefaultScheme = authConfig.DefaultScheme,
+            ConfiguredSchemes = schemes,
+            RequireAuthentication = authConfig.DefaultPolicy.RequireAuthentication,
+            RequiredScopes = authConfig.DefaultPolicy.RequiredScopes,
+            RequiredRoles = authConfig.DefaultPolicy.RequiredRoles,
+            ProtectedResourceUri = authConfig.ProtectedResource?.Resource,
+            CorsEnabled = authConfig.Cors is not null && authConfig.Cors.AllowedOrigins.Count > 0,
+            AllowedOrigins = authConfig.Cors?.AllowedOrigins ?? [],
+        };
+    }
+
+    private static IdentitySection BuildIdentitySection(ClaimsPrincipal? principal)
+    {
+        if (principal is null)
+            return new IdentitySection { Available = false };
+
+        const string scopeClaim = "scp";
+        var scopes = principal.FindAll(scopeClaim).Select(c => c.Value).ToList();
+        var roles = principal.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+
+        return new IdentitySection
+        {
+            Available = true,
+            IsAuthenticated = principal.Identity?.IsAuthenticated ?? false,
+            AuthenticationScheme = principal.Identity?.AuthenticationType,
+            Name = principal.Identity?.Name,
+            Scopes = scopes,
+            Roles = roles,
         };
     }
 
@@ -338,4 +406,81 @@ public sealed record McpPromptsDiagSummary
     /// <summary>Validation warnings.</summary>
     [JsonPropertyName("warnings")]
     public List<string> Warnings { get; init; } = [];
+}
+
+/// <summary>Authentication and authorization configuration diagnostics.</summary>
+public sealed record AuthenticationSection
+{
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; init; }
+
+    [JsonPropertyName("defaultScheme")]
+    public string DefaultScheme { get; init; } = string.Empty;
+
+    [JsonPropertyName("configuredSchemes")]
+    public List<SchemeInfo> ConfiguredSchemes { get; init; } = [];
+
+    [JsonPropertyName("requireAuthentication")]
+    public bool RequireAuthentication { get; init; }
+
+    [JsonPropertyName("requiredScopes")]
+    public List<string> RequiredScopes { get; init; } = [];
+
+    [JsonPropertyName("requiredRoles")]
+    public List<string> RequiredRoles { get; init; } = [];
+
+    [JsonPropertyName("protectedResourceUri")]
+    public string? ProtectedResourceUri { get; init; }
+
+    [JsonPropertyName("corsEnabled")]
+    public bool CorsEnabled { get; init; }
+
+    [JsonPropertyName("allowedOrigins")]
+    public List<string> AllowedOrigins { get; init; } = [];
+}
+
+/// <summary>Metadata about a configured authentication scheme (no secrets exposed).</summary>
+public sealed record SchemeInfo
+{
+    [JsonPropertyName("name")]
+    public string Name { get; init; } = string.Empty;
+
+    [JsonPropertyName("type")]
+    public string Type { get; init; } = string.Empty;
+
+    [JsonPropertyName("hasAuthority")]
+    public bool HasAuthority { get; init; }
+
+    [JsonPropertyName("hasAudience")]
+    public bool HasAudience { get; init; }
+
+    [JsonPropertyName("requiresHttps")]
+    public bool RequiresHttps { get; init; }
+
+    /// <summary>Number of API keys configured (ApiKey scheme only). Never exposes actual key values.</summary>
+    [JsonPropertyName("keyCount")]
+    public int KeyCount { get; init; }
+}
+
+/// <summary>Current caller identity diagnostics (populated in MCP tool context; unavailable in CLI doctor).</summary>
+public sealed record IdentitySection
+{
+    /// <summary>True when identity info was available (HTTP context present). False for CLI or stdio with no HTTP context.</summary>
+    [JsonPropertyName("available")]
+    public bool Available { get; init; }
+
+    [JsonPropertyName("isAuthenticated")]
+    public bool IsAuthenticated { get; init; }
+
+    [JsonPropertyName("authenticationScheme")]
+    public string? AuthenticationScheme { get; init; }
+
+    [JsonPropertyName("name")]
+    public string? Name { get; init; }
+
+    [JsonPropertyName("scopes")]
+    public List<string> Scopes { get; init; } = [];
+
+    [JsonPropertyName("roles")]
+    public List<string> Roles { get; init; } = [];
 }

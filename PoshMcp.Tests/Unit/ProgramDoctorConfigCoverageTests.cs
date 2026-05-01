@@ -249,6 +249,63 @@ public class ProgramDoctorConfigCoverageTests
         }
     }
 
+    [Fact]
+    public async Task DoctorJson_IncludesAuthenticationSection()
+    {
+        using var configFile = new DoctorConfigFile(includeAuthentication: true);
+        using var capture = new DoctorConsoleCapture();
+
+        var result = await Program.Main(["doctor", "--config", configFile.Path, "--format", "json"]);
+
+        Assert.Equal(0, result);
+        var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
+        Assert.NotNull(payload);
+        var auth = payload!["authentication"]?.AsObject();
+        Assert.NotNull(auth);
+        Assert.NotNull(auth!["enabled"]);
+    }
+
+    [Fact]
+    public async Task DoctorJson_AuthenticationSection_DoesNotExposeSecrets()
+    {
+        using var configFile = new DoctorConfigFile(includeAuthWithSecret: true);
+        using var capture = new DoctorConsoleCapture();
+
+        var result = await Program.Main(["doctor", "--config", configFile.Path, "--format", "json"]);
+
+        Assert.Equal(0, result);
+        Assert.DoesNotContain("super-secret-value", capture.StandardOutput);
+    }
+
+    [Fact]
+    public async Task DoctorJson_IncludesIdentitySection()
+    {
+        using var configFile = new DoctorConfigFile();
+        using var capture = new DoctorConsoleCapture();
+
+        var result = await Program.Main(["doctor", "--config", configFile.Path, "--format", "json"]);
+
+        Assert.Equal(0, result);
+        var payload = JsonNode.Parse(capture.StandardOutput.Trim())?.AsObject();
+        Assert.NotNull(payload);
+        var identity = payload!["identity"]?.AsObject();
+        Assert.NotNull(identity);
+        // CLI doctor has no HTTP context — available must be false
+        Assert.False(identity!["available"]?.GetValue<bool>());
+    }
+
+    [Fact]
+    public async Task DoctorText_IncludesAuthenticationSection()
+    {
+        using var configFile = new DoctorConfigFile();
+        using var capture = new DoctorConsoleCapture();
+
+        var result = await Program.Main(["doctor", "--config", configFile.Path]);
+
+        Assert.Equal(0, result);
+        Assert.Contains("── Authentication", capture.StandardOutput);
+    }
+
     private sealed class DoctorConfigFile : IDisposable
     {
         public string Path { get; }
