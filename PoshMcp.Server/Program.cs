@@ -1763,16 +1763,22 @@ public class Program
         builder.Services.Configure<McpPromptsConfiguration>(
             builder.Configuration.GetSection("McpPrompts"));
 
+        // Build auth config from the custom config file directly, bypassing the WebApplicationBuilder's
+        // ConfigurationManager which starts with the baked-in appsettings.json (Authentication.Enabled: false).
+        // Using the same approach as diagnostic tools (ConfigurationLoader.BuildRootConfiguration) ensures
+        // the correct user-configured value is always used for auth decisions and IOptions binding.
+        var authRootConfig = ConfigurationLoader.BuildRootConfiguration(finalConfigPath, reloadOnChange: false);
+
         builder.Services
             .AddOptions<PoshMcp.Server.Authentication.AuthenticationConfiguration>()
-            .BindConfiguration("Authentication")
+            .Configure(opts => authRootConfig.GetSection("Authentication").Bind(opts))
             .ValidateOnStart();
 
         builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<PoshMcp.Server.Authentication.AuthenticationConfiguration>,
             PoshMcp.Server.Authentication.AuthenticationConfigurationValidator>();
 
         ConfigureJsonSerializerOptions(builder);
-        ConfigureCorsForMcp(builder);
+        ConfigureCorsForMcp(builder, authRootConfig);
         RegisterHealthChecks(builder);
 
         ConfigureOpenTelemetryForHttp(builder);
@@ -1797,7 +1803,7 @@ public class Program
         var resourcesConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? ".";
         var resourceLogger = bootstrapLoggerFactory.CreateLogger<McpResourceHandler>();
         var resourceHandler = new McpResourceHandler(resourcesConfig, sharedSessionRunspace, resourcesConfigDirectory, resourceLogger);
-        var authConfigValue = builder.Configuration.GetSection("Authentication").Get<PoshMcp.Server.Authentication.AuthenticationConfiguration>() ?? new();
+        var authConfigValue = authRootConfig.GetSection("Authentication").Get<PoshMcp.Server.Authentication.AuthenticationConfiguration>() ?? new();
         var promptsConfig = ConfigurationLoader.LoadPromptsConfiguration(finalConfigPath);
         var httpConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? Directory.GetCurrentDirectory();
         var httpPromptHandler = new McpPromptHandler(promptsConfig, httpConfigDirectory, bootstrapLoggerFactory.CreateLogger<McpPromptHandler>());
@@ -1839,7 +1845,7 @@ public class Program
 
         RegisterCleanupServices(builder);
 
-        builder.Services.AddPoshMcpAuthentication(builder.Configuration);
+        builder.Services.AddPoshMcpAuthentication(authRootConfig);
 
         var app = builder.Build();
 
@@ -1903,9 +1909,9 @@ public class Program
         await app.RunAsync();
     }
 
-    private static void ConfigureCorsForMcp(WebApplicationBuilder builder)
+    private static void ConfigureCorsForMcp(WebApplicationBuilder builder, IConfigurationRoot authRootConfig)
     {
-        var authConfig = builder.Configuration.GetSection("Authentication").Get<AuthenticationConfiguration>()
+        var authConfig = authRootConfig.GetSection("Authentication").Get<AuthenticationConfiguration>()
             ?? new AuthenticationConfiguration();
 
         builder.Services.AddCors(options =>
