@@ -126,20 +126,39 @@ Scopes define what permissions clients can request. Create at least one scope th
    - **State**: Ensure **Enabled** is selected
 7. Click **Add scope**
 
-**Complete the setup for machine-to-machine access:**
-
-If you selected "Admins only," you must grant admin consent on the client app that will use this scope:
-
-8. Go to the *client app registration* (the one that calls PoshMcp)
-9. Go to **API permissions**
-10. Click **Add a permission**
-11. Select **My APIs** → choose your PoshMcp Server app
-12. Select **Application permissions**
-13. Check the `access_as_server` scope
-14. Click **Add permissions**
-15. Click **Grant admin consent for [tenant name]** (only admins can do this)
-
 **Result**: The full scope URI is `api://poshmcp-prod/access_as_server` (used in `RequiredScopes` and `ScopesSupported`). When a token is issued, the scope appears in the `scp` claim as just `access_as_server`.
+
+#### Step 2b: Authorize Client Applications (Required for VS Code and MCP Clients)
+
+To allow VS Code and other MCP clients to authenticate with your PoshMcp server, you must authorize them in the **Authorized client applications** section:
+
+1. In the app registration, go to **Expose an API**
+2. Scroll down to **Authorized client applications** and click **Add a client application**
+3. For VS Code MCP support, add the pre-registered VS Code client ID:
+   - **Client ID**: `aebc6443-996d-45c2-90f0-388ff96faa56` (VS Code's fixed MCP client ID)
+   - **Scopes**: Check the scopes you created (e.g., `access_as_server`)
+4. Click **Add application**
+
+**Why this step is critical:** VS Code uses a pre-registered client ID (`aebc6443-996d-45c2-90f0-388ff96faa56`) and does not support dynamic client registration (RFC 7591). Without this authorization, VS Code will fail with: *"Dynamic client registration not supported"*.
+
+If you have other MCP clients, add their client IDs here as well.
+
+#### Step 3: (Conditional) Grant Admin Consent for M2M
+
+If you selected "Admins only" for the scope, you must grant admin consent:
+
+1. Go to the *client app registration* (the one that calls PoshMcp, e.g., VS Code)
+2. Go to **API permissions**
+3. Click **Add a permission**
+4. Select **My APIs** → choose your PoshMcp Server app
+5. Select **Application permissions**
+6. Check the `access_as_server` scope
+7. Click **Add permissions**
+8. Click **Grant admin consent for [tenant name]** (only admins can do this)
+
+---
+
+#### Step 4: Create Credentials for M2M (Server-to-Server)
 
 #### Step 3: Create Credentials for M2M (Server-to-Server)
 
@@ -339,6 +358,97 @@ curl https://poshmcp.example.com/health
 ```
 
 If authentication config is invalid, you'll see errors in the response or in server logs. Valid output indicates auth is running.
+
+---
+
+### VS Code MCP Integration
+
+**Overview:** VS Code supports MCP servers that authenticate with Entra ID via OAuth 2.1 with RFC 9728 Protected Resource Metadata.
+
+#### Why This Matters
+
+VS Code uses a **pre-registered client ID** (`aebc6443-996d-45c2-90f0-388ff96faa56`) for MCP server connections. Microsoft Entra ID does **not** support RFC 7591 (Dynamic Client Registration), so this pre-registered ID must be explicitly authorized in your app registration. Without this step, VS Code will fail with: *"Dynamic client registration not supported"*.
+
+#### How VS Code OAuth Flow Works
+
+1. VS Code connects to your PoshMcp server
+2. Server responds with `HTTP 401` + `WWW-Authenticate` header pointing to `/.well-known/oauth-protected-resource`
+3. VS Code fetches the protected resource metadata, which includes:
+   - Authorization server (Entra ID)
+   - Required scopes
+   - Bearer method
+4. VS Code fetches OAuth metadata from Entra ID (`/.well-known/oauth-authorization-server`)
+5. VS Code initiates **Authorization Code flow with PKCE** using its pre-registered client ID
+6. User authenticates in browser and grants consent
+7. VS Code receives a token and includes it in requests to PoshMcp: `Authorization: Bearer {token}`
+8. PoshMcp validates the token signature, issuer, audience, and scopes
+
+#### VS Code Configuration
+
+In your VS Code `settings.json` or `.vscode/mcp.json`:
+
+```json
+{
+  "servers": {
+    "poshmcp": {
+      "type": "http",
+      "url": "https://your-mcp-server.example.com/mcp",
+      "headers": {}
+    }
+  }
+}
+```
+
+VS Code automatically handles the OAuth flow. No manual token configuration is needed.
+
+#### Protected Resource Metadata Endpoint
+
+Your MCP server must expose `/.well-known/oauth-protected-resource` (RFC 9728). PoshMcp does this automatically via the `ProtectedResource` configuration:
+
+```json
+{
+  "Authentication": {
+    "ProtectedResource": {
+      "Resource": "api://poshmcp-prod",
+      "ResourceName": "PoshMcp Server",
+      "AuthorizationServers": ["https://login.microsoftonline.com/{tenant-id}"],
+      "ScopesSupported": ["api://poshmcp-prod/access_as_server"],
+      "BearerMethodsSupported": ["header"]
+    }
+  }
+}
+```
+
+Test the endpoint:
+
+```bash
+curl https://poshmcp.example.com/.well-known/oauth-protected-resource
+```
+
+Expected response:
+
+```json
+{
+  "resource": "api://poshmcp-prod",
+  "resource_name": "PoshMcp Server",
+  "authorization_servers": [
+    "https://login.microsoftonline.com/12345678-1234-1234-1234-123456789012"
+  ],
+  "scopes_supported": [
+    "api://poshmcp-prod/access_as_server"
+  ],
+  "bearer_methods_supported": ["header"]
+}
+```
+
+#### VS Code MCP Troubleshooting
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| "Dynamic client registration not supported" | VS Code's pre-registered client ID is not authorized in your app registration | Go to **Expose an API** → **Authorized client applications** and add `aebc6443-996d-45c2-90f0-388ff96faa56` |
+| VS Code prompts auth against the app's own `/authorize` endpoint | PRM is misconfigured or missing | Verify `ProtectedResource` is configured and the endpoint returns the expected JSON |
+| 401 after successful VS Code login | Scope mismatch or token validation failure | Verify the token scope matches `ScopesSupported` in PRM; decode the token at jwt.io to inspect claims |
+| AADSTS650053 error | App needs admin consent | Grant admin consent in Azure Portal → App registrations → API permissions |
 
 ---
 
