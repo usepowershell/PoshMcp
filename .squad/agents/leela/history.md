@@ -56,6 +56,28 @@
 **Key insight:**
 - When consolidating docs with overlapping scope, preserve the more comprehensive/structured file as the canonical source and fold specialized guidance (e.g., VS Code) in as subsections. This creates a single, authoritative reference without fragmenting readers across multiple files. Critical integration points (e.g., client app authorization) must be called out explicitly if they were buried or missing in the original guide.
 
+### 2026-05-01: Verified VS Code Scope Naming — `access_as_server` is Correct
+
+**Task:** Investigate whether `user_impersonation` is required for VS Code OAuth flows, or if `access_as_server` is acceptable.
+
+**Status:** ✓ RESOLVED — No documentation changes needed.
+
+**Investigation findings:**
+- **VS Code scope discovery:** VS Code's MCP client does NOT hardcode scope names. It uses RFC 9728 Protected Resource Metadata to dynamically discover available scopes from the server.
+- **Scope naming conventions:** 
+  - `user_impersonation` = Microsoft's built-in convention for Azure service permissions (e.g., `AzureServiceManagement/user_impersonation`). Owned by Microsoft.
+  - `access_as_server` = Custom scope owned by PoshMcp, following pattern `api://poshmcp-prod/access_as_server`. Fully configurable.
+- **VS Code compatibility:** VS Code works with any scope name, as long as:
+  1. The scope is listed in `ScopesSupported` in the Protected Resource Metadata endpoint
+  2. The scope is authorized in "Authorized client applications" for the VS Code client ID
+  3. The token includes the scope in its `scp` claim
+- **Decision:** Keep `access_as_server`. It is more descriptive (indicates delegated server access), owned by PoshMcp (not confusing with Microsoft conventions), and fully compatible with VS Code's dynamic scope discovery.
+
+**Documentation status:** ✓ Current docs are accurate. No changes needed. The guide correctly explains how VS Code discovers scopes via Protected Resource Metadata and authorizes them.
+
+**Key insight:**
+- OAuth scope naming is flexible when using dynamic scope discovery (RFC 9728). Hardcoded conventions like `user_impersonation` are only required when implementing built-in Azure service APIs; custom applications can use any descriptive name they own. Documenting the *discovery mechanism* (PRM endpoint) is more important than prescribing specific scope names.
+
 ---
 
 ### 2026-05-01: v0.9.3 Release Notes (Security Patch — Configuration Precedence Override)
