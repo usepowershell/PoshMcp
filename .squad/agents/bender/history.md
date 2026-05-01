@@ -182,6 +182,21 @@ DOTNET_ENVIRONMENT
 
 ## Learnings
 
+### Version in doctor output (2026-05-01)
+
+- `AssemblyInformationalVersionAttribute` preserves the full semver string (including `+{commit-hash}` suffix added by the .NET SDK). Strip the suffix with `raw[..raw.IndexOf('+')]` to expose a clean `0.9.2` string.
+- `.NET SDK` sets `InformationalVersion` from `<Version>` in the csproj — no manual attribute needed.
+- `GetEntryAssembly()` can return null in test contexts; `typeof(DoctorReport).Assembly` is safer and always resolves the correct assembly.
+- `DoctorSummary.Version` defaults to `string.Empty` — tests that build minimal reports without setting `Version` still pass; banner renders `PoshMcp v  ✓ healthy` in test but the substring checks (`✓ healthy` etc.) still match.
+- **Files modified:** `PoshMcp.Server/Diagnostics/DoctorReport.cs`, `PoshMcp.Server/Diagnostics/DoctorTextRenderer.cs`
+
+### Authentication IOptions bypass fix (2026-05-01)
+
+- **Root cause pattern:** Calling `.Get<T>()` on a config section for local decision-making does NOT register `IOptions<T>` in DI. These are two independent operations. Always pair with `services.Configure<T>(section)` when any downstream consumer uses `IOptions<T>`.
+- **Security implication:** If an early-return guard sits before `services.Configure<>()`, the DI options object always resolves to the default value — in this case `Enabled = false` — regardless of appsettings. Middleware and authorization policy gates that read `IOptions<AuthenticationConfiguration>.Value.Enabled` will always see `false`.
+- **Rule:** Register `services.Configure<T>()` unconditionally (before any feature-enabled guard) so the real configured value is always available to downstream consumers via DI.
+- **Files modified:** `PoshMcp.Server/Authentication/AuthenticationServiceExtensions.cs`
+
 - `install-modules.ps1` is now bundled in the base image at `/app/install-modules.ps1`; `examples/Dockerfile.user` updated to use it directly.
 - Added PSModule path documentation to examples/Dockerfile.user — AllUsers=/usr/local/share/powershell/Modules, built-in=/opt/microsoft/powershell/7/Modules, CurrentUser(runtime)=/home/appuser/.local/share/powershell/Modules
 - Added commented COPY directive examples to examples/Dockerfile.user for local module installation (single module + bulk copy patterns)

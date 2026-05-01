@@ -2,6 +2,21 @@
 
 ## Learnings
 
+### 2026-05-01: Auth regression tests — IOptions registration fix
+
+**Task:** Regression tests for `AddPoshMcpAuthentication()` bug where `services.Configure<AuthenticationConfiguration>()` was missing, causing `IOptions<AuthenticationConfiguration>` to always resolve to default (`Enabled = false`).
+
+**New test file:** `PoshMcp.Tests/Unit/AuthenticationServiceExtensionsTests.cs`
+
+**3 test cases:**
+1. `WhenAuthEnabled_IOptionsAuthenticationConfiguration_ReflectsConfig` — auth enabled config, asserts `Enabled == true`, `DefaultScheme == "Bearer"`, correct scheme count (2)
+2. `WhenAuthDisabled_IOptionsAuthenticationConfiguration_IsRegisteredWithEnabledFalse` — auth disabled config, asserts `Enabled == false` and `DefaultScheme` still populated (not just a default)
+3. `WhenNoAuthSection_IOptionsAuthenticationConfiguration_DoesNotThrow` — no Authentication section, asserts resolving `IOptions<AuthenticationConfiguration>` does not throw and `Enabled == false`
+
+**Key pattern:** `ServiceCollection` + `ConfigurationBuilder().AddInMemoryCollection(...)` → `services.AddPoshMcpAuthentication(config)` → `BuildServiceProvider()` → `GetRequiredService<IOptions<AuthenticationConfiguration>>()` → assert `.Value` properties.
+
+**Result:** 3/3 passing ✅
+
 ### 2026-04-28: Issue #175 — Integration tests for AppInsights graceful degradation
 
 **Branch:** `squad/175-integration-test-appinsights` (worktree `poshmcp-175`)

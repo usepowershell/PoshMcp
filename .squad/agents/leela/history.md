@@ -32,6 +32,30 @@
 
 ## Learnings
 
+### 2026-05-01: v0.9.2 Release Notes (Security Patch — Authentication Bypass)
+
+**Task:** Create release notes for PoshMcp v0.9.2 security patch release.
+
+**Status:** File already existed at `docs/release-notes/0.9.2.md` with comprehensive content. Verified and confirmed complete.
+
+**What was documented:**
+- **Root cause deep-dive** — Configuration binding bug: `AddPoshMcpAuthentication()` called `.Get<>()` to read config but never registered with `services.Configure<>()`, causing `IOptions<AuthenticationConfiguration>` to always resolve to `Enabled = false` default regardless of appsettings.json.
+- **Impact clearly scoped** — HTTP transport with `Authentication.Enabled: true` affected; Stdio/CLI unaffected (no HTTP middleware in those paths).
+- **Technical fix** — One-line addition: `services.Configure<AuthenticationConfiguration>(configuration.GetSection("Authentication"))` placed unconditionally before early-return guards.
+- **Regression tests** — 3 new tests: auth-enabled (IOptions correct), auth-disabled (registered, not default), no-auth-section (no throw).
+- **Upgrade action explicit** — "Rebuild and redeploy your container image. No configuration changes required."
+
+**Style observations (consistent with v0.8.4 pattern):**
+- Security patch = "Security Fix" top-level section (high visibility)
+- Frontmatter: uid, title, released date
+- Breaking Changes: None
+- Upgrade Notes: Action items, scoped impact analysis, no config changes needed
+- Testing: Regression test coverage documented
+- See Also: Links to related guides (Authentication, Security, Configuration)
+
+**Key insight:**
+- Security releases must explain *why* the bug happened (not just what), so ops teams understand the fix and why redeployment is mandatory. The "two security gates in Program.cs were bypassed" framing helped readers understand the severity.
+
 ### 2026-04-24: v0.8.4 Release Notes (Security Patch)
 
 **Task:** Created release notes for PoshMcp v0.8.4 and added TOC entry.
@@ -333,3 +357,32 @@
 
 **Learnings:**
 Release notes for v0.8.9–0.8.11: PSModule docs in Dockerfile, --appsettings build option, fix for poshmcp build outside repo
+
+## 2026-05-01: v0.9.2 Security Release Notes
+
+**Task:** Write release notes for PoshMcp v0.9.2, a critical security patch addressing authentication configuration bypass.
+
+**Security Issue:** `AddPoshMcpAuthentication()` called `.Get<AuthenticationConfiguration>()` to read configuration but failed to register it with `services.Configure<AuthenticationConfiguration>()`. This caused `IOptions<AuthenticationConfiguration>` to always resolve to its default state (`Enabled = false`), bypassing authentication middleware and token validation even when `Authentication.Enabled: true` was configured.
+
+**Impact:** High severity — any deployment with authentication enabled was accepting all MCP requests without validation. Two security gates were inert: middleware registration and endpoint authorization policy.
+
+**What Was Written:**
+- **Security Fix section** — Plain-English explanation of the bug, its impact, and the fix
+- **High severity callout** — Made immediately visible that this is a critical security update
+- **Root cause and proof:** Explained which two gates were bypassed and why
+- **Clear fix code:** Showed the one-line solution with context
+- **Upgrade Notes:** Emphasized "redeploy immediately" with clear ops guidance (redeploy required, no config changes, auth now works)
+- **Testing:** Documented 3 regression tests covering the fix
+- **Breaking Changes:** None (correctness fix, not behavior change)
+
+**Style Decisions:**
+- Security patch releases get **"Security Fix"** top-level section (not "What's New"), matching v0.8.4 pattern
+- Direct, no-jargon language for operators (most critical audience)
+- Impact statement leads with deployment scope ("any deployment with Authentication.Enabled: true")
+- Upgrade section emphasizes immediacy ("should be updated immediately") — ops must treat this as urgent
+- Structured code block with context, not just snippet
+- See Also links point to auth and security docs for deeper reading
+- No CVE assigned yet (marked CVE-Pending) — appropriate for first-party security disclosure
+- Omitted internal commits — user-facing facts only
+
+**Outcome:** v0.9.2 release notes complete. Clear, direct advisory that meets security patch disclosure standards. Ready for publication and immediate deployment.
