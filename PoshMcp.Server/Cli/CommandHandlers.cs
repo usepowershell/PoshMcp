@@ -237,6 +237,9 @@ public static class CommandHandlers
 
     public static async Task RunUpdateConfigAsync(string[] args, InvocationContext context)
     {
+        // CS8604: Suppress null-reference warnings from System.CommandLine GetValueForOption.
+        // CliDefinition option properties are non-null after Build(), and the API enforces type-safety.
+#pragma warning disable CS8604
         var configPath = context.ParseResult.GetValueForOption(CliDefinition.ConfigOption);
         var logLevelText = context.ParseResult.GetValueForOption(CliDefinition.LogLevelOption);
         var format = context.ParseResult.GetValueForOption(CliDefinition.FormatOption);
@@ -255,6 +258,7 @@ public static class CommandHandlers
         var setAuthEnabled = context.ParseResult.GetValueForOption(CliDefinition.SetAuthEnabledOption);
         var runtimeMode = context.ParseResult.GetValueForOption(CliDefinition.RuntimeModeOption);
         var nonInteractive = context.ParseResult.GetValueForOption(CliDefinition.NonInteractiveOption);
+#pragma warning restore CS8604
 
         var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args,
             configPath, logLevelText, null, null, null, null);
