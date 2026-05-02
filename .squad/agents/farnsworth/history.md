@@ -25,6 +25,31 @@ Source: earned patterns from PRs #92–#96 and agent histories.
 
 **Spec:** `specs/002-mcp-resources-and-prompts/spec.md`
 
+
+
+### 2026-05-02: Reviewed PR #184 — Program.cs Refactoring (squad/program-cs-refactor)
+
+**Verdict:** CHANGES REQUESTED
+
+**PR:** https://github.com/usepowershell/PoshMcp/pull/184 — "refactor: extract Program.cs concerns into dedicated service classes (68% reduction)"
+
+**Branch pushed and PR created** from worktree `poshmcp-refactor`. 6 commits, 6 new files.
+
+**Key findings:**
+
+1. **BLOCKING — DescribeConfigurationPath duplicated 5x**: `Program.cs`, `DoctorService.cs`, `CommandHandlers.cs`, `StdioServerHost.cs`, `HttpServerHost.cs` all contain a private copy of the same utility method. Same for `ToToolName`, `GetDiscoveredToolNames`, `GetExpectedToolNames`. Needs a shared `ConfigurationHelpers` utility class.
+
+2. **BLOCKING — DoctorService extraction incomplete**: `BuildDoctorReportFromConfig` and `BuildDoctorJson` (plus all their private helpers) were COPIED into `DoctorService.cs` but NOT removed from `Program.cs`. Tests still call `Program.BuildDoctorReportFromConfig`. Fix: either delete duplicates from Program.cs + update tests, or have Program.cs forward to DoctorService.
+
+3. **CONCERN — CliDefinition nullable static properties**: 70+ options/commands are null until `Build()` is called; mutable static state reset on subsequent `Build()` calls. Suggest returning a value object instead.
+
+4. **CONCERN — CliDefinition/CommandHandlers are `public`**: Should be `internal` (matching DoctorService, McpToolSetupService, etc.).
+
+5. **GOOD — Delegate injection in DoctorService**: Passing `DiscoverToolsForCliAsync` as Func avoids coupling Diagnostics to Server layer.
+
+6. **GOOD — Namespace consistency**: All 6 new classes use `namespace PoshMcp;`.
+
+**Decisions file:** `.squad/decisions/inbox/farnsworth-pr-review.md`
 **Key decisions:**
 - `McpResources` and `McpPrompts` are top-level `appsettings.json` siblings to `PowerShellConfiguration` — MCP-layer concerns belong at MCP layer, not nested under execution config
 - Two source types for both: `"file"` (read at request time, relative to `appsettings.json` dir) and `"command"` (executed in shared runspace, no new runspace)
