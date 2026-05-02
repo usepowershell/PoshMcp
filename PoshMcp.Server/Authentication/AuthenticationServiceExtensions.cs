@@ -105,14 +105,33 @@ public static class AuthenticationServiceExtensions
 
                             OnTokenValidated = context =>
                             {
-                                var claims = context.Principal?.Claims
-                                    .Where(c => c.Type is "aud" or "scp" or "iss" or "sub" or "appid")
-                                    .Select(c => $"{c.Type}={c.Value}");
-                                context.HttpContext.RequestServices
-                                    .GetRequiredService<ILogger<JwtBearerHandler>>()
-                                    .LogInformation(
-                                        "JWT OnTokenValidated: Claims={Claims}",
-                                        string.Join(", ", claims ?? []));
+                                var logger = context.HttpContext.RequestServices
+                                    .GetRequiredService<ILogger<JwtBearerHandler>>();
+
+                                // Log ALL claims so operators can see exactly what the token carries.
+                                // Critical for diagnosing authorization failures on otherwise-valid tokens
+                                // (e.g. token authenticates fine but lacks the required `scp` or `roles`
+                                // claim values for the McpAccess policy).
+                                var allClaims = context.Principal?.Claims
+                                    .Select(c => $"{c.Type}={c.Value}")
+                                    ?? Enumerable.Empty<string>();
+                                logger.LogInformation(
+                                    "JWT OnTokenValidated: AllClaims=[{Claims}]",
+                                    string.Join(" | ", allClaims));
+
+                                // Surface the auth-relevant claims at WARNING level so they're
+                                // easy to spot even when the rest of the log stream is noisy.
+                                var scp = context.Principal?.FindAll("scp")
+                                    .Select(c => c.Value).ToArray() ?? [];
+                                var roles = context.Principal?.FindAll("roles")
+                                    .Select(c => c.Value).ToArray() ?? [];
+                                var aud = context.Principal?.FindAll("aud")
+                                    .Select(c => c.Value).ToArray() ?? [];
+                                logger.LogWarning(
+                                    "JWT AUTHZ DIAG: aud=[{Aud}] scp=[{Scp}] roles=[{Roles}]",
+                                    string.Join(",", aud),
+                                    string.Join(",", scp),
+                                    string.Join(",", roles));
                                 return Task.CompletedTask;
                             },
 
