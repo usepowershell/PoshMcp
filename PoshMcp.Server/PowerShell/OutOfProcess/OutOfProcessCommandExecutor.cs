@@ -174,7 +174,7 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        var baseDir = configFilePath is not null
+        var baseDir = !string.IsNullOrEmpty(configFilePath)
             ? Path.GetDirectoryName(Path.GetFullPath(configFilePath))!
             : Directory.GetCurrentDirectory();
 
