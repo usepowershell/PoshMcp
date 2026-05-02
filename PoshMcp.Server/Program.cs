@@ -63,339 +63,7 @@ public class Program
             description: "Enable verbose logging");
 
         var debugOption = new Option<bool>(
-            aliases: new[] { "--debug", "-d" },
-            description: "Enable debug logging");
 
-        var traceOption = new Option<bool>(
-            aliases: new[] { "--trace", "-t" },
-            description: "Enable trace logging");
-
-        var configOption = new Option<string?>(
-            aliases: new[] { "--config", "-c" },
-            description: "Path to configuration file (defaults to appsettings.json resolution)");
-
-        var logLevelOption = new Option<string?>(
-            aliases: new[] { "--log-level" },
-            description: "Log level: trace|debug|info|warn|error");
-
-        var transportOption = new Option<string?>(
-            aliases: new[] { "--transport" },
-            description: "Server transport: stdio|sse|http (currently stdio only for this executable)");
-
-        var formatOption = new Option<string?>(
-            aliases: new[] { "--format" },
-            description: "Output format: text|json");
-
-        var forceOption = new Option<bool>(
-            aliases: new[] { "--force", "-f" },
-            description: "Overwrite an existing appsettings.json when creating defaults");
-
-        var nonInteractiveOption = new Option<bool>(
-            aliases: new[] { "--non-interactive" },
-            description: "Skip interactive advanced-configuration prompts during updates");
-
-
-
-        var addCommandOption = new Option<string[]>(
-            aliases: new[] { "--add-command" },
-            description: "Add one or more command names to PowerShellConfiguration.CommandNames")
-        {
-            Arity = ArgumentArity.ZeroOrMore
-        };
-
-        var removeCommandOption = new Option<string[]>(
-            aliases: new[] { "--remove-command" },
-            description: "Remove one or more command names from PowerShellConfiguration.CommandNames")
-        {
-            Arity = ArgumentArity.ZeroOrMore
-        };
-
-        var addModuleOption = new Option<string[]>(
-            aliases: new[] { "--add-module" },
-            description: "Add one or more module names to PowerShellConfiguration.Modules")
-        {
-            Arity = ArgumentArity.ZeroOrMore
-        };
-
-        var removeModuleOption = new Option<string[]>(
-            aliases: new[] { "--remove-module" },
-            description: "Remove one or more module names from PowerShellConfiguration.Modules")
-        {
-            Arity = ArgumentArity.ZeroOrMore
-        };
-
-        var addIncludePatternOption = new Option<string[]>(
-            aliases: new[] { "--add-include-pattern" },
-            description: "Add one or more patterns to PowerShellConfiguration.IncludePatterns")
-        {
-            Arity = ArgumentArity.ZeroOrMore
-        };
-
-        var removeIncludePatternOption = new Option<string[]>(
-            aliases: new[] { "--remove-include-pattern" },
-            description: "Remove one or more patterns from PowerShellConfiguration.IncludePatterns")
-        {
-            Arity = ArgumentArity.ZeroOrMore
-        };
-
-        var addExcludePatternOption = new Option<string[]>(
-            aliases: new[] { "--add-exclude-pattern" },
-            description: "Add one or more patterns to PowerShellConfiguration.ExcludePatterns")
-        {
-            Arity = ArgumentArity.ZeroOrMore
-        };
-
-        var removeExcludePatternOption = new Option<string[]>(
-            aliases: new[] { "--remove-exclude-pattern" },
-            description: "Remove one or more patterns from PowerShellConfiguration.ExcludePatterns")
-        {
-            Arity = ArgumentArity.ZeroOrMore
-        };
-
-        var enableDynamicReloadToolsOption = new Option<string?>(
-            aliases: new[] { "--enable-dynamic-reload-tools" },
-            description: "Set PowerShellConfiguration.EnableDynamicReloadTools to true or false");
-
-        var enableConfigurationTroubleshootingToolOption = new Option<string?>(
-            aliases: new[] { "--enable-configuration-troubleshooting-tool" },
-            description: "Set PowerShellConfiguration.EnableConfigurationTroubleshootingTool to true or false");
-
-        var enableResultCachingOption = new Option<string?>(
-            aliases: new[] { "--enable-result-caching" },
-            description: "Set PowerShellConfiguration.Performance.EnableResultCaching to true or false");
-
-        var useDefaultDisplayPropertiesOption = new Option<string?>(
-            aliases: new[] { "--use-default-display-properties" },
-            description: "Set PowerShellConfiguration.Performance.UseDefaultDisplayProperties to true or false");
-
-        var setAuthEnabledOption = new Option<string?>(
-            aliases: new[] { "--set-auth-enabled" },
-            description: "Set Authentication.Enabled to true or false");
-
-        var sessionModeOption = new Option<string?>(
-            aliases: new[] { "--session-mode" },
-            description: "Session mode hint: stateful|stateless (reserved for hosted transports)");
-
-        var runtimeModeOption = new Option<string?>(
-            aliases: new[] { "--runtime-mode" },
-            description: "PowerShell runtime mode: in-process|out-of-process");
-
-        var urlOption = new Option<string?>(
-            aliases: new[] { "--url" },
-            description: "URL bind hint for hosted transports (reserved)");
-
-        var mcpPathOption = new Option<string?>(
-            aliases: new[] { "--mcp-path" },
-            description: "MCP endpoint path hint for hosted transports (reserved)");
-
-        // Add subcommands
-        var serveCommand = new Command("serve", "Run the MCP server (stdio transport by default)");
-        serveCommand.AddOption(configOption);
-        serveCommand.AddOption(logLevelOption);
-        serveCommand.AddOption(transportOption);
-        serveCommand.AddOption(sessionModeOption);
-        serveCommand.AddOption(runtimeModeOption);
-        serveCommand.AddOption(urlOption);
-        serveCommand.AddOption(mcpPathOption);
-
-        var logFileOption = new Option<string?>(
-            aliases: new[] { "--log-file" },
-            description: "Path to log file for stdio transport (suppresses console logging)");
-        serveCommand.AddOption(logFileOption);
-
-        var listToolsCommand = new Command("list-tools", "Discover and list tools without starting the MCP server");
-        listToolsCommand.AddOption(configOption);
-        listToolsCommand.AddOption(logLevelOption);
-        listToolsCommand.AddOption(runtimeModeOption);
-        listToolsCommand.AddOption(formatOption);
-
-        var validateConfigCommand = new Command("validate-config", "Validate configuration and tool discovery");
-        validateConfigCommand.AddOption(configOption);
-        validateConfigCommand.AddOption(logLevelOption);
-        validateConfigCommand.AddOption(runtimeModeOption);
-        validateConfigCommand.AddOption(formatOption);
-
-        var doctorCommand = new Command("doctor", "Run runtime and configuration diagnostics");
-        doctorCommand.AddOption(configOption);
-        doctorCommand.AddOption(logLevelOption);
-        doctorCommand.AddOption(transportOption);
-        doctorCommand.AddOption(sessionModeOption);
-        doctorCommand.AddOption(runtimeModeOption);
-        doctorCommand.AddOption(mcpPathOption);
-        doctorCommand.AddOption(formatOption);
-
-        var createConfigCommand = new Command("create-config", "Create a default appsettings.json in the current directory");
-        createConfigCommand.AddOption(forceOption);
-        createConfigCommand.AddOption(formatOption);
-
-        var updateConfigCommand = new Command("update-config", "Update settings in the active configuration file (same resolution rules as doctor)");
-        updateConfigCommand.AddOption(configOption);
-        updateConfigCommand.AddOption(logLevelOption);
-        updateConfigCommand.AddOption(formatOption);
-        updateConfigCommand.AddOption(addCommandOption);
-        updateConfigCommand.AddOption(removeCommandOption);
-        updateConfigCommand.AddOption(addModuleOption);
-        updateConfigCommand.AddOption(removeModuleOption);
-        updateConfigCommand.AddOption(addIncludePatternOption);
-        updateConfigCommand.AddOption(removeIncludePatternOption);
-        updateConfigCommand.AddOption(addExcludePatternOption);
-        updateConfigCommand.AddOption(removeExcludePatternOption);
-        updateConfigCommand.AddOption(enableDynamicReloadToolsOption);
-        updateConfigCommand.AddOption(enableConfigurationTroubleshootingToolOption);
-        updateConfigCommand.AddOption(enableResultCachingOption);
-        updateConfigCommand.AddOption(useDefaultDisplayPropertiesOption);
-        updateConfigCommand.AddOption(setAuthEnabledOption);
-        updateConfigCommand.AddOption(runtimeModeOption);
-        updateConfigCommand.AddOption(nonInteractiveOption);
-
-        var psModulePathCommand = new Command("psmodulepath", "Start a PowerShell runspace and report the value of $env:PSModulePath");
-        psModulePathCommand.AddOption(verboseOption);
-        psModulePathCommand.AddOption(debugOption);
-        psModulePathCommand.AddOption(traceOption);
-
-        // Build command for Docker image creation
-        var buildModulesOption = new Option<string?>(
-            aliases: new[] { "--modules" },
-            description: "Space-separated module names to pre-install in custom images (e.g., 'Pester Az.Accounts')");
-
-        var buildTypeOption = new Option<string?>(
-            aliases: new[] { "--type", "--base" },
-            description: "Image type: 'custom' (derived from a source/base image) or 'base' (build local runtime source image). Default: custom");
-
-        var buildTagOption = new Option<string?>(
-            aliases: new[] { "--tag" },
-            description: "Image tag name (default: poshmcp:latest)");
-
-        var buildDockerFileOption = new Option<string?>(
-            aliases: new[] { "--docker-file" },
-            description: "Custom Dockerfile path for advanced users");
-
-        var buildSourceImageOption = new Option<string?>(
-            aliases: new[] { "--source-image" },
-            description: "Source/base image repository or full reference for custom builds (default: ghcr.io/usepowershell/poshmcp/poshmcp:latest)");
-
-        var buildSourceTagOption = new Option<string?>(
-            aliases: new[] { "--source-tag" },
-            description: "Tag for --source-image when a repository is provided (default: latest)");
-
-        var buildGenerateDockerfileOption = new Option<bool>(
-            aliases: new[] { "--generate-dockerfile" },
-            description: "Write the generated Dockerfile to disk instead of building");
-
-        var buildDockerfileOutputOption = new Option<string?>(
-            aliases: new[] { "--dockerfile-output" },
-            description: "Path for the generated Dockerfile (default: ./Dockerfile.generated)");
-
-        var buildAppSettingsOption = new Option<string?>(
-            aliases: new[] { "--appsettings" },
-            description: "Path to a local appsettings.json to bundle into the image at /app/server/appsettings.json");
-
-        var buildCommand = new Command("build", "Build a Docker image; defaults to creating a custom image from the published GHCR base image");
-        buildCommand.AddOption(buildModulesOption);
-        buildCommand.AddOption(buildTypeOption);
-        buildCommand.AddOption(buildTagOption);
-        buildCommand.AddOption(buildDockerFileOption);
-        buildCommand.AddOption(buildSourceImageOption);
-        buildCommand.AddOption(buildSourceTagOption);
-        buildCommand.AddOption(buildGenerateDockerfileOption);
-        buildCommand.AddOption(buildDockerfileOutputOption);
-        buildCommand.AddOption(buildAppSettingsOption);
-
-        // Run command for Docker container execution
-        var runModeOption = new Option<string?>(
-            aliases: new[] { "--mode" },
-            description: "Transport mode: 'http' or 'stdio' (default: http)");
-
-        var runPortOption = new Option<int?>(
-            aliases: new[] { "--port" },
-            description: "Port number for HTTP mode (default: 8080)");
-
-        var runTagOption = new Option<string?>(
-            aliases: new[] { "--tag" },
-            description: "Image tag to run (default: poshmcp:latest)");
-
-        var runConfigOption = new Option<string?>(
-            aliases: new[] { "--config" },
-            description: "Config file path to mount into container");
-
-        var runVolumeOption = new Option<string[]>(
-            aliases: new[] { "--volume" },
-            description: "Volume mount in format 'source:destination' (repeatable)")
-        {
-            Arity = ArgumentArity.ZeroOrMore
-        };
-
-        var runInteractiveOption = new Option<bool>(
-            aliases: new[] { "--interactive", "-it" },
-            description: "Run in interactive mode with terminal");
-
-        var runCommand = new Command("run", "Run PoshMcp in a Docker container");
-        runCommand.AddOption(runModeOption);
-        runCommand.AddOption(runPortOption);
-        runCommand.AddOption(runTagOption);
-        runCommand.AddOption(runConfigOption);
-        runCommand.AddOption(runVolumeOption);
-        runCommand.AddOption(runInteractiveOption);
-
-        var scaffoldProjectPathOption = new Option<string?>(
-            aliases: new[] { "--project-path", "--path", "-p" },
-            description: "Target project directory where infra/azure files will be scaffolded (default: current directory)");
-
-        var scaffoldCommand = new Command("scaffold", "Scaffold embedded infrastructure artifacts into a target project");
-        scaffoldCommand.AddOption(scaffoldProjectPathOption);
-        scaffoldCommand.AddOption(forceOption);
-        scaffoldCommand.AddOption(formatOption);
-
-        rootCommand.AddCommand(serveCommand);
-        rootCommand.AddCommand(listToolsCommand);
-        rootCommand.AddCommand(validateConfigCommand);
-        rootCommand.AddCommand(doctorCommand);
-        rootCommand.AddCommand(createConfigCommand);
-        rootCommand.AddCommand(updateConfigCommand);
-        rootCommand.AddOption(evaluateToolsOption);
-        rootCommand.AddOption(verboseOption);
-        rootCommand.AddOption(debugOption);
-        rootCommand.AddOption(traceOption);
-        rootCommand.AddCommand(psModulePathCommand);
-        rootCommand.AddCommand(buildCommand);
-        rootCommand.AddCommand(runCommand);
-        rootCommand.AddCommand(scaffoldCommand);
-
-        // Handler for the main command (default MCP server behavior)
-        rootCommand.SetHandler(async (evaluateTools, verbose, debug, trace) =>
-        {
-            // Determine log level based on options
-            LogLevel logLevel = LogLevel.Information;
-            if (trace) logLevel = LogLevel.Trace;
-            else if (debug) logLevel = LogLevel.Debug;
-            else if (verbose) logLevel = LogLevel.Debug; // Verbose maps to Debug level
-
-            if (evaluateTools)
-            {
-                await CommandHandlers.RunToolEvaluationAsync(logLevel);
-            }
-            else
-            {
-                await RunMcpServerAsync(args, logLevel, null);
-            }
-        }, evaluateToolsOption, verboseOption, debugOption, traceOption);
-
-        serveCommand.SetHandler(async (InvocationContext context) =>
-        {
-            var configPath = context.ParseResult.GetValueForOption(configOption);
-            var logLevelText = context.ParseResult.GetValueForOption(logLevelOption);
-            var transport = context.ParseResult.GetValueForOption(transportOption);
-            var sessionMode = context.ParseResult.GetValueForOption(sessionModeOption);
-            var runtimeMode = context.ParseResult.GetValueForOption(runtimeModeOption);
-            var url = context.ParseResult.GetValueForOption(urlOption);
-            var mcpPath = context.ParseResult.GetValueForOption(mcpPathOption);
-            var logFile = context.ParseResult.GetValueForOption(logFileOption);
-
-            var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args, configPath, logLevelText, transport, sessionMode, runtimeMode, mcpPath);
-            var parsedLogLevel = SettingsResolver.ParseLogLevel(resolvedSettings.LogLevel.Value);
-            var transportMode = SettingsResolver.ResolveTransportMode(resolvedSettings.Transport.Value);
-
-            var fileConfigBuilder = new ConfigurationBuilder();
             if (!string.IsNullOrWhiteSpace(resolvedSettings.FinalConfigPath) && File.Exists(resolvedSettings.FinalConfigPath))
             {
                 fileConfigBuilder.AddJsonFile(resolvedSettings.FinalConfigPath, optional: true, reloadOnChange: false);
@@ -501,7 +169,7 @@ public class Program
             var outputFormat = ConfigurationFileManager.NormalizeFormat(format);
             try
             {
-                await DoctorService.RunDoctorAsync(resolvedSettings, outputFormat, DiscoverToolsAsync);
+                await DoctorService.RunDoctorAsync(resolvedSettings, outputFormat, McpToolSetupService.DiscoverToolsForCliAsync);
                 Environment.ExitCode = ExitCodeSuccess;
             }
             catch (Exception ex)
@@ -608,7 +276,7 @@ public class Program
         var logger = loggerFactory.CreateLogger("ListTools");
 
         var config = ConfigurationLoader.LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
-        var tools = await DiscoverToolsAsync(config, loggerFactory, logger, finalConfigPath);
+        var tools = await McpToolSetupService.DiscoverToolsAsync(config, loggerFactory, logger, finalConfigPath);
 
         if (format == "json")
         {
@@ -640,7 +308,7 @@ public class Program
         var logger = loggerFactory.CreateLogger("ValidateConfig");
 
         var config = ConfigurationLoader.LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
-        var tools = await DiscoverToolsAsync(config, loggerFactory, logger, finalConfigPath);
+        var tools = await McpToolSetupService.DiscoverToolsAsync(config, loggerFactory, logger, finalConfigPath);
         var (resourcesDiag, promptsDiag) = ConfigurationLoader.TryValidateResourcesAndPrompts(finalConfigPath);
 
         var hasErrors = resourcesDiag.Errors.Count > 0 || promptsDiag.Errors.Count > 0;
@@ -1199,12 +867,12 @@ public class Program
             LogEvaluationStart(logger, logLevel);
             var finalConfigPath = await DetermineConfigurationPath(logger);
             var config = ConfigurationLoader.LoadPowerShellConfiguration(finalConfigPath, logger);
-            var tools = await DiscoverToolsAsync(config, loggerFactory, logger, finalConfigPath);
-            ReportToolDiscoveryResults(tools, logger);
+            var tools = await McpToolSetupService.DiscoverToolsForCliAsync(config, loggerFactory, logger, finalConfigPath);
+            McpToolSetupService.ReportToolDiscoveryResults(tools, logger);
         }
         catch (Exception ex)
         {
-            HandleToolEvaluationError(ex, logger);
+            McpToolSetupService.HandleToolEvaluationError(ex, logger);
         }
     }
 
@@ -1239,60 +907,7 @@ public class Program
         return resolvedConfigPath.Value ?? string.Empty;
     }
 
-    private static async Task<List<McpServerTool>> DiscoverToolsAsync(PowerShellConfiguration config, ILoggerFactory loggerFactory, ILogger logger, string configurationPath)
-    {
-        logger.LogInformation("Discovering PowerShell tools...");
-        await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger, configurationPath);
-        var toolFactory = CreateToolFactory(config, executorLease?.Executor);
-        var tools = await toolFactory.GetToolsListAsync(config, logger);
-        AddConfigurationGuidanceToolToList(tools, config, configurationPath, "stdio", config.RuntimeMode.ToString(), null, loggerFactory);
-        AddConfigurationTroubleshootingToolToList(tools, config, configurationPath, "stdio", null, config.RuntimeMode.ToString(), null, logger);
-        return tools;
-    }
 
-    private static void ReportToolDiscoveryResults(List<McpServerTool> tools, ILogger logger)
-    {
-        PrintToolDiscoveryResults(tools);
-
-        if (tools.Count > 0)
-            PrintSuccessMessage();
-        else
-            PrintNoToolsFoundMessage();
-
-        logger.LogInformation("Tool evaluation completed successfully");
-    }
-
-    private static void PrintToolDiscoveryResults(List<McpServerTool> tools)
-    {
-        Console.Error.WriteLine();
-        Console.Error.WriteLine($"=== Tool Discovery Results ===");
-        Console.Error.WriteLine($"Total tools discovered: {tools.Count}");
-        Console.Error.WriteLine();
-    }
-
-    private static void PrintSuccessMessage()
-    {
-        Console.Error.WriteLine("Successfully created MCP tools from discovered PowerShell commands.");
-        Console.Error.WriteLine("Tools are ready to be exposed via the MCP server.");
-        Console.Error.WriteLine();
-        Console.Error.WriteLine("To start the MCP server with these tools, run without the --evaluate-tools flag.");
-    }
-
-    private static void PrintNoToolsFoundMessage()
-    {
-        Console.Error.WriteLine("No tools were discovered. Check your configuration and PowerShell environment.");
-        Console.Error.WriteLine();
-        Console.Error.WriteLine("Ensure that:");
-        Console.Error.WriteLine("- PowerShell commands specified in FunctionNames exist");
-        Console.Error.WriteLine("- Modules specified in Modules are available");
-        Console.Error.WriteLine("- Include/exclude patterns are not filtering out all commands");
-    }
-
-    private static void HandleToolEvaluationError(Exception ex, ILogger logger)
-    {
-        logger.LogError(ex, "Error during tool evaluation: {ErrorMessage}", ex.Message);
-        Console.Error.WriteLine($"Error: {ex.Message}");
-    }
 
     private static async Task RunMcpServerAsync(string[] args, LogLevel? overrideLogLevel = null, string? explicitConfigPath = null, string? configurationPathSource = null, string? runtimeModeOverride = null, string? logFilePath = null)
     {
@@ -1305,8 +920,8 @@ public class Program
         logger.LogInformation("Using configuration source: {ConfigurationPath}", DescribeConfigurationPath(finalConfigPath));
         var config = ConfigurationLoader.LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
         var resourcesConfig = ConfigurationLoader.LoadMcpResourcesConfiguration(finalConfigPath, logger);
-        await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger, finalConfigPath);
-        var tools = await SetupMcpToolsAsync(loggerFactory, config, logger, finalConfigPath, configurationPathSource ?? InferConfigurationPathSource(finalConfigPath), executorLease?.Executor);
+        await using var executorLease = await McpToolSetupService.StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger, finalConfigPath);
+        var tools = await McpToolSetupService.SetupMcpToolsAsync(loggerFactory, config, logger, finalConfigPath, configurationPathSource ?? McpToolSetupService.InferConfigurationPathSource(finalConfigPath), executorLease?.Executor);
         var promptsConfig = ConfigurationLoader.LoadPromptsConfiguration(finalConfigPath);
         var configDirectory = Path.GetDirectoryName(finalConfigPath) ?? Directory.GetCurrentDirectory();
         var promptHandler = new McpPromptHandler(promptsConfig, configDirectory, loggerFactory.CreateLogger<McpPromptHandler>());
@@ -1365,7 +980,7 @@ public class Program
         using var bootstrapLoggerFactory = LoggingHelpers.CreateLoggerFactory(logLevel);
         var logger = bootstrapLoggerFactory.CreateLogger("PoshMcpHttpLogger");
         var config = ConfigurationLoader.LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
-        await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, bootstrapLoggerFactory, logger, finalConfigPath);
+        await using var executorLease = await McpToolSetupService.StartOutOfProcessExecutorIfNeededAsync(config, bootstrapLoggerFactory, logger, finalConfigPath);
 
         var sharedHttpContextAccessor = new HttpContextAccessor();
         var sharedRunspaceLogger = bootstrapLoggerFactory.CreateLogger<SessionAwarePowerShellRunspace>();
@@ -1376,7 +991,7 @@ public class Program
 
         logger.LogInformation("Using configuration source: {ConfigurationPath}", DescribeConfigurationPath(finalConfigPath));
 
-        var tools = await SetupHttpMcpToolsAsync(bootstrapLoggerFactory, config, logger, finalConfigPath, configurationPathSource, sharedSessionRunspace, executorLease?.Executor, sharedHttpContextAccessor);
+        var tools = await McpToolSetupService.SetupHttpMcpToolsAsync(bootstrapLoggerFactory, config, logger, finalConfigPath, configurationPathSource, sharedSessionRunspace, executorLease?.Executor, sharedHttpContextAccessor);
         var resourcesConfig = ConfigurationLoader.LoadMcpResourcesConfiguration(finalConfigPath, logger);
         var resourcesConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? ".";
         var resourceLogger = bootstrapLoggerFactory.CreateLogger<McpResourceHandler>();
@@ -1575,44 +1190,7 @@ public class Program
         await context.Response.WriteAsync(result);
     }
 
-    private static async Task<List<McpServerTool>> SetupHttpMcpToolsAsync(
-        ILoggerFactory loggerFactory,
-        PowerShellConfiguration config,
-        ILogger logger,
-        string finalConfigPath,
-        string configurationPathSource,
-        IPowerShellRunspace sessionAwareRunspace,
-        ICommandExecutor? commandExecutor,
-        IHttpContextAccessor? httpContextAccessor = null)
-    {
-        var runtimeCachingState = new RuntimeCachingState();
-        PowerShellAssemblyGenerator.SetRuntimeCachingState(runtimeCachingState);
-        PowerShellAssemblyGenerator.SetConfiguration(config);
-        logger.LogInformation("RuntimeCachingState initialized and wired into PowerShellAssemblyGenerator");
 
-        var toolFactory = CreateToolFactory(config, commandExecutor, sessionAwareRunspace);
-        var tools = await toolFactory.GetToolsListAsync(config, logger);
-
-        if (config.EnableDynamicReloadTools)
-        {
-            var reloadTools = CreateConfigurationReloadTools(loggerFactory, toolFactory, config, finalConfigPath, configurationPathSource, "http", config.RuntimeMode.ToString(), null, () => tools);
-            AddConfigurationReloadToolsToList(tools, reloadTools);
-            logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools)");
-        }
-        else
-        {
-            logger.LogInformation($"Added {tools.Count} total tools (dynamic reload tools are disabled)");
-        }
-
-        var setResultCachingTool = CreateSetResultCachingToolInstance(runtimeCachingState);
-        tools.Add(setResultCachingTool);
-        logger.LogInformation("Registered set-result-caching tool (always enabled)");
-
-        AddConfigurationGuidanceToolToList(tools, config, finalConfigPath, "http", config.RuntimeMode.ToString(), null, loggerFactory);
-        AddConfigurationTroubleshootingToolToList(tools, config, finalConfigPath, "http", null, config.RuntimeMode.ToString(), null, logger, httpContextAccessor);
-
-        return tools;
-    }
 
     private static void ConfigureServerLogging(HostApplicationBuilder builder, LogLevel? overrideLogLevel)
     {
@@ -1689,28 +1267,10 @@ public class Program
             : configurationPath;
     }
 
-    private static async Task<List<McpServerTool>> SetupMcpToolsAsync(ILoggerFactory loggerFactory, PowerShellConfiguration config, ILogger logger, string finalConfigPath, string configurationPathSource, ICommandExecutor? commandExecutor)
-    {
-        // Create RuntimeCachingState singleton and wire into assembly generator static state
-        var runtimeCachingState = new RuntimeCachingState();
-        PowerShellAssemblyGenerator.SetRuntimeCachingState(runtimeCachingState);
-        PowerShellAssemblyGenerator.SetConfiguration(config);
-        logger.LogInformation("RuntimeCachingState initialized and wired into PowerShellAssemblyGenerator");
 
-        var toolFactory = CreateToolFactory(config, commandExecutor);
-        var tools = await toolFactory.GetToolsListAsync(config, logger);
 
-        if (config.EnableDynamicReloadTools)
-        {
-            var reloadTools = CreateConfigurationReloadTools(loggerFactory, toolFactory, config, finalConfigPath, configurationPathSource, "stdio", config.RuntimeMode.ToString(), null, () => tools);
-            AddConfigurationReloadToolsToList(tools, reloadTools);
-            logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools)");
-        }
-        else
-        {
-            logger.LogInformation($"Added {tools.Count} total tools (dynamic reload tools are disabled)");
-        }
 
+<<<<<<< HEAD
         // Always register set-result-caching (not gated by EnableDynamicReloadTools)
         var setResultCachingTool = CreateSetResultCachingToolInstance(runtimeCachingState);
         tools.Add(setResultCachingTool);
@@ -2041,6 +1601,8 @@ public class Program
             return false;
         return null;
     }
+=======
+>>>>>>> f75842d (refactor: extract MCP tool setup to McpToolSetupService.cs)
 
     private static void ConfigureServerServices(
         HostApplicationBuilder builder,
