@@ -24,6 +24,64 @@
 - **Prefer `req.Host.ToUriComponent()` over `req.Host.ToString()`** when building URLs — `ToUriComponent()` includes the port only when non-default, which is the correct behaviour.
 
 ## Previous Work (2026-04-20)
+### Spec 009 Phase 3 PR 3: StdioServerHost and HttpServerHost Extraction
+**Branch:** squad/program-cs-refactor  
+**Status:** Complete ✅
+**Commit:** e4b6309 — "refactor: extract server host initialization to StdioServerHost and HttpServerHost"
+
+- **Task**: Extract server startup logic from Program.cs into transport-specific host classes
+- **Implementation**:
+  - Created `Server/StdioServerHost.cs` (~240 lines):
+    - `RunMcpServerAsync()` — main entry point for stdio transport
+    - `ConfigureStdioLogging()` — clears console providers, optional Serilog file sink
+    - `ConfigureServerConfiguration()` — loads config, wires IOptions validation
+    - `ConfigureServerServices()` — chains JSON options, OpenTelemetry, Application Insights, MCP services
+    - `RegisterMcpServerServices()` — wires MCP server with stdio transport and handlers
+    - `RegisterCleanupServices()` (stdio variant) — PowerShell cleanup service
+    - Private helpers: `ConfigureJsonSerializerOptions()`, `ConfigureOpenTelemetry()`, `ConfigureApplicationInsights()`, `DescribeConfigurationPath()`
+  
+  - Created `Server/HttpServerHost.cs` (~340 lines):
+    - `RunHttpTransportServerAsync()` — main entry point for HTTP transport
+    - `ConfigureCorsForMcp()` — auth-aware CORS policy setup
+    - `RegisterHealthChecks()` — PowerShell, assembly generation, configuration checks
+    - `ConfigureOpenTelemetryForHttp()` — includes ASP.NET Core instrumentation + console exporter
+    - `WriteHealthCheckResponseAsync()` — JSON health report serialization
+    - `RegisterCleanupServices()` (HTTP variant) — PowerShell cleanup service
+    - Private helpers: `ConfigureJsonSerializerOptions()`, `ConfigureApplicationInsights()`, `DescribeConfigurationPath()`
+
+- **Program.cs Updates**:
+  - Wrapper methods delegate to extracted hosts: `RunMcpServerAsync()` → `StdioServerHost.RunMcpServerAsync()`
+  - Removed ~700 lines of configuration code; kept ~50 lines of wrapper delegators
+  - SetHandler lambdas now call `StdioServerHost.RunMcpServerAsync()` and `HttpServerHost.RunHttpTransportServerAsync()`
+  - Kept McpToolSetupService call sites (tool wiring already extracted in PR 2)
+  - Kept DescribeConfigurationPath() — used by BuildDoctorReportFromConfig() and other diagnostic methods
+
+- **Validation**: All 3 files (Program.cs, StdioServerHost.cs, HttpServerHost.cs) compile without errors
+
+**Key Patterns:**
+1. **Transport-Specific Extraction**: Each transport (stdio vs HTTP) has distinct setup paths; isolating them clarifies dependencies and reduces Main() clutter
+2. **Wrapper Delegators**: Lightweight Program.cs methods delegate to extracted hosts; call sites unchanged
+3. **Consolidation of Configuration Methods**: Both hosts needed some duplicate config (JSON options, Application Insights); kept them close to their usage rather than in Program.cs
+4. **Health Check Isolation**: HTTP-only feature (health checks) is now in HttpServerHost, not scattered in Program.cs
+
+**Metrics**:
+- Lines removed from Program.cs: 694
+- Program.cs post-PR3: ~1,140 lines
+- **Cumulative reduction**: 38% complete (was 1,834 after PR 2 + DoctorService + McpToolSetupService)
+- **Remaining target**: ~200 lines (estimated 2 more PRs: CLI extraction + final cleanup)
+
+**Learnings:**
+- When extracting transport-specific startup paths, create dedicated host classes (e.g., `StdioServerHost`, `HttpServerHost`) instead of splitting across multiple utility files; it's clearer and easier to test
+- Wrapper delegators in the original file minimize breaking changes to existing call sites (SetHandler lambdas, etc.)
+- Private helper methods (e.g., `ConfigureJsonSerializerOptions`, `ConfigureApplicationInsights`) can live in the host classes without duplication if used by both transports; just make them private static per host
+
+**Next Steps:**
+- PR 4: Extract CliDefinition.cs (~250 lines) — all command/option declarations; build the RootCommand tree
+- Final: Main() down to ~200 lines — just argument parsing and handler dispatch
+
+---
+
+## Recent Work (2026-04-20)
 
 ### Issue #170: Azure.Monitor.OpenTelemetry.AspNetCore Package
 **Branch:** squad/170-azure-monitor-otel-package  

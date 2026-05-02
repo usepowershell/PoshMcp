@@ -27,7 +27,7 @@ public class ProgramTests : PowerShellTestBase
         try
         {
             // Act
-            var result = await Program.ResolveConfigurationPath(tempFile);
+            var result = await CommandHandlers.ResolveConfigurationPath(tempFile);
 
             // Assert
             Assert.Equal(tempFile, result);
@@ -57,7 +57,7 @@ public class ProgramTests : PowerShellTestBase
         try
         {
             // Act
-            var result = await Program.ResolveConfigurationPath(tempFile);
+            var result = await CommandHandlers.ResolveConfigurationPath(tempFile);
 
             // Assert
             Assert.Equal(tempFile, result);
@@ -101,7 +101,7 @@ public class ProgramTests : PowerShellTestBase
         try
         {
             // Act
-            _ = await Program.ResolveConfigurationPath(tempFile);
+            _ = await CommandHandlers.ResolveConfigurationPath(tempFile);
 
             // Assert
             var upgradedRoot = JsonNode.Parse(await File.ReadAllTextAsync(tempFile))?.AsObject();
@@ -137,7 +137,7 @@ public class ProgramTests : PowerShellTestBase
             await File.WriteAllTextAsync(appSettingsPath, "{}");
 
             // Act
-            var result = await Program.ResolveConfigurationPath(configPath);
+            var result = await CommandHandlers.ResolveConfigurationPath(configPath);
 
             // Assert
             Assert.Equal(appSettingsPath, result);
@@ -173,7 +173,7 @@ public class ProgramTests : PowerShellTestBase
             Directory.SetCurrentDirectory(tempWorkingDir);
 
             // Act
-            var result = await Program.ResolveConfigurationPath(configPath);
+            var result = await CommandHandlers.ResolveConfigurationPath(configPath);
 
             // Assert
             Assert.Equal(userConfigPath, result);
@@ -484,7 +484,7 @@ public class ProgramTests : PowerShellTestBase
         };
 
         // Act
-        var json = Program.SerializeEffectivePowerShellConfiguration(config);
+        var json = DoctorService.SerializeEffectivePowerShellConfiguration(config);
         var root = JsonNode.Parse(json)?.AsObject();
 
         // Assert
@@ -529,7 +529,7 @@ public class ProgramTests : PowerShellTestBase
         };
 
         // Act
-        var report = Program.BuildDoctorReportFromConfig(
+        var report = DoctorService.BuildDoctorReportFromConfig(
             configurationPath: configPath,
             configurationPathSource: "test",
             effectiveLogLevel: "Information",
@@ -544,7 +544,7 @@ public class ProgramTests : PowerShellTestBase
             effectiveMcpPathSource: "test",
             config: config,
             tools: new List<ModelContextProtocol.Server.McpServerTool>());
-        var json = Program.BuildDoctorJson(report);
+        var json = DoctorService.BuildDoctorJson(report);
         var root = JsonNode.Parse(json)?.AsObject();
 
         // Assert
@@ -571,7 +571,7 @@ public class ProgramTests : PowerShellTestBase
         };
 
         // Act
-        var report = Program.BuildDoctorReportFromConfig(
+        var report = DoctorService.BuildDoctorReportFromConfig(
             configurationPath: "(environment-only configuration)",
             configurationPathSource: SettingsResolver.EnvSource,
             effectiveLogLevel: "Information",

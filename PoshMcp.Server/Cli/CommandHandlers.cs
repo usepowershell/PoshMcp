@@ -1,17 +1,23 @@
 using System;
 using System.Collections.Generic;
+using System.CommandLine.Invocation;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using PoshMcp.Server.PowerShell;
-using ModelContextProtocol.Server;
-using ModelContextProtocol.Protocol;
 
 namespace PoshMcp;
 
+/// <summary>
+/// Command handler methods for CLI commands. Each handler is responsible for executing a specific command
+/// and managing its lifecycle, error handling, and exit codes.
+/// </summary>
 public static class CommandHandlers
 {
     public static async Task RunToolEvaluationAsync(LogLevel logLevel)
@@ -25,12 +31,12 @@ public static class CommandHandlers
             LogEvaluationStart(logger, logLevel);
             var finalConfigPath = await DetermineConfigurationPath(logger);
             var config = ConfigurationLoader.LoadPowerShellConfiguration(finalConfigPath, logger);
-            var tools = await DiscoverToolsAsync(config, loggerFactory, logger, finalConfigPath);
-            ReportToolDiscoveryResults(tools, logger);
+            var tools = await McpToolSetupService.DiscoverToolsForCliAsync(config, loggerFactory, logger, finalConfigPath);
+            McpToolSetupService.ReportToolDiscoveryResults(tools, logger);
         }
         catch (Exception ex)
         {
-            HandleToolEvaluationError(ex, logger);
+            McpToolSetupService.HandleToolEvaluationError(ex, logger);
         }
     }
 
@@ -40,13 +46,13 @@ public static class CommandHandlers
         var logger = loggerFactory.CreateLogger("ListTools");
 
         var config = ConfigurationLoader.LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
-        var tools = await DiscoverToolsAsync(config, loggerFactory, logger, finalConfigPath);
+        var tools = await McpToolSetupService.DiscoverToolsAsync(config, loggerFactory, logger, finalConfigPath);
 
         if (format == "json")
         {
             var payload = new
             {
-                configurationPath = Program.DescribeConfigurationPath(finalConfigPath),
+                configurationPath = ConfigurationHelpers.DescribeConfigurationPath(finalConfigPath),
                 runtimeMode = config.RuntimeMode.ToString(),
                 toolCount = tools.Count,
                 commandNames = config.GetEffectiveCommandNames(),
@@ -56,7 +62,7 @@ public static class CommandHandlers
             return;
         }
 
-        Console.WriteLine($"Configuration: {Program.DescribeConfigurationPath(finalConfigPath)}");
+        Console.WriteLine($"Configuration: {ConfigurationHelpers.DescribeConfigurationPath(finalConfigPath)}");
         Console.WriteLine($"Runtime mode: {config.RuntimeMode}");
         Console.WriteLine($"Discovered tools: {tools.Count}");
         Console.WriteLine("Configured command names:");
@@ -72,7 +78,7 @@ public static class CommandHandlers
         var logger = loggerFactory.CreateLogger("ValidateConfig");
 
         var config = ConfigurationLoader.LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
-        var tools = await DiscoverToolsAsync(config, loggerFactory, logger, finalConfigPath);
+        var tools = await McpToolSetupService.DiscoverToolsAsync(config, loggerFactory, logger, finalConfigPath);
         var (resourcesDiag, promptsDiag) = ConfigurationLoader.TryValidateResourcesAndPrompts(finalConfigPath);
 
         var hasErrors = resourcesDiag.Errors.Count > 0 || promptsDiag.Errors.Count > 0;
@@ -81,52 +87,52 @@ public static class CommandHandlers
         {
             var payload = new
             {
-                configurationPath = Program.DescribeConfigurationPath(finalConfigPath),
+                valid = !hasErrors,
+                configurationPath = ConfigurationHelpers.DescribeConfigurationPath(finalConfigPath),
                 runtimeMode = config.RuntimeMode.ToString(),
+                commandCount = config.GetEffectiveCommandNames().Count,
+                moduleCount = config.Modules.Count,
                 toolCount = tools.Count,
-                commandNames = config.GetEffectiveCommandNames(),
-                resourcesValid = resourcesDiag.Errors.Count == 0,
-                promptsValid = promptsDiag.Errors.Count == 0,
-                resourcesErrors = resourcesDiag.Errors,
-                promptsErrors = promptsDiag.Errors,
-                hasErrors = hasErrors,
-                generatedAtUtc = DateTime.UtcNow
+                resources = new
+                {
+                    configured = resourcesDiag.Configured,
+                    valid = resourcesDiag.Valid,
+                    errors = resourcesDiag.Errors,
+                    warnings = resourcesDiag.Warnings
+                },
+                prompts = new
+                {
+                    configured = promptsDiag.Configured,
+                    valid = promptsDiag.Valid,
+                    errors = promptsDiag.Errors,
+                    warnings = promptsDiag.Warnings
+                }
             };
             Console.WriteLine(JsonSerializer.Serialize(payload));
             return;
         }
 
-        Console.WriteLine($"Configuration: {Program.DescribeConfigurationPath(finalConfigPath)}");
+        if (hasErrors)
+        {
+            Console.WriteLine("Configuration validation failed.");
+        }
+        else
+        {
+            Console.WriteLine("Configuration validation succeeded.");
+        }
+        Console.WriteLine($"Configuration: {ConfigurationHelpers.DescribeConfigurationPath(finalConfigPath)}");
         Console.WriteLine($"Runtime mode: {config.RuntimeMode}");
-        Console.WriteLine($"Discovered tools: {tools.Count}");
-        Console.WriteLine("Configured command names:");
-        foreach (var commandName in config.GetEffectiveCommandNames())
-        {
-            Console.WriteLine($"- {commandName}");
-        }
-
-        if (resourcesDiag.Errors.Count > 0)
-        {
-            Console.WriteLine("Resources validation errors:");
-            foreach (var error in resourcesDiag.Errors)
-            {
-                Console.WriteLine($"  - {error}");
-            }
-        }
-
-        if (promptsDiag.Errors.Count > 0)
-        {
-            Console.WriteLine("Prompts validation errors:");
-            foreach (var error in promptsDiag.Errors)
-            {
-                Console.WriteLine($"  - {error}");
-            }
-        }
-
-        if (!hasErrors)
-        {
-            Console.WriteLine("✓ Configuration is valid");
-        }
+        Console.WriteLine($"Commands: {config.GetEffectiveCommandNames().Count} | Modules: {config.Modules.Count} | Tools: {tools.Count}");
+        Console.WriteLine($"Resources configured: {resourcesDiag.Configured} | valid: {resourcesDiag.Valid}");
+        foreach (var error in resourcesDiag.Errors)
+            Console.WriteLine($"  ✖ {error}");
+        foreach (var warning in resourcesDiag.Warnings)
+            Console.WriteLine($"  ⚠ {warning}");
+        Console.WriteLine($"Prompts configured: {promptsDiag.Configured} | valid: {promptsDiag.Valid}");
+        foreach (var error in promptsDiag.Errors)
+            Console.WriteLine($"  ✖ {error}");
+        foreach (var warning in promptsDiag.Warnings)
+            Console.WriteLine($"  ⚠ {warning}");
     }
 
     public static void RunPSModulePathCommand(LogLevel logLevel)
@@ -189,15 +195,14 @@ public static class CommandHandlers
         }
     }
 
-    public static async Task RunCreateConfigAsync(string? force, string? format)
+    public static async Task RunCreateConfigAsync(bool force, string format)
     {
         var outputFormat = ConfigurationFileManager.NormalizeFormat(format);
         var targetPath = Path.GetFullPath("appsettings.json");
-        var forceBool = !string.IsNullOrEmpty(force) && force.Equals("true", StringComparison.OrdinalIgnoreCase);
 
         try
         {
-            var created = await ConfigurationFileManager.CreateDefaultConfigInCurrentDirectoryAsync(targetPath, forceBool);
+            var created = await ConfigurationFileManager.CreateDefaultConfigInCurrentDirectoryAsync(targetPath, force);
 
             if (outputFormat == "json")
             {
@@ -230,28 +235,29 @@ public static class CommandHandlers
         }
     }
 
-    public static async Task RunUpdateConfigAsync(
-        string[] args,
-        string? configPath,
-        string? logLevelText,
-        string? format,
-        string[]? addCommands,
-        string[]? removeCommands,
-        string[]? addModules,
-        string[]? removeModules,
-        string[]? addIncludePatterns,
-        string[]? removeIncludePatterns,
-        string[]? addExcludePatterns,
-        string[]? removeExcludePatterns,
-        string? enableDynamicReloadTools,
-        string? enableConfigurationTroubleshootingTool,
-        string? enableResultCaching,
-        string? useDefaultDisplayProperties,
-        string? setAuthEnabled,
-        string? runtimeMode,
-        bool nonInteractive)
+    public static async Task RunUpdateConfigAsync(string[] args, InvocationContext context)
     {
-        var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args, configPath, logLevelText, null, null, null, null);
+        var configPath = context.ParseResult.GetValueForOption(CliDefinition.ConfigOption);
+        var logLevelText = context.ParseResult.GetValueForOption(CliDefinition.LogLevelOption);
+        var format = context.ParseResult.GetValueForOption(CliDefinition.FormatOption);
+        var addCommands = context.ParseResult.GetValueForOption(CliDefinition.AddCommandOption);
+        var removeCommands = context.ParseResult.GetValueForOption(CliDefinition.RemoveCommandOption);
+        var addModules = context.ParseResult.GetValueForOption(CliDefinition.AddModuleOption);
+        var removeModules = context.ParseResult.GetValueForOption(CliDefinition.RemoveModuleOption);
+        var addIncludePatterns = context.ParseResult.GetValueForOption(CliDefinition.AddIncludePatternOption);
+        var removeIncludePatterns = context.ParseResult.GetValueForOption(CliDefinition.RemoveIncludePatternOption);
+        var addExcludePatterns = context.ParseResult.GetValueForOption(CliDefinition.AddExcludePatternOption);
+        var removeExcludePatterns = context.ParseResult.GetValueForOption(CliDefinition.RemoveExcludePatternOption);
+        var enableDynamicReloadTools = context.ParseResult.GetValueForOption(CliDefinition.EnableDynamicReloadToolsOption);
+        var enableConfigurationTroubleshootingTool = context.ParseResult.GetValueForOption(CliDefinition.EnableConfigurationTroubleshootingToolOption);
+        var enableResultCaching = context.ParseResult.GetValueForOption(CliDefinition.EnableResultCachingOption);
+        var useDefaultDisplayProperties = context.ParseResult.GetValueForOption(CliDefinition.UseDefaultDisplayPropertiesOption);
+        var setAuthEnabled = context.ParseResult.GetValueForOption(CliDefinition.SetAuthEnabledOption);
+        var runtimeMode = context.ParseResult.GetValueForOption(CliDefinition.RuntimeModeOption);
+        var nonInteractive = context.ParseResult.GetValueForOption(CliDefinition.NonInteractiveOption);
+
+        var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args,
+            configPath, logLevelText, null, null, null, null);
         var parsedLogLevel = SettingsResolver.ParseLogLevel(resolvedSettings.LogLevel.Value);
         var outputFormat = ConfigurationFileManager.NormalizeFormat(format);
 
@@ -335,19 +341,20 @@ public static class CommandHandlers
         }
     }
 
-    public static void RunBuildCommand(
-        string? modules,
-        string? type,
-        string? tag,
-        string? dockerFile,
-        string? sourceImage,
-        string? sourceTag,
-        bool generateDockerfile,
-        string? dockerfileOutput,
-        string? appSettings)
+    public static void RunBuildCommand(InvocationContext context)
     {
         try
         {
+            var modules = context.ParseResult.GetValueForOption(CliDefinition.BuildModulesOption);
+            var type = context.ParseResult.GetValueForOption(CliDefinition.BuildTypeOption);
+            var tag = context.ParseResult.GetValueForOption(CliDefinition.BuildTagOption);
+            var dockerFile = context.ParseResult.GetValueForOption(CliDefinition.BuildDockerFileOption);
+            var sourceImage = context.ParseResult.GetValueForOption(CliDefinition.BuildSourceImageOption);
+            var sourceTag = context.ParseResult.GetValueForOption(CliDefinition.BuildSourceTagOption);
+            var generateDockerfile = context.ParseResult.GetValueForOption(CliDefinition.BuildGenerateDockerfileOption);
+            var dockerfileOutput = context.ParseResult.GetValueForOption(CliDefinition.BuildDockerfileOutputOption);
+            var appSettings = context.ParseResult.GetValueForOption(CliDefinition.BuildAppSettingsOption);
+
             var buildType = string.IsNullOrWhiteSpace(type)
                 ? "custom"
                 : type.ToLowerInvariant();
@@ -474,13 +481,7 @@ public static class CommandHandlers
         }
     }
 
-    public static void RunRunCommand(
-        string? mode,
-        int? port,
-        string? tag,
-        string? config,
-        string[]? volumes,
-        bool interactive)
+    public static void RunRunCommand(string? mode, int? port, string? tag, string? config, string[]? volumes, bool interactive)
     {
         try
         {
@@ -571,7 +572,7 @@ public static class CommandHandlers
         }
     }
 
-    public static async Task RunScaffoldCommandAsync(string? projectPath, bool force, string? format)
+    public static async Task RunScaffoldCommand(string? projectPath, bool force, string format)
     {
         var outputFormat = ConfigurationFileManager.NormalizeFormat(format);
 
@@ -619,7 +620,8 @@ public static class CommandHandlers
         }
     }
 
-    // Helper methods
+    // Helper methods for command handlers
+
     private static void PrintToolEvaluationHeader()
     {
         Console.Error.WriteLine("=== PowerShell MCP Server - Tool Evaluation Mode ===");
@@ -637,63 +639,18 @@ public static class CommandHandlers
         var appDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? Directory.GetCurrentDirectory();
         var configPath = Path.Combine(appDirectory, "appsettings.json");
 
-        string finalConfigPath = await Program.ResolveConfigurationPath(configPath);
-        logger.LogInformation("Loading configuration from: {ConfigurationPath}", Program.DescribeConfigurationPath(finalConfigPath));
+        string finalConfigPath = await ResolveConfigurationPath(configPath);
+        logger.LogInformation("Loading configuration from: {ConfigurationPath}", ConfigurationHelpers.DescribeConfigurationPath(finalConfigPath));
         return finalConfigPath;
     }
 
-    private static async Task<List<McpServerTool>> DiscoverToolsAsync(PowerShellConfiguration config, ILoggerFactory loggerFactory, ILogger logger, string configurationPath)
+    internal static async Task<string> ResolveConfigurationPath(string configPath)
     {
-        logger.LogInformation("Discovering PowerShell tools...");
-        await using var executorLease = await Program.StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger, configurationPath);
-        var toolFactory = Program.CreateToolFactory(config, executorLease?.Executor);
-        var tools = await toolFactory.GetToolsListAsync(config, logger);
-        Program.AddConfigurationGuidanceToolToList(tools, config, configurationPath, "stdio", config.RuntimeMode.ToString(), null, loggerFactory);
-        Program.AddConfigurationTroubleshootingToolToList(tools, config, configurationPath, "stdio", null, config.RuntimeMode.ToString(), null, logger);
-        return tools;
+        var preferredConfigPath = File.Exists(configPath)
+            ? new ResolvedSetting(configPath, SettingsResolver.CliSource)
+            : new ResolvedSetting(null, SettingsResolver.DefaultSource);
+        var resolvedConfigPath = await SettingsResolver.ResolveConfigurationPathWithSourceAsync(preferredConfigPath);
+        return resolvedConfigPath.Value ?? string.Empty;
     }
 
-    private static void ReportToolDiscoveryResults(List<McpServerTool> tools, ILogger logger)
-    {
-        PrintToolDiscoveryResults(tools);
-
-        if (tools.Count > 0)
-            PrintSuccessMessage();
-        else
-            PrintNoToolsFoundMessage();
-
-        logger.LogInformation("Tool evaluation completed successfully");
-    }
-
-    private static void PrintToolDiscoveryResults(List<McpServerTool> tools)
-    {
-        Console.Error.WriteLine();
-        Console.Error.WriteLine($"=== Tool Discovery Results ===");
-        Console.Error.WriteLine($"Total tools discovered: {tools.Count}");
-        Console.Error.WriteLine();
-    }
-
-    private static void PrintSuccessMessage()
-    {
-        Console.Error.WriteLine("Successfully created MCP tools from discovered PowerShell commands.");
-        Console.Error.WriteLine("Tools are ready to be exposed via the MCP server.");
-        Console.Error.WriteLine();
-        Console.Error.WriteLine("To start the MCP server with these tools, run without the --evaluate-tools flag.");
-    }
-
-    private static void PrintNoToolsFoundMessage()
-    {
-        Console.Error.WriteLine("No tools were discovered. Check your configuration and PowerShell environment.");
-        Console.Error.WriteLine();
-        Console.Error.WriteLine("Ensure that:");
-        Console.Error.WriteLine("- PowerShell commands specified in FunctionNames exist");
-        Console.Error.WriteLine("- Modules specified in Modules are available");
-        Console.Error.WriteLine("- Include/exclude patterns are not filtering out all commands");
-    }
-
-    private static void HandleToolEvaluationError(Exception ex, ILogger logger)
-    {
-        logger.LogError(ex, "Error during tool evaluation: {ErrorMessage}", ex.Message);
-        Console.Error.WriteLine($"Error: {ex.Message}");
-    }
 }
