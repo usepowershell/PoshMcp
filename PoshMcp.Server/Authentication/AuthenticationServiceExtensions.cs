@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -43,6 +44,19 @@ public static class AuthenticationServiceExtensions
                             options.TokenValidationParameters.ValidIssuers = scheme.ValidIssuers;
                         }
                         options.TokenValidationParameters.ValidateIssuer = scheme.ValidIssuers.Count > 0;
+
+                        // Warn when Authority is Entra v1 but ValidIssuers references v2
+                        if (!string.IsNullOrEmpty(options.Authority) &&
+                            options.Authority.Contains("login.microsoftonline.com") &&
+                            !options.Authority.TrimEnd('/').EndsWith("/v2.0") &&
+                            options.TokenValidationParameters.ValidIssuers?.Any(i => i.Contains("/v2.0")) == true)
+                        {
+                            Console.Error.WriteLine(
+                                $"[PoshMcp WARNING] JwtBearer scheme '{name}': Authority '{options.Authority}' uses the " +
+                                $"Entra v1.0 OIDC endpoint but ValidIssuers contains a v2.0 issuer. " +
+                                $"Access tokens obtained via the v2.0 endpoint will fail signature validation. " +
+                                $"Consider setting Authority to '{options.Authority.TrimEnd('/')}/v2.0'.");
+                        }
                         options.TokenValidationParameters.ValidateAudience = !string.IsNullOrEmpty(scheme.Audience);
 
                         // RFC 9728: inject resource_metadata into WWW-Authenticate so
