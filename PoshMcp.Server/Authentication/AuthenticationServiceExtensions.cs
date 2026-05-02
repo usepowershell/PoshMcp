@@ -59,7 +59,12 @@ public static class AuthenticationServiceExtensions
                                 if (cfg.Value.ProtectedResource?.Resource is not null)
                                 {
                                     var req = context.HttpContext.Request;
-                                    var metadataUrl = $"{req.Scheme}://{req.Host}/.well-known/oauth-protected-resource";
+                                    // Honour X-Forwarded-Proto/Host headers set by reverse proxies
+                                    // (e.g. Azure Container Apps) so the URL uses https://, not http://.
+                                    var scheme = req.Headers["X-Forwarded-Proto"].FirstOrDefault() ?? req.Scheme;
+                                    var host = req.Headers["X-Forwarded-Host"].FirstOrDefault()
+                                               ?? req.Host.ToUriComponent();
+                                    var metadataUrl = $"{scheme}://{host}/.well-known/oauth-protected-resource";
 
                                     // Suppress the default challenge so we control the header.
                                     context.HandleResponse();
