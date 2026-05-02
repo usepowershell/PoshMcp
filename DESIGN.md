@@ -66,6 +66,8 @@ This project bridges traditional scripting with modern AI interfaces, extending 
 - Comprehensive logging for audit trails
 - Azure Managed Identity support when running as containers in Azure
 - Configurable command filtering via include/exclude patterns
+- OAuth 2.1 authentication via Entra ID (JWT Bearer) with RFC 9728 Protected Resource Metadata
+- Built-in OAuth proxy: `/.well-known/oauth-authorization-server` + `/register` DCR endpoint so generic MCP clients (non-VS Code) obtain a client_id automatically without prompting the user
 
 
 ## Example workflow

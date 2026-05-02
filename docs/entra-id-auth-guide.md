@@ -401,7 +401,7 @@ In your VS Code `settings.json` or `.vscode/mcp.json`:
 
 VS Code automatically handles the OAuth flow. No manual token configuration is needed.
 
-#### Protected Resource Metadata Endpoint
+#### VS Code Protected Resource Metadata Endpoint
 
 Your MCP server must expose `/.well-known/oauth-protected-resource` (RFC 9728). PoshMcp does this automatically via the `ProtectedResource` configuration:
 
@@ -411,7 +411,7 @@ Your MCP server must expose `/.well-known/oauth-protected-resource` (RFC 9728). 
     "ProtectedResource": {
       "Resource": "api://poshmcp-prod",
       "ResourceName": "PoshMcp Server",
-      "AuthorizationServers": ["https://login.microsoftonline.com/{tenant-id}"],
+      "AuthorizationServers": [],
       "ScopesSupported": ["api://poshmcp-prod/access_as_server"],
       "BearerMethodsSupported": ["header"]
     }
@@ -419,20 +419,22 @@ Your MCP server must expose `/.well-known/oauth-protected-resource` (RFC 9728). 
 }
 ```
 
+> **Tip:** Leave `AuthorizationServers` empty when using the OAuth proxy (see below). PoshMcp will automatically populate it with the server's own URL so clients discover the AS metadata from PoshMcp rather than directly from Entra.
+
 Test the endpoint:
 
 ```bash
 curl https://poshmcp.example.com/.well-known/oauth-protected-resource
 ```
 
-Expected response:
+Expected response (with OAuth proxy enabled):
 
 ```json
 {
   "resource": "api://poshmcp-prod",
   "resource_name": "PoshMcp Server",
   "authorization_servers": [
-    "https://login.microsoftonline.com/12345678-1234-1234-1234-123456789012"
+    "https://poshmcp.example.com"
   ],
   "scopes_supported": [
     "api://poshmcp-prod/access_as_server"
@@ -441,13 +443,78 @@ Expected response:
 }
 ```
 
+#### OAuth Proxy for Generic MCP Clients
+
+VS Code uses a pre-registered client ID (`aebc6443-996d-45c2-90f0-388ff96faa56`) so it never prompts the user. **Other MCP clients** (Claude Desktop, Cline, etc.) do not have a built-in client ID and would ask the user to paste one unless the server exposes a DCR endpoint.
+
+PoshMcp solves this with a built-in **OAuth proxy** that adds two endpoints:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /.well-known/oauth-authorization-server` | RFC 8414 AS metadata. Reports Entra's `authorization_endpoint` and `token_endpoint` plus PoshMcp's `/register` DCR endpoint. |
+| `POST /register` | RFC 7591 DCR proxy. Returns the statically-configured `ClientId` so clients never need to ask the user. |
+
+Enable the proxy by adding an `OAuthProxy` section to your `Authentication` configuration:
+
+```json
+{
+  "Authentication": {
+    "Enabled": true,
+    "DefaultScheme": "Bearer",
+    "DefaultPolicy": {
+      "RequireAuthentication": true,
+      "RequiredScopes": ["api://poshmcp-prod/access_as_server"]
+    },
+    "Schemes": {
+      "Bearer": {
+        "Type": "JwtBearer",
+        "Authority": "https://login.microsoftonline.com/{tenant-id}",
+        "Audience": "api://poshmcp-prod"
+      }
+    },
+    "ProtectedResource": {
+      "Resource": "api://poshmcp-prod",
+      "ResourceName": "PoshMcp Server",
+      "AuthorizationServers": [],
+      "ScopesSupported": ["api://poshmcp-prod/access_as_server"]
+    },
+    "OAuthProxy": {
+      "Enabled": true,
+      "TenantId": "{tenant-id}",
+      "ClientId": "{client-id-authorized-in-entra-app-registration}",
+      "Audience": "api://poshmcp-prod"
+    }
+  }
+}
+```
+
+**Configuration via environment variables** (recommended for Azure Container Apps):
+
+```bash
+Authentication__OAuthProxy__Enabled=true
+Authentication__OAuthProxy__TenantId=12345678-1234-1234-1234-123456789012
+Authentication__OAuthProxy__ClientId=80939099-d811-4488-8333-83eb0409ed53
+Authentication__OAuthProxy__Audience=api://poshmcp-prod
+```
+
+**MCP client OAuth discovery flow with proxy enabled:**
+
+1. Client connects → `401 WWW-Authenticate: Bearer resource_metadata="https://poshmcp.../​.well-known/oauth-protected-resource"`
+2. Client fetches PRM → `authorization_servers: ["https://poshmcp.../"]`
+3. Client fetches `https://poshmcp.../​.well-known/oauth-authorization-server` → gets `authorization_endpoint` at `login.microsoftonline.com`, `token_endpoint` at `login.microsoftonline.com`, and `registration_endpoint = https://poshmcp.../register`
+4. Client calls `POST /register` → gets the configured `client_id`
+5. Client redirects user to `https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize`
+6. User authenticates in browser, receives token
+7. Client calls PoshMcp with `Authorization: Bearer {token}`
+
 #### VS Code MCP Troubleshooting
 
 | Error | Cause | Solution |
 |-------|-------|----------|
 | "Dynamic client registration not supported" | VS Code's pre-registered client ID is not authorized in your app registration | Go to **Expose an API** → **Authorized client applications** and add `aebc6443-996d-45c2-90f0-388ff96faa56` |
-| VS Code redirects to `https://{poshmcp-host}/authorize` instead of Entra ID | Server's 401 response is missing the RFC 9728 `resource_metadata` header (PoshMcp v0.9.3 or earlier) | Upgrade to PoshMcp v0.9.4 or later. The server now emits the correct `WWW-Authenticate: Bearer resource_metadata="..."` header required for VS Code to discover the PRM endpoint. |
-| VS Code prompts auth against the app's own `/authorize` endpoint | PRM is misconfigured or missing (post-v0.9.4) | Verify `ProtectedResource` is configured and the endpoint returns the expected JSON (accessible at `https://{poshmcp-host}/.well-known/oauth-protected-resource`) |
+| MCP client prompts the user for a `client_id` | No DCR endpoint; client has no pre-registered ID for this AS | Enable `Authentication:OAuthProxy` (see above). The `/register` endpoint returns your configured `ClientId` automatically. |
+| Client redirects to `https://{poshmcp-host}/authorize` | PRM lists this server as the AS but there is no `/.well-known/oauth-authorization-server` on PoshMcp | Enable `Authentication:OAuthProxy` or set `AuthorizationServers` to the Entra tenant URL directly |
+| VS Code redirects to the app's own `/authorize` | `AuthorizationServers` in PRM is empty or pointing to this server with no AS metadata proxy | Enable the OAuth proxy and leave `AuthorizationServers` empty (PoshMcp auto-populates it) |
 | 401 after successful VS Code login | Scope mismatch or token validation failure | Verify the token scope matches `ScopesSupported` in PRM; decode the token at jwt.io to inspect claims |
 | AADSTS650053 error | App needs admin consent | Grant admin consent in Azure Portal → App registrations → API permissions |
 

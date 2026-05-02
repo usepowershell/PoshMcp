@@ -10,6 +10,7 @@ public class AuthenticationConfiguration
     public Dictionary<string, AuthSchemeConfiguration> Schemes { get; set; } = new();
     public ProtectedResourceConfiguration? ProtectedResource { get; set; }
     public CorsConfiguration? Cors { get; set; }
+    public OAuthProxyConfiguration? OAuthProxy { get; set; }
 }
 
 public class AuthorizationPolicyConfiguration
@@ -58,4 +59,31 @@ public class CorsConfiguration
 {
     public List<string> AllowedOrigins { get; set; } = new();
     public bool AllowCredentials { get; set; } = false;
+}
+
+/// <summary>
+/// Configuration for the OAuth proxy that enables MCP clients to discover
+/// Entra ID authorization endpoints without requiring manual client_id entry.
+/// When enabled, PoshMcp exposes:
+///   /.well-known/oauth-authorization-server  — AS metadata pointing to Entra
+///   /register                                — DCR proxy returning the configured ClientId
+/// </summary>
+public class OAuthProxyConfiguration
+{
+    public bool Enabled { get; set; } = false;
+
+    /// <summary>Azure AD / Entra ID tenant identifier (GUID or name).</summary>
+    public string TenantId { get; set; } = "";
+
+    /// <summary>
+    /// Client ID returned by the DCR proxy (/register) so MCP clients
+    /// don't have to ask the user for one.
+    /// </summary>
+    public string ClientId { get; set; } = "";
+
+    /// <summary>
+    /// Application ID URI used as the audience in token validation
+    /// (e.g., "api://poshmcp-prod").  Exposed in the AS metadata scopes.
+    /// </summary>
+    public string Audience { get; set; } = "";
 }

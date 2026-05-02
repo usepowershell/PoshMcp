@@ -1905,6 +1905,8 @@ public class Program
         var authConfigForEndpoints = app.Services
             .GetRequiredService<IOptions<AuthenticationConfiguration>>();
         app.MapProtectedResourceMetadata(authConfigForEndpoints.Value);
+        // OAuth proxy: /.well-known/oauth-authorization-server + /register (DCR)
+        app.MapOAuthProxyEndpoints(authConfigForEndpoints.Value);
 
         await app.RunAsync();
     }
