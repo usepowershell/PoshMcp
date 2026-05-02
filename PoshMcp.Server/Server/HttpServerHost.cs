@@ -1,8 +1,11 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System;
@@ -14,6 +17,7 @@ using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using ModelContextProtocol.Server;
 using PoshMcp.Server.Authentication;
+using PoshMcp.Server.Health;
 using PoshMcp.Server.McpPrompts;
 using PoshMcp.Server.McpResources;
 using PoshMcp.Server.PowerShell;
@@ -24,7 +28,6 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Azure.Monitor.OpenTelemetry.AspNetCore;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace PoshMcp;
 
