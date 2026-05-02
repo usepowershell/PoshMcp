@@ -195,7 +195,7 @@ public class ConfigurationReloadTools
             _logger.LogInformation("Processing get configuration status request");
 
             var currentConfig = _reloadService.CurrentConfiguration;
-            var report = Program.BuildDoctorReportFromConfig(
+            var report = DoctorService.BuildDoctorReportFromConfig(
                 configurationPath: _configurationPath,
                 configurationPathSource: _configurationPathSource,
                 effectiveLogLevel: LoggingHelpers.InferEffectiveLogLevel(_logger),
@@ -211,7 +211,7 @@ public class ConfigurationReloadTools
                 config: currentConfig,
                 tools: _registeredToolsProvider());
 
-            return await Task.FromResult(Program.BuildDoctorJson(report));
+            return await Task.FromResult(DoctorService.BuildDoctorJson(report));
         }
         catch (Exception ex)
         {

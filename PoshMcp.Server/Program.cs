@@ -501,7 +501,7 @@ public class Program
             var outputFormat = ConfigurationFileManager.NormalizeFormat(format);
             try
             {
-                await RunDoctorAsync(resolvedSettings, outputFormat);
+                await DoctorService.RunDoctorAsync(resolvedSettings, outputFormat, DiscoverToolsAsync);
                 Environment.ExitCode = ExitCodeSuccess;
             }
             catch (Exception ex)
@@ -695,72 +695,6 @@ public class Program
             Console.WriteLine($"  ✖ {error}");
         foreach (var warning in promptsDiag.Warnings)
             Console.WriteLine($"  ⚠ {warning}");
-    }
-
-    private static async Task RunDoctorAsync(ResolvedCommandSettings settings, string format)
-    {
-        var parsedLogLevel = SettingsResolver.ParseLogLevel(settings.LogLevel.Value);
-        using var loggerFactory = LoggingHelpers.CreateLoggerFactory(parsedLogLevel);
-        var logger = loggerFactory.CreateLogger("Doctor");
-
-        var config = ConfigurationLoader.LoadPowerShellConfiguration(settings.FinalConfigPath, logger, settings.RuntimeMode.Value);
-        var authRootConfig = ConfigurationLoader.BuildRootConfiguration(settings.FinalConfigPath, reloadOnChange: false);
-        var authConfig = authRootConfig.GetSection("Authentication").Get<AuthenticationConfiguration>();
-        var environmentVariables = CollectEnvironmentVariables();
-        var tools = await DiscoverToolsAsync(config, loggerFactory, logger, settings.FinalConfigPath);
-        var discoveredToolNames = GetDiscoveredToolNames(tools);
-        var configuredFunctionStatus = BuildConfiguredFunctionStatus(config.GetEffectiveCommandNames(), discoveredToolNames);
-        var toolNames = discoveredToolNames.Count > 0
-            ? discoveredToolNames
-            : GetExpectedToolNames(configuredFunctionStatus, config.EnableDynamicReloadTools);
-        var diagnostics = CollectPowerShellDiagnostics();
-        var oopModulePaths = ResolveConfiguredModulePathsForOop(config, settings.FinalConfigPath);
-
-        var missingFunctions = configuredFunctionStatus.Where(f => !f.Found).Select(f => f.FunctionName).ToList();
-        if (missingFunctions.Count > 0)
-        {
-            var resolutionReasons = DiagnoseMissingCommands(missingFunctions, config);
-            configuredFunctionStatus = configuredFunctionStatus
-                .Select(s => s.Found ? s : s with { ResolutionReason = resolutionReasons.GetValueOrDefault(s.FunctionName) })
-                .ToList();
-        }
-
-        var (warnings, configurationErrors) = BuildConfigurationWarnings(config, settings.FinalConfigPath);
-        var (resourcesDiag, promptsDiag) = ConfigurationLoader.TryValidateResourcesAndPrompts(settings.FinalConfigPath);
-
-        var report = DoctorReport.Build(
-            configurationPath: DescribeConfigurationPath(settings.FinalConfigPath),
-            configurationPathSource: settings.ConfigPath.Source,
-            effectiveLogLevel: settings.LogLevel.Value,
-            effectiveLogLevelSource: settings.LogLevel.Source,
-            effectiveTransport: settings.Transport.Value,
-            effectiveTransportSource: settings.Transport.Source,
-            effectiveSessionMode: settings.SessionMode.Value,
-            effectiveSessionModeSource: settings.SessionMode.Source,
-            effectiveRuntimeMode: settings.RuntimeMode.Value,
-            effectiveRuntimeModeSource: settings.RuntimeMode.Source,
-            effectiveMcpPath: settings.McpPath.Value,
-            effectiveMcpPathSource: settings.McpPath.Source,
-            configuredFunctionStatus: configuredFunctionStatus,
-            toolNames: toolNames,
-            powerShellVersion: diagnostics.PowerShellVersion,
-            modulePathEntries: diagnostics.ModulePathEntries,
-            modulePaths: diagnostics.ModulePaths,
-            oopModulePaths: oopModulePaths,
-            resourcesDiagnostics: resourcesDiag,
-            promptsDiagnostics: promptsDiag,
-            warnings: warnings,
-            configurationErrors: configurationErrors,
-            environmentVariables: environmentVariables,
-            authConfig: authConfig);
-
-        if (format == "json")
-        {
-            Console.WriteLine(BuildDoctorJson(report));
-            return;
-        }
-
-        Console.WriteLine(DoctorTextRenderer.Render(report));
     }
 
     internal static string BuildDoctorJson(DoctorReport report)
@@ -1860,7 +1794,7 @@ public class Program
 
                 var config = ConfigurationLoader.LoadPowerShellConfiguration(configurationPath, logger, effectiveRuntimeMode);
                 var tools = registeredToolsProvider();
-                var report = BuildDoctorReportFromConfig(
+                var report = DoctorService.BuildDoctorReportFromConfig(
                     configurationPath: configurationPath,
                     configurationPathSource: "runtime",
                     effectiveLogLevel: LoggingHelpers.InferEffectiveLogLevel(logger),
@@ -1878,7 +1812,7 @@ public class Program
                     authConfig: authConfig,
                     currentIdentity: identityProvider?.Invoke());
 
-                return Task.FromResult(BuildDoctorJson(report));
+                return Task.FromResult(DoctorService.BuildDoctorJson(report));
             }
             catch (Exception ex)
             {
