@@ -58,6 +58,34 @@ public class AuthenticationServiceExtensionsTests
     }
 
     [Fact]
+    public void WhenValidAudiencesConfigured_IOptionsAuthenticationConfiguration_ReflectsAll()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Authentication:Enabled"] = "true",
+                ["Authentication:DefaultScheme"] = "Bearer",
+                ["Authentication:Schemes:Bearer:Type"] = "JwtBearer",
+                ["Authentication:Schemes:Bearer:Authority"] = "https://login.microsoftonline.com/tenant/v2.0",
+                ["Authentication:Schemes:Bearer:Audience"] = "api://my-app",
+                ["Authentication:Schemes:Bearer:ValidAudiences:0"] = "api://my-app",
+                ["Authentication:Schemes:Bearer:ValidAudiences:1"] = "80939099-d811-4488-8333-83eb0409ed53",
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        services.AddPoshMcpAuthentication(config);
+
+        var sp = services.BuildServiceProvider();
+        var options = sp.GetRequiredService<IOptions<AuthenticationConfiguration>>();
+
+        Assert.True(options.Value.Enabled);
+        Assert.Equal(2, options.Value.Schemes["Bearer"].ValidAudiences.Count);
+        Assert.Contains("api://my-app", options.Value.Schemes["Bearer"].ValidAudiences);
+        Assert.Contains("80939099-d811-4488-8333-83eb0409ed53", options.Value.Schemes["Bearer"].ValidAudiences);
+    }
+
+    [Fact]
     public void WhenNoAuthSection_IOptionsAuthenticationConfiguration_DoesNotThrow()
     {
         var config = new ConfigurationBuilder()

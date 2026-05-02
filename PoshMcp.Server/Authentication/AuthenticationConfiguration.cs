@@ -26,6 +26,14 @@ public class AuthSchemeConfiguration
     // JWT Bearer fields
     public string? Authority { get; set; }
     public string? Audience { get; set; }
+    /// <summary>
+    /// Additional valid audience values accepted during JWT validation.
+    /// Useful when tokens may carry the audience as either the Application ID URI
+    /// (e.g. "api://&lt;appId&gt;") or the bare GUID depending on token version or
+    /// how the client requested the token.  <see cref="Audience"/> is always
+    /// included implicitly; list any additional accepted values here.
+    /// </summary>
+    public List<string> ValidAudiences { get; set; } = new();
     public List<string> ValidIssuers { get; set; } = new();
     public bool RequireHttpsMetadata { get; set; } = true;
     public ClaimsMappingConfiguration ClaimsMapping { get; set; } = new();

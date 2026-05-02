@@ -7,6 +7,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.IdentityModel.Tokens.Jwt;
 
 namespace PoshMcp.Server.Authentication;
 
@@ -44,6 +45,20 @@ public static class AuthenticationServiceExtensions
                         options.Authority = scheme.Authority;
                         options.Audience = scheme.Audience;
                         options.RequireHttpsMetadata = scheme.RequireHttpsMetadata;
+
+                        // Build the full set of valid audiences: primary Audience + any extras.
+                        var allAudiences = scheme.ValidAudiences.ToList();
+                        if (!string.IsNullOrEmpty(scheme.Audience) &&
+                            !allAudiences.Contains(scheme.Audience, StringComparer.OrdinalIgnoreCase))
+                        {
+                            allAudiences.Insert(0, scheme.Audience);
+                        }
+                        if (allAudiences.Count > 0)
+                            options.TokenValidationParameters.ValidAudiences = allAudiences;
+
+                        options.TokenValidationParameters.ValidateAudience =
+                            !string.IsNullOrEmpty(scheme.Audience) || scheme.ValidAudiences.Count > 0;
+
                         if (scheme.ValidIssuers.Count > 0)
                         {
                             options.TokenValidationParameters.ValidIssuers = scheme.ValidIssuers;
@@ -62,13 +77,13 @@ public static class AuthenticationServiceExtensions
                                 $"Access tokens obtained via the v2.0 endpoint will fail signature validation. " +
                                 $"Consider setting Authority to '{options.Authority.TrimEnd('/')}/v2.0'.");
                         }
-                        options.TokenValidationParameters.ValidateAudience = !string.IsNullOrEmpty(scheme.Audience);
 
                         // One-time startup diagnostic: log Authority and ValidAudiences so we can
                         // confirm the JWT config matches what the token issuer will produce.
                         Console.Error.WriteLine(
                             $"[PoshMcp JWT] Scheme '{name}': Authority='{options.Authority}', " +
-                            $"ValidAudiences='{string.Join(",", options.TokenValidationParameters.ValidAudiences ?? [])}'");
+                            $"ValidAudiences='{string.Join(",", options.TokenValidationParameters.ValidAudiences ?? [])}', " +
+                            $"ValidIssuers='{string.Join(",", options.TokenValidationParameters.ValidIssuers ?? [])}'");
 
                         // RFC 9728: inject resource_metadata into WWW-Authenticate so
                         // clients (e.g. VS Code) can discover the PRM and find the real
@@ -103,12 +118,34 @@ public static class AuthenticationServiceExtensions
 
                             OnAuthenticationFailed = context =>
                             {
-                                context.HttpContext.RequestServices
-                                    .GetRequiredService<ILogger<JwtBearerHandler>>()
-                                    .LogWarning(
-                                        "JWT OnAuthenticationFailed: {ExceptionType}: {Message}",
-                                        context.Exception.GetType().Name,
-                                        context.Exception.Message);
+                                var logger = context.HttpContext.RequestServices
+                                    .GetRequiredService<ILogger<JwtBearerHandler>>();
+
+                                // Decode the token (without signature validation) to surface the
+                                // actual aud/iss claims so operators can see exactly what mismatched.
+                                string? tokenAud = null;
+                                string? tokenIss = null;
+                                try
+                                {
+                                    var authHeader = context.HttpContext.Request.Headers.Authorization.ToString();
+                                    var rawToken = authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+                                        ? authHeader["Bearer ".Length..].Trim()
+                                        : null;
+                                    if (!string.IsNullOrEmpty(rawToken))
+                                    {
+                                        var decoded = new JwtSecurityToken(rawToken);
+                                        tokenAud = string.Join(", ", decoded.Audiences);
+                                        tokenIss = decoded.Issuer;
+                                    }
+                                }
+                                catch { /* malformed token — skip decode */ }
+
+                                logger.LogWarning(
+                                    "JWT OnAuthenticationFailed: {ExceptionType}: {Message} — token aud=[{TokenAud}] iss=[{TokenIss}]",
+                                    context.Exception.GetType().Name,
+                                    context.Exception.Message,
+                                    tokenAud ?? "(unable to decode)",
+                                    tokenIss ?? "(unable to decode)");
                                 return Task.CompletedTask;
                             },
 
