@@ -63,7 +63,339 @@ public class Program
             description: "Enable verbose logging");
 
         var debugOption = new Option<bool>(
+            aliases: new[] { "--debug", "-d" },
+            description: "Enable debug logging");
 
+        var traceOption = new Option<bool>(
+            aliases: new[] { "--trace", "-t" },
+            description: "Enable trace logging");
+
+        var configOption = new Option<string?>(
+            aliases: new[] { "--config", "-c" },
+            description: "Path to configuration file (defaults to appsettings.json resolution)");
+
+        var logLevelOption = new Option<string?>(
+            aliases: new[] { "--log-level" },
+            description: "Log level: trace|debug|info|warn|error");
+
+        var transportOption = new Option<string?>(
+            aliases: new[] { "--transport" },
+            description: "Server transport: stdio|sse|http (currently stdio only for this executable)");
+
+        var formatOption = new Option<string?>(
+            aliases: new[] { "--format" },
+            description: "Output format: text|json");
+
+        var forceOption = new Option<bool>(
+            aliases: new[] { "--force", "-f" },
+            description: "Overwrite an existing appsettings.json when creating defaults");
+
+        var nonInteractiveOption = new Option<bool>(
+            aliases: new[] { "--non-interactive" },
+            description: "Skip interactive advanced-configuration prompts during updates");
+
+
+
+        var addCommandOption = new Option<string[]>(
+            aliases: new[] { "--add-command" },
+            description: "Add one or more command names to PowerShellConfiguration.CommandNames")
+        {
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var removeCommandOption = new Option<string[]>(
+            aliases: new[] { "--remove-command" },
+            description: "Remove one or more command names from PowerShellConfiguration.CommandNames")
+        {
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var addModuleOption = new Option<string[]>(
+            aliases: new[] { "--add-module" },
+            description: "Add one or more module names to PowerShellConfiguration.Modules")
+        {
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var removeModuleOption = new Option<string[]>(
+            aliases: new[] { "--remove-module" },
+            description: "Remove one or more module names from PowerShellConfiguration.Modules")
+        {
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var addIncludePatternOption = new Option<string[]>(
+            aliases: new[] { "--add-include-pattern" },
+            description: "Add one or more patterns to PowerShellConfiguration.IncludePatterns")
+        {
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var removeIncludePatternOption = new Option<string[]>(
+            aliases: new[] { "--remove-include-pattern" },
+            description: "Remove one or more patterns from PowerShellConfiguration.IncludePatterns")
+        {
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var addExcludePatternOption = new Option<string[]>(
+            aliases: new[] { "--add-exclude-pattern" },
+            description: "Add one or more patterns to PowerShellConfiguration.ExcludePatterns")
+        {
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var removeExcludePatternOption = new Option<string[]>(
+            aliases: new[] { "--remove-exclude-pattern" },
+            description: "Remove one or more patterns from PowerShellConfiguration.ExcludePatterns")
+        {
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var enableDynamicReloadToolsOption = new Option<string?>(
+            aliases: new[] { "--enable-dynamic-reload-tools" },
+            description: "Set PowerShellConfiguration.EnableDynamicReloadTools to true or false");
+
+        var enableConfigurationTroubleshootingToolOption = new Option<string?>(
+            aliases: new[] { "--enable-configuration-troubleshooting-tool" },
+            description: "Set PowerShellConfiguration.EnableConfigurationTroubleshootingTool to true or false");
+
+        var enableResultCachingOption = new Option<string?>(
+            aliases: new[] { "--enable-result-caching" },
+            description: "Set PowerShellConfiguration.Performance.EnableResultCaching to true or false");
+
+        var useDefaultDisplayPropertiesOption = new Option<string?>(
+            aliases: new[] { "--use-default-display-properties" },
+            description: "Set PowerShellConfiguration.Performance.UseDefaultDisplayProperties to true or false");
+
+        var setAuthEnabledOption = new Option<string?>(
+            aliases: new[] { "--set-auth-enabled" },
+            description: "Set Authentication.Enabled to true or false");
+
+        var sessionModeOption = new Option<string?>(
+            aliases: new[] { "--session-mode" },
+            description: "Session mode hint: stateful|stateless (reserved for hosted transports)");
+
+        var runtimeModeOption = new Option<string?>(
+            aliases: new[] { "--runtime-mode" },
+            description: "PowerShell runtime mode: in-process|out-of-process");
+
+        var urlOption = new Option<string?>(
+            aliases: new[] { "--url" },
+            description: "URL bind hint for hosted transports (reserved)");
+
+        var mcpPathOption = new Option<string?>(
+            aliases: new[] { "--mcp-path" },
+            description: "MCP endpoint path hint for hosted transports (reserved)");
+
+        // Add subcommands
+        var serveCommand = new Command("serve", "Run the MCP server (stdio transport by default)");
+        serveCommand.AddOption(configOption);
+        serveCommand.AddOption(logLevelOption);
+        serveCommand.AddOption(transportOption);
+        serveCommand.AddOption(sessionModeOption);
+        serveCommand.AddOption(runtimeModeOption);
+        serveCommand.AddOption(urlOption);
+        serveCommand.AddOption(mcpPathOption);
+
+        var logFileOption = new Option<string?>(
+            aliases: new[] { "--log-file" },
+            description: "Path to log file for stdio transport (suppresses console logging)");
+        serveCommand.AddOption(logFileOption);
+
+        var listToolsCommand = new Command("list-tools", "Discover and list tools without starting the MCP server");
+        listToolsCommand.AddOption(configOption);
+        listToolsCommand.AddOption(logLevelOption);
+        listToolsCommand.AddOption(runtimeModeOption);
+        listToolsCommand.AddOption(formatOption);
+
+        var validateConfigCommand = new Command("validate-config", "Validate configuration and tool discovery");
+        validateConfigCommand.AddOption(configOption);
+        validateConfigCommand.AddOption(logLevelOption);
+        validateConfigCommand.AddOption(runtimeModeOption);
+        validateConfigCommand.AddOption(formatOption);
+
+        var doctorCommand = new Command("doctor", "Run runtime and configuration diagnostics");
+        doctorCommand.AddOption(configOption);
+        doctorCommand.AddOption(logLevelOption);
+        doctorCommand.AddOption(transportOption);
+        doctorCommand.AddOption(sessionModeOption);
+        doctorCommand.AddOption(runtimeModeOption);
+        doctorCommand.AddOption(mcpPathOption);
+        doctorCommand.AddOption(formatOption);
+
+        var createConfigCommand = new Command("create-config", "Create a default appsettings.json in the current directory");
+        createConfigCommand.AddOption(forceOption);
+        createConfigCommand.AddOption(formatOption);
+
+        var updateConfigCommand = new Command("update-config", "Update settings in the active configuration file (same resolution rules as doctor)");
+        updateConfigCommand.AddOption(configOption);
+        updateConfigCommand.AddOption(logLevelOption);
+        updateConfigCommand.AddOption(formatOption);
+        updateConfigCommand.AddOption(addCommandOption);
+        updateConfigCommand.AddOption(removeCommandOption);
+        updateConfigCommand.AddOption(addModuleOption);
+        updateConfigCommand.AddOption(removeModuleOption);
+        updateConfigCommand.AddOption(addIncludePatternOption);
+        updateConfigCommand.AddOption(removeIncludePatternOption);
+        updateConfigCommand.AddOption(addExcludePatternOption);
+        updateConfigCommand.AddOption(removeExcludePatternOption);
+        updateConfigCommand.AddOption(enableDynamicReloadToolsOption);
+        updateConfigCommand.AddOption(enableConfigurationTroubleshootingToolOption);
+        updateConfigCommand.AddOption(enableResultCachingOption);
+        updateConfigCommand.AddOption(useDefaultDisplayPropertiesOption);
+        updateConfigCommand.AddOption(setAuthEnabledOption);
+        updateConfigCommand.AddOption(runtimeModeOption);
+        updateConfigCommand.AddOption(nonInteractiveOption);
+
+        var psModulePathCommand = new Command("psmodulepath", "Start a PowerShell runspace and report the value of $env:PSModulePath");
+        psModulePathCommand.AddOption(verboseOption);
+        psModulePathCommand.AddOption(debugOption);
+        psModulePathCommand.AddOption(traceOption);
+
+        // Build command for Docker image creation
+        var buildModulesOption = new Option<string?>(
+            aliases: new[] { "--modules" },
+            description: "Space-separated module names to pre-install in custom images (e.g., 'Pester Az.Accounts')");
+
+        var buildTypeOption = new Option<string?>(
+            aliases: new[] { "--type", "--base" },
+            description: "Image type: 'custom' (derived from a source/base image) or 'base' (build local runtime source image). Default: custom");
+
+        var buildTagOption = new Option<string?>(
+            aliases: new[] { "--tag" },
+            description: "Image tag name (default: poshmcp:latest)");
+
+        var buildDockerFileOption = new Option<string?>(
+            aliases: new[] { "--docker-file" },
+            description: "Custom Dockerfile path for advanced users");
+
+        var buildSourceImageOption = new Option<string?>(
+            aliases: new[] { "--source-image" },
+            description: "Source/base image repository or full reference for custom builds (default: ghcr.io/usepowershell/poshmcp/poshmcp:latest)");
+
+        var buildSourceTagOption = new Option<string?>(
+            aliases: new[] { "--source-tag" },
+            description: "Tag for --source-image when a repository is provided (default: latest)");
+
+        var buildGenerateDockerfileOption = new Option<bool>(
+            aliases: new[] { "--generate-dockerfile" },
+            description: "Write the generated Dockerfile to disk instead of building");
+
+        var buildDockerfileOutputOption = new Option<string?>(
+            aliases: new[] { "--dockerfile-output" },
+            description: "Path for the generated Dockerfile (default: ./Dockerfile.generated)");
+
+        var buildAppSettingsOption = new Option<string?>(
+            aliases: new[] { "--appsettings" },
+            description: "Path to a local appsettings.json to bundle into the image at /app/server/appsettings.json");
+
+        var buildCommand = new Command("build", "Build a Docker image; defaults to creating a custom image from the published GHCR base image");
+        buildCommand.AddOption(buildModulesOption);
+        buildCommand.AddOption(buildTypeOption);
+        buildCommand.AddOption(buildTagOption);
+        buildCommand.AddOption(buildDockerFileOption);
+        buildCommand.AddOption(buildSourceImageOption);
+        buildCommand.AddOption(buildSourceTagOption);
+        buildCommand.AddOption(buildGenerateDockerfileOption);
+        buildCommand.AddOption(buildDockerfileOutputOption);
+        buildCommand.AddOption(buildAppSettingsOption);
+
+        // Run command for Docker container execution
+        var runModeOption = new Option<string?>(
+            aliases: new[] { "--mode" },
+            description: "Transport mode: 'http' or 'stdio' (default: http)");
+
+        var runPortOption = new Option<int?>(
+            aliases: new[] { "--port" },
+            description: "Port number for HTTP mode (default: 8080)");
+
+        var runTagOption = new Option<string?>(
+            aliases: new[] { "--tag" },
+            description: "Image tag to run (default: poshmcp:latest)");
+
+        var runConfigOption = new Option<string?>(
+            aliases: new[] { "--config" },
+            description: "Config file path to mount into container");
+
+        var runVolumeOption = new Option<string[]>(
+            aliases: new[] { "--volume" },
+            description: "Volume mount in format 'source:destination' (repeatable)")
+        {
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var runInteractiveOption = new Option<bool>(
+            aliases: new[] { "--interactive", "-it" },
+            description: "Run in interactive mode with terminal");
+
+        var runCommand = new Command("run", "Run PoshMcp in a Docker container");
+        runCommand.AddOption(runModeOption);
+        runCommand.AddOption(runPortOption);
+        runCommand.AddOption(runTagOption);
+        runCommand.AddOption(runConfigOption);
+        runCommand.AddOption(runVolumeOption);
+        runCommand.AddOption(runInteractiveOption);
+
+        var scaffoldProjectPathOption = new Option<string?>(
+            aliases: new[] { "--project-path", "--path", "-p" },
+            description: "Target project directory where infra/azure files will be scaffolded (default: current directory)");
+
+        var scaffoldCommand = new Command("scaffold", "Scaffold embedded infrastructure artifacts into a target project");
+        scaffoldCommand.AddOption(scaffoldProjectPathOption);
+        scaffoldCommand.AddOption(forceOption);
+        scaffoldCommand.AddOption(formatOption);
+
+        rootCommand.AddCommand(serveCommand);
+        rootCommand.AddCommand(listToolsCommand);
+        rootCommand.AddCommand(validateConfigCommand);
+        rootCommand.AddCommand(doctorCommand);
+        rootCommand.AddCommand(createConfigCommand);
+        rootCommand.AddCommand(updateConfigCommand);
+        rootCommand.AddOption(evaluateToolsOption);
+        rootCommand.AddOption(verboseOption);
+        rootCommand.AddOption(debugOption);
+        rootCommand.AddOption(traceOption);
+        rootCommand.AddCommand(psModulePathCommand);
+        rootCommand.AddCommand(buildCommand);
+        rootCommand.AddCommand(runCommand);
+        rootCommand.AddCommand(scaffoldCommand);
+
+        // Handler for the main command (default MCP server behavior)
+        rootCommand.SetHandler(async (evaluateTools, verbose, debug, trace) =>
+        {
+            // Determine log level based on options
+            LogLevel logLevel = LogLevel.Information;
+            if (trace) logLevel = LogLevel.Trace;
+            else if (debug) logLevel = LogLevel.Debug;
+            else if (verbose) logLevel = LogLevel.Debug; // Verbose maps to Debug level
+
+            if (evaluateTools)
+            {
+                await RunToolEvaluationAsync(logLevel);
+            }
+            else
+            {
+                await StdioServerHost.RunMcpServerAsync(args, logLevel, null);
+            }
+        }, evaluateToolsOption, verboseOption, debugOption, traceOption);
+
+        serveCommand.SetHandler(async (InvocationContext context) =>
+        {
+            var configPath = context.ParseResult.GetValueForOption(configOption);
+            var logLevelText = context.ParseResult.GetValueForOption(logLevelOption);
+            var transport = context.ParseResult.GetValueForOption(transportOption);
+            var sessionMode = context.ParseResult.GetValueForOption(sessionModeOption);
+            var runtimeMode = context.ParseResult.GetValueForOption(runtimeModeOption);
+            var url = context.ParseResult.GetValueForOption(urlOption);
+            var mcpPath = context.ParseResult.GetValueForOption(mcpPathOption);
+            var logFile = context.ParseResult.GetValueForOption(logFileOption);
+
+            var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args, configPath, logLevelText, transport, sessionMode, runtimeMode, mcpPath);
+            var parsedLogLevel = SettingsResolver.ParseLogLevel(resolvedSettings.LogLevel.Value);
+            var transportMode = SettingsResolver.ResolveTransportMode(resolvedSettings.Transport.Value);
+
+            var fileConfigBuilder = new ConfigurationBuilder();
             if (!string.IsNullOrWhiteSpace(resolvedSettings.FinalConfigPath) && File.Exists(resolvedSettings.FinalConfigPath))
             {
                 fileConfigBuilder.AddJsonFile(resolvedSettings.FinalConfigPath, optional: true, reloadOnChange: false);
@@ -81,14 +413,14 @@ public class Program
 
                 if (transportMode == TransportMode.Stdio)
                 {
-                    await RunMcpServerAsync(args, parsedLogLevel, resolvedSettings.FinalConfigPath, resolvedSettings.ConfigPath.Source, resolvedSettings.RuntimeMode.Value, resolvedLogFile.Value);
+                    await StdioServerHost.RunMcpServerAsync(args, parsedLogLevel, resolvedSettings.FinalConfigPath, resolvedSettings.ConfigPath.Source, resolvedSettings.RuntimeMode.Value, resolvedLogFile.Value);
                     Environment.ExitCode = ExitCodeSuccess;
                     return;
                 }
 
                 if (transportMode == TransportMode.Http)
                 {
-                    await RunHttpTransportServerAsync(args, parsedLogLevel, resolvedSettings.FinalConfigPath, resolvedSettings.ConfigPath.Source, resolvedSettings.RuntimeMode.Value, url, resolvedSettings.McpPath.Value);
+                    await HttpServerHost.RunHttpTransportServerAsync(args, parsedLogLevel, resolvedSettings.FinalConfigPath, resolvedSettings.ConfigPath.Source, resolvedSettings.RuntimeMode.Value, url, resolvedSettings.McpPath.Value);
                     Environment.ExitCode = ExitCodeSuccess;
                     return;
                 }
@@ -121,7 +453,7 @@ public class Program
                     SettingsResolver.PrintResolvedSettings("list-tools", resolvedSettings);
                 }
 
-                await CommandHandlers.RunListToolsAsync(parsedLogLevel, resolvedSettings.FinalConfigPath, resolvedSettings.RuntimeMode.Value, outputFormat);
+                await RunListToolsAsync(parsedLogLevel, resolvedSettings.FinalConfigPath, resolvedSettings.RuntimeMode.Value, outputFormat);
                 Environment.ExitCode = ExitCodeSuccess;
             }
             catch (FileNotFoundException ex)
@@ -148,7 +480,7 @@ public class Program
                     SettingsResolver.PrintResolvedSettings("validate-config", resolvedSettings);
                 }
 
-                await CommandHandlers.RunValidateConfigAsync(parsedLogLevel, resolvedSettings.FinalConfigPath, resolvedSettings.RuntimeMode.Value, outputFormat);
+                await RunValidateConfigAsync(parsedLogLevel, resolvedSettings.FinalConfigPath, resolvedSettings.RuntimeMode.Value, outputFormat);
                 Environment.ExitCode = ExitCodeSuccess;
             }
             catch (FileNotFoundException ex)
@@ -181,7 +513,42 @@ public class Program
 
         createConfigCommand.SetHandler(async (force, format) =>
         {
-            await CommandHandlers.RunCreateConfigAsync(force ? "true" : "false", format);
+            var outputFormat = ConfigurationFileManager.NormalizeFormat(format);
+            var targetPath = Path.GetFullPath("appsettings.json");
+
+            try
+            {
+                var created = await ConfigurationFileManager.CreateDefaultConfigInCurrentDirectoryAsync(targetPath, force);
+
+                if (outputFormat == "json")
+                {
+                    var payload = new
+                    {
+                        success = true,
+                        configurationPath = targetPath,
+                        overwritten = created.WasOverwritten
+                    };
+                    Console.WriteLine(JsonSerializer.Serialize(payload));
+                }
+                else
+                {
+                    Console.WriteLine(created.WasOverwritten
+                        ? $"Overwrote default configuration: {targetPath}"
+                        : $"Created default configuration: {targetPath}");
+                }
+
+                Environment.ExitCode = ExitCodeSuccess;
+            }
+            catch (IOException ex)
+            {
+                Console.Error.WriteLine($"Configuration error: {ex.Message}");
+                Environment.ExitCode = ExitCodeConfigError;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Runtime error: {ex.Message}");
+                Environment.ExitCode = ExitCodeRuntimeError;
+            }
         }, forceOption, formatOption);
 
         updateConfigCommand.SetHandler(async (InvocationContext context) =>
@@ -205,26 +572,88 @@ public class Program
             var runtimeMode = context.ParseResult.GetValueForOption(runtimeModeOption);
             var nonInteractive = context.ParseResult.GetValueForOption(nonInteractiveOption);
 
-            await CommandHandlers.RunUpdateConfigAsync(
-                args,
-                configPath,
-                logLevelText,
-                format,
-                addCommands,
-                removeCommands,
-                addModules,
-                removeModules,
-                addIncludePatterns,
-                removeIncludePatterns,
-                addExcludePatterns,
-                removeExcludePatterns,
-                enableDynamicReloadTools,
-                enableConfigurationTroubleshootingTool,
-                enableResultCaching,
-                useDefaultDisplayProperties,
-                setAuthEnabled,
-                runtimeMode,
-                nonInteractive);
+            var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args, configPath, logLevelText, null, null, null, null);
+            var parsedLogLevel = SettingsResolver.ParseLogLevel(resolvedSettings.LogLevel.Value);
+            var outputFormat = ConfigurationFileManager.NormalizeFormat(format);
+
+            try
+            {
+                if (SettingsResolver.ShouldPrintResolvedSettings(parsedLogLevel))
+                {
+                    SettingsResolver.PrintResolvedSettings("update-config", resolvedSettings);
+                }
+
+                var updateRequest = new ConfigUpdateRequest(
+                    addCommands ?? Array.Empty<string>(),
+                    removeCommands ?? Array.Empty<string>(),
+                    addCommands ?? Array.Empty<string>(),
+                    removeCommands ?? Array.Empty<string>(),
+                    addModules ?? Array.Empty<string>(),
+                    removeModules ?? Array.Empty<string>(),
+                    addIncludePatterns ?? Array.Empty<string>(),
+                    removeIncludePatterns ?? Array.Empty<string>(),
+                    addExcludePatterns ?? Array.Empty<string>(),
+                    removeExcludePatterns ?? Array.Empty<string>(),
+                    ConfigurationFileManager.TryParseRequiredBoolean(enableDynamicReloadTools),
+                    ConfigurationFileManager.TryParseRequiredBoolean(enableConfigurationTroubleshootingTool),
+                    ConfigurationFileManager.TryParseRequiredBoolean(enableResultCaching),
+                    ConfigurationFileManager.TryParseRequiredBoolean(useDefaultDisplayProperties),
+                    ConfigurationFileManager.TryParseRequiredBoolean(setAuthEnabled),
+                    ConfigurationFileManager.NormalizeRuntimeMode(runtimeMode),
+                    nonInteractive);
+
+                var result = await ConfigurationFileManager.UpdateConfigurationFileAsync(resolvedSettings.FinalConfigPath, updateRequest);
+
+                if (outputFormat == "json")
+                {
+                    var payload = new
+                    {
+                        success = true,
+                        configurationPath = result.ConfigurationPath,
+                        changed = result.Changed,
+                        addedFunctions = result.AddedFunctions,
+                        removedFunctions = result.RemovedFunctions,
+                        addedCommands = result.AddedCommands,
+                        removedCommands = result.RemovedCommands,
+                        advancedPromptedCommandCount = result.AdvancedPromptedFunctionCount,
+                        advancedPromptedFunctionCount = result.AdvancedPromptedFunctionCount,
+                        settingsChanged = result.SettingsChanged
+                    };
+                    Console.WriteLine(JsonSerializer.Serialize(payload));
+                }
+                else
+                {
+                    Console.WriteLine(result.Changed
+                        ? $"Updated configuration: {result.ConfigurationPath}"
+                        : $"No changes applied to configuration: {result.ConfigurationPath}");
+                    Console.WriteLine($"Added commands: {result.AddedCommands} | Removed commands: {result.RemovedCommands}");
+                    if (result.SettingsChanged > 0)
+                    {
+                        Console.WriteLine($"Settings changed: {result.SettingsChanged}");
+                    }
+                    if (result.AdvancedPromptedFunctionCount > 0)
+                    {
+                        Console.WriteLine($"Advanced prompts completed for {result.AdvancedPromptedFunctionCount} command(s).");
+                    }
+                }
+
+                Environment.ExitCode = ExitCodeSuccess;
+            }
+            catch (FileNotFoundException ex)
+            {
+                Console.Error.WriteLine($"Configuration error: {ex.Message}");
+                Environment.ExitCode = ExitCodeConfigError;
+            }
+            catch (ArgumentException ex)
+            {
+                Console.Error.WriteLine($"Configuration error: {ex.Message}");
+                Environment.ExitCode = ExitCodeConfigError;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Runtime error: {ex.Message}");
+                Environment.ExitCode = ExitCodeRuntimeError;
+            }
         });
 
         // Handler for the psmodulepath command
@@ -236,34 +665,288 @@ public class Program
             else if (debug) logLevel = LogLevel.Debug;
             else if (verbose) logLevel = LogLevel.Debug; // Verbose maps to Debug level
 
-            CommandHandlers.RunPSModulePathCommand(logLevel);
+            RunPSModulePathCommand(logLevel);
         }, verboseOption, debugOption, traceOption);
 
         // Handler for the build command
         buildCommand.SetHandler((InvocationContext context) =>
         {
-            var modules = context.ParseResult.GetValueForOption(buildModulesOption);
-            var type = context.ParseResult.GetValueForOption(buildTypeOption);
-            var tag = context.ParseResult.GetValueForOption(buildTagOption);
-            var dockerFile = context.ParseResult.GetValueForOption(buildDockerFileOption);
-            var sourceImage = context.ParseResult.GetValueForOption(buildSourceImageOption);
-            var sourceTag = context.ParseResult.GetValueForOption(buildSourceTagOption);
-            var generateDockerfile = context.ParseResult.GetValueForOption(buildGenerateDockerfileOption);
-            var dockerfileOutput = context.ParseResult.GetValueForOption(buildDockerfileOutputOption);
-            var appSettings = context.ParseResult.GetValueForOption(buildAppSettingsOption);
+            try
+            {
+                var modules = context.ParseResult.GetValueForOption(buildModulesOption);
+                var type = context.ParseResult.GetValueForOption(buildTypeOption);
+                var tag = context.ParseResult.GetValueForOption(buildTagOption);
+                var dockerFile = context.ParseResult.GetValueForOption(buildDockerFileOption);
+                var sourceImage = context.ParseResult.GetValueForOption(buildSourceImageOption);
+                var sourceTag = context.ParseResult.GetValueForOption(buildSourceTagOption);
+                var generateDockerfile = context.ParseResult.GetValueForOption(buildGenerateDockerfileOption);
+                var dockerfileOutput = context.ParseResult.GetValueForOption(buildDockerfileOutputOption);
+                var appSettings = context.ParseResult.GetValueForOption(buildAppSettingsOption);
 
-            CommandHandlers.RunBuildCommand(modules, type, tag, dockerFile, sourceImage, sourceTag, generateDockerfile, dockerfileOutput, appSettings);
+                var buildType = string.IsNullOrWhiteSpace(type)
+                    ? "custom"
+                    : type.ToLowerInvariant();
+                var imageTag = string.IsNullOrWhiteSpace(tag) ? "poshmcp:latest" : tag;
+
+                if (buildType != "base" && buildType != "custom")
+                {
+                    Console.Error.WriteLine("Error: --type must be 'custom' or 'base'");
+                    Environment.ExitCode = ExitCodeConfigError;
+                    return;
+                }
+
+                var imageFile = string.IsNullOrWhiteSpace(dockerFile)
+                    ? (buildType == "base" ? "Dockerfile" : "examples/Dockerfile.user")
+                    : dockerFile;
+
+                // When the imageFile maps to an embedded resource or we're generating a Dockerfile,
+                // the file does not need to exist on disk. For custom Dockerfiles it must.
+                var hasEmbeddedDockerfile = DockerRunner.GetEmbeddedDockerfileName(imageFile) != null;
+                if (!generateDockerfile && !hasEmbeddedDockerfile && !File.Exists(imageFile))
+                {
+                    Console.Error.WriteLine($"Error: Dockerfile not found at {imageFile}");
+                    Environment.ExitCode = ExitCodeConfigError;
+                    return;
+                }
+
+                if (!string.IsNullOrWhiteSpace(appSettings) && !File.Exists(appSettings))
+                {
+                    Console.Error.WriteLine($"Error: appsettings file not found: {appSettings}");
+                    Environment.ExitCode = ExitCodeConfigError;
+                    return;
+                }
+
+                var resolvedSourceImage = DockerRunner.ResolveSourceImageReference(sourceImage, sourceTag);
+
+                if (generateDockerfile)
+                {
+                    var outputPath = string.IsNullOrWhiteSpace(dockerfileOutput)
+                        ? "./Dockerfile.generated"
+                        : dockerfileOutput;
+                    var writtenPath = DockerRunner.GenerateDockerfile(
+                        imageFile,
+                        outputPath,
+                        imageTag,
+                        modules,
+                        buildType == "custom" ? resolvedSourceImage : null,
+                        appSettings);
+                    Console.WriteLine($"Dockerfile written to: {writtenPath}");
+                    if (!string.IsNullOrWhiteSpace(appSettings))
+                    {
+                        Console.WriteLine($"Note: Copy {appSettings} to poshmcp-appsettings.json in your build context before building.");
+                    }
+                    Console.WriteLine("To build manually, run:");
+                    Console.WriteLine($"  docker build -f {writtenPath} -t {imageTag} .");
+                    Environment.ExitCode = ExitCodeSuccess;
+                    return;
+                }
+
+                var dockerPath = DockerRunner.DetectDockerCommand();
+
+                if (dockerPath == null)
+                {
+                    Console.Error.WriteLine("Error: Docker or Podman is not installed or not available in PATH.");
+                    Console.Error.WriteLine("Please install Docker (https://www.docker.com) or Podman (https://podman.io)");
+                    Environment.ExitCode = ExitCodeStartupError;
+                    return;
+                }
+
+                Console.WriteLine($"Building {buildType} PoshMcp image: {imageTag}");
+
+                if (buildType == "custom")
+                {
+                    Console.WriteLine($"Using source image: {resolvedSourceImage}");
+                }
+
+                string? stagedAppSettings = null;
+                string? tempDockerfilePath = null;
+                var effectiveImageFile = imageFile;
+
+                if (!string.IsNullOrWhiteSpace(appSettings) || hasEmbeddedDockerfile)
+                {
+                    stagedAppSettings = !string.IsNullOrWhiteSpace(appSettings)
+                        ? DockerRunner.PrepareAppSettingsForBuild(appSettings, ".")
+                        : null;
+                    tempDockerfilePath = ".poshmcp-build.dockerfile";
+                    DockerRunner.GenerateDockerfile(
+                        imageFile,
+                        tempDockerfilePath,
+                        imageTag,
+                        modules,
+                        buildType == "custom" ? resolvedSourceImage : null,
+                        appSettings);
+                    effectiveImageFile = tempDockerfilePath;
+                }
+
+                try
+                {
+                    var buildArgs = DockerRunner.BuildDockerBuildArgs(
+                        effectiveImageFile,
+                        imageTag,
+                        modules,
+                        buildType == "custom" ? resolvedSourceImage : null);
+
+                    var result = DockerRunner.ExecuteDockerCommand(dockerPath, buildArgs);
+                    if (result != ExitCodeSuccess)
+                    {
+                        Environment.ExitCode = result;
+                        return;
+                    }
+
+                    Console.WriteLine($"Successfully built image: {imageTag}");
+                    Environment.ExitCode = ExitCodeSuccess;
+                }
+                finally
+                {
+                    DockerRunner.CleanupTempFile(tempDockerfilePath);
+                    DockerRunner.CleanupTempFile(stagedAppSettings);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Build error: {ex.Message}");
+                Environment.ExitCode = ExitCodeRuntimeError;
+            }
         });
 
         // Handler for the run command
         runCommand.SetHandler((mode, port, tag, config, volumes, interactive) =>
         {
-            CommandHandlers.RunRunCommand(mode, port, tag, config, volumes, interactive);
+            try
+            {
+                var transportMode = string.IsNullOrWhiteSpace(mode) ? "http" : mode.ToLowerInvariant();
+                var portNumber = port ?? 8080;
+                var imageTag = string.IsNullOrWhiteSpace(tag) ? "poshmcp:latest" : tag;
+                var dockerPath = DockerRunner.DetectDockerCommand();
+
+                if (dockerPath == null)
+                {
+                    Console.Error.WriteLine("Error: Docker or Podman is not installed or not available in PATH.");
+                    Console.Error.WriteLine("Please install Docker (https://www.docker.com) or Podman (https://podman.io)");
+                    Environment.ExitCode = ExitCodeStartupError;
+                    return;
+                }
+
+                if (transportMode != "http" && transportMode != "stdio")
+                {
+                    Console.Error.WriteLine("Error: --mode must be 'http' or 'stdio'");
+                    Environment.ExitCode = ExitCodeConfigError;
+                    return;
+                }
+
+                var runArgs = "run -d";
+
+                if (interactive)
+                {
+                    runArgs = "run -it";
+                }
+
+                // Set transport mode environment variable
+                var envVar = transportMode == "http" ? "http" : "stdio";
+                runArgs += $" -e POSHMCP_TRANSPORT={envVar}";
+
+                // Expose port for HTTP mode
+                if (transportMode == "http")
+                {
+                    runArgs += $" -p {portNumber}:8080";
+                }
+
+                // Mount config file if provided
+                if (!string.IsNullOrWhiteSpace(config))
+                {
+                    var configPath = Path.GetFullPath(config);
+                    if (!File.Exists(configPath))
+                    {
+                        Console.Error.WriteLine($"Error: Config file not found: {configPath}");
+                        Environment.ExitCode = ExitCodeConfigError;
+                        return;
+                    }
+
+                    runArgs += $" -v {configPath}:/app/appsettings.json:ro";
+                }
+
+                // Add volume mounts if provided
+                if (volumes != null && volumes.Length > 0)
+                {
+                    foreach (var volume in volumes)
+                    {
+                        runArgs += $" -v {volume}";
+                    }
+                }
+
+                // Add image tag
+                runArgs += $" {imageTag}";
+
+                if (interactive)
+                {
+                    Console.WriteLine($"Starting PoshMcp container in interactive mode: {imageTag}");
+                    var result = DockerRunner.ExecuteDockerCommand(dockerPath, runArgs, interactive: true);
+                    Environment.ExitCode = result;
+                }
+                else
+                {
+                    Console.WriteLine($"Starting PoshMcp container in {transportMode} mode on port {portNumber}...");
+                    var result = DockerRunner.ExecuteDockerCommand(dockerPath, runArgs);
+                    if (result == ExitCodeSuccess)
+                    {
+                        Console.WriteLine($"Container started successfully ({transportMode} mode on port {portNumber})");
+                    }
+                    Environment.ExitCode = result;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Run error: {ex.Message}");
+                Environment.ExitCode = ExitCodeRuntimeError;
+            }
         }, runModeOption, runPortOption, runTagOption, runConfigOption, runVolumeOption, runInteractiveOption);
 
         scaffoldCommand.SetHandler(async (projectPath, force, format) =>
         {
-            await CommandHandlers.RunScaffoldCommandAsync(projectPath, force, format);
+            var outputFormat = ConfigurationFileManager.NormalizeFormat(format);
+
+            try
+            {
+                var targetProjectPath = string.IsNullOrWhiteSpace(projectPath)
+                    ? Directory.GetCurrentDirectory()
+                    : projectPath;
+
+                var result = await InfrastructureScaffolder.ScaffoldAzureInfrastructureAsync(targetProjectPath, force);
+
+                if (outputFormat == "json")
+                {
+                    var payload = new
+                    {
+                        success = true,
+                        projectPath = result.ProjectPath,
+                        relativePath = result.RelativeInfraPath,
+                        filesWritten = result.FilesWritten,
+                        filesOverwritten = result.FilesOverwritten,
+                        force = result.Force
+                    };
+                    Console.WriteLine(JsonSerializer.Serialize(payload));
+                }
+                else
+                {
+                    Console.WriteLine($"Scaffolded {result.FilesWritten} infra file(s) to {Path.Combine(result.ProjectPath, result.RelativeInfraPath.Replace('/', Path.DirectorySeparatorChar))}");
+                    if (result.FilesOverwritten > 0)
+                    {
+                        Console.WriteLine($"Overwritten files: {result.FilesOverwritten}");
+                    }
+                }
+
+                Environment.ExitCode = ExitCodeSuccess;
+            }
+            catch (IOException ex)
+            {
+                Console.Error.WriteLine($"Scaffold error: {ex.Message}");
+                Environment.ExitCode = ExitCodeConfigError;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Scaffold error: {ex.Message}");
+                Environment.ExitCode = ExitCodeRuntimeError;
+            }
         }, scaffoldProjectPathOption, forceOption, formatOption);
 
         return await rootCommand.InvokeAsync(args);
@@ -911,22 +1594,7 @@ public class Program
 
     private static async Task RunMcpServerAsync(string[] args, LogLevel? overrideLogLevel = null, string? explicitConfigPath = null, string? configurationPathSource = null, string? runtimeModeOverride = null, string? logFilePath = null)
     {
-        var builder = Host.CreateApplicationBuilder(args);
-        ConfigureStdioLogging(builder, overrideLogLevel, logFilePath);
-        var finalConfigPath = await ConfigureServerConfiguration(builder, explicitConfigPath);
-        var serviceProvider = builder.Services.BuildServiceProvider();
-        var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
-        var logger = loggerFactory.CreateLogger("PoshMcpLogger");
-        logger.LogInformation("Using configuration source: {ConfigurationPath}", DescribeConfigurationPath(finalConfigPath));
-        var config = ConfigurationLoader.LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
-        var resourcesConfig = ConfigurationLoader.LoadMcpResourcesConfiguration(finalConfigPath, logger);
-        await using var executorLease = await McpToolSetupService.StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger, finalConfigPath);
-        var tools = await McpToolSetupService.SetupMcpToolsAsync(loggerFactory, config, logger, finalConfigPath, configurationPathSource ?? McpToolSetupService.InferConfigurationPathSource(finalConfigPath), executorLease?.Executor);
-        var promptsConfig = ConfigurationLoader.LoadPromptsConfiguration(finalConfigPath);
-        var configDirectory = Path.GetDirectoryName(finalConfigPath) ?? Directory.GetCurrentDirectory();
-        var promptHandler = new McpPromptHandler(promptsConfig, configDirectory, loggerFactory.CreateLogger<McpPromptHandler>());
-        ConfigureServerServices(builder, tools, resourcesConfig, finalConfigPath, loggerFactory, promptHandler);
-        await builder.Build().RunAsync();
+        await StdioServerHost.RunMcpServerAsync(args, overrideLogLevel, explicitConfigPath, configurationPathSource, runtimeModeOverride, logFilePath);
     }
 
     private static async Task RunHttpTransportServerAsync(
@@ -938,259 +1606,8 @@ public class Program
         string? url,
         string? mcpPath)
     {
-        var builder = WebApplication.CreateBuilder(args);
-
-        builder.Logging.AddConsole(consoleLogOptions =>
-        {
-            consoleLogOptions.LogToStandardErrorThreshold = LogLevel.Trace;
-        });
-        builder.Logging.SetMinimumLevel(logLevel);
-
-        if (!string.IsNullOrWhiteSpace(url))
-        {
-            builder.WebHost.UseUrls(url);
-        }
-
-        if (!string.IsNullOrWhiteSpace(finalConfigPath) && File.Exists(finalConfigPath))
-        {
-            builder.Configuration.AddJsonFile(finalConfigPath, optional: false, reloadOnChange: true);
-        }
-        builder.Configuration.AddEnvironmentVariables();
-        builder.Services.Configure<PowerShellConfiguration>(
-            builder.Configuration.GetSection("PowerShellConfiguration"));
-        builder.Services.Configure<McpPromptsConfiguration>(
-            builder.Configuration.GetSection("McpPrompts"));
-
-        // Build auth config from the custom config file directly, bypassing the WebApplicationBuilder's
-        // ConfigurationManager which starts with the baked-in appsettings.json (Authentication.Enabled: false).
-        // Using the same approach as diagnostic tools (ConfigurationLoader.BuildRootConfiguration) ensures
-        // the correct user-configured value is always used for auth decisions and IOptions binding.
-        var authRootConfig = ConfigurationLoader.BuildRootConfiguration(finalConfigPath, reloadOnChange: false);
-
-        builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<PoshMcp.Server.Authentication.AuthenticationConfiguration>,
-            PoshMcp.Server.Authentication.AuthenticationConfigurationValidator>();
-
-        ConfigureJsonSerializerOptions(builder);
-        ConfigureCorsForMcp(builder, authRootConfig);
-        RegisterHealthChecks(builder);
-
-        ConfigureOpenTelemetryForHttp(builder);
-        ConfigureApplicationInsights(builder.Services, builder.Configuration, isStdioMode: false);
-
-        using var bootstrapLoggerFactory = LoggingHelpers.CreateLoggerFactory(logLevel);
-        var logger = bootstrapLoggerFactory.CreateLogger("PoshMcpHttpLogger");
-        var config = ConfigurationLoader.LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
-        await using var executorLease = await McpToolSetupService.StartOutOfProcessExecutorIfNeededAsync(config, bootstrapLoggerFactory, logger, finalConfigPath);
-
-        var sharedHttpContextAccessor = new HttpContextAccessor();
-        var sharedRunspaceLogger = bootstrapLoggerFactory.CreateLogger<SessionAwarePowerShellRunspace>();
-        var sharedSessionRunspace = new SessionAwarePowerShellRunspace(sharedHttpContextAccessor, sharedRunspaceLogger);
-
-        builder.Services.AddSingleton<IHttpContextAccessor>(sharedHttpContextAccessor);
-        builder.Services.AddSingleton<IPowerShellRunspace>(sharedSessionRunspace);
-
-        logger.LogInformation("Using configuration source: {ConfigurationPath}", DescribeConfigurationPath(finalConfigPath));
-
-        var tools = await McpToolSetupService.SetupHttpMcpToolsAsync(bootstrapLoggerFactory, config, logger, finalConfigPath, configurationPathSource, sharedSessionRunspace, executorLease?.Executor, sharedHttpContextAccessor);
-        var resourcesConfig = ConfigurationLoader.LoadMcpResourcesConfiguration(finalConfigPath, logger);
-        var resourcesConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? ".";
-        var resourceLogger = bootstrapLoggerFactory.CreateLogger<McpResourceHandler>();
-        var resourceHandler = new McpResourceHandler(resourcesConfig, sharedSessionRunspace, resourcesConfigDirectory, resourceLogger);
-        var authConfigValue = authRootConfig.GetSection("Authentication").Get<PoshMcp.Server.Authentication.AuthenticationConfiguration>() ?? new();
-        var promptsConfig = ConfigurationLoader.LoadPromptsConfiguration(finalConfigPath);
-        var httpConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? Directory.GetCurrentDirectory();
-        var httpPromptHandler = new McpPromptHandler(promptsConfig, httpConfigDirectory, bootstrapLoggerFactory.CreateLogger<McpPromptHandler>());
-        var mcpBuilder = builder.Services
-            .AddMcpServer()
-            .WithHttpTransport()
-            .WithTools(tools)
-            .WithListResourcesHandler(resourceHandler.HandleListAsync)
-            .WithReadResourceHandler(resourceHandler.HandleReadAsync)
-            .WithListPromptsHandler(httpPromptHandler.HandleListPromptsAsync)
-            .WithGetPromptHandler(httpPromptHandler.HandleGetPromptAsync);
-
-        ToolAuthorizationFilter? callToolFilter = null;
-        ToolListAuthorizationFilter? listToolFilter = null;
-
-        if (authConfigValue.Enabled)
-        {
-            builder.Services.AddSingleton<ToolAuthorizationFilter>(sp =>
-                new ToolAuthorizationFilter(
-                    authConfigValue,
-                    config,
-                    sp.GetRequiredService<IHttpContextAccessor>(),
-                    sp.GetRequiredService<McpMetrics>(),
-                    sp.GetRequiredService<ILogger<ToolAuthorizationFilter>>()));
-            builder.Services.AddSingleton<ToolListAuthorizationFilter>(sp =>
-                new ToolListAuthorizationFilter(
-                    authConfigValue,
-                    config,
-                    sp.GetRequiredService<IHttpContextAccessor>(),
-                    sp.GetRequiredService<ILogger<ToolListAuthorizationFilter>>()));
-            mcpBuilder.WithRequestFilters(fb =>
-            {
-                fb.AddCallToolFilter((next) => async (context, ct) =>
-                    await callToolFilter!.AsFilter()(next)(context, ct));
-                fb.AddListToolsFilter((next) => async (context, ct) =>
-                    await listToolFilter!.AsFilter()(next)(context, ct));
-            });
-        }
-
-        RegisterCleanupServices(builder);
-
-        builder.Services.AddPoshMcpAuthentication(authRootConfig);
-
-        var app = builder.Build();
-
-        app.Use(async (context, next) =>
-        {
-            var correlationId = context.Request.Headers["X-Correlation-ID"].FirstOrDefault()
-                ?? OperationContext.GenerateCorrelationId();
-            OperationContext.CorrelationId = correlationId;
-            context.Response.Headers["X-Correlation-ID"] = correlationId;
-
-            await next();
-        });
-
-        app.UseCors();
-
-        var authConfigForMiddleware = app.Services.GetRequiredService<IOptions<AuthenticationConfiguration>>();
-        if (authConfigForMiddleware.Value.Enabled)
-        {
-            callToolFilter = app.Services.GetRequiredService<ToolAuthorizationFilter>();
-            listToolFilter = app.Services.GetRequiredService<ToolListAuthorizationFilter>();
-            app.UseAuthentication();
-            app.UseAuthorization();
-        }
-
-        app.MapHealthChecks("/health", new HealthCheckOptions
-        {
-            ResponseWriter = WriteHealthCheckResponseAsync
-        }).AllowAnonymous();
-        app.MapHealthChecks("/health/ready", new HealthCheckOptions
-        {
-            Predicate = _ => true,
-            ResponseWriter = WriteHealthCheckResponseAsync,
-            ResultStatusCodes =
-            {
-                [Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Healthy] = StatusCodes.Status200OK,
-                [Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Degraded] = StatusCodes.Status503ServiceUnavailable,
-                [Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy] = StatusCodes.Status503ServiceUnavailable
-            }
-        }).AllowAnonymous();
-
-        var normalizedMcpPath = SettingsResolver.NormalizeMcpPath(mcpPath);
-        IEndpointConventionBuilder mcpEndpoint;
-        if (string.IsNullOrWhiteSpace(normalizedMcpPath))
-        {
-            mcpEndpoint = app.MapMcp();
-        }
-        else
-        {
-            mcpEndpoint = app.MapMcp(normalizedMcpPath);
-        }
-        if (authConfigForMiddleware.Value.Enabled)
-        {
-            mcpEndpoint.RequireAuthorization("McpAccess");
-        }
-
-        // RFC 9728 Protected Resource Metadata
-        var authConfigForEndpoints = app.Services
-            .GetRequiredService<IOptions<AuthenticationConfiguration>>();
-        app.MapProtectedResourceMetadata(authConfigForEndpoints.Value);
-        // OAuth proxy: /.well-known/oauth-authorization-server + /register (DCR)
-        app.MapOAuthProxyEndpoints(authConfigForEndpoints.Value);
-
-        await app.RunAsync();
+        await HttpServerHost.RunHttpTransportServerAsync(args, logLevel, finalConfigPath, configurationPathSource, runtimeModeOverride, url, mcpPath);
     }
-
-    private static void ConfigureCorsForMcp(WebApplicationBuilder builder, IConfigurationRoot authRootConfig)
-    {
-        var authConfig = authRootConfig.GetSection("Authentication").Get<AuthenticationConfiguration>()
-            ?? new AuthenticationConfiguration();
-
-        builder.Services.AddCors(options =>
-        {
-            options.AddDefaultPolicy(policy =>
-            {
-                if (authConfig.Enabled && authConfig.Cors?.AllowedOrigins.Count > 0)
-                {
-                    policy.WithOrigins(authConfig.Cors.AllowedOrigins.ToArray());
-                    if (authConfig.Cors.AllowCredentials)
-                        policy.AllowCredentials();
-                    else
-                        policy.DisallowCredentials();
-                }
-                else if (authConfig.Enabled)
-                {
-                    // Auth enabled but no origins configured — same-origin only (no wildcard)
-                    // ASP.NET Core doesn't support "same-origin only" via CORS policy directly,
-                    // so we just don't add AllowAnyOrigin — this effectively blocks cross-origin
-                }
-                else
-                {
-                    // Auth disabled — keep wide-open for dev/stdio use
-                    policy.AllowAnyOrigin();
-                }
-                policy.AllowAnyMethod().AllowAnyHeader().WithExposedHeaders("Mcp-Session-Id");
-            });
-        });
-    }
-
-    private static void RegisterHealthChecks(WebApplicationBuilder builder)
-    {
-        builder.Services.AddHealthChecks()
-            .AddCheck<PowerShellRunspaceHealthCheck>("powershell_runspace")
-            .AddCheck<AssemblyGenerationHealthCheck>("assembly_generation")
-            .AddCheck<ConfigurationHealthCheck>("configuration");
-    }
-
-    private static void ConfigureOpenTelemetryForHttp(WebApplicationBuilder builder)
-    {
-        builder.Services.AddSingleton<McpMetrics>();
-
-        builder.Services.AddOpenTelemetry()
-            .WithTracing(tracingBuilder =>
-            {
-                tracingBuilder.AddSource(PowerShellAssemblyGenerator.ToolActivitySource.Name);
-            })
-            .WithMetrics(metricsBuilder =>
-            {
-                metricsBuilder
-                    .AddMeter(McpMetrics.MeterName)
-                    .AddAspNetCoreInstrumentation()
-                    .AddConsoleExporter();
-            });
-
-        builder.Services.AddSingleton<IHostedService>(serviceProvider =>
-        {
-            var metrics = serviceProvider.GetRequiredService<McpMetrics>();
-            McpToolFactoryV2.SetMetrics(metrics);
-            PowerShellAssemblyGenerator.SetMetrics(metrics);
-            return new MetricsConfigurationService();
-        });
-    }
-
-    private static async Task WriteHealthCheckResponseAsync(HttpContext context, Microsoft.Extensions.Diagnostics.HealthChecks.HealthReport report)
-    {
-        context.Response.ContentType = "application/json";
-        var result = JsonSerializer.Serialize(new
-        {
-            status = report.Status.ToString(),
-            checks = report.Entries.Select(e => new
-            {
-                name = e.Key,
-                status = e.Value.Status.ToString(),
-                description = e.Value.Description,
-                duration = e.Value.Duration.TotalMilliseconds,
-                data = e.Value.Data
-            }),
-            totalDuration = report.TotalDuration.TotalMilliseconds
-        });
-        await context.Response.WriteAsync(result);
-    }
-
-
 
     private static void ConfigureServerLogging(HostApplicationBuilder builder, LogLevel? overrideLogLevel)
     {
@@ -1205,62 +1622,7 @@ public class Program
         }
     }
 
-    /// <summary>
-    /// Configures logging for stdio transport mode. Always clears default console providers to prevent
-    /// stdout/stderr pollution of the MCP JSON-RPC pipe. Optionally wires up a Serilog file sink.
-    /// </summary>
-    private static void ConfigureStdioLogging(HostApplicationBuilder builder, LogLevel? overrideLogLevel, string? logFilePath)
-    {
-        builder.Logging.ClearProviders();
-
-        if (!string.IsNullOrWhiteSpace(logFilePath))
-        {
-            var serilogLogger = new Serilog.LoggerConfiguration()
-                .MinimumLevel.Is(LoggingHelpers.MapToSerilogLevel(overrideLogLevel ?? LogLevel.Information))
-                .WriteTo.File(
-                    logFilePath,
-                    rollingInterval: Serilog.RollingInterval.Day,
-                    retainedFileCountLimit: 7,
-                    outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss} {Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}")
-                .CreateLogger();
-
-            builder.Logging.AddSerilog(serilogLogger, dispose: true);
-        }
-    }
-
-    private static async Task<string> ConfigureServerConfiguration(HostApplicationBuilder builder, string? explicitConfigPath)
-    {
-        var finalConfigPath = await ConfigurationLoader.ResolveExplicitOrDefaultConfigPath(explicitConfigPath);
-        if (!string.IsNullOrWhiteSpace(finalConfigPath) && File.Exists(finalConfigPath))
-        {
-            builder.Configuration.AddJsonFile(finalConfigPath, optional: false, reloadOnChange: true);
-        }
-        builder.Configuration.AddEnvironmentVariables();
-        builder.Services.Configure<PowerShellConfiguration>(
-            builder.Configuration.GetSection("PowerShellConfiguration"));
-        builder.Services.Configure<McpPromptsConfiguration>(
-            builder.Configuration.GetSection("McpPrompts"));
-
-        builder.Services
-            .AddOptions<PoshMcp.Server.Authentication.AuthenticationConfiguration>()
-            .BindConfiguration("Authentication")
-            .ValidateOnStart();
-
-        builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<PoshMcp.Server.Authentication.AuthenticationConfiguration>,
-            PoshMcp.Server.Authentication.AuthenticationConfigurationValidator>();
-
-        return finalConfigPath;
-    }
-
-    private static (ILogger logger, PowerShellConfiguration config) ExtractLoggerAndConfiguration(IServiceProvider serviceProvider, string finalConfigPath)
-    {
-        var logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("PoshMcpLogger");
-        var config = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<PowerShellConfiguration>>().Value;
-        logger.LogInformation("Using configuration source: {ConfigurationPath}", DescribeConfigurationPath(finalConfigPath));
-        return (logger, config);
-    }
-
-    internal static string DescribeConfigurationPath(string? configurationPath)
+    private static string DescribeConfigurationPath(string? configurationPath)
     {
         return string.IsNullOrWhiteSpace(configurationPath)
             ? "(environment-only configuration)"
@@ -1270,491 +1632,15 @@ public class Program
 
 
 
-<<<<<<< HEAD
-        // Always register set-result-caching (not gated by EnableDynamicReloadTools)
-        var setResultCachingTool = CreateSetResultCachingToolInstance(runtimeCachingState);
-        tools.Add(setResultCachingTool);
-        logger.LogInformation("Registered set-result-caching tool (always enabled)");
 
-        AddConfigurationGuidanceToolToList(tools, config, finalConfigPath, "stdio", config.RuntimeMode.ToString(), null, loggerFactory);
-        AddConfigurationTroubleshootingToolToList(tools, config, finalConfigPath, "stdio", null, config.RuntimeMode.ToString(), null, logger);
 
-        return tools;
-    }
 
-    internal static void AddConfigurationGuidanceToolToList(
-        List<McpServerTool> tools,
-        PowerShellConfiguration config,
-        string configurationPath,
-        string effectiveTransport,
-        string? effectiveRuntimeMode,
-        string? effectiveMcpPath,
-        ILoggerFactory loggerFactory)
-    {
-        if (!config.EnableConfigurationTroubleshootingTool)
-        {
-            return;
-        }
 
-        tools.Add(CreateConfigurationGuidanceToolInstance(
-            configurationPath,
-            effectiveTransport,
-            effectiveRuntimeMode,
-            effectiveMcpPath,
-            loggerFactory));
-    }
 
-    internal static void AddConfigurationTroubleshootingToolToList(
-        List<McpServerTool> tools,
-        PowerShellConfiguration config,
-        string configurationPath,
-        string effectiveTransport,
-        string? effectiveSessionMode,
-        string? effectiveRuntimeMode,
-        string? effectiveMcpPath,
-        ILogger logger,
-        IHttpContextAccessor? httpContextAccessor = null)
-    {
-        if (!config.EnableConfigurationTroubleshootingTool)
-        {
-            return;
-        }
 
-        Func<System.Security.Claims.ClaimsPrincipal?>? identityProvider =
-            httpContextAccessor is null ? null : () => httpContextAccessor.HttpContext?.User;
 
-        tools.Add(CreateConfigurationTroubleshootingToolInstance(
-            configurationPath,
-            effectiveTransport,
-            effectiveSessionMode,
-            effectiveRuntimeMode,
-            effectiveMcpPath,
-            () => tools,
-            logger,
-            authConfig: null,
-            identityProvider: identityProvider));
-    }
 
-    private static McpServerTool CreateConfigurationTroubleshootingToolInstance(
-        string configurationPath,
-        string effectiveTransport,
-        string? effectiveSessionMode,
-        string? effectiveRuntimeMode,
-        string? effectiveMcpPath,
-        Func<List<McpServerTool>> registeredToolsProvider,
-        ILogger logger,
-        AuthenticationConfiguration? authConfig = null,
-        Func<System.Security.Claims.ClaimsPrincipal?>? identityProvider = null)
-    {
-        Func<CancellationToken, Task<string>> troubleshootingDelegate = cancellationToken =>
-        {
-            try
-            {
-                logger.LogInformation("Processing configuration troubleshooting request");
 
-                var config = ConfigurationLoader.LoadPowerShellConfiguration(configurationPath, logger, effectiveRuntimeMode);
-                var tools = registeredToolsProvider();
-                var report = DoctorService.BuildDoctorReportFromConfig(
-                    configurationPath: configurationPath,
-                    configurationPathSource: "runtime",
-                    effectiveLogLevel: LoggingHelpers.InferEffectiveLogLevel(logger),
-                    effectiveLogLevelSource: "runtime",
-                    effectiveTransport: effectiveTransport,
-                    effectiveTransportSource: "runtime",
-                    effectiveSessionMode: effectiveSessionMode,
-                    effectiveSessionModeSource: "runtime",
-                    effectiveRuntimeMode: effectiveRuntimeMode,
-                    effectiveRuntimeModeSource: "runtime",
-                    effectiveMcpPath: effectiveMcpPath,
-                    effectiveMcpPathSource: "runtime",
-                    config: config,
-                    tools: tools,
-                    authConfig: authConfig,
-                    currentIdentity: identityProvider?.Invoke());
 
-                return Task.FromResult(DoctorService.BuildDoctorJson(report));
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Error generating configuration troubleshooting output");
-                return Task.FromResult(JsonSerializer.Serialize(new
-                {
-                    success = false,
-                    error = $"Unexpected error: {ex.Message}"
-                }));
-            }
-        };
-
-        return McpServerTool.Create(troubleshootingDelegate, new McpServerToolCreateOptions
-        {
-            Name = "get-configuration-troubleshooting",
-            Description = "Returns doctor-style configuration diagnostics for the running server. Output includes runtime settings, environment variables, PowerShell info, configured functions, MCP definitions, authentication configuration, and caller identity (when available).",
-            Title = "Get Configuration Troubleshooting",
-            ReadOnly = true,
-            Destructive = false,
-            Idempotent = true,
-            OpenWorld = false,
-            UseStructuredContent = true
-        });
-    }
-
-    private static McpServerTool CreateConfigurationGuidanceToolInstance(
-        string configurationPath,
-        string effectiveTransport,
-        string? effectiveRuntimeMode,
-        string? effectiveMcpPath,
-        ILoggerFactory loggerFactory)
-    {
-        var guidanceLogger = loggerFactory.CreateLogger<ConfigurationGuidanceTools>();
-        var guidanceTools = new ConfigurationGuidanceTools(
-            configurationPath,
-            effectiveTransport,
-            effectiveRuntimeMode,
-            effectiveMcpPath,
-            guidanceLogger);
-
-        return McpServerTool.Create(guidanceTools.GetConfigurationGuidance, new McpServerToolCreateOptions
-        {
-            Name = "get-configuration-guidance",
-            Description = "Returns configuration guidance for creating and updating appsettings.json, including environment customization and authentication recommendations based on the current runtime transport.",
-            Title = "Get Configuration Guidance",
-            ReadOnly = true,
-            Destructive = false,
-            Idempotent = true,
-            OpenWorld = false,
-            UseStructuredContent = true
-        });
-    }
-
-    internal static McpToolFactoryV2 CreateToolFactory(PowerShellConfiguration config, ICommandExecutor? commandExecutor, IPowerShellRunspace? runspace = null)
-    {
-        if (config.RuntimeMode == RuntimeMode.OutOfProcess)
-        {
-            return commandExecutor is null
-                ? throw new InvalidOperationException("Out-of-process runtime mode requires a started command executor.")
-                : new McpToolFactoryV2(commandExecutor);
-        }
-
-        return runspace is null ? new McpToolFactoryV2() : new McpToolFactoryV2(runspace);
-    }
-
-    internal static async Task<OutOfProcessExecutorLease?> StartOutOfProcessExecutorIfNeededAsync(PowerShellConfiguration config, ILoggerFactory loggerFactory, ILogger logger, string? configFilePath = null)
-    {
-        if (config.RuntimeMode != RuntimeMode.OutOfProcess)
-        {
-            return null;
-        }
-
-        var executorLogger = loggerFactory.CreateLogger<OutOfProcessCommandExecutor>();
-        var setupTimeout = config.Environment?.SetupTimeoutSeconds is > 0
-            ? TimeSpan.FromSeconds(config.Environment.SetupTimeoutSeconds)
-            : TimeSpan.FromSeconds(120);
-        var executor = new OutOfProcessCommandExecutor(executorLogger);
-        await executor.StartAsync();
-        logger.LogInformation("Started out-of-process PowerShell executor");
-
-        if (config.Environment is not null)
-        {
-            using var setupCts = new CancellationTokenSource(setupTimeout);
-            await executor.SetupAsync(config.Environment, configFilePath, setupTimeout, config.Modules, setupCts.Token);
-            logger.LogInformation("Applied environment configuration to out-of-process executor");
-        }
-
-        return new OutOfProcessExecutorLease(executor);
-    }
-
-    internal sealed class OutOfProcessExecutorLease : IAsyncDisposable
-    {
-        public OutOfProcessExecutorLease(OutOfProcessCommandExecutor executor)
-        {
-            Executor = executor;
-        }
-
-        public OutOfProcessCommandExecutor Executor { get; }
-
-        public async ValueTask DisposeAsync()
-        {
-            await Executor.DisposeAsync();
-        }
-    }
-
-    private static ConfigurationReloadTools CreateConfigurationReloadTools(
-        ILoggerFactory loggerFactory,
-        McpToolFactoryV2 toolFactory,
-        PowerShellConfiguration config,
-        string finalConfigPath,
-        string configurationPathSource,
-        string effectiveTransport,
-        string? effectiveRuntimeMode,
-        string? effectiveMcpPath,
-        Func<List<McpServerTool>> registeredToolsProvider)
-    {
-        var reloadServiceLogger = loggerFactory.CreateLogger<PowerShellConfigurationReloadService>();
-        var reloadService = new PowerShellConfigurationReloadService(reloadServiceLogger, toolFactory, config, finalConfigPath);
-        var reloadToolsLogger = loggerFactory.CreateLogger<ConfigurationReloadTools>();
-        return new ConfigurationReloadTools(
-            reloadService,
-            finalConfigPath,
-            configurationPathSource,
-            effectiveTransport,
-            null,
-            effectiveRuntimeMode,
-            effectiveMcpPath,
-            registeredToolsProvider,
-            reloadToolsLogger);
-    }
-
-    private static string InferConfigurationPathSource(string? configurationPath)
-    {
-        return string.IsNullOrWhiteSpace(configurationPath) ? SettingsResolver.EnvSource : "runtime";
-    }
-
-    private static void AddConfigurationReloadToolsToList(List<McpServerTool> tools, ConfigurationReloadTools reloadTools)
-    {
-        var reloadFromFileTool = CreateReloadFromFileToolInstance(reloadTools);
-        var updateConfigTool = CreateUpdateConfigurationToolInstance(reloadTools);
-        var getConfigStatusTool = CreateGetConfigurationStatusToolInstance(reloadTools);
-
-        tools.Add(reloadFromFileTool);
-        tools.Add(updateConfigTool);
-        tools.Add(getConfigStatusTool);
-    }
-
-    private static McpServerTool CreateReloadFromFileToolInstance(ConfigurationReloadTools reloadTools)
-    {
-        var reloadConfigFromFileDelegate = new Func<CancellationToken, Task<string>>(reloadTools.ReloadConfigurationFromFile);
-        return McpServerTool.Create(reloadConfigFromFileDelegate, new McpServerToolCreateOptions
-        {
-            Name = "reload-configuration-from-file",
-            Description = "Reloads PowerShell configuration from the configuration file and regenerates available tools",
-            Title = "Reload Configuration from File",
-            ReadOnly = false,
-            Destructive = false,
-            Idempotent = true,
-            OpenWorld = false,
-            UseStructuredContent = true
-        });
-    }
-
-    private static McpServerTool CreateUpdateConfigurationToolInstance(ConfigurationReloadTools reloadTools)
-    {
-        var updateConfigDelegate = new Func<string, CancellationToken, Task<string>>(reloadTools.UpdateConfiguration);
-        return McpServerTool.Create(updateConfigDelegate, new McpServerToolCreateOptions
-        {
-            Name = "update-configuration",
-            Description = "Updates PowerShell configuration with new settings and regenerates available tools",
-            Title = "Update Configuration",
-            ReadOnly = false,
-            Destructive = false,
-            Idempotent = true,
-            OpenWorld = false,
-            UseStructuredContent = true
-        });
-    }
-
-    private static McpServerTool CreateGetConfigurationStatusToolInstance(ConfigurationReloadTools reloadTools)
-    {
-        var getConfigStatusDelegate = new Func<CancellationToken, Task<string>>(reloadTools.GetConfigurationStatus);
-        return McpServerTool.Create(getConfigStatusDelegate, new McpServerToolCreateOptions
-        {
-            Name = "get-configuration-status",
-            Description = "Gets current PowerShell configuration status and tool information",
-            Title = "Get Configuration Status",
-            ReadOnly = true,
-            Destructive = false,
-            Idempotent = true,
-            OpenWorld = false,
-            UseStructuredContent = true
-        });
-    }
-
-    private static McpServerTool CreateSetResultCachingToolInstance(RuntimeCachingState runtimeCachingState)
-    {
-        Func<string?, string?, string?, CancellationToken, Task<string>> setResultCachingDelegate =
-            (enabled, scope, functionName, cancellationToken) =>
-            {
-                bool? enabledBool = ParseEnabledParameter(enabled);
-                var result = runtimeCachingState.HandleSetResultCaching(enabledBool, scope ?? "global", functionName);
-                return Task.FromResult(result);
-            };
-
-        return McpServerTool.Create(setResultCachingDelegate, new McpServerToolCreateOptions
-        {
-            Name = "set-result-caching",
-            Description = "Enable or disable result caching at runtime. When enabled, command output is cached for replay by filter/sort/group tools. Pass enabled=null or enabled='reset' to clear the runtime override and fall back to configuration. Runtime settings are ephemeral and do not persist across server restarts.",
-            Title = "Set Result Caching",
-            ReadOnly = false,
-            Destructive = false,
-            Idempotent = true,
-            OpenWorld = false,
-            UseStructuredContent = true
-        });
-    }
-
-    private static bool? ParseEnabledParameter(string? enabled)
-    {
-        if (string.IsNullOrEmpty(enabled) || string.Equals(enabled, "reset", StringComparison.OrdinalIgnoreCase))
-            return null;
-        if (string.Equals(enabled, "true", StringComparison.OrdinalIgnoreCase))
-            return true;
-        if (string.Equals(enabled, "false", StringComparison.OrdinalIgnoreCase))
-            return false;
-        return null;
-    }
-=======
->>>>>>> f75842d (refactor: extract MCP tool setup to McpToolSetupService.cs)
-
-    private static void ConfigureServerServices(
-        HostApplicationBuilder builder,
-        List<McpServerTool> tools,
-        McpResourcesConfiguration resourcesConfig,
-        string configFilePath,
-        ILoggerFactory loggerFactory,
-        McpPromptHandler promptHandler)
-    {
-        ConfigureJsonSerializerOptions(builder);
-        ConfigureOpenTelemetry(builder, isStdioMode: true);
-        ConfigureApplicationInsights(builder.Services, builder.Configuration, isStdioMode: true);
-        RegisterMcpServerServices(builder, tools, resourcesConfig, configFilePath, loggerFactory, promptHandler);
-        RegisterCleanupServices(builder);
-    }
-
-    private static void ConfigureOpenTelemetry(HostApplicationBuilder builder, bool isStdioMode = false)
-    {
-        // Register and configure OpenTelemetry metrics
-        builder.Services.AddSingleton<McpMetrics>();
-
-        builder.Services.AddOpenTelemetry()
-            .WithTracing(tracingBuilder =>
-            {
-                tracingBuilder.AddSource(PowerShellAssemblyGenerator.ToolActivitySource.Name);
-            })
-            .WithMetrics(metricsBuilder =>
-            {
-                metricsBuilder.AddMeter(McpMetrics.MeterName);
-                if (!isStdioMode)
-                {
-                    metricsBuilder.AddConsoleExporter();
-                }
-            });
-
-        // Configure metrics in the factories after building the service provider
-        builder.Services.AddSingleton<IHostedService>(serviceProvider =>
-        {
-            var metrics = serviceProvider.GetRequiredService<McpMetrics>();
-            McpToolFactoryV2.SetMetrics(metrics);
-            PowerShellAssemblyGenerator.SetMetrics(metrics);
-            return new MetricsConfigurationService();
-        });
-    }
-
-    private static void ConfigureJsonSerializerOptions(HostApplicationBuilder builder)
-    {
-        builder.Services.Configure<JsonSerializerOptions>(options =>
-        {
-            options.ReferenceHandler = ReferenceHandler.IgnoreCycles;
-            options.MaxDepth = 128;
-            options.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
-            options.WriteIndented = false;
-        });
-    }
-
-    private static void ConfigureJsonSerializerOptions(WebApplicationBuilder builder)
-    {
-        builder.Services.Configure<JsonSerializerOptions>(options =>
-        {
-            options.ReferenceHandler = ReferenceHandler.IgnoreCycles;
-            options.MaxDepth = 128;
-            options.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
-            options.WriteIndented = false;
-        });
-    }
-
-    private static void ConfigureApplicationInsights(
-        IServiceCollection services,
-        IConfiguration configuration,
-        bool isStdioMode)
-    {
-        var options = configuration.GetSection(PoshMcp.Server.ApplicationInsightsOptions.SectionName).Get<PoshMcp.Server.ApplicationInsightsOptions>()
-                      ?? new PoshMcp.Server.ApplicationInsightsOptions();
-
-        if (!options.Enabled)
-            return;
-
-        var connectionString = options.ConnectionString;
-        if (string.IsNullOrWhiteSpace(connectionString))
-            connectionString = Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING");
-
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            Console.Error.WriteLine("[WARN] Application Insights is enabled but no connection string was found. " +
-                                    "Set ApplicationInsights.ConnectionString in appsettings.json or the " +
-                                    "APPLICATIONINSIGHTS_CONNECTION_STRING environment variable.");
-            return;
-        }
-
-        var samplingPercentage = Math.Clamp(options.SamplingPercentage, 1, 100);
-        var transportMode = isStdioMode ? "stdio" : "http";
-
-        services.AddOpenTelemetry()
-            .UseAzureMonitor(azureMonitorOptions =>
-            {
-                azureMonitorOptions.ConnectionString = connectionString;
-                azureMonitorOptions.SamplingRatio = samplingPercentage / 100.0f;
-            })
-            .ConfigureResource(resource =>
-                resource.AddAttributes(new[]
-                {
-                    new KeyValuePair<string, object>("transport.mode", (object)transportMode)
-                }));
-
-        // FR-311/FR-312: Suppress OTel log export to Azure Monitor.
-        // UseAzureMonitor() registers an OpenTelemetryLoggerProvider that would export
-        // all ILogger output (including parameter values logged at Debug level) to App Insights.
-        // We only want traces and metrics exported — not logs.
-        services.Configure<LoggerFilterOptions>(opts =>
-        {
-            opts.Rules.Add(new LoggerFilterRule(
-                providerName: "OpenTelemetry",
-                categoryName: null,
-                logLevel: LogLevel.None,
-                filter: null));
-        });
-
-        Console.Error.WriteLine($"[INFO] Application Insights enabled. Sampling: {samplingPercentage}%");
-    }
-
-    private static void RegisterMcpServerServices(
-        HostApplicationBuilder builder,
-        List<McpServerTool> tools,
-        McpResourcesConfiguration resourcesConfig,
-        string configFilePath,
-        ILoggerFactory loggerFactory,
-        McpPromptHandler promptHandler)
-    {
-        var runspace = new SingletonPowerShellRunspace();
-        var configDirectory = Path.GetDirectoryName(configFilePath) ?? ".";
-        var resourceLogger = loggerFactory.CreateLogger<McpResourceHandler>();
-        var resourceHandler = new McpResourceHandler(resourcesConfig, runspace, configDirectory, resourceLogger);
-
-        builder.Services
-            .AddMcpServer()
-            .WithStdioServerTransport()
-            .WithTools(tools)
-            .WithListResourcesHandler(resourceHandler.HandleListAsync)
-            .WithReadResourceHandler(resourceHandler.HandleReadAsync)
-            .WithListPromptsHandler(promptHandler.HandleListPromptsAsync)
-            .WithGetPromptHandler(promptHandler.HandleGetPromptAsync);
-    }
-
-    private static void RegisterCleanupServices(HostApplicationBuilder builder)
-    {
-        builder.Services.AddSingleton<IHostedService, PowerShellCleanupService>();
-    }
-
-    private static void RegisterCleanupServices(WebApplicationBuilder builder)
-    {
-        builder.Services.AddSingleton<IHostedService, PowerShellCleanupService>();
-    }
 
 }
