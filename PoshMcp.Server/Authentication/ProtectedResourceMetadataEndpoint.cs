@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.AspNetCore.Builder;
@@ -18,6 +19,12 @@ public static class ProtectedResourceMetadataEndpoint
 
         app.MapGet("/.well-known/oauth-protected-resource", (HttpContext httpContext) =>
         {
+            var req = httpContext.Request;
+            var scheme = req.Headers["X-Forwarded-Proto"].FirstOrDefault() ?? req.Scheme;
+            var host = req.Headers["X-Forwarded-Host"].FirstOrDefault()
+                       ?? req.Host.ToUriComponent();
+            var serverBase = $"{scheme}://{host}{req.PathBase}".TrimEnd('/');
+
             // When the OAuth proxy is enabled and no authorization_servers are
             // explicitly configured, advertise this server itself as the AS.
             // MCP clients will then follow up with a request to
@@ -28,17 +35,24 @@ public static class ProtectedResourceMetadataEndpoint
                 && config.OAuthProxy is { Enabled: true }
                 && !string.IsNullOrWhiteSpace(config.OAuthProxy.TenantId))
             {
-                var req = httpContext.Request;
-                var scheme = req.Headers["X-Forwarded-Proto"].FirstOrDefault() ?? req.Scheme;
-                var host = req.Headers["X-Forwarded-Host"].FirstOrDefault()
-                           ?? req.Host.ToUriComponent();
-                var serverBase = $"{scheme}://{host}{req.PathBase}".TrimEnd('/');
                 authServers = new List<string> { serverBase };
+            }
+
+            // RFC 9728 requires `resource` to be an HTTPS URI that MCP clients can use
+            // to fetch this document.  When the configured value uses a non-HTTP scheme
+            // (e.g. "api://..." for an Entra Application ID URI), substitute the server's
+            // canonical HTTPS base URL so clients can validate the metadata URL round-trip.
+            var resourceUri = config.ProtectedResource.Resource;
+            if (!string.IsNullOrEmpty(resourceUri)
+                && !resourceUri.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                && config.OAuthProxy is { Enabled: true })
+            {
+                resourceUri = serverBase;
             }
 
             var metadata = new
             {
-                resource = config.ProtectedResource.Resource,
+                resource = resourceUri,
                 resource_name = config.ProtectedResource.ResourceName,
                 authorization_servers = authServers,
                 scopes_supported = config.ProtectedResource.ScopesSupported,

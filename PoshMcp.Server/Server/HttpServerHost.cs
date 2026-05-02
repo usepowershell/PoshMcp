@@ -79,11 +79,6 @@ internal static class HttpServerHost
         // the correct user-configured value is always used for auth decisions and IOptions binding.
         var authRootConfig = ConfigurationLoader.BuildRootConfiguration(finalConfigPath, reloadOnChange: false);
 
-        builder.Services
-            .AddOptions<PoshMcp.Server.Authentication.AuthenticationConfiguration>()
-            .Configure(opts => authRootConfig.GetSection("Authentication").Bind(opts))
-            .ValidateOnStart();
-
         builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<PoshMcp.Server.Authentication.AuthenticationConfiguration>,
             PoshMcp.Server.Authentication.AuthenticationConfigurationValidator>();
 
