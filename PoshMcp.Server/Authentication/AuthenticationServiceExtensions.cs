@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace PoshMcp.Server.Authentication;
@@ -59,14 +60,62 @@ public static class AuthenticationServiceExtensions
                         }
                         options.TokenValidationParameters.ValidateAudience = !string.IsNullOrEmpty(scheme.Audience);
 
+                        // One-time startup diagnostic: log Authority and ValidAudiences so we can
+                        // confirm the JWT config matches what the token issuer will produce.
+                        Console.Error.WriteLine(
+                            $"[PoshMcp JWT] Scheme '{name}': Authority='{options.Authority}', " +
+                            $"ValidAudiences='{string.Join(",", options.TokenValidationParameters.ValidAudiences ?? [])}'");
+
                         // RFC 9728: inject resource_metadata into WWW-Authenticate so
                         // clients (e.g. VS Code) can discover the PRM and find the real
                         // authorization server instead of falling back to treating this
                         // server as the AS.
                         options.Events = new JwtBearerEvents
                         {
+                            OnMessageReceived = context =>
+                            {
+                                var hasToken = !string.IsNullOrEmpty(
+                                    context.Request.Headers.Authorization.ToString());
+                                context.HttpContext.RequestServices
+                                    .GetRequiredService<ILogger<JwtBearerHandler>>()
+                                    .LogInformation(
+                                        "JWT OnMessageReceived: HasBearerToken={HasToken}, Path={Path}",
+                                        hasToken, context.Request.Path);
+                                return Task.CompletedTask;
+                            },
+
+                            OnTokenValidated = context =>
+                            {
+                                var claims = context.Principal?.Claims
+                                    .Where(c => c.Type is "aud" or "scp" or "iss" or "sub" or "appid")
+                                    .Select(c => $"{c.Type}={c.Value}");
+                                context.HttpContext.RequestServices
+                                    .GetRequiredService<ILogger<JwtBearerHandler>>()
+                                    .LogInformation(
+                                        "JWT OnTokenValidated: Claims={Claims}",
+                                        string.Join(", ", claims ?? []));
+                                return Task.CompletedTask;
+                            },
+
+                            OnAuthenticationFailed = context =>
+                            {
+                                context.HttpContext.RequestServices
+                                    .GetRequiredService<ILogger<JwtBearerHandler>>()
+                                    .LogWarning(
+                                        "JWT OnAuthenticationFailed: {ExceptionType}: {Message}",
+                                        context.Exception.GetType().Name,
+                                        context.Exception.Message);
+                                return Task.CompletedTask;
+                            },
+
                             OnChallenge = context =>
                             {
+                                var logger = context.HttpContext.RequestServices
+                                    .GetRequiredService<ILogger<JwtBearerHandler>>();
+                                logger.LogWarning(
+                                    "JWT OnChallenge: Error={Error}, ErrorDescription={ErrorDescription}",
+                                    context.Error ?? "(none)", context.ErrorDescription ?? "(none)");
+
                                 var cfg = context.HttpContext.RequestServices
                                     .GetRequiredService<IOptions<AuthenticationConfiguration>>();
 
