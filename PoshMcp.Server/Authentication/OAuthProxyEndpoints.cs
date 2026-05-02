@@ -119,8 +119,10 @@ public static class OAuthProxyEndpoints
                     statusCode: StatusCodes.Status501NotImplemented);
             }
 
-            // Build new query params: forward everything as-is, replace client_id.
+            // Build new query params: strip `resource` (v1.0 only — not valid on v2.0
+            // endpoint and causes AADSTS9010010), forward everything else, replace client_id.
             var queryParams = httpContext.Request.Query
+                .Where(kvp => !kvp.Key.Equals("resource", StringComparison.OrdinalIgnoreCase))
                 .SelectMany(kvp => kvp.Value.Select(v =>
                     new KeyValuePair<string, string?>(
                         kvp.Key,
