@@ -300,45 +300,7 @@ internal static class HttpServerHost
     }
 
     /// <summary>
-    /// Writes health check response as JSON.
-    /// Includes status summary, individual check details, and total duration.
-    /// </summary>
-    private static async Task WriteHealthCheckResponseAsync(HttpContext context, Microsoft.Extensions.Diagnostics.HealthChecks.HealthReport report)
-    {
-        context.Response.ContentType = "application/json";
-        var result = JsonSerializer.Serialize(new
-        {
-            status = report.Status.ToString(),
-            checks = report.Entries.Select(e => new
-            {
-                name = e.Key,
-                status = e.Value.Status.ToString(),
-                description = e.Value.Description,
-                duration = e.Value.Duration.TotalMilliseconds,
-                data = e.Value.Data
-            }),
-            totalDuration = report.TotalDuration.TotalMilliseconds
-        });
-        await context.Response.WriteAsync(result);
-    }
-
-    /// <summary>
-    /// Configures JSON serialization options for the HTTP server.
-    /// Sets up reference handling, depth limits, and null value handling.
-    /// </summary>
-    private static void ConfigureJsonSerializerOptions(WebApplicationBuilder builder)
-    {
-        builder.Services.Configure<JsonSerializerOptions>(options =>
-        {
-            options.ReferenceHandler = ReferenceHandler.IgnoreCycles;
-            options.MaxDepth = 128;
-            options.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
-            options.WriteIndented = false;
-        });
-    }
-
-    /// <summary>
-    /// Configures Application Insights for observability of the HTTP server.
+    /// Configures Application Insights for observability of the server.
     /// Handles connection string setup, sampling configuration, and log filtering.
     /// </summary>
     private static void ConfigureApplicationInsights(
@@ -394,6 +356,46 @@ internal static class HttpServerHost
 
         Console.Error.WriteLine($"[INFO] Application Insights enabled. Sampling: {samplingPercentage}%");
     }
+
+    /// <summary>
+    /// Writes health check response as JSON.
+    /// Includes status summary, individual check details, and total duration.
+    /// </summary>
+    private static async Task WriteHealthCheckResponseAsync(HttpContext context, Microsoft.Extensions.Diagnostics.HealthChecks.HealthReport report)
+    {
+        context.Response.ContentType = "application/json";
+        var result = JsonSerializer.Serialize(new
+        {
+            status = report.Status.ToString(),
+            checks = report.Entries.Select(e => new
+            {
+                name = e.Key,
+                status = e.Value.Status.ToString(),
+                description = e.Value.Description,
+                duration = e.Value.Duration.TotalMilliseconds,
+                data = e.Value.Data
+            }),
+            totalDuration = report.TotalDuration.TotalMilliseconds
+        });
+        await context.Response.WriteAsync(result);
+    }
+
+    /// <summary>
+    /// Configures JSON serialization options for the HTTP server.
+    /// Sets up reference handling, depth limits, and null value handling.
+    /// </summary>
+    private static void ConfigureJsonSerializerOptions(WebApplicationBuilder builder)
+    {
+        builder.Services.Configure<JsonSerializerOptions>(options =>
+        {
+            options.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+            options.MaxDepth = 128;
+            options.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+            options.WriteIndented = false;
+        });
+    }
+
+
 
     /// <summary>
     /// Registers cleanup services for HTTP transport.

@@ -12,7 +12,7 @@ namespace PoshMcp.Tests.Unit;
 
 public class ConfigureApplicationInsightsTests
 {
-    private static readonly MethodInfo ConfigureMethod = typeof(PoshMcp.Program)
+    private static readonly MethodInfo ConfigureMethod = typeof(PoshMcp.StdioServerHost)
         .GetMethod("ConfigureApplicationInsights", BindingFlags.NonPublic | BindingFlags.Static)!;
 
     private static void InvokeConfigureApplicationInsights(
