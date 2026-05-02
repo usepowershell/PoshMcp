@@ -9,7 +9,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>poshmcp</ToolCommandName>
     <PackageId>poshmcp</PackageId>
-    <Version>0.9.13</Version>
+    <Version>0.9.14</Version>
     <Authors>Steven Murawski</Authors>
     <Description>A Model Context Protocol (MCP) server that exposes PowerShell commands and modules as AI-consumable tools.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
