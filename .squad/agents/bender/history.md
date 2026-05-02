@@ -1,6 +1,29 @@
 # Bender Work History
 
-## Recent Work (2026-04-20 — CURRENT SESSION)
+## Recent Work (2026-05-02 — CURRENT SESSION)
+
+### Bug Fix: X-Forwarded-Proto in WWW-Authenticate header (v0.9.9)
+**Date:** 2026-05-02  
+**Status:** Complete  
+**Commits:** `fix(auth): honor X-Forwarded-Proto in WWW-Authenticate resource_metadata URL`, `chore: release v0.9.9`  
+**Tag:** v0.9.9
+
+- **Bug**: `OnChallenge` JWT event handler built `resource_metadata` URL using `req.Scheme` which returns `http` behind Azure Container Apps' reverse proxy
+- **Fix**: Read `X-Forwarded-Proto` and `X-Forwarded-Host` headers (falling back to raw request values) — same pattern already used by `OAuthProxyEndpoints.GetServerBaseUrl` and `ProtectedResourceMetadataEndpoint`
+- **Scope**: Only `AuthenticationServiceExtensions.cs` needed fixing; the other two auth files were already correct
+- **Validation**: `dotnet build PoshMcp.Server` succeeded; all 24 auth tests passed
+
+**Files modified:**
+- `PoshMcp.Server/Authentication/AuthenticationServiceExtensions.cs` — fixed scheme/host resolution in `OnChallenge`
+- `PoshMcp.Server/PoshMcp.csproj` — bumped version 0.9.8 → 0.9.9
+
+## Learnings
+
+- **Reverse proxy scheme detection**: Always use `req.Headers["X-Forwarded-Proto"].FirstOrDefault() ?? req.Scheme` in code that builds public-facing URLs. Azure Container Apps (and other proxies) terminate TLS and forward `http` internally. The `UseForwardedHeaders` middleware can be used for app-wide forwarding, but targeted header reads are fine for isolated handlers.
+- **Consistency check**: When fixing a header-reading bug, search all auth files for the same pattern. `OAuthProxyEndpoints` and `ProtectedResourceMetadataEndpoint` already had the correct pattern via a `GetServerBaseUrl` helper — the fix brought `AuthenticationServiceExtensions` in line.
+- **Prefer `req.Host.ToUriComponent()` over `req.Host.ToString()`** when building URLs — `ToUriComponent()` includes the port only when non-default, which is the correct behaviour.
+
+## Previous Work (2026-04-20)
 
 ### Issue #170: Azure.Monitor.OpenTelemetry.AspNetCore Package
 **Branch:** squad/170-azure-monitor-otel-package  

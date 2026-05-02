@@ -1,5 +1,26 @@
 # Fry Work History
 
+## Recent Work (2026-05-02)
+
+### 2026-05-02: v0.9.8 OAuth Deployment Verification — AdvocacyBami
+
+**Deployment:** `https://poshmcp.calmstone-9cfc4790.eastus.azurecontainerapps.io`
+**Task:** Verify OAuth proxy endpoints shipped in v0.9.8
+
+**Results:**
+
+| Check | Verdict | Key finding |
+|-------|---------|-------------|
+| 1. Health | ✅ PASS | 200 Healthy, all sub-checks pass |
+| 2. OAuth AS Metadata | ✅ PASS | auth/token endpoints → login.microsoftonline.com |
+| 3. PRM (RFC 9728) | ⚠️ PARTIAL | `resource` = `api://` URI (not container URL); arrays clean |
+| 4. DCR Proxy | ✅ PASS | 201 with correct Entra client_id |
+| 5. MCP Reachability | ⚠️ ISSUE | 401 ✅ (not redirect), but `resource_metadata` uses `http://` not `https://` |
+
+**Key issue found:** `WWW-Authenticate: Bearer resource_metadata="http://poshmcp.calmstone-9cfc4790.eastus.azurecontainerapps.io/.well-known/oauth-protected-resource"` — the scheme is `http://` instead of `https://`. MCP clients following this URL may fail. Root cause: app likely reads `HttpContext.Request.Scheme` which is `http` behind the ACA reverse proxy (needs `X-Forwarded-Proto` forwarding or hardcoded HTTPS base URL from config).
+
+**Findings filed:** `.squad/decisions/inbox/fry-v098-check-findings.md`
+
 ## Learnings
 
 ### 2026-05-01: Auth regression tests — IOptions registration fix
@@ -212,6 +233,84 @@ Detailed prior history (2026-03-27 through 2026-04-07) archived to `history-arch
 - Test-driven approach validates implementation
 
 **Artifacts:** specs/007-deploy-source-image/tasks.md
+
+## [2026-05-02] OAuth AS proxy live endpoint validation
+
+**Task:** End-to-end validation of v0.9.5 OAuth proxy endpoints on the live Container App deployment at `https://poshmcp.calmstone-9cfc4790.eastus.azurecontainerapps.io`.
+
+**Deployed image:** `psbamiacr.azurecr.io/advocacybami:20260502-061835` (built 06:18 UTC 2026-05-02)
+**Active revisions:** `poshmcp--0000018` (2026-05-01) and `poshmcp--0000019` (2026-05-02 11:21 UTC), both active in traffic-split mode.
+**Resource group:** `rg-poshmcp`
+
+### What the live endpoints return
+
+| Endpoint | Status | Notes |
+|---|---|---|
+| `/.well-known/oauth-protected-resource` | **200** | Returns Entra URL in `authorization_servers` (wrong — should be proxy URL). All arrays duplicated/tripled. |
+| `/.well-known/oauth-authorization-server` | **404** | Proxy NOT registered — confirms OAuthProxy is disabled |
+| `/.well-known/openid-configuration` | 404 | Not implemented (expected) |
+| `/health` | 200 | `AuthEnabled: true`, `AuthSchemes: Bearer`, 4 functions, all healthy |
+| `/` | 401 | `WWW-Authenticate: Bearer resource_metadata="http://..."` — note `http://` not `https://` |
+
+**PRM response (abbreviated):**
+```json
+{
+  "resource": "api://80939099-d811-4488-8333-83eb0409ed53",
+  "authorization_servers": [
+    "https://login.microsoftonline.com/d91aa5af-8c1e-442c-b77c-0b92988b387b",
+    "https://login.microsoftonline.com/d91aa5af-8c1e-442c-b77c-0b92988b387b"
+  ],
+  "scopes_supported": ["...user_impersonation", "...user_impersonation"],
+  "bearer_methods_supported": ["header", "header", "header"]
+}
+```
+
+### Root cause: OAuth proxy disabled, env vars not set
+
+**Container env vars (both revisions — identical):**
+- `ASPNETCORE_ENVIRONMENT=Production`
+- `ASPNETCORE_URLS=http://+:8080`
+- `POSHMCP_TRANSPORT=http`
+- `APPLICATIONINSIGHTS_CONNECTION_STRING` (secret ref)
+- `AZURE_CLIENT_ID=f47096ea-...`
+
+**None of the 4 required OAuth proxy env vars are present:**
+- ❌ `Authentication__OAuthProxy__Enabled`
+- ❌ `Authentication__OAuthProxy__TenantId`
+- ❌ `Authentication__OAuthProxy__ClientId`
+- ❌ `Authentication__OAuthProxy__Audience`
+
+**Why `/.well-known/oauth-authorization-server` = 404:** `OAuthProxyEndpoints.MapOAuthProxyEndpoints` returns early when `proxy.Enabled == false`. No route is registered. Code is confirmed present in `OAuthProxyEndpoints.cs` (v0.9.5 is deployed).
+
+**Why PRM returns Entra directly:** The running config's `ProtectedResource.AuthorizationServers` is non-empty (has Entra URL hardcoded), so `ProtectedResourceMetadataEndpoint.cs` line 27 (`authServers.Count == 0`) is false — proxy URL injection is skipped.
+
+**Why arrays are duplicated:** The baked-in appsettings.json (with Entra URL in `AuthorizationServers`) AND another config source (likely an older env var or appsettings.Production.json) both contribute the same array items, causing .NET config array merge duplication.
+
+**Why `http://` in WWW-Authenticate:** `AuthenticationServiceExtensions.cs:60` uses `req.Scheme` directly without checking `X-Forwarded-Proto`. Azure Container Apps terminates TLS at the ingress, forwarding as HTTP internally, so the scheme is `http` at the app level. (The proxy code in `OAuthProxyEndpoints.cs` correctly uses `X-Forwarded-Proto` — this is an unrelated bug in the challenge handler.)
+
+### VS Code client flow (simulated)
+
+1. `GET /.well-known/oauth-protected-resource` → `authorization_servers[0] = https://login.microsoftonline.com/d91aa5af-...`
+2. `GET https://login.microsoftonline.com/d91aa5af-.../.well-known/oauth-authorization-server` → **404** (Entra doesn't serve RFC 8414 AS metadata at this path)
+3. Fallback `GET /.well-known/openid-configuration` → 200 but `registration_endpoint = null` (Entra doesn't support DCR)
+4. No `registration_endpoint` → VS Code cannot do dynamic client registration → no client_id → no redirect to login
+
+**This is the exact failure mode Steven reported.**
+
+### Fix required
+
+**Immediate fix (Amy):** Set the 4 env vars on the Container App (no rebuild needed):
+```
+Authentication__OAuthProxy__Enabled = true
+Authentication__OAuthProxy__TenantId = d91aa5af-8c1e-442c-b77c-0b92988b387b
+Authentication__OAuthProxy__ClientId = 80939099-d811-4488-8333-83eb0409ed53
+Authentication__OAuthProxy__Audience = api://80939099-d811-4488-8333-83eb0409ed53
+```
+Also remove any existing `Authentication__ProtectedResource__AuthorizationServers__*` env vars that may be causing the duplicate array entries (or clear them and let the proxy URL auto-populate).
+
+**Secondary fix (Bender):** `AuthenticationServiceExtensions.cs:60` — the `OnChallenge` handler should use `X-Forwarded-Proto` / `X-Forwarded-Host` for building `metadataUrl` (same pattern as `GetServerBaseUrl` in `OAuthProxyEndpoints.cs`).
+
+**Root cause deployment process gap:** The deploy.ps1 `ConvertTo-McpServerEnvVars` function correctly translates `Authentication.OAuthProxy.*` from appsettings.json into env vars, but was apparently not invoked for these deployments (likely direct `az containerapp update --image ...` was used). The local `appsettings.json` at `AdvocacyBami/appsettings.json` has `OAuthProxy.Enabled: true`, so running `deploy.ps1` with `-ServerAppSettingsFile ./appsettings.json` would have set the correct env vars.
 
 ## [2026-04-23] deploy.ps1 precedence automation (CLI vs env vs appsettings)
 
