@@ -52,7 +52,7 @@ public class ProtectedResourceConfiguration
     public string? ResourceName { get; set; }
     public List<string> AuthorizationServers { get; set; } = new();
     public List<string> ScopesSupported { get; set; } = new();
-    public List<string> BearerMethodsSupported { get; set; } = new() { "header" };
+    public List<string> BearerMethodsSupported { get; set; } = new();
 }
 
 public class CorsConfiguration
