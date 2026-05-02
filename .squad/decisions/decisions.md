@@ -1424,6 +1424,85 @@ The v0.7.0 release is significant (critical logging reliability fix), so the not
 - v0.7.1 links to [Configuration Guide](../articles/configuration.md), [Docker Deployment Guide](../articles/docker.md)
 - toc.yml entry makes release notes discoverable in primary navigation
 
+---
+Date: 2026-05-02
+Title: OAuthProxy deployment diagnosis and required env-var wiring
+Status: open
+---
+
+# OAuthProxy deployment diagnosis and required env-var wiring
+
+## Summary
+
+OAuth authorization-server discovery is not reachable in the deployed container because `Authentication.OAuthProxy` settings are not present in repository appsettings and are not being supplied as Container App environment variables.
+
+## Decision
+
+Treat this as a deployment-configuration issue first. Prioritize setting the required `Authentication__OAuthProxy__*` environment variables in Azure Container Apps and align deployment flow to use the server appsettings translation path.
+
+## Notes
+
+- Docker image publishes appsettings from `PoshMcp.Server`; no custom OAuthProxy overlay is currently bundled.
+- `deploy.ps1` handling should remain the canonical path for appsettings-to-env-var translation.
+
+---
+Date: 2026-05-02T06:39:00-05:00
+Title: User directive for progress reporting cadence
+Status: active
+---
+
+# User directive for progress reporting cadence
+
+## Decision
+
+All agents and coordinator narration must report progress at task start, at significant intermediate events, and at task completion.
+
+## Rationale
+
+Improves operator visibility and confidence during multi-step execution.
+
+---
+Date: 2026-05-02
+Title: Architect review of PR #184 Program.cs refactor
+Status: changes-requested
+---
+
+# Architect review of PR #184 Program.cs refactor
+
+## Summary
+
+Architectural direction approved (Program.cs reduction and service extraction), but merge is blocked by unresolved duplication.
+
+## Blocking findings
+
+- Duplicate private helpers (`DescribeConfigurationPath`, `ToToolName`, and related discovery helpers) exist across multiple files and must be consolidated into a shared utility.
+- `DoctorService` extraction is incomplete: original doctor report/json implementations remain in `Program.cs` and must be removed or converted to delegation.
+
+## Verdict
+
+CHANGES REQUESTED.
+
+---
+Date: 2026-05-02
+Title: OAuth redirect validation on live Container App endpoint
+Status: open
+---
+
+# OAuth redirect validation on live Container App endpoint
+
+## Summary
+
+Live endpoint health and protected-resource metadata are reachable, but authorization-server metadata returns 404 because OAuth proxy configuration is disabled in runtime environment.
+
+## Decision
+
+Primary remediation is operational: set missing OAuthProxy env vars in Container App. Secondary follow-up is code hardening for forwarded-proto URL generation and investigation of duplicated PRM arrays.
+
+## Ownership
+
+- Amy: apply env-var/deployment fix immediately.
+- Bender: follow-up code fixes for forwarded headers and duplicate arrays.
+
 
 
 
