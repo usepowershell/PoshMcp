@@ -38,14 +38,20 @@ public static class ProtectedResourceMetadataEndpoint
                 authServers = new List<string> { serverBase };
             }
 
-            // RFC 9728 requires `resource` to be an HTTPS URI that MCP clients can use
-            // to fetch this document.  When the configured value uses a non-HTTP scheme
-            // (e.g. "api://..." for an Entra Application ID URI), substitute the server's
-            // canonical HTTPS base URL so clients can validate the metadata URL round-trip.
+            // RFC 9728: `resource` MUST be an absolute HTTPS URI.
+            // • When the configured value uses a non-HTTPS scheme (e.g. "api://..." for
+            //   an Entra Application ID URI), substitute the server's canonical HTTPS
+            //   base URL so clients can validate the metadata URL round-trip.
+            // • When Resource is null/empty (valid per config schema), fall back to the
+            //   server's HTTPS base URL so the field is never omitted — a missing `resource`
+            //   violates RFC 9728 and breaks VS Code's OAuth discovery chain.
             var resourceUri = config.ProtectedResource.Resource;
-            if (!string.IsNullOrEmpty(resourceUri)
-                && !resourceUri.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
-                && config.OAuthProxy is { Enabled: true })
+            if (string.IsNullOrEmpty(resourceUri))
+            {
+                resourceUri = serverBase;
+            }
+            else if (!resourceUri.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                     && config.OAuthProxy is { Enabled: true })
             {
                 resourceUri = serverBase;
             }

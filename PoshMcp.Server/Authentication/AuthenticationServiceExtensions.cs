@@ -123,7 +123,10 @@ public static class AuthenticationServiceExtensions
                                 var cfg = context.HttpContext.RequestServices
                                     .GetRequiredService<IOptions<AuthenticationConfiguration>>();
 
-                                if (cfg.Value.ProtectedResource?.Resource is not null)
+                                // Fire for any configured ProtectedResource (not just when Resource is
+                                // non-null) so that result=none (no token at all) also triggers the
+                                // RFC 9728 discovery chain and VS Code opens the browser for sign-in.
+                                if (cfg.Value.ProtectedResource is not null)
                                 {
                                     var req = context.HttpContext.Request;
                                     // Honour X-Forwarded-Proto/Host headers set by reverse proxies

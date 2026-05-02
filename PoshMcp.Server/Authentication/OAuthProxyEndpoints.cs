@@ -55,8 +55,13 @@ public static class OAuthProxyEndpoints
         };
         if (!string.IsNullOrWhiteSpace(proxy.Audience))
         {
-            // e.g. "api://poshmcp-prod/.default"
-            scopesSupported.Add($"{proxy.Audience.TrimEnd('/')}/.default");
+            // Advertise the explicit delegated scope, not .default.
+            // .default causes Entra to issue v1.0 tokens (sts.windows.net issuer)
+            // when the app registration targets v1.0, failing v2.0 issuer validation.
+            var audienceBase = proxy.Audience.TrimEnd('/');
+            var explicitScope = config.DefaultPolicy?.RequiredScopes
+                .FirstOrDefault(s => s.StartsWith(audienceBase, StringComparison.OrdinalIgnoreCase));
+            scopesSupported.Add(explicitScope ?? $"{audienceBase}/user_impersonation");
         }
 
         // ── /.well-known/oauth-authorization-server ──────────────────────────
