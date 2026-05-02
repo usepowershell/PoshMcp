@@ -2,6 +2,47 @@
 
 ## Recent Work (2026-05-02 — CURRENT SESSION)
 
+### Diagnostic: Auth challenge/redirect on no-token MCP connect
+**Date:** 2026-05-02
+**Status:** In Progress (spawned 15:36:07)
+**Focus:** Investigating why unauthenticated MCP clients not receiving auth challenge or redirect
+**Session log:** `.squad/log/2026-05-02T15-36-07-auth-challenge-debug.md`
+
+### Bug Fix: Entra v1.0 Authority causing JWT signature validation failure
+**Date:** 2026-05-02
+**Status:** Complete
+**Commits:**
+- `fix: use Entra v2.0 authority for JWT Bearer` (AdvocacyBami repo)
+- `fix: warn when Entra Authority is v1.0 but ValidIssuers specifies v2.0` (poshmcp repo)
+
+- **Root cause**: `Authority` in AdvocacyBami `appsettings.json` was `https://login.microsoftonline.com/{tenant}` (v1.0). This caused JWT Bearer middleware to fetch the v1.0 OIDC discovery doc and v1.0 JWKS. VS Code obtained tokens via the v2.0 endpoint, which are signed with v2.0 JWKS keys — keys absent from the v1.0 JWKS. Result: `SecurityTokenSignatureKeyNotFoundException`, 401, `DenyAnonymousAuthorizationRequirement` error.
+- **Fix 1 (AdvocacyBami)**: Changed `Authority` to `https://login.microsoftonline.com/{tenant}/v2.0` so the v2.0 OIDC discovery doc (and v2.0 JWKS) are fetched.
+- **Fix 2 (PoshMcp)**: Added a startup `Console.Error.WriteLine` warning in `AuthenticationServiceExtensions.cs` that fires when Authority is Entra v1.0 but `ValidIssuers` contains a v2.0 issuer — helps operators catch this misconfiguration early.
+- **Build note**: `dotnet build --no-incremental` required due to pre-existing MSBuild "Question build" cache issue; build succeeded with 0 CS errors.
+
+**Files modified:**
+- `C:\Users\stmuraws\source\emu\gim-home\AdvocacyBami\appsettings.json` — Authority += `/v2.0`
+- `PoshMcp.Server/Authentication/AuthenticationServiceExtensions.cs` — added `using System;` + startup warning block
+
+### Feature: /authorize proxy redirect endpoint (v0.9.11)
+**Date:** 2026-05-02
+**Status:** Complete
+**Commits:** `feat(auth): add /authorize proxy redirect endpoint for VS Code OAuth`
+
+- **Root cause (diagnosed by Fry)**: VS Code builds auth URL as `{authorization_server_base}/authorize` instead of using `authorization_endpoint` from AS metadata, resulting in 404.
+- **Fix**: Added `GET /authorize` endpoint to `OAuthProxyEndpoints.cs` that:
+  - Captures all incoming OAuth2/PKCE query params from `HttpContext.Request.Query`
+  - Replaces the ephemeral DCR `client_id` with the real Entra `client_id` from `proxy.ClientId`
+  - Issues a `302 Found` redirect to `https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/authorize`
+  - Logs at Debug level (sanitized — only tenant ID, no challenge/state values)
+- **Pattern**: Injects `ILoggerFactory` into the minimal API delegate (same pattern used elsewhere)
+- **Scope handling**: All params including `scope` pass through unchanged; Entra handles them
+- **Validation**: `dotnet build` succeeded (0 errors, 66 pre-existing warnings)
+
+**Files modified:**
+- `PoshMcp.Server/Authentication/OAuthProxyEndpoints.cs` — added `/authorize` endpoint + `using Microsoft.Extensions.Logging`
+- `PoshMcp.Server/PoshMcp.csproj` — bumped version 0.9.10 → 0.9.11
+
 ### Bug Fix: X-Forwarded-Proto in WWW-Authenticate header (v0.9.9)
 **Date:** 2026-05-02  
 **Status:** Complete  
@@ -17,8 +58,25 @@
 - `PoshMcp.Server/Authentication/AuthenticationServiceExtensions.cs` — fixed scheme/host resolution in `OnChallenge`
 - `PoshMcp.Server/PoshMcp.csproj` — bumped version 0.9.8 → 0.9.9
 
+### Bug Fix: OnChallenge not firing for no-token (result=none) requests
+**Date:** 2026-05-02
+**Status:** Complete
+
+- **Symptom**: VS Code connected with no credentials, server logged `authentication.result: none`, but no browser redirect appeared. Connection hung at `initialize`.
+- **Root cause 1 (`AuthenticationServiceExtensions.cs`)**: `OnChallenge` was gated on `cfg.Value.ProtectedResource?.Resource is not null`. The validator does NOT require `Resource` to be set. When null, the default JWT Bearer challenge fired with `WWW-Authenticate: Bearer` only — no `resource_metadata`. VS Code never started the RFC 9728 discovery chain.
+- **Root cause 2 (`ProtectedResourceMetadataEndpoint.cs`)**: The `resource` field in the PRM JSON could be `null` when `ProtectedResource.Resource` is not configured. RFC 9728 requires `resource` to be an absolute HTTPS URI; a null value would break VS Code's PRM validation even if the challenge had fired correctly.
+- **Fix 1**: Changed condition to `ProtectedResource is not null` — aligns with the PRM endpoint's own gate and fires for ALL challenge scenarios (result=none and result=failure) whenever PRM is available.
+- **Fix 2**: Added null/empty fallback in PRM endpoint — `resource` now always resolves to `serverBase` when not explicitly configured.
+
+**Files modified:**
+- `PoshMcp.Server/Authentication/AuthenticationServiceExtensions.cs` — broader `OnChallenge` condition
+- `PoshMcp.Server/Authentication/ProtectedResourceMetadataEndpoint.cs` — RFC 9728 `resource` null fallback
+
 ## Learnings
 
+- **`OnChallenge` fires for result=none**: In ASP.NET Core JWT Bearer, `HandleChallengeAsync` is called by `AuthorizationMiddleware` whenever the user fails policy requirements — both when no token was presented (result=none) and when the token is invalid (result=failure). The handler does NOT skip OnChallenge for result=none.
+- **Challenge condition must match endpoint registration**: The `OnChallenge` condition that gates `resource_metadata` injection should always match the condition used by `MapProtectedResourceMetadata` — both now use `ProtectedResource is not null`. If they diverge, the challenge points VS Code to a PRM URL that may not exist.
+- **RFC 9728 `resource` is REQUIRED**: The `resource` field in the Protected Resource Metadata MUST be a valid absolute HTTPS URI. Returning `null` is invalid even if all other fields are correct, and will silently break the VS Code OAuth flow.
 - **Reverse proxy scheme detection**: Always use `req.Headers["X-Forwarded-Proto"].FirstOrDefault() ?? req.Scheme` in code that builds public-facing URLs. Azure Container Apps (and other proxies) terminate TLS and forward `http` internally. The `UseForwardedHeaders` middleware can be used for app-wide forwarding, but targeted header reads are fine for isolated handlers.
 - **Consistency check**: When fixing a header-reading bug, search all auth files for the same pattern. `OAuthProxyEndpoints` and `ProtectedResourceMetadataEndpoint` already had the correct pattern via a `GetServerBaseUrl` helper — the fix brought `AuthenticationServiceExtensions` in line.
 - **Prefer `req.Host.ToUriComponent()` over `req.Host.ToString()`** when building URLs — `ToUriComponent()` includes the port only when non-default, which is the correct behaviour.
