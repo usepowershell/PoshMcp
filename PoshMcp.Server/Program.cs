@@ -51,315 +51,8 @@ public class Program
 
     public static async Task<int> Main(string[] args)
     {
-        // Set up command line parsing
-        var rootCommand = new RootCommand("PowerShell MCP Server - Provides access to PowerShell commands via Model Context Protocol");
-
-        var evaluateToolsOption = new Option<bool>(
-            aliases: new[] { "--evaluate-tools", "-e" },
-            description: "Evaluate and list discovered PowerShell tools without starting the MCP server");
-
-        var verboseOption = new Option<bool>(
-            aliases: new[] { "--verbose", "-v" },
-            description: "Enable verbose logging");
-
-        var debugOption = new Option<bool>(
-            aliases: new[] { "--debug", "-d" },
-            description: "Enable debug logging");
-
-        var traceOption = new Option<bool>(
-            aliases: new[] { "--trace", "-t" },
-            description: "Enable trace logging");
-
-        var configOption = new Option<string?>(
-            aliases: new[] { "--config", "-c" },
-            description: "Path to configuration file (defaults to appsettings.json resolution)");
-
-        var logLevelOption = new Option<string?>(
-            aliases: new[] { "--log-level" },
-            description: "Log level: trace|debug|info|warn|error");
-
-        var transportOption = new Option<string?>(
-            aliases: new[] { "--transport" },
-            description: "Server transport: stdio|sse|http (currently stdio only for this executable)");
-
-        var formatOption = new Option<string?>(
-            aliases: new[] { "--format" },
-            description: "Output format: text|json");
-
-        var forceOption = new Option<bool>(
-            aliases: new[] { "--force", "-f" },
-            description: "Overwrite an existing appsettings.json when creating defaults");
-
-        var nonInteractiveOption = new Option<bool>(
-            aliases: new[] { "--non-interactive" },
-            description: "Skip interactive advanced-configuration prompts during updates");
-
-
-
-        var addCommandOption = new Option<string[]>(
-            aliases: new[] { "--add-command" },
-            description: "Add one or more command names to PowerShellConfiguration.CommandNames")
-        {
-            Arity = ArgumentArity.ZeroOrMore
-        };
-
-        var removeCommandOption = new Option<string[]>(
-            aliases: new[] { "--remove-command" },
-            description: "Remove one or more command names from PowerShellConfiguration.CommandNames")
-        {
-            Arity = ArgumentArity.ZeroOrMore
-        };
-
-        var addModuleOption = new Option<string[]>(
-            aliases: new[] { "--add-module" },
-            description: "Add one or more module names to PowerShellConfiguration.Modules")
-        {
-            Arity = ArgumentArity.ZeroOrMore
-        };
-
-        var removeModuleOption = new Option<string[]>(
-            aliases: new[] { "--remove-module" },
-            description: "Remove one or more module names from PowerShellConfiguration.Modules")
-        {
-            Arity = ArgumentArity.ZeroOrMore
-        };
-
-        var addIncludePatternOption = new Option<string[]>(
-            aliases: new[] { "--add-include-pattern" },
-            description: "Add one or more patterns to PowerShellConfiguration.IncludePatterns")
-        {
-            Arity = ArgumentArity.ZeroOrMore
-        };
-
-        var removeIncludePatternOption = new Option<string[]>(
-            aliases: new[] { "--remove-include-pattern" },
-            description: "Remove one or more patterns from PowerShellConfiguration.IncludePatterns")
-        {
-            Arity = ArgumentArity.ZeroOrMore
-        };
-
-        var addExcludePatternOption = new Option<string[]>(
-            aliases: new[] { "--add-exclude-pattern" },
-            description: "Add one or more patterns to PowerShellConfiguration.ExcludePatterns")
-        {
-            Arity = ArgumentArity.ZeroOrMore
-        };
-
-        var removeExcludePatternOption = new Option<string[]>(
-            aliases: new[] { "--remove-exclude-pattern" },
-            description: "Remove one or more patterns from PowerShellConfiguration.ExcludePatterns")
-        {
-            Arity = ArgumentArity.ZeroOrMore
-        };
-
-        var enableDynamicReloadToolsOption = new Option<string?>(
-            aliases: new[] { "--enable-dynamic-reload-tools" },
-            description: "Set PowerShellConfiguration.EnableDynamicReloadTools to true or false");
-
-        var enableConfigurationTroubleshootingToolOption = new Option<string?>(
-            aliases: new[] { "--enable-configuration-troubleshooting-tool" },
-            description: "Set PowerShellConfiguration.EnableConfigurationTroubleshootingTool to true or false");
-
-        var enableResultCachingOption = new Option<string?>(
-            aliases: new[] { "--enable-result-caching" },
-            description: "Set PowerShellConfiguration.Performance.EnableResultCaching to true or false");
-
-        var useDefaultDisplayPropertiesOption = new Option<string?>(
-            aliases: new[] { "--use-default-display-properties" },
-            description: "Set PowerShellConfiguration.Performance.UseDefaultDisplayProperties to true or false");
-
-        var setAuthEnabledOption = new Option<string?>(
-            aliases: new[] { "--set-auth-enabled" },
-            description: "Set Authentication.Enabled to true or false");
-
-        var sessionModeOption = new Option<string?>(
-            aliases: new[] { "--session-mode" },
-            description: "Session mode hint: stateful|stateless (reserved for hosted transports)");
-
-        var runtimeModeOption = new Option<string?>(
-            aliases: new[] { "--runtime-mode" },
-            description: "PowerShell runtime mode: in-process|out-of-process");
-
-        var urlOption = new Option<string?>(
-            aliases: new[] { "--url" },
-            description: "URL bind hint for hosted transports (reserved)");
-
-        var mcpPathOption = new Option<string?>(
-            aliases: new[] { "--mcp-path" },
-            description: "MCP endpoint path hint for hosted transports (reserved)");
-
-        // Add subcommands
-        var serveCommand = new Command("serve", "Run the MCP server (stdio transport by default)");
-        serveCommand.AddOption(configOption);
-        serveCommand.AddOption(logLevelOption);
-        serveCommand.AddOption(transportOption);
-        serveCommand.AddOption(sessionModeOption);
-        serveCommand.AddOption(runtimeModeOption);
-        serveCommand.AddOption(urlOption);
-        serveCommand.AddOption(mcpPathOption);
-
-        var logFileOption = new Option<string?>(
-            aliases: new[] { "--log-file" },
-            description: "Path to log file for stdio transport (suppresses console logging)");
-        serveCommand.AddOption(logFileOption);
-
-        var listToolsCommand = new Command("list-tools", "Discover and list tools without starting the MCP server");
-        listToolsCommand.AddOption(configOption);
-        listToolsCommand.AddOption(logLevelOption);
-        listToolsCommand.AddOption(runtimeModeOption);
-        listToolsCommand.AddOption(formatOption);
-
-        var validateConfigCommand = new Command("validate-config", "Validate configuration and tool discovery");
-        validateConfigCommand.AddOption(configOption);
-        validateConfigCommand.AddOption(logLevelOption);
-        validateConfigCommand.AddOption(runtimeModeOption);
-        validateConfigCommand.AddOption(formatOption);
-
-        var doctorCommand = new Command("doctor", "Run runtime and configuration diagnostics");
-        doctorCommand.AddOption(configOption);
-        doctorCommand.AddOption(logLevelOption);
-        doctorCommand.AddOption(transportOption);
-        doctorCommand.AddOption(sessionModeOption);
-        doctorCommand.AddOption(runtimeModeOption);
-        doctorCommand.AddOption(mcpPathOption);
-        doctorCommand.AddOption(formatOption);
-
-        var createConfigCommand = new Command("create-config", "Create a default appsettings.json in the current directory");
-        createConfigCommand.AddOption(forceOption);
-        createConfigCommand.AddOption(formatOption);
-
-        var updateConfigCommand = new Command("update-config", "Update settings in the active configuration file (same resolution rules as doctor)");
-        updateConfigCommand.AddOption(configOption);
-        updateConfigCommand.AddOption(logLevelOption);
-        updateConfigCommand.AddOption(formatOption);
-        updateConfigCommand.AddOption(addCommandOption);
-        updateConfigCommand.AddOption(removeCommandOption);
-        updateConfigCommand.AddOption(addModuleOption);
-        updateConfigCommand.AddOption(removeModuleOption);
-        updateConfigCommand.AddOption(addIncludePatternOption);
-        updateConfigCommand.AddOption(removeIncludePatternOption);
-        updateConfigCommand.AddOption(addExcludePatternOption);
-        updateConfigCommand.AddOption(removeExcludePatternOption);
-        updateConfigCommand.AddOption(enableDynamicReloadToolsOption);
-        updateConfigCommand.AddOption(enableConfigurationTroubleshootingToolOption);
-        updateConfigCommand.AddOption(enableResultCachingOption);
-        updateConfigCommand.AddOption(useDefaultDisplayPropertiesOption);
-        updateConfigCommand.AddOption(setAuthEnabledOption);
-        updateConfigCommand.AddOption(runtimeModeOption);
-        updateConfigCommand.AddOption(nonInteractiveOption);
-
-        var psModulePathCommand = new Command("psmodulepath", "Start a PowerShell runspace and report the value of $env:PSModulePath");
-        psModulePathCommand.AddOption(verboseOption);
-        psModulePathCommand.AddOption(debugOption);
-        psModulePathCommand.AddOption(traceOption);
-
-        // Build command for Docker image creation
-        var buildModulesOption = new Option<string?>(
-            aliases: new[] { "--modules" },
-            description: "Space-separated module names to pre-install in custom images (e.g., 'Pester Az.Accounts')");
-
-        var buildTypeOption = new Option<string?>(
-            aliases: new[] { "--type", "--base" },
-            description: "Image type: 'custom' (derived from a source/base image) or 'base' (build local runtime source image). Default: custom");
-
-        var buildTagOption = new Option<string?>(
-            aliases: new[] { "--tag" },
-            description: "Image tag name (default: poshmcp:latest)");
-
-        var buildDockerFileOption = new Option<string?>(
-            aliases: new[] { "--docker-file" },
-            description: "Custom Dockerfile path for advanced users");
-
-        var buildSourceImageOption = new Option<string?>(
-            aliases: new[] { "--source-image" },
-            description: "Source/base image repository or full reference for custom builds (default: ghcr.io/usepowershell/poshmcp/poshmcp:latest)");
-
-        var buildSourceTagOption = new Option<string?>(
-            aliases: new[] { "--source-tag" },
-            description: "Tag for --source-image when a repository is provided (default: latest)");
-
-        var buildGenerateDockerfileOption = new Option<bool>(
-            aliases: new[] { "--generate-dockerfile" },
-            description: "Write the generated Dockerfile to disk instead of building");
-
-        var buildDockerfileOutputOption = new Option<string?>(
-            aliases: new[] { "--dockerfile-output" },
-            description: "Path for the generated Dockerfile (default: ./Dockerfile.generated)");
-
-        var buildAppSettingsOption = new Option<string?>(
-            aliases: new[] { "--appsettings" },
-            description: "Path to a local appsettings.json to bundle into the image at /app/server/appsettings.json");
-
-        var buildCommand = new Command("build", "Build a Docker image; defaults to creating a custom image from the published GHCR base image");
-        buildCommand.AddOption(buildModulesOption);
-        buildCommand.AddOption(buildTypeOption);
-        buildCommand.AddOption(buildTagOption);
-        buildCommand.AddOption(buildDockerFileOption);
-        buildCommand.AddOption(buildSourceImageOption);
-        buildCommand.AddOption(buildSourceTagOption);
-        buildCommand.AddOption(buildGenerateDockerfileOption);
-        buildCommand.AddOption(buildDockerfileOutputOption);
-        buildCommand.AddOption(buildAppSettingsOption);
-
-        // Run command for Docker container execution
-        var runModeOption = new Option<string?>(
-            aliases: new[] { "--mode" },
-            description: "Transport mode: 'http' or 'stdio' (default: http)");
-
-        var runPortOption = new Option<int?>(
-            aliases: new[] { "--port" },
-            description: "Port number for HTTP mode (default: 8080)");
-
-        var runTagOption = new Option<string?>(
-            aliases: new[] { "--tag" },
-            description: "Image tag to run (default: poshmcp:latest)");
-
-        var runConfigOption = new Option<string?>(
-            aliases: new[] { "--config" },
-            description: "Config file path to mount into container");
-
-        var runVolumeOption = new Option<string[]>(
-            aliases: new[] { "--volume" },
-            description: "Volume mount in format 'source:destination' (repeatable)")
-        {
-            Arity = ArgumentArity.ZeroOrMore
-        };
-
-        var runInteractiveOption = new Option<bool>(
-            aliases: new[] { "--interactive", "-it" },
-            description: "Run in interactive mode with terminal");
-
-        var runCommand = new Command("run", "Run PoshMcp in a Docker container");
-        runCommand.AddOption(runModeOption);
-        runCommand.AddOption(runPortOption);
-        runCommand.AddOption(runTagOption);
-        runCommand.AddOption(runConfigOption);
-        runCommand.AddOption(runVolumeOption);
-        runCommand.AddOption(runInteractiveOption);
-
-        var scaffoldProjectPathOption = new Option<string?>(
-            aliases: new[] { "--project-path", "--path", "-p" },
-            description: "Target project directory where infra/azure files will be scaffolded (default: current directory)");
-
-        var scaffoldCommand = new Command("scaffold", "Scaffold embedded infrastructure artifacts into a target project");
-        scaffoldCommand.AddOption(scaffoldProjectPathOption);
-        scaffoldCommand.AddOption(forceOption);
-        scaffoldCommand.AddOption(formatOption);
-
-        rootCommand.AddCommand(serveCommand);
-        rootCommand.AddCommand(listToolsCommand);
-        rootCommand.AddCommand(validateConfigCommand);
-        rootCommand.AddCommand(doctorCommand);
-        rootCommand.AddCommand(createConfigCommand);
-        rootCommand.AddCommand(updateConfigCommand);
-        rootCommand.AddOption(evaluateToolsOption);
-        rootCommand.AddOption(verboseOption);
-        rootCommand.AddOption(debugOption);
-        rootCommand.AddOption(traceOption);
-        rootCommand.AddCommand(psModulePathCommand);
-        rootCommand.AddCommand(buildCommand);
-        rootCommand.AddCommand(runCommand);
-        rootCommand.AddCommand(scaffoldCommand);
+        // Build CLI structure
+        var rootCommand = CliDefinition.Build();
 
         // Handler for the main command (default MCP server behavior)
         rootCommand.SetHandler(async (evaluateTools, verbose, debug, trace) =>
@@ -378,18 +71,18 @@ public class Program
             {
                 await StdioServerHost.RunMcpServerAsync(args, logLevel, null);
             }
-        }, evaluateToolsOption, verboseOption, debugOption, traceOption);
+        }, CliDefinition.EvaluateToolsOption, CliDefinition.VerboseOption, CliDefinition.DebugOption, CliDefinition.TraceOption);
 
-        serveCommand.SetHandler(async (InvocationContext context) =>
+        CliDefinition.ServeCommand!.SetHandler(async (InvocationContext context) =>
         {
-            var configPath = context.ParseResult.GetValueForOption(configOption);
-            var logLevelText = context.ParseResult.GetValueForOption(logLevelOption);
-            var transport = context.ParseResult.GetValueForOption(transportOption);
-            var sessionMode = context.ParseResult.GetValueForOption(sessionModeOption);
-            var runtimeMode = context.ParseResult.GetValueForOption(runtimeModeOption);
-            var url = context.ParseResult.GetValueForOption(urlOption);
-            var mcpPath = context.ParseResult.GetValueForOption(mcpPathOption);
-            var logFile = context.ParseResult.GetValueForOption(logFileOption);
+            var configPath = context.ParseResult.GetValueForOption(CliDefinition.ConfigOption);
+            var logLevelText = context.ParseResult.GetValueForOption(CliDefinition.LogLevelOption);
+            var transport = context.ParseResult.GetValueForOption(CliDefinition.TransportOption);
+            var sessionMode = context.ParseResult.GetValueForOption(CliDefinition.SessionModeOption);
+            var runtimeMode = context.ParseResult.GetValueForOption(CliDefinition.RuntimeModeOption);
+            var url = context.ParseResult.GetValueForOption(CliDefinition.UrlOption);
+            var mcpPath = context.ParseResult.GetValueForOption(CliDefinition.McpPathOption);
+            var logFile = context.ParseResult.GetValueForOption(CliDefinition.LogFileOption);
 
             var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args, configPath, logLevelText, transport, sessionMode, runtimeMode, mcpPath);
             var parsedLogLevel = SettingsResolver.ParseLogLevel(resolvedSettings.LogLevel.Value);
@@ -441,7 +134,7 @@ public class Program
             }
         });
 
-        listToolsCommand.SetHandler(async (configPath, logLevelText, runtimeMode, format) =>
+        CliDefinition.ListToolsCommand!.SetHandler(async (configPath, logLevelText, runtimeMode, format) =>
         {
             var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args, configPath, logLevelText, null, null, runtimeMode, null);
             var parsedLogLevel = SettingsResolver.ParseLogLevel(resolvedSettings.LogLevel.Value);
@@ -466,9 +159,9 @@ public class Program
                 Console.Error.WriteLine($"Runtime error: {ex.Message}");
                 Environment.ExitCode = ExitCodeRuntimeError;
             }
-        }, configOption, logLevelOption, runtimeModeOption, formatOption);
+        }, CliDefinition.ConfigOption, CliDefinition.LogLevelOption, CliDefinition.RuntimeModeOption, CliDefinition.FormatOption);
 
-        validateConfigCommand.SetHandler(async (configPath, logLevelText, runtimeMode, format) =>
+        CliDefinition.ValidateConfigCommand!.SetHandler(async (configPath, logLevelText, runtimeMode, format) =>
         {
             var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args, configPath, logLevelText, null, null, runtimeMode, null);
             var parsedLogLevel = SettingsResolver.ParseLogLevel(resolvedSettings.LogLevel.Value);
@@ -493,9 +186,9 @@ public class Program
                 Console.Error.WriteLine($"Configuration validation failed: {ex.Message}");
                 Environment.ExitCode = ExitCodeConfigError;
             }
-        }, configOption, logLevelOption, runtimeModeOption, formatOption);
+        }, CliDefinition.ConfigOption, CliDefinition.LogLevelOption, CliDefinition.RuntimeModeOption, CliDefinition.FormatOption);
 
-        doctorCommand.SetHandler(async (configPath, logLevelText, transport, sessionMode, runtimeMode, mcpPath, format) =>
+        CliDefinition.DoctorCommand!.SetHandler(async (configPath, logLevelText, transport, sessionMode, runtimeMode, mcpPath, format) =>
         {
             var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args, configPath, logLevelText, transport, sessionMode, runtimeMode, mcpPath);
             var outputFormat = ConfigurationFileManager.NormalizeFormat(format);
@@ -509,9 +202,9 @@ public class Program
                 Console.Error.WriteLine($"Doctor failed: {ex.Message}");
                 Environment.ExitCode = ExitCodeRuntimeError;
             }
-        }, configOption, logLevelOption, transportOption, sessionModeOption, runtimeModeOption, mcpPathOption, formatOption);
+        }, CliDefinition.ConfigOption, CliDefinition.LogLevelOption, CliDefinition.TransportOption, CliDefinition.SessionModeOption, CliDefinition.RuntimeModeOption, CliDefinition.McpPathOption, CliDefinition.FormatOption);
 
-        createConfigCommand.SetHandler(async (force, format) =>
+        CliDefinition.CreateConfigCommand!.SetHandler(async (force, format) =>
         {
             var outputFormat = ConfigurationFileManager.NormalizeFormat(format);
             var targetPath = Path.GetFullPath("appsettings.json");
@@ -549,28 +242,28 @@ public class Program
                 Console.Error.WriteLine($"Runtime error: {ex.Message}");
                 Environment.ExitCode = ExitCodeRuntimeError;
             }
-        }, forceOption, formatOption);
+        }, CliDefinition.ForceOption, CliDefinition.FormatOption);
 
-        updateConfigCommand.SetHandler(async (InvocationContext context) =>
+        CliDefinition.UpdateConfigCommand!.SetHandler(async (InvocationContext context) =>
         {
-            var configPath = context.ParseResult.GetValueForOption(configOption);
-            var logLevelText = context.ParseResult.GetValueForOption(logLevelOption);
-            var format = context.ParseResult.GetValueForOption(formatOption);
-            var addCommands = context.ParseResult.GetValueForOption(addCommandOption);
-            var removeCommands = context.ParseResult.GetValueForOption(removeCommandOption);
-            var addModules = context.ParseResult.GetValueForOption(addModuleOption);
-            var removeModules = context.ParseResult.GetValueForOption(removeModuleOption);
-            var addIncludePatterns = context.ParseResult.GetValueForOption(addIncludePatternOption);
-            var removeIncludePatterns = context.ParseResult.GetValueForOption(removeIncludePatternOption);
-            var addExcludePatterns = context.ParseResult.GetValueForOption(addExcludePatternOption);
-            var removeExcludePatterns = context.ParseResult.GetValueForOption(removeExcludePatternOption);
-            var enableDynamicReloadTools = context.ParseResult.GetValueForOption(enableDynamicReloadToolsOption);
-            var enableConfigurationTroubleshootingTool = context.ParseResult.GetValueForOption(enableConfigurationTroubleshootingToolOption);
-            var enableResultCaching = context.ParseResult.GetValueForOption(enableResultCachingOption);
-            var useDefaultDisplayProperties = context.ParseResult.GetValueForOption(useDefaultDisplayPropertiesOption);
-            var setAuthEnabled = context.ParseResult.GetValueForOption(setAuthEnabledOption);
-            var runtimeMode = context.ParseResult.GetValueForOption(runtimeModeOption);
-            var nonInteractive = context.ParseResult.GetValueForOption(nonInteractiveOption);
+            var configPath = context.ParseResult.GetValueForOption(CliDefinition.ConfigOption);
+            var logLevelText = context.ParseResult.GetValueForOption(CliDefinition.LogLevelOption);
+            var format = context.ParseResult.GetValueForOption(CliDefinition.FormatOption);
+            var addCommands = context.ParseResult.GetValueForOption(CliDefinition.AddCommandOption);
+            var removeCommands = context.ParseResult.GetValueForOption(CliDefinition.RemoveCommandOption);
+            var addModules = context.ParseResult.GetValueForOption(CliDefinition.AddModuleOption);
+            var removeModules = context.ParseResult.GetValueForOption(CliDefinition.RemoveModuleOption);
+            var addIncludePatterns = context.ParseResult.GetValueForOption(CliDefinition.AddIncludePatternOption);
+            var removeIncludePatterns = context.ParseResult.GetValueForOption(CliDefinition.RemoveIncludePatternOption);
+            var addExcludePatterns = context.ParseResult.GetValueForOption(CliDefinition.AddExcludePatternOption);
+            var removeExcludePatterns = context.ParseResult.GetValueForOption(CliDefinition.RemoveExcludePatternOption);
+            var enableDynamicReloadTools = context.ParseResult.GetValueForOption(CliDefinition.EnableDynamicReloadToolsOption);
+            var enableConfigurationTroubleshootingTool = context.ParseResult.GetValueForOption(CliDefinition.EnableConfigurationTroubleshootingToolOption);
+            var enableResultCaching = context.ParseResult.GetValueForOption(CliDefinition.EnableResultCachingOption);
+            var useDefaultDisplayProperties = context.ParseResult.GetValueForOption(CliDefinition.UseDefaultDisplayPropertiesOption);
+            var setAuthEnabled = context.ParseResult.GetValueForOption(CliDefinition.SetAuthEnabledOption);
+            var runtimeMode = context.ParseResult.GetValueForOption(CliDefinition.RuntimeModeOption);
+            var nonInteractive = context.ParseResult.GetValueForOption(CliDefinition.NonInteractiveOption);
 
             var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args, configPath, logLevelText, null, null, null, null);
             var parsedLogLevel = SettingsResolver.ParseLogLevel(resolvedSettings.LogLevel.Value);
@@ -657,7 +350,7 @@ public class Program
         });
 
         // Handler for the psmodulepath command
-        psModulePathCommand.SetHandler((verbose, debug, trace) =>
+        CliDefinition.PsModulePathCommand!.SetHandler((verbose, debug, trace) =>
         {
             // Determine log level based on options
             LogLevel logLevel = LogLevel.Information;
@@ -666,22 +359,22 @@ public class Program
             else if (verbose) logLevel = LogLevel.Debug; // Verbose maps to Debug level
 
             RunPSModulePathCommand(logLevel);
-        }, verboseOption, debugOption, traceOption);
+        }, CliDefinition.VerboseOption, CliDefinition.DebugOption, CliDefinition.TraceOption);
 
         // Handler for the build command
-        buildCommand.SetHandler((InvocationContext context) =>
+        CliDefinition.BuildCommand!.SetHandler((InvocationContext context) =>
         {
             try
             {
-                var modules = context.ParseResult.GetValueForOption(buildModulesOption);
-                var type = context.ParseResult.GetValueForOption(buildTypeOption);
-                var tag = context.ParseResult.GetValueForOption(buildTagOption);
-                var dockerFile = context.ParseResult.GetValueForOption(buildDockerFileOption);
-                var sourceImage = context.ParseResult.GetValueForOption(buildSourceImageOption);
-                var sourceTag = context.ParseResult.GetValueForOption(buildSourceTagOption);
-                var generateDockerfile = context.ParseResult.GetValueForOption(buildGenerateDockerfileOption);
-                var dockerfileOutput = context.ParseResult.GetValueForOption(buildDockerfileOutputOption);
-                var appSettings = context.ParseResult.GetValueForOption(buildAppSettingsOption);
+                var modules = context.ParseResult.GetValueForOption(CliDefinition.BuildModulesOption);
+                var type = context.ParseResult.GetValueForOption(CliDefinition.BuildTypeOption);
+                var tag = context.ParseResult.GetValueForOption(CliDefinition.BuildTagOption);
+                var dockerFile = context.ParseResult.GetValueForOption(CliDefinition.BuildDockerFileOption);
+                var sourceImage = context.ParseResult.GetValueForOption(CliDefinition.BuildSourceImageOption);
+                var sourceTag = context.ParseResult.GetValueForOption(CliDefinition.BuildSourceTagOption);
+                var generateDockerfile = context.ParseResult.GetValueForOption(CliDefinition.BuildGenerateDockerfileOption);
+                var dockerfileOutput = context.ParseResult.GetValueForOption(CliDefinition.BuildDockerfileOutputOption);
+                var appSettings = context.ParseResult.GetValueForOption(CliDefinition.BuildAppSettingsOption);
 
                 var buildType = string.IsNullOrWhiteSpace(type)
                     ? "custom"
@@ -810,7 +503,7 @@ public class Program
         });
 
         // Handler for the run command
-        runCommand.SetHandler((mode, port, tag, config, volumes, interactive) =>
+        CliDefinition.RunCommand!.SetHandler((mode, port, tag, config, volumes, interactive) =>
         {
             try
             {
@@ -899,9 +592,9 @@ public class Program
                 Console.Error.WriteLine($"Run error: {ex.Message}");
                 Environment.ExitCode = ExitCodeRuntimeError;
             }
-        }, runModeOption, runPortOption, runTagOption, runConfigOption, runVolumeOption, runInteractiveOption);
+        }, CliDefinition.RunModeOption, CliDefinition.RunPortOption, CliDefinition.RunTagOption, CliDefinition.RunConfigOption, CliDefinition.RunVolumeOption, CliDefinition.RunInteractiveOption);
 
-        scaffoldCommand.SetHandler(async (projectPath, force, format) =>
+        CliDefinition.ScaffoldCommand!.SetHandler(async (projectPath, force, format) =>
         {
             var outputFormat = ConfigurationFileManager.NormalizeFormat(format);
 
@@ -947,7 +640,7 @@ public class Program
                 Console.Error.WriteLine($"Scaffold error: {ex.Message}");
                 Environment.ExitCode = ExitCodeRuntimeError;
             }
-        }, scaffoldProjectPathOption, forceOption, formatOption);
+        }, CliDefinition.ScaffoldProjectPathOption, CliDefinition.ForceOption, CliDefinition.FormatOption);
 
         return await rootCommand.InvokeAsync(args);
     }
