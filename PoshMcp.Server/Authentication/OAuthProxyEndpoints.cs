@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -64,11 +66,15 @@ public static class OAuthProxyEndpoints
             var registrationEndpoint = $"{baseUrl}/register";
             var issuer = $"https://login.microsoftonline.com/{proxy.TenantId}/v2.0";
 
+            // Point authorization_endpoint and token_endpoint to this server's proxy
+            // endpoints so that VS Code routes all OAuth traffic through them.
+            // The proxies strip the `resource` parameter (v1.0 only) which causes
+            // AADSTS9010010 when Entra v2.0 receives both `resource` and `scope`.
             var metadata = new
             {
                 issuer,
-                authorization_endpoint = authEndpoint,
-                token_endpoint = tokenEndpoint,
+                authorization_endpoint = $"{baseUrl}/authorize",
+                token_endpoint = $"{baseUrl}/token",
                 registration_endpoint = registrationEndpoint,
                 scopes_supported = scopesSupported,
                 response_types_supported = new[] { "code" },
@@ -142,6 +148,35 @@ public static class OAuthProxyEndpoints
                 proxy.TenantId);
 
             return Results.Redirect(redirectUrl, permanent: false);
+        }).AllowAnonymous();
+
+        // ── /token (proxy) ────────────────────────────────────────────────────
+        // VS Code sends the authorization-code token exchange to token_endpoint (from AS
+        // metadata).  Per MCP spec (RFC 8707) it includes a `resource` parameter taken from
+        // the PRM.  Entra v2.0 rejects requests that combine `resource` (v1.0) with `scope`
+        // pointing to a different resource (AADSTS9010010).  This proxy strips `resource`
+        // before forwarding to Entra's real token endpoint so the exchange succeeds.
+        app.MapPost("/token", async (HttpContext httpContext, IHttpClientFactory httpClientFactory, ILoggerFactory loggerFactory) =>
+        {
+            var logger = loggerFactory.CreateLogger("PoshMcp.Server.Authentication.OAuthProxyEndpoints");
+
+            var form = await httpContext.Request.ReadFormAsync();
+            var fields = form
+                .Where(kv => !kv.Key.Equals("resource", StringComparison.OrdinalIgnoreCase))
+                .SelectMany(kv => kv.Value.Select(v => new KeyValuePair<string, string?>(kv.Key, v)))
+                .ToList();
+
+            logger.LogDebug(
+                "Proxying /token to Entra tenant {TenantId}, stripped `resource` parameter if present",
+                proxy.TenantId);
+
+            using var client = httpClientFactory.CreateClient();
+            var entraResponse = await client.PostAsync(tokenEndpoint, new FormUrlEncodedContent(fields!));
+
+            var responseBody = await entraResponse.Content.ReadAsStringAsync();
+            var contentType = entraResponse.Content.Headers.ContentType?.ToString() ?? "application/json";
+
+            return Results.Content(responseBody, contentType, statusCode: (int)entraResponse.StatusCode);
         }).AllowAnonymous();
 
         return app;

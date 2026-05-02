@@ -28,6 +28,10 @@ public static class AuthenticationServiceExtensions
         if (authConfig is null || !authConfig.Enabled)
             return services;
 
+        // Required by the /token proxy endpoint for forwarding token exchanges to Entra.
+        if (authConfig.OAuthProxy is { Enabled: true })
+            services.AddHttpClient();
+
         var authBuilder = services.AddAuthentication(authConfig.DefaultScheme);
 
         foreach (var (name, scheme) in authConfig.Schemes)
