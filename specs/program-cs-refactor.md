@@ -9,6 +9,7 @@
 ## Current Progress (Session: 2025-05-02)
 
 **Baseline:** Program.cs 2,290 lines (starting from 42% completion in prior session)
+**Final:** Program.cs 630 lines (73% total reduction — 1,660 lines extracted)
 
 | PR | Extraction | Commit | Status | Lines Moved | New File |
 |-------|------------|--------|--------|------------|----------|
@@ -16,9 +17,14 @@
 | 2 | McpToolSetupService (tool discovery, config reload tools) | `f75842d` | ✅ Complete | ~600+ | `Server/McpToolSetupService.cs` |
 | 3 | StdioServerHost + HttpServerHost (server startup) | `e4b6309` + `42a55ac` | ✅ Complete | ~694 | `Server/StdioServerHost.cs`, `Server/HttpServerHost.cs` |
 | 4 | CliDefinition (CLI tree construction) | `afb76ad` | ✅ Complete | ~250 | `Cli/CliDefinition.cs` |
-| **Current Program.cs** | — | — | — | **1,166 lines** (49% reduction) | — |
+| 5 | CommandHandlers (all utility command handlers) | `496c2e7` | ✅ Complete | ~536 | `Cli/CommandHandlers.cs` |
+| **Cumulative Result** | — | — | — | **2,660 lines** | **5 major classes** |
+| **Current Program.cs** | — | — | — | **630 lines** (73% reduction) | — |
 
-**Next Steps:** Extract remaining utility command handlers (RunToolEvaluationAsync, RunListToolsAsync, RunPSModulePathCommand, etc.) into CommandHandlers service class to reach ≤200 line target.
+**Next Steps (Future):** 
+- Extract ConfigurationManager.cs (config file I/O) → potential additional 200-300 line reduction  
+- Extract SettingsResolver.cs (settings resolution) → potential additional 150-200 line reduction
+- Target ≤200 lines achievable with 1-2 more extractions
 
 ---
 
