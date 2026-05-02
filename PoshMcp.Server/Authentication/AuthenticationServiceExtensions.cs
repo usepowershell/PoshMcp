@@ -14,6 +14,11 @@ public static class AuthenticationServiceExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        services
+            .AddOptions<AuthenticationConfiguration>()
+            .Configure(opts => configuration.GetSection("Authentication").Bind(opts))
+            .ValidateOnStart();
+
         var authConfig = configuration
             .GetSection("Authentication")
             .Get<AuthenticationConfiguration>();

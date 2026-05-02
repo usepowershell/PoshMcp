@@ -372,7 +372,7 @@ public class Program
 
             if (evaluateTools)
             {
-                await RunToolEvaluationAsync(logLevel);
+                await CommandHandlers.RunToolEvaluationAsync(logLevel);
             }
             else
             {
@@ -453,7 +453,7 @@ public class Program
                     SettingsResolver.PrintResolvedSettings("list-tools", resolvedSettings);
                 }
 
-                await RunListToolsAsync(parsedLogLevel, resolvedSettings.FinalConfigPath, resolvedSettings.RuntimeMode.Value, outputFormat);
+                await CommandHandlers.RunListToolsAsync(parsedLogLevel, resolvedSettings.FinalConfigPath, resolvedSettings.RuntimeMode.Value, outputFormat);
                 Environment.ExitCode = ExitCodeSuccess;
             }
             catch (FileNotFoundException ex)
@@ -480,7 +480,7 @@ public class Program
                     SettingsResolver.PrintResolvedSettings("validate-config", resolvedSettings);
                 }
 
-                await RunValidateConfigAsync(parsedLogLevel, resolvedSettings.FinalConfigPath, resolvedSettings.RuntimeMode.Value, outputFormat);
+                await CommandHandlers.RunValidateConfigAsync(parsedLogLevel, resolvedSettings.FinalConfigPath, resolvedSettings.RuntimeMode.Value, outputFormat);
                 Environment.ExitCode = ExitCodeSuccess;
             }
             catch (FileNotFoundException ex)
@@ -513,42 +513,7 @@ public class Program
 
         createConfigCommand.SetHandler(async (force, format) =>
         {
-            var outputFormat = ConfigurationFileManager.NormalizeFormat(format);
-            var targetPath = Path.GetFullPath("appsettings.json");
-
-            try
-            {
-                var created = await ConfigurationFileManager.CreateDefaultConfigInCurrentDirectoryAsync(targetPath, force);
-
-                if (outputFormat == "json")
-                {
-                    var payload = new
-                    {
-                        success = true,
-                        configurationPath = targetPath,
-                        overwritten = created.WasOverwritten
-                    };
-                    Console.WriteLine(JsonSerializer.Serialize(payload));
-                }
-                else
-                {
-                    Console.WriteLine(created.WasOverwritten
-                        ? $"Overwrote default configuration: {targetPath}"
-                        : $"Created default configuration: {targetPath}");
-                }
-
-                Environment.ExitCode = ExitCodeSuccess;
-            }
-            catch (IOException ex)
-            {
-                Console.Error.WriteLine($"Configuration error: {ex.Message}");
-                Environment.ExitCode = ExitCodeConfigError;
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Runtime error: {ex.Message}");
-                Environment.ExitCode = ExitCodeRuntimeError;
-            }
+            await CommandHandlers.RunCreateConfigAsync(force ? "true" : "false", format);
         }, forceOption, formatOption);
 
         updateConfigCommand.SetHandler(async (InvocationContext context) =>
@@ -572,88 +537,26 @@ public class Program
             var runtimeMode = context.ParseResult.GetValueForOption(runtimeModeOption);
             var nonInteractive = context.ParseResult.GetValueForOption(nonInteractiveOption);
 
-            var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args, configPath, logLevelText, null, null, null, null);
-            var parsedLogLevel = SettingsResolver.ParseLogLevel(resolvedSettings.LogLevel.Value);
-            var outputFormat = ConfigurationFileManager.NormalizeFormat(format);
-
-            try
-            {
-                if (SettingsResolver.ShouldPrintResolvedSettings(parsedLogLevel))
-                {
-                    SettingsResolver.PrintResolvedSettings("update-config", resolvedSettings);
-                }
-
-                var updateRequest = new ConfigUpdateRequest(
-                    addCommands ?? Array.Empty<string>(),
-                    removeCommands ?? Array.Empty<string>(),
-                    addCommands ?? Array.Empty<string>(),
-                    removeCommands ?? Array.Empty<string>(),
-                    addModules ?? Array.Empty<string>(),
-                    removeModules ?? Array.Empty<string>(),
-                    addIncludePatterns ?? Array.Empty<string>(),
-                    removeIncludePatterns ?? Array.Empty<string>(),
-                    addExcludePatterns ?? Array.Empty<string>(),
-                    removeExcludePatterns ?? Array.Empty<string>(),
-                    ConfigurationFileManager.TryParseRequiredBoolean(enableDynamicReloadTools),
-                    ConfigurationFileManager.TryParseRequiredBoolean(enableConfigurationTroubleshootingTool),
-                    ConfigurationFileManager.TryParseRequiredBoolean(enableResultCaching),
-                    ConfigurationFileManager.TryParseRequiredBoolean(useDefaultDisplayProperties),
-                    ConfigurationFileManager.TryParseRequiredBoolean(setAuthEnabled),
-                    ConfigurationFileManager.NormalizeRuntimeMode(runtimeMode),
-                    nonInteractive);
-
-                var result = await ConfigurationFileManager.UpdateConfigurationFileAsync(resolvedSettings.FinalConfigPath, updateRequest);
-
-                if (outputFormat == "json")
-                {
-                    var payload = new
-                    {
-                        success = true,
-                        configurationPath = result.ConfigurationPath,
-                        changed = result.Changed,
-                        addedFunctions = result.AddedFunctions,
-                        removedFunctions = result.RemovedFunctions,
-                        addedCommands = result.AddedCommands,
-                        removedCommands = result.RemovedCommands,
-                        advancedPromptedCommandCount = result.AdvancedPromptedFunctionCount,
-                        advancedPromptedFunctionCount = result.AdvancedPromptedFunctionCount,
-                        settingsChanged = result.SettingsChanged
-                    };
-                    Console.WriteLine(JsonSerializer.Serialize(payload));
-                }
-                else
-                {
-                    Console.WriteLine(result.Changed
-                        ? $"Updated configuration: {result.ConfigurationPath}"
-                        : $"No changes applied to configuration: {result.ConfigurationPath}");
-                    Console.WriteLine($"Added commands: {result.AddedCommands} | Removed commands: {result.RemovedCommands}");
-                    if (result.SettingsChanged > 0)
-                    {
-                        Console.WriteLine($"Settings changed: {result.SettingsChanged}");
-                    }
-                    if (result.AdvancedPromptedFunctionCount > 0)
-                    {
-                        Console.WriteLine($"Advanced prompts completed for {result.AdvancedPromptedFunctionCount} command(s).");
-                    }
-                }
-
-                Environment.ExitCode = ExitCodeSuccess;
-            }
-            catch (FileNotFoundException ex)
-            {
-                Console.Error.WriteLine($"Configuration error: {ex.Message}");
-                Environment.ExitCode = ExitCodeConfigError;
-            }
-            catch (ArgumentException ex)
-            {
-                Console.Error.WriteLine($"Configuration error: {ex.Message}");
-                Environment.ExitCode = ExitCodeConfigError;
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Runtime error: {ex.Message}");
-                Environment.ExitCode = ExitCodeRuntimeError;
-            }
+            await CommandHandlers.RunUpdateConfigAsync(
+                args,
+                configPath,
+                logLevelText,
+                format,
+                addCommands,
+                removeCommands,
+                addModules,
+                removeModules,
+                addIncludePatterns,
+                removeIncludePatterns,
+                addExcludePatterns,
+                removeExcludePatterns,
+                enableDynamicReloadTools,
+                enableConfigurationTroubleshootingTool,
+                enableResultCaching,
+                useDefaultDisplayProperties,
+                setAuthEnabled,
+                runtimeMode,
+                nonInteractive);
         });
 
         // Handler for the psmodulepath command
@@ -665,288 +568,34 @@ public class Program
             else if (debug) logLevel = LogLevel.Debug;
             else if (verbose) logLevel = LogLevel.Debug; // Verbose maps to Debug level
 
-            RunPSModulePathCommand(logLevel);
+            CommandHandlers.RunPSModulePathCommand(logLevel);
         }, verboseOption, debugOption, traceOption);
 
         // Handler for the build command
         buildCommand.SetHandler((InvocationContext context) =>
         {
-            try
-            {
-                var modules = context.ParseResult.GetValueForOption(buildModulesOption);
-                var type = context.ParseResult.GetValueForOption(buildTypeOption);
-                var tag = context.ParseResult.GetValueForOption(buildTagOption);
-                var dockerFile = context.ParseResult.GetValueForOption(buildDockerFileOption);
-                var sourceImage = context.ParseResult.GetValueForOption(buildSourceImageOption);
-                var sourceTag = context.ParseResult.GetValueForOption(buildSourceTagOption);
-                var generateDockerfile = context.ParseResult.GetValueForOption(buildGenerateDockerfileOption);
-                var dockerfileOutput = context.ParseResult.GetValueForOption(buildDockerfileOutputOption);
-                var appSettings = context.ParseResult.GetValueForOption(buildAppSettingsOption);
+            var modules = context.ParseResult.GetValueForOption(buildModulesOption);
+            var type = context.ParseResult.GetValueForOption(buildTypeOption);
+            var tag = context.ParseResult.GetValueForOption(buildTagOption);
+            var dockerFile = context.ParseResult.GetValueForOption(buildDockerFileOption);
+            var sourceImage = context.ParseResult.GetValueForOption(buildSourceImageOption);
+            var sourceTag = context.ParseResult.GetValueForOption(buildSourceTagOption);
+            var generateDockerfile = context.ParseResult.GetValueForOption(buildGenerateDockerfileOption);
+            var dockerfileOutput = context.ParseResult.GetValueForOption(buildDockerfileOutputOption);
+            var appSettings = context.ParseResult.GetValueForOption(buildAppSettingsOption);
 
-                var buildType = string.IsNullOrWhiteSpace(type)
-                    ? "custom"
-                    : type.ToLowerInvariant();
-                var imageTag = string.IsNullOrWhiteSpace(tag) ? "poshmcp:latest" : tag;
-
-                if (buildType != "base" && buildType != "custom")
-                {
-                    Console.Error.WriteLine("Error: --type must be 'custom' or 'base'");
-                    Environment.ExitCode = ExitCodeConfigError;
-                    return;
-                }
-
-                var imageFile = string.IsNullOrWhiteSpace(dockerFile)
-                    ? (buildType == "base" ? "Dockerfile" : "examples/Dockerfile.user")
-                    : dockerFile;
-
-                // When the imageFile maps to an embedded resource or we're generating a Dockerfile,
-                // the file does not need to exist on disk. For custom Dockerfiles it must.
-                var hasEmbeddedDockerfile = DockerRunner.GetEmbeddedDockerfileName(imageFile) != null;
-                if (!generateDockerfile && !hasEmbeddedDockerfile && !File.Exists(imageFile))
-                {
-                    Console.Error.WriteLine($"Error: Dockerfile not found at {imageFile}");
-                    Environment.ExitCode = ExitCodeConfigError;
-                    return;
-                }
-
-                if (!string.IsNullOrWhiteSpace(appSettings) && !File.Exists(appSettings))
-                {
-                    Console.Error.WriteLine($"Error: appsettings file not found: {appSettings}");
-                    Environment.ExitCode = ExitCodeConfigError;
-                    return;
-                }
-
-                var resolvedSourceImage = DockerRunner.ResolveSourceImageReference(sourceImage, sourceTag);
-
-                if (generateDockerfile)
-                {
-                    var outputPath = string.IsNullOrWhiteSpace(dockerfileOutput)
-                        ? "./Dockerfile.generated"
-                        : dockerfileOutput;
-                    var writtenPath = DockerRunner.GenerateDockerfile(
-                        imageFile,
-                        outputPath,
-                        imageTag,
-                        modules,
-                        buildType == "custom" ? resolvedSourceImage : null,
-                        appSettings);
-                    Console.WriteLine($"Dockerfile written to: {writtenPath}");
-                    if (!string.IsNullOrWhiteSpace(appSettings))
-                    {
-                        Console.WriteLine($"Note: Copy {appSettings} to poshmcp-appsettings.json in your build context before building.");
-                    }
-                    Console.WriteLine("To build manually, run:");
-                    Console.WriteLine($"  docker build -f {writtenPath} -t {imageTag} .");
-                    Environment.ExitCode = ExitCodeSuccess;
-                    return;
-                }
-
-                var dockerPath = DockerRunner.DetectDockerCommand();
-
-                if (dockerPath == null)
-                {
-                    Console.Error.WriteLine("Error: Docker or Podman is not installed or not available in PATH.");
-                    Console.Error.WriteLine("Please install Docker (https://www.docker.com) or Podman (https://podman.io)");
-                    Environment.ExitCode = ExitCodeStartupError;
-                    return;
-                }
-
-                Console.WriteLine($"Building {buildType} PoshMcp image: {imageTag}");
-
-                if (buildType == "custom")
-                {
-                    Console.WriteLine($"Using source image: {resolvedSourceImage}");
-                }
-
-                string? stagedAppSettings = null;
-                string? tempDockerfilePath = null;
-                var effectiveImageFile = imageFile;
-
-                if (!string.IsNullOrWhiteSpace(appSettings) || hasEmbeddedDockerfile)
-                {
-                    stagedAppSettings = !string.IsNullOrWhiteSpace(appSettings)
-                        ? DockerRunner.PrepareAppSettingsForBuild(appSettings, ".")
-                        : null;
-                    tempDockerfilePath = ".poshmcp-build.dockerfile";
-                    DockerRunner.GenerateDockerfile(
-                        imageFile,
-                        tempDockerfilePath,
-                        imageTag,
-                        modules,
-                        buildType == "custom" ? resolvedSourceImage : null,
-                        appSettings);
-                    effectiveImageFile = tempDockerfilePath;
-                }
-
-                try
-                {
-                    var buildArgs = DockerRunner.BuildDockerBuildArgs(
-                        effectiveImageFile,
-                        imageTag,
-                        modules,
-                        buildType == "custom" ? resolvedSourceImage : null);
-
-                    var result = DockerRunner.ExecuteDockerCommand(dockerPath, buildArgs);
-                    if (result != ExitCodeSuccess)
-                    {
-                        Environment.ExitCode = result;
-                        return;
-                    }
-
-                    Console.WriteLine($"Successfully built image: {imageTag}");
-                    Environment.ExitCode = ExitCodeSuccess;
-                }
-                finally
-                {
-                    DockerRunner.CleanupTempFile(tempDockerfilePath);
-                    DockerRunner.CleanupTempFile(stagedAppSettings);
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Build error: {ex.Message}");
-                Environment.ExitCode = ExitCodeRuntimeError;
-            }
+            CommandHandlers.RunBuildCommand(modules, type, tag, dockerFile, sourceImage, sourceTag, generateDockerfile, dockerfileOutput, appSettings);
         });
 
         // Handler for the run command
         runCommand.SetHandler((mode, port, tag, config, volumes, interactive) =>
         {
-            try
-            {
-                var transportMode = string.IsNullOrWhiteSpace(mode) ? "http" : mode.ToLowerInvariant();
-                var portNumber = port ?? 8080;
-                var imageTag = string.IsNullOrWhiteSpace(tag) ? "poshmcp:latest" : tag;
-                var dockerPath = DockerRunner.DetectDockerCommand();
-
-                if (dockerPath == null)
-                {
-                    Console.Error.WriteLine("Error: Docker or Podman is not installed or not available in PATH.");
-                    Console.Error.WriteLine("Please install Docker (https://www.docker.com) or Podman (https://podman.io)");
-                    Environment.ExitCode = ExitCodeStartupError;
-                    return;
-                }
-
-                if (transportMode != "http" && transportMode != "stdio")
-                {
-                    Console.Error.WriteLine("Error: --mode must be 'http' or 'stdio'");
-                    Environment.ExitCode = ExitCodeConfigError;
-                    return;
-                }
-
-                var runArgs = "run -d";
-
-                if (interactive)
-                {
-                    runArgs = "run -it";
-                }
-
-                // Set transport mode environment variable
-                var envVar = transportMode == "http" ? "http" : "stdio";
-                runArgs += $" -e POSHMCP_TRANSPORT={envVar}";
-
-                // Expose port for HTTP mode
-                if (transportMode == "http")
-                {
-                    runArgs += $" -p {portNumber}:8080";
-                }
-
-                // Mount config file if provided
-                if (!string.IsNullOrWhiteSpace(config))
-                {
-                    var configPath = Path.GetFullPath(config);
-                    if (!File.Exists(configPath))
-                    {
-                        Console.Error.WriteLine($"Error: Config file not found: {configPath}");
-                        Environment.ExitCode = ExitCodeConfigError;
-                        return;
-                    }
-
-                    runArgs += $" -v {configPath}:/app/appsettings.json:ro";
-                }
-
-                // Add volume mounts if provided
-                if (volumes != null && volumes.Length > 0)
-                {
-                    foreach (var volume in volumes)
-                    {
-                        runArgs += $" -v {volume}";
-                    }
-                }
-
-                // Add image tag
-                runArgs += $" {imageTag}";
-
-                if (interactive)
-                {
-                    Console.WriteLine($"Starting PoshMcp container in interactive mode: {imageTag}");
-                    var result = DockerRunner.ExecuteDockerCommand(dockerPath, runArgs, interactive: true);
-                    Environment.ExitCode = result;
-                }
-                else
-                {
-                    Console.WriteLine($"Starting PoshMcp container in {transportMode} mode on port {portNumber}...");
-                    var result = DockerRunner.ExecuteDockerCommand(dockerPath, runArgs);
-                    if (result == ExitCodeSuccess)
-                    {
-                        Console.WriteLine($"Container started successfully ({transportMode} mode on port {portNumber})");
-                    }
-                    Environment.ExitCode = result;
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Run error: {ex.Message}");
-                Environment.ExitCode = ExitCodeRuntimeError;
-            }
+            CommandHandlers.RunRunCommand(mode, port, tag, config, volumes, interactive);
         }, runModeOption, runPortOption, runTagOption, runConfigOption, runVolumeOption, runInteractiveOption);
 
         scaffoldCommand.SetHandler(async (projectPath, force, format) =>
         {
-            var outputFormat = ConfigurationFileManager.NormalizeFormat(format);
-
-            try
-            {
-                var targetProjectPath = string.IsNullOrWhiteSpace(projectPath)
-                    ? Directory.GetCurrentDirectory()
-                    : projectPath;
-
-                var result = await InfrastructureScaffolder.ScaffoldAzureInfrastructureAsync(targetProjectPath, force);
-
-                if (outputFormat == "json")
-                {
-                    var payload = new
-                    {
-                        success = true,
-                        projectPath = result.ProjectPath,
-                        relativePath = result.RelativeInfraPath,
-                        filesWritten = result.FilesWritten,
-                        filesOverwritten = result.FilesOverwritten,
-                        force = result.Force
-                    };
-                    Console.WriteLine(JsonSerializer.Serialize(payload));
-                }
-                else
-                {
-                    Console.WriteLine($"Scaffolded {result.FilesWritten} infra file(s) to {Path.Combine(result.ProjectPath, result.RelativeInfraPath.Replace('/', Path.DirectorySeparatorChar))}");
-                    if (result.FilesOverwritten > 0)
-                    {
-                        Console.WriteLine($"Overwritten files: {result.FilesOverwritten}");
-                    }
-                }
-
-                Environment.ExitCode = ExitCodeSuccess;
-            }
-            catch (IOException ex)
-            {
-                Console.Error.WriteLine($"Scaffold error: {ex.Message}");
-                Environment.ExitCode = ExitCodeConfigError;
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Scaffold error: {ex.Message}");
-                Environment.ExitCode = ExitCodeRuntimeError;
-            }
+            await CommandHandlers.RunScaffoldCommandAsync(projectPath, force, format);
         }, scaffoldProjectPathOption, forceOption, formatOption);
 
         return await rootCommand.InvokeAsync(args);
@@ -1769,11 +1418,6 @@ public class Program
         // the correct user-configured value is always used for auth decisions and IOptions binding.
         var authRootConfig = ConfigurationLoader.BuildRootConfiguration(finalConfigPath, reloadOnChange: false);
 
-        builder.Services
-            .AddOptions<PoshMcp.Server.Authentication.AuthenticationConfiguration>()
-            .Configure(opts => authRootConfig.GetSection("Authentication").Bind(opts))
-            .ValidateOnStart();
-
         builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<PoshMcp.Server.Authentication.AuthenticationConfiguration>,
             PoshMcp.Server.Authentication.AuthenticationConfigurationValidator>();
 
@@ -2104,7 +1748,7 @@ public class Program
         return (logger, config);
     }
 
-    private static string DescribeConfigurationPath(string? configurationPath)
+    internal static string DescribeConfigurationPath(string? configurationPath)
     {
         return string.IsNullOrWhiteSpace(configurationPath)
             ? "(environment-only configuration)"
@@ -2144,7 +1788,7 @@ public class Program
         return tools;
     }
 
-    private static void AddConfigurationGuidanceToolToList(
+    internal static void AddConfigurationGuidanceToolToList(
         List<McpServerTool> tools,
         PowerShellConfiguration config,
         string configurationPath,
@@ -2166,7 +1810,7 @@ public class Program
             loggerFactory));
     }
 
-    private static void AddConfigurationTroubleshootingToolToList(
+    internal static void AddConfigurationTroubleshootingToolToList(
         List<McpServerTool> tools,
         PowerShellConfiguration config,
         string configurationPath,
@@ -2288,7 +1932,7 @@ public class Program
         });
     }
 
-    private static McpToolFactoryV2 CreateToolFactory(PowerShellConfiguration config, ICommandExecutor? commandExecutor, IPowerShellRunspace? runspace = null)
+    internal static McpToolFactoryV2 CreateToolFactory(PowerShellConfiguration config, ICommandExecutor? commandExecutor, IPowerShellRunspace? runspace = null)
     {
         if (config.RuntimeMode == RuntimeMode.OutOfProcess)
         {
@@ -2300,7 +1944,7 @@ public class Program
         return runspace is null ? new McpToolFactoryV2() : new McpToolFactoryV2(runspace);
     }
 
-    private static async Task<OutOfProcessExecutorLease?> StartOutOfProcessExecutorIfNeededAsync(PowerShellConfiguration config, ILoggerFactory loggerFactory, ILogger logger, string? configFilePath = null)
+    internal static async Task<OutOfProcessExecutorLease?> StartOutOfProcessExecutorIfNeededAsync(PowerShellConfiguration config, ILoggerFactory loggerFactory, ILogger logger, string? configFilePath = null)
     {
         if (config.RuntimeMode != RuntimeMode.OutOfProcess)
         {
@@ -2325,7 +1969,7 @@ public class Program
         return new OutOfProcessExecutorLease(executor);
     }
 
-    private sealed class OutOfProcessExecutorLease : IAsyncDisposable
+    internal sealed class OutOfProcessExecutorLease : IAsyncDisposable
     {
         public OutOfProcessExecutorLease(OutOfProcessCommandExecutor executor)
         {
