@@ -4,6 +4,7 @@ using System.Linq;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Primitives;
 
 namespace PoshMcp.Server.Authentication;
@@ -100,6 +101,45 @@ public static class OAuthProxyEndpoints
             };
 
             return Results.Json(response, statusCode: StatusCodes.Status201Created);
+        }).AllowAnonymous();
+
+        // ── /authorize (redirect proxy) ───────────────────────────────────────
+        // VS Code constructs the auth URL as {authorization_server_base}/authorize rather
+        // than using authorization_endpoint from AS metadata directly.  This endpoint
+        // intercepts that request, swaps the ephemeral DCR client_id for the real Entra
+        // client_id, and issues a 302 redirect to Entra's real authorize endpoint.
+        app.MapGet("/authorize", (HttpContext httpContext, ILoggerFactory loggerFactory) =>
+        {
+            var logger = loggerFactory.CreateLogger("PoshMcp.Server.Authentication.OAuthProxyEndpoints");
+
+            if (string.IsNullOrWhiteSpace(proxy.ClientId))
+            {
+                return Results.Problem(
+                    detail: "OAuth proxy ClientId is not configured on this server.",
+                    statusCode: StatusCodes.Status501NotImplemented);
+            }
+
+            // Build new query params: forward everything as-is, replace client_id.
+            var queryParams = httpContext.Request.Query
+                .SelectMany(kvp => kvp.Value.Select(v =>
+                    new KeyValuePair<string, string?>(
+                        kvp.Key,
+                        kvp.Key.Equals("client_id", StringComparison.OrdinalIgnoreCase)
+                            ? proxy.ClientId
+                            : v)))
+                .ToList();
+
+            // Ensure client_id is always present even if missing from the original request.
+            if (!queryParams.Any(kv => kv.Key.Equals("client_id", StringComparison.OrdinalIgnoreCase)))
+                queryParams.Add(new KeyValuePair<string, string?>("client_id", proxy.ClientId));
+
+            var redirectUrl = $"{authEndpoint}{QueryString.Create(queryParams)}";
+
+            logger.LogDebug(
+                "Redirecting /authorize to Entra tenant {TenantId} (client_id replaced with configured value)",
+                proxy.TenantId);
+
+            return Results.Redirect(redirectUrl, permanent: false);
         }).AllowAnonymous();
 
         return app;
