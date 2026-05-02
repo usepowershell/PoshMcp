@@ -50,7 +50,7 @@ internal static class StdioServerHost
         var serviceProvider = builder.Services.BuildServiceProvider();
         var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
         var logger = loggerFactory.CreateLogger("PoshMcpLogger");
-        logger.LogInformation("Using configuration source: {ConfigurationPath}", DescribeConfigurationPath(finalConfigPath));
+        logger.LogInformation("Using configuration source: {ConfigurationPath}", ConfigurationHelpers.DescribeConfigurationPath(finalConfigPath));
         var config = ConfigurationLoader.LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
         var resourcesConfig = ConfigurationLoader.LoadMcpResourcesConfiguration(finalConfigPath, logger);
         await using var executorLease = await McpToolSetupService.StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger, finalConfigPath);
@@ -273,14 +273,4 @@ internal static class StdioServerHost
         builder.Services.AddSingleton<IHostedService, PowerShellCleanupService>();
     }
 
-    /// <summary>
-    /// Describes the configuration path for logging purposes.
-    /// Returns a human-readable description of the configuration source.
-    /// </summary>
-    private static string DescribeConfigurationPath(string? configurationPath)
-    {
-        return string.IsNullOrWhiteSpace(configurationPath)
-            ? "(environment-only configuration)"
-            : configurationPath;
-    }
 }

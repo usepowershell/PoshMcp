@@ -2,10 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -38,11 +36,11 @@ internal static class DoctorService
         var authConfig = authRootConfig.GetSection("Authentication").Get<AuthenticationConfiguration>();
         var environmentVariables = CollectEnvironmentVariables();
         var tools = await discoverToolsFunc(config, loggerFactory, logger, settings.FinalConfigPath);
-        var discoveredToolNames = GetDiscoveredToolNames(tools);
+        var discoveredToolNames = ConfigurationHelpers.GetDiscoveredToolNames(tools);
         var configuredFunctionStatus = BuildConfiguredFunctionStatus(config.GetEffectiveCommandNames(), discoveredToolNames);
         var toolNames = discoveredToolNames.Count > 0
             ? discoveredToolNames
-            : GetExpectedToolNames(configuredFunctionStatus, config.EnableDynamicReloadTools);
+            : ConfigurationHelpers.GetExpectedToolNames(configuredFunctionStatus, s => s.MatchedToolNames, config.EnableDynamicReloadTools);
         var diagnostics = CollectPowerShellDiagnostics();
         var oopModulePaths = ResolveConfiguredModulePathsForOop(config, settings.FinalConfigPath);
 
@@ -59,7 +57,7 @@ internal static class DoctorService
         var (resourcesDiag, promptsDiag) = ConfigurationLoader.TryValidateResourcesAndPrompts(settings.FinalConfigPath);
 
         var report = DoctorReport.Build(
-            configurationPath: DescribeConfigurationPath(settings.FinalConfigPath),
+            configurationPath: ConfigurationHelpers.DescribeConfigurationPath(settings.FinalConfigPath),
             configurationPathSource: settings.ConfigPath.Source,
             effectiveLogLevel: settings.LogLevel.Value,
             effectiveLogLevelSource: settings.LogLevel.Source,
@@ -114,11 +112,11 @@ internal static class DoctorService
         AuthenticationConfiguration? authConfig = null,
         System.Security.Claims.ClaimsPrincipal? currentIdentity = null)
     {
-        var discoveredToolNames = GetDiscoveredToolNames(tools);
+        var discoveredToolNames = ConfigurationHelpers.GetDiscoveredToolNames(tools);
         var configuredFunctionStatus = BuildConfiguredFunctionStatus(config.GetEffectiveCommandNames(), discoveredToolNames);
         var toolNames = discoveredToolNames.Count > 0
             ? discoveredToolNames
-            : GetExpectedToolNames(configuredFunctionStatus, config.EnableDynamicReloadTools);
+            : ConfigurationHelpers.GetExpectedToolNames(configuredFunctionStatus, s => s.MatchedToolNames, config.EnableDynamicReloadTools);
         var missingFunctions = configuredFunctionStatus.Where(f => !f.Found).Select(f => f.FunctionName).ToList();
         if (missingFunctions.Count > 0)
         {
@@ -141,7 +139,7 @@ internal static class DoctorService
         }
 
         return DoctorReport.Build(
-            configurationPath: DescribeConfigurationPath(configurationPath),
+            configurationPath: ConfigurationHelpers.DescribeConfigurationPath(configurationPath),
             configurationPathSource: configurationPathSource,
             effectiveLogLevel: effectiveLogLevel,
             effectiveLogLevelSource: effectiveLogLevelSource,
@@ -294,19 +292,19 @@ internal static class DoctorService
             .ToArray();
     }
 
-    private static List<Program.ConfiguredFunctionStatus> BuildConfiguredFunctionStatus(List<string> functionNames, List<string> discoveredToolNames)
+    private static List<ConfiguredFunctionStatus> BuildConfiguredFunctionStatus(List<string> functionNames, List<string> discoveredToolNames)
     {
         return functionNames
             .Select(functionName =>
             {
-                var expectedToolName = ToToolName(functionName);
+                var expectedToolName = ConfigurationHelpers.ToToolName(functionName);
                 var matchedToolNames = discoveredToolNames
                     .Where(toolName =>
                         string.Equals(toolName, expectedToolName, StringComparison.OrdinalIgnoreCase) ||
                         toolName.StartsWith(expectedToolName + "_", StringComparison.OrdinalIgnoreCase))
                     .ToList();
 
-                return new Program.ConfiguredFunctionStatus(functionName, expectedToolName, matchedToolNames.Count > 0, matchedToolNames);
+                return new ConfiguredFunctionStatus(functionName, expectedToolName, matchedToolNames.Count > 0, matchedToolNames);
             })
             .ToList();
     }
@@ -409,124 +407,4 @@ internal static class DoctorService
 
     private static string EscapeForPowerShell(string value) => "'" + value.Replace("'", "''") + "'";
 
-    private static List<string> GetDiscoveredToolNames(List<McpServerTool> tools)
-    {
-        var names = new List<string>();
-
-        foreach (var tool in tools)
-        {
-            var name = TryGetNameFromObject(tool, 0);
-            if (!string.IsNullOrWhiteSpace(name))
-            {
-                names.Add(name);
-            }
-        }
-
-        return names
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
-    private static string? TryGetNameFromObject(object? value, int depth)
-    {
-        if (value is null || depth > 3)
-        {
-            return null;
-        }
-
-        var type = value.GetType();
-        var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-
-        // First, look for a direct Name property.
-        var directNameProperty = type.GetProperty("Name", flags);
-        if (directNameProperty is not null && directNameProperty.PropertyType == typeof(string))
-        {
-            var name = directNameProperty.GetValue(value) as string;
-            if (!string.IsNullOrWhiteSpace(name))
-            {
-                return name;
-            }
-        }
-
-        // Then recurse into nested objects to find name-bearing metadata.
-        foreach (var property in type.GetProperties(flags))
-        {
-            if (property.GetIndexParameters().Length > 0)
-            {
-                continue;
-            }
-
-            object? nestedValue;
-            try
-            {
-                nestedValue = property.GetValue(value);
-            }
-            catch
-            {
-                continue;
-            }
-
-            if (nestedValue is null)
-            {
-                continue;
-            }
-
-            if (nestedValue is string)
-            {
-                continue;
-            }
-
-            var nestedName = TryGetNameFromObject(nestedValue, depth + 1);
-            if (!string.IsNullOrWhiteSpace(nestedName))
-            {
-                return nestedName;
-            }
-        }
-
-        return null;
-    }
-
-    private static List<string> GetExpectedToolNames(List<Program.ConfiguredFunctionStatus> configuredFunctionStatus, bool enableDynamicReloadTools)
-    {
-        var names = new List<string>();
-
-        // Include generated tools matched to configured functions (handles parameter-set specific names).
-        names.AddRange(configuredFunctionStatus.SelectMany(functionStatus => functionStatus.MatchedToolNames));
-
-        // Built-in utility tools are always generated.
-        names.Add("get_last_command_output");
-        names.Add("sort_last_command_output");
-        names.Add("filter_last_command_output");
-        names.Add("group_last_command_output");
-
-        // Dynamic configuration tools are conditional.
-        if (enableDynamicReloadTools)
-        {
-            names.Add("reload_configuration_from_file");
-            names.Add("update_configuration");
-            names.Add("get_configuration_status");
-        }
-
-        return names
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
-    private static string ToToolName(string functionName)
-    {
-        var normalized = functionName.Replace('-', '_');
-        normalized = Regex.Replace(normalized, "([a-z0-9])([A-Z])", "$1_$2");
-        normalized = Regex.Replace(normalized, "_+", "_");
-        return normalized.ToLowerInvariant();
-    }
-
-    private static string DescribeConfigurationPath(string? configurationPath)
-    {
-        return string.IsNullOrWhiteSpace(configurationPath)
-            ? "(environment-only configuration)"
-            : configurationPath;
-    }
 }

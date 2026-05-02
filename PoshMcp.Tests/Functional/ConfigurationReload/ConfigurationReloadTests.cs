@@ -197,7 +197,7 @@ public class ConfigurationReloadTests : PowerShellTestBase
         Assert.Equal(config.RuntimeMode.ToString(), resultObj["runtimeSettings"]?["runtimeMode"]?["value"]?.GetValue<string>());
         Assert.Equal(2, resultObj["functionsTools"]?["configuredFunctionStatus"]?.AsArray().Count);
 
-        var expectedReport = Program.BuildDoctorReportFromConfig(
+        var expectedReport = DoctorService.BuildDoctorReportFromConfig(
             configurationPath: "/test/path",
             configurationPathSource: SettingsResolver.CwdSource,
             effectiveLogLevel: "Debug",
@@ -212,7 +212,7 @@ public class ConfigurationReloadTests : PowerShellTestBase
             effectiveMcpPathSource: "runtime",
             config: config,
             tools: registeredTools);
-        var expectedObj = JsonNode.Parse(Program.BuildDoctorJson(expectedReport))?.AsObject();
+        var expectedObj = JsonNode.Parse(DoctorService.BuildDoctorJson(expectedReport))?.AsObject();
 
         Assert.NotNull(expectedObj);
         Assert.Equal(expectedObj!["runtimeSettings"]?.ToJsonString(), resultObj["runtimeSettings"]?.ToJsonString());

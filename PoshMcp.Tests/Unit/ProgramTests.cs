@@ -484,7 +484,7 @@ public class ProgramTests : PowerShellTestBase
         };
 
         // Act
-        var json = Program.SerializeEffectivePowerShellConfiguration(config);
+        var json = DoctorService.SerializeEffectivePowerShellConfiguration(config);
         var root = JsonNode.Parse(json)?.AsObject();
 
         // Assert
@@ -529,7 +529,7 @@ public class ProgramTests : PowerShellTestBase
         };
 
         // Act
-        var report = Program.BuildDoctorReportFromConfig(
+        var report = DoctorService.BuildDoctorReportFromConfig(
             configurationPath: configPath,
             configurationPathSource: "test",
             effectiveLogLevel: "Information",
@@ -544,7 +544,7 @@ public class ProgramTests : PowerShellTestBase
             effectiveMcpPathSource: "test",
             config: config,
             tools: new List<ModelContextProtocol.Server.McpServerTool>());
-        var json = Program.BuildDoctorJson(report);
+        var json = DoctorService.BuildDoctorJson(report);
         var root = JsonNode.Parse(json)?.AsObject();
 
         // Assert
@@ -571,7 +571,7 @@ public class ProgramTests : PowerShellTestBase
         };
 
         // Act
-        var report = Program.BuildDoctorReportFromConfig(
+        var report = DoctorService.BuildDoctorReportFromConfig(
             configurationPath: "(environment-only configuration)",
             configurationPathSource: SettingsResolver.EnvSource,
             effectiveLogLevel: "Information",

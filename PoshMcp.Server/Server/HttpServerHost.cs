@@ -106,7 +106,7 @@ internal static class HttpServerHost
         builder.Services.AddSingleton<IHttpContextAccessor>(sharedHttpContextAccessor);
         builder.Services.AddSingleton<IPowerShellRunspace>(sharedSessionRunspace);
 
-        logger.LogInformation("Using configuration source: {ConfigurationPath}", DescribeConfigurationPath(finalConfigPath));
+        logger.LogInformation("Using configuration source: {ConfigurationPath}", ConfigurationHelpers.DescribeConfigurationPath(finalConfigPath));
 
         var tools = await McpToolSetupService.SetupHttpMcpToolsAsync(bootstrapLoggerFactory, config, logger, finalConfigPath, configurationPathSource, sharedSessionRunspace, executorLease?.Executor, sharedHttpContextAccessor);
         var resourcesConfig = ConfigurationLoader.LoadMcpResourcesConfiguration(finalConfigPath, logger);
@@ -404,14 +404,4 @@ internal static class HttpServerHost
         builder.Services.AddSingleton<IHostedService, PowerShellCleanupService>();
     }
 
-    /// <summary>
-    /// Describes the configuration path for logging purposes.
-    /// Returns a human-readable description of the configuration source.
-    /// </summary>
-    private static string DescribeConfigurationPath(string? configurationPath)
-    {
-        return string.IsNullOrWhiteSpace(configurationPath)
-            ? "(environment-only configuration)"
-            : configurationPath;
-    }
 }

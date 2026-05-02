@@ -52,7 +52,7 @@ public static class CommandHandlers
         {
             var payload = new
             {
-                configurationPath = DescribeConfigurationPath(finalConfigPath),
+                configurationPath = ConfigurationHelpers.DescribeConfigurationPath(finalConfigPath),
                 runtimeMode = config.RuntimeMode.ToString(),
                 toolCount = tools.Count,
                 commandNames = config.GetEffectiveCommandNames(),
@@ -62,7 +62,7 @@ public static class CommandHandlers
             return;
         }
 
-        Console.WriteLine($"Configuration: {DescribeConfigurationPath(finalConfigPath)}");
+        Console.WriteLine($"Configuration: {ConfigurationHelpers.DescribeConfigurationPath(finalConfigPath)}");
         Console.WriteLine($"Runtime mode: {config.RuntimeMode}");
         Console.WriteLine($"Discovered tools: {tools.Count}");
         Console.WriteLine("Configured command names:");
@@ -88,7 +88,7 @@ public static class CommandHandlers
             var payload = new
             {
                 valid = !hasErrors,
-                configurationPath = DescribeConfigurationPath(finalConfigPath),
+                configurationPath = ConfigurationHelpers.DescribeConfigurationPath(finalConfigPath),
                 runtimeMode = config.RuntimeMode.ToString(),
                 commandCount = config.GetEffectiveCommandNames().Count,
                 moduleCount = config.Modules.Count,
@@ -120,7 +120,7 @@ public static class CommandHandlers
         {
             Console.WriteLine("Configuration validation succeeded.");
         }
-        Console.WriteLine($"Configuration: {DescribeConfigurationPath(finalConfigPath)}");
+        Console.WriteLine($"Configuration: {ConfigurationHelpers.DescribeConfigurationPath(finalConfigPath)}");
         Console.WriteLine($"Runtime mode: {config.RuntimeMode}");
         Console.WriteLine($"Commands: {config.GetEffectiveCommandNames().Count} | Modules: {config.Modules.Count} | Tools: {tools.Count}");
         Console.WriteLine($"Resources configured: {resourcesDiag.Configured} | valid: {resourcesDiag.Valid}");
@@ -640,7 +640,7 @@ public static class CommandHandlers
         var configPath = Path.Combine(appDirectory, "appsettings.json");
 
         string finalConfigPath = await ResolveConfigurationPath(configPath);
-        logger.LogInformation("Loading configuration from: {ConfigurationPath}", DescribeConfigurationPath(finalConfigPath));
+        logger.LogInformation("Loading configuration from: {ConfigurationPath}", ConfigurationHelpers.DescribeConfigurationPath(finalConfigPath));
         return finalConfigPath;
     }
 
@@ -653,10 +653,4 @@ public static class CommandHandlers
         return resolvedConfigPath.Value ?? string.Empty;
     }
 
-    private static string DescribeConfigurationPath(string? configurationPath)
-    {
-        return string.IsNullOrWhiteSpace(configurationPath)
-            ? "(environment-only configuration)"
-            : configurationPath;
-    }
 }

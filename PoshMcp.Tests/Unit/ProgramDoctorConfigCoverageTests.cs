@@ -223,7 +223,7 @@ public class ProgramDoctorConfigCoverageTests
                 Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
                 "InProcess");
 
-            var report = Program.BuildDoctorReportFromConfig(
+            var report = DoctorService.BuildDoctorReportFromConfig(
                 configurationPath: configFile.Path,
                 configurationPathSource: "test",
                 effectiveLogLevel: "Warning",
@@ -239,7 +239,7 @@ public class ProgramDoctorConfigCoverageTests
                 config: config,
                 tools: []);
 
-            var json = Program.BuildDoctorJson(report);
+            var json = DoctorService.BuildDoctorJson(report);
             var payload = JsonNode.Parse(json)?.AsObject();
             Assert.NotNull(payload);
         }

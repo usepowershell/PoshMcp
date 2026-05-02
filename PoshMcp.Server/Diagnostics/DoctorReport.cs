@@ -87,7 +87,7 @@ public sealed record DoctorReport
         string effectiveRuntimeModeSource,
         string? effectiveMcpPath,
         string effectiveMcpPathSource,
-        List<Program.ConfiguredFunctionStatus> configuredFunctionStatus,
+        List<ConfiguredFunctionStatus> configuredFunctionStatus,
         List<string> toolNames,
         string powerShellVersion,
         int modulePathEntries,
@@ -368,7 +368,7 @@ public sealed record FunctionsToolsSection
 
     /// <summary>Per-function resolution status details.</summary>
     [JsonPropertyName("configuredFunctionStatus")]
-    public List<Program.ConfiguredFunctionStatus> ConfiguredFunctionStatus { get; init; } = [];
+    public List<ConfiguredFunctionStatus> ConfiguredFunctionStatus { get; init; } = [];
 }
 
 /// <summary>MCP resource and prompt definition diagnostics.</summary>
