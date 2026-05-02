@@ -57,6 +57,10 @@
 
 - name: Release Notes
   items:
+  - name: v0.9.10
+    href: release-notes/0.9.10.md
+  - name: v0.9.9
+    href: release-notes/0.9.9.md
   - name: v0.9.8
     href: release-notes/0.9.8.md
   - name: v0.9.7

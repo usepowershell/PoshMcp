@@ -61,7 +61,7 @@ public static class OAuthProxyEndpoints
         {
             var baseUrl = GetServerBaseUrl(httpContext);
             var registrationEndpoint = $"{baseUrl}/register";
-            var issuer = baseUrl;
+            var issuer = $"https://login.microsoftonline.com/{proxy.TenantId}/v2.0";
 
             var metadata = new
             {
