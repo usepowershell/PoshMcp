@@ -2,6 +2,41 @@
 
 ## Recent Work (2026-05-02)
 
+### 2026-05-02: MCP `initialize` Timeout Diagnosis — "Waiting for server to respond"
+
+**Deployment:** `https://poshmcp.calmstone-9cfc4790.eastus.azurecontainerapps.io`
+**Task:** Diagnose why MCP client logs "Discovered authorization server metadata" then hangs on "Waiting for server to respond to initialize request..." indefinitely.
+
+**Investigation steps:**
+1. GET /health → 200 Healthy ✅
+2. POST / (no auth) → 401 with `WWW-Authenticate: Bearer resource_metadata="https://..."` ✅ (https:// fixed)
+3. GET /sse → 404 (Streamable HTTP only, no legacy SSE)
+4. GET /.well-known/oauth-authorization-server → AS metadata retrieved
+5. GET /.well-known/oauth-protected-resource → PRM retrieved
+6. POST / (fake Bearer token) → 401 in 457ms ✅ (JWT validation/OIDC discovery works)
+7. `az containerapp logs` → 72 auth attempts, ALL `result: none` (no Bearer token ever sent by client)
+8. Code analysis of OAuthProxyEndpoints.cs + AuthenticationServiceExtensions.cs
+
+**Two compound bugs found:**
+
+| Bug | Location | Impact |
+|-----|----------|--------|
+| AS metadata `issuer = "https://poshmcp..."` but Entra tokens have `iss = "https://login.microsoftonline.com/{tenant}/v2.0"` | `OAuthProxyEndpoints.cs` line 64 | MCP client SDK rejects token (iss ≠ issuer), never sends Bearer → endless 401 loop |
+| `RequiredScopes = ["api://80939099.../user_impersonation"]` (full URI) but Entra `scp` claim = `"user_impersonation"` (short name) | `appsettings.json` + `AuthenticationServiceExtensions.cs` | Even if token is sent, scope check fails with 401 |
+
+**Ruling out:**
+- JWT/OIDC network hang: disproved — fake token gets 401 in 457ms
+- http:// scheme bug: fixed since v0.9.8
+- Server health: fully healthy
+
+**Diagnosis:** Bug 1 (issuer mismatch) prevents the client from ever presenting a Bearer token. Bug 2 (scope format) ensures that even if Bug 1 is fixed, every valid Entra token would still be rejected with 401 due to `scp` claim format (`user_impersonation` vs full API URI).
+
+**Root cause confirmed by:** 72 server-side auth attempts with `result: none` — the client never sends a token.
+
+**Findings filed:** `.squad/decisions/inbox/fry-initialize-timeout-diagnosis.md`
+
+---
+
 ### 2026-05-02: v0.9.8 OAuth Deployment Verification — AdvocacyBami
 
 **Deployment:** `https://poshmcp.calmstone-9cfc4790.eastus.azurecontainerapps.io`

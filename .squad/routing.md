@@ -11,6 +11,7 @@ How to decide who handles what.
 | PowerShell integration | Hermes | Runspace management, command execution, PowerShell-specific patterns |
 | Observability & monitoring | Amy | OpenTelemetry metrics, health checks, diagnostics, logging |
 | Azure cloud & deployment | Amy | Azure resources, Container Apps, App Service, Application Insights, Key Vault |
+| Release management | Amy (primary) + Leela (release notes) | "release", "version bump", "prepare release", "tag release", "publish release" |
 | Testing & quality | Fry | Unit tests, integration tests, performance baselines |
 | Documentation & guides | Leela | Technical writing, tutorials, examples, developer experience |
 | Code review | Farnsworth | Review PRs, check quality, architectural alignment |
@@ -56,3 +57,4 @@ When work crosses domains, spawn relevant agents in parallel:
 5. **"Team, ..." → fan-out.** Spawn all relevant agents in parallel as `mode: "background"`.
 6. **Anticipate downstream work.** If Bender is implementing a feature, spawn Fry to write test cases from requirements simultaneously.
 7. **Issue-labeled work** — when a `squad:{member}` label is applied to an issue, route to that member. Farnsworth handles all `squad` (base label) triage.
+8. **Release requests require release skill context first.** For "release", "version bump", "prepare release", "tag release", or "publish release" work, the assigned agent must read `.squad/skills/release-process/SKILL.md` before executing tasks. Leela owns release notes and must finalize them before tag/publish steps.
