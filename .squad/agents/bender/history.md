@@ -182,7 +182,49 @@ DOTNET_ENVIRONMENT
 
 ## Learnings
 
-### Version in doctor output (2026-05-01)
+### MCP OAuth + Entra ID proxy (2026-05-01)
+
+**Root cause pattern for "client opens /authorize on container app":**
+When `ProtectedResource.AuthorizationServers` is empty or points to the container app itself,
+and the container app has no `/.well-known/oauth-authorization-server`, MCP clients fall back
+to treating the container app as the AS and derive `{server}/authorize` as the auth endpoint.
+
+**Fix:** Implement an OAuth AS proxy on PoshMcp:
+- `/.well-known/oauth-authorization-server` — RFC 8414 metadata wrapping Entra endpoints +
+  adding `registration_endpoint = {server}/register`
+- `POST /register` — DCR proxy returning the statically-configured `ClientId`
+- PRM `authorization_servers` auto-populated to server base URL when OAuthProxy.Enabled=true
+  and no servers are explicitly listed
+
+**Entra limitations:**
+- Entra does NOT support RFC 7591 DCR for public clients.
+- VS Code has a hardcoded client_id `aebc6443-996d-45c2-90f0-388ff96faa56` — works without DCR.
+- Other MCP clients (Claude Desktop, Cline, etc.) need DCR to avoid prompting the user.
+- Pre-authorize any client_id in Entra under **Expose an API → Authorized client applications**.
+
+**Config env vars for Container Apps (for Amy):**
+```
+Authentication__OAuthProxy__Enabled=true
+Authentication__OAuthProxy__TenantId={tenant-guid}
+Authentication__OAuthProxy__ClientId={client-id}
+Authentication__OAuthProxy__Audience=api://poshmcp-prod
+```
+
+**Files:**
+- `PoshMcp.Server/Authentication/AuthenticationConfiguration.cs` — `OAuthProxyConfiguration`
+- `PoshMcp.Server/Authentication/OAuthProxyEndpoints.cs` — new endpoints
+- `PoshMcp.Server/Authentication/ProtectedResourceMetadataEndpoint.cs` — dynamic AS URL
+- `PoshMcp.Server/Program.cs` — `MapOAuthProxyEndpoints`
+- `PoshMcp.Tests/Unit/OAuthProxyEndpointsTests.cs` — 9 unit tests
+
+**X-Forwarded-* headers:** Azure Container Apps sets `X-Forwarded-Proto=https` and
+`X-Forwarded-Host={fqdn}`. Always honor these when constructing absolute URLs in endpoints.
+
+**StringValues gotcha:** `Request.Headers["X-Forwarded-Proto"]` returns `StringValues`, not
+`string`. Use `(string?)req.Headers["X-Forwarded-Proto"]` or `using System.Linq` for
+`.FirstOrDefault()`.
+
+
 
 - `AssemblyInformationalVersionAttribute` preserves the full semver string (including `+{commit-hash}` suffix added by the .NET SDK). Strip the suffix with `raw[..raw.IndexOf('+')]` to expose a clean `0.9.2` string.
 - `.NET SDK` sets `InformationalVersion` from `<Version>` in the csproj — no manual attribute needed.
@@ -269,3 +311,27 @@ should update to their own path (removed the repo-internal `examples/appsettings
 
 - Added --appsettings to poshmcp build: injects COPY line into generated Dockerfile; for build mode stages file to CWD as poshmcp-appsettings.json, uses temp Dockerfile (.poshmcp-build.dockerfile), cleans up both temp files after build
 - Fixed poshmcp build 'Dockerfile not found' — embedded resources bypass the disk check; always generate temp dockerfile from embedded resource so build works outside the poshmcp repo
+
+## 2026-05-01: Team OAuth Authentication Architecture Session
+
+### OAuth Proxy Implementation (Joint Effort)
+**Bender + Amy coordinated on comprehensive OAuth fix for deployment:**
+
+- **Bender Role:** Implemented OAuth AS proxy + DCR proxy server-side (RFC 8414 + RFC 7591)
+  - Added /.well-known/oauth-authorization-server endpoint
+  - Added /register DCR proxy (returns configured ClientId)
+  - Dynamic ProtectedResource.AuthorizationServers population
+  - PR #135 (items 1-4) merged: LoggingHelpers, DockerRunner, SettingsResolver, ConfigurationFileManager, ConfigurationLoader extracted
+  - 32 tests passing
+
+- **Amy Role:** Fixed deployment-side configuration (Container Apps + Bicep)
+  - Audited deployed Container App (found OAuth proxy disabled)
+  - Located real deployment repo (AdvocacyBami, separate from poshmcp)
+  - Patched ppsettings.json with OAuthProxy config (TenantId, ClientId, Audience)
+  - Updated deploy.ps1 to translate OAuthProxy env vars
+  - Cleared duplicate ProtectedResource.AuthorizationServers entries
+  - Changes applied; awaiting redeploy
+
+**Coordination outcome:** Server-side OAuth metadata now advertises Entra endpoints; deployment config now passes OAuth settings to Container App via env vars. MCP clients should complete OAuth 2.0 code grant flow without redirect loops after redeploy.
+
+**Decision files:** bender-mcp-oauth-metadata.md, amy-container-apps-auth-config.md (both merged to decisions.md)
