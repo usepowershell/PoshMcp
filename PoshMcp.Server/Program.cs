@@ -54,6 +54,10 @@ public class Program
         // Build CLI structure
         var rootCommand = CliDefinition.Build();
 
+        // CS8604: Suppress null-reference warnings from System.CommandLine SetHandler overloads.
+        // These warnings are false positives: CliDefinition properties are non-null after Build(),
+        // and SetHandler correctly enforces type-safety at runtime.
+#pragma warning disable CS8604
         // Handler for the main command (default MCP server behavior)
         rootCommand.SetHandler(async (evaluateTools, verbose, debug, trace) =>
         {
@@ -243,6 +247,7 @@ public class Program
         {
             await CommandHandlers.RunScaffoldCommand(projectPath, force, format);
         }, CliDefinition.ScaffoldProjectPathOption, CliDefinition.ForceOption, CliDefinition.FormatOption);
+#pragma warning restore CS8604
 
         return await rootCommand.InvokeAsync(args);
     }
