@@ -1,6 +1,6 @@
 ---
 name: "release-process"
-description: "Repo release workflow: version bump, changelog, Leela-owned release notes, commit/push, CI gate, then tag and push tags"
+description: "Repo release workflow: version bump, changelog, quality gates (format+test), Leela-owned release notes, commit/push, CI gate, then tag and push tags"
 domain: "release-management"
 confidence: "high"
 source: "manual"
@@ -25,27 +25,32 @@ Use this skill when preparing and shipping a release from `main` in this reposit
 - Add the release entry in `CHANGELOG.md` with date, version, and notable changes.
 - Ensure the changelog reflects exactly what is being released.
 
-4. **Leela owns release notes**
+4. **Run quality gates (MANDATORY)**
+- `dotnet format --verify-no-changes` — verify formatting; fix any issues before proceeding.
+- `dotnet test` — all tests must pass; do NOT proceed if any test fails.
+- If either command fails, fix the issue first and restart from step 2.
+
+5. **Leela owns release notes**
 - Leela prepares release notes content (summary, highlights, breaking changes, migration notes if applicable).
 - Do not publish release tags until Leela's release notes are finalized.
 
-5. **Commit release prep together**
+6. **Commit release prep together**
 - Stage version + changelog + release notes artifacts in one release-prep commit.
 - Suggested message format: `chore(release): vX.Y.Z`.
 
-6. **Push release prep commit**
+7. **Push release prep commit**
 - `git push origin main`
 
-7. **Hard CI gate**
+8. **Hard CI gate**
 - Wait until CI for `main` is fully green.
 - No tag creation while any required check is pending or failed.
 
-8. **Create and push tag only after CI green**
+9. **Create and push tag only after CI green**
 - `git tag -a vX.Y.Z -m "vX.Y.Z"`
 - `git push origin vX.Y.Z`
 - If multiple tags are intentionally used, push explicitly or with `git push --tags`.
 
-9. **Post-tag verification**
+10. **Post-tag verification**
 - Confirm tag exists remotely and points to the intended release commit.
 
 ## Examples
@@ -56,6 +61,9 @@ git fetch origin
 git pull --ff-only origin main
 
 # edit version + CHANGELOG + release notes (Leela)
+
+dotnet format --verify-no-changes
+dotnet test
 
 git add <version-files> CHANGELOG.md <release-notes-files>
 git commit -m "chore(release): vX.Y.Z"
@@ -73,3 +81,4 @@ git push origin vX.Y.Z
 - ❌ Pushing tags from a branch other than updated `main`
 - ❌ Publishing tags before Leela finalizes release notes
 - ❌ Using broad destructive git commands to force release state
+- ❌ Pushing a release without running `dotnet test` first
