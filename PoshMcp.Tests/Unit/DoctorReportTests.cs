@@ -302,7 +302,7 @@ public class DoctorReportTests
         {
             new(System.Security.Claims.ClaimTypes.Name, "test-user"),
             new("scp", "mcp:read"),
-            new(System.Security.Claims.ClaimTypes.Role, "admin"),
+            new("roles", "admin"),
         };
         var identity = new System.Security.Claims.ClaimsIdentity(claims, "TestScheme");
         var principal = new System.Security.Claims.ClaimsPrincipal(identity);
