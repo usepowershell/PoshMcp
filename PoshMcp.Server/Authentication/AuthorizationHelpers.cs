@@ -20,7 +20,7 @@ public static class AuthorizationHelpers
     {
         if (requiredRoles.Count == 0) return true;
         if (user == null) return false;
-        return requiredRoles.All(r => user.IsInRole(r));
+        return requiredRoles.Any(r => user.IsInRole(r));
     }
 
     public static FunctionOverride? GetToolOverride(string toolName, PowerShellConfiguration psConfig)
