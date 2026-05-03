@@ -369,6 +369,18 @@ The fix is to add a `/authorize` proxy endpoint to `OAuthProxyEndpoints.cs` that
 
 ## Learnings
 
+### 2026-05-03: DoctorReport role claim — short name vs WS-Fed URI
+
+**Task:** Fix `Build_WithAuthenticatedIdentity_PopulatesIdentitySection` test failure after `DoctorReport.cs` was updated to use `FindAll("roles")` (short claim name) instead of `FindAll(ClaimTypes.Role)`.
+
+**Root cause:** Test was creating role claims with `ClaimTypes.Role` (the WS-Fed long URI `http://schemas.microsoft.com/ws/2008/06/identity/claims/role`). After the production fix that aligns with `MapInboundClaims = false`, the claim type in test setup must also use the short name `"roles"`.
+
+**Fix:** Changed `new Claim(ClaimTypes.Role, "admin")` → `new Claim("roles", "admin")` in `DoctorReportTests.cs` line 305.
+
+**Lesson:** When `MapInboundClaims = false` is set on JWT bearer auth, Entra tokens arrive with short claim names (`roles`, `scp`, `name`). Both production code and test fixtures must use the same claim name form. Always audit test claim setup when production code changes how claims are looked up.
+
+**Result:** 16/16 DoctorReport tests passing ✅
+
 ### 2026-05-01: Auth regression tests — IOptions registration fix
 
 **Task:** Regression tests for `AddPoshMcpAuthentication()` bug where `services.Configure<AuthenticationConfiguration>()` was missing, causing `IOptions<AuthenticationConfiguration>` to always resolve to default (`Enabled = false`).

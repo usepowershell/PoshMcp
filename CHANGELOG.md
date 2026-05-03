@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented here.
 
+## [0.9.21] - 2026-05-03
+
+### Fixed
+- **Tests: DoctorReport role claim lookup** — Updated `DoctorReportTests` to use `"roles"` as the claim type instead of `ClaimTypes.Role` (WS-Federation long URI). Required after `MapInboundClaims = false` was enabled in v0.9.20, which caused `DoctorReport.cs` to look up roles by their short JWT claim name. All 590 tests now pass.
+
 ## [0.9.20] - 2026-05-03
 
 ### Fixed

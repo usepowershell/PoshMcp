@@ -4,6 +4,26 @@
 
 ## Recent Work (2026-05-03 — CURRENT SESSION)
 
+### Fix: RequiredRoles OR Semantics
+**Date:** 2026-05-03
+**Status:** Complete
+
+- Changed `HasRequiredRoles` in `AuthorizationHelpers.cs` from `.All()` to `.Any()`
+- Fixes AND/OR mismatch: users need any one role, not every role
+- Both `ToolAuthorizationFilter` and `ToolListAuthorizationFilter` inherit the fix automatically
+- Build verified clean; committed as `fix(auth): use OR semantics for RequiredRoles checks`
+
+**Files modified:**
+- `PoshMcp.Server/Authentication/AuthorizationHelpers.cs`
+
+## Learnings
+
+- Entra app roles are granted one-at-a-time; AND semantics on role lists are unreachable in practice
+- ASP.NET Core's `policy.RequireRole(string[])` uses OR — always match that behavior in custom helpers
+- Small one-liner fixes can have wide blast radius; always check every caller before changing LINQ predicates
+
+---
+
 ### Feature: Claims Mapping Fix + Token Proxy Logging
 **Date:** 2026-05-03
 **Status:** Complete
