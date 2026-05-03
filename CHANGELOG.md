@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented here.
 
+## [0.10.0] - 2026-05-03
+
+### Added
+- **Program.cs maintainability refactor** — Extracted major concerns into dedicated classes: `SettingsResolver`, `ConfigurationFileManager`, `CommandHandlers`, `DoctorService`, `McpToolSetupService`, `StdioServerHost`, `HttpServerHost`, `CliDefinition`, and `LoggingHelpers`. Achieves 73% reduction in `Program.cs` lines (from ~800 to ~210), improving maintainability and testability.
+
+### Improved
+- **Authentication/OAuth reliability wins**
+  - RequiredRoles: Now uses OR semantics - users need any one configured role instead of all.
+  - MapInboundClaims: Disabled to preserve short JWT claim names (`scp`, `roles`) for consistent policy enforcement.
+  - RequiredScopes: Standardized to short names (e.g., `user_impersonation`) matching JWT claim format.
+  - RFC 9728 headers: 401 challenge now includes `WWW-Authenticate` `resource_metadata` header and `/token` proxy strips legacy `resource` parameter.
+- **Documentation improvements** — Updated Entra ID authentication guides with scope naming clarifications and improved OAuth configuration guidance.
+- **Tests: 590 passed, 0 failed, 1 skipped ✅ | Format verification passed ✅**
+
 ## [0.9.21] - 2026-05-03
 
 ### Fixed
