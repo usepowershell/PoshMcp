@@ -38,6 +38,25 @@
 
 ## Learnings
 
+### 2026-05-03: Release-Process Skill — Quality Gate Enforcement
+
+**Task:** Add pre-push quality gates to the release process to prevent shipping with failing tests.
+
+**Background:** A test failure slipped into v0.9.20 release because we skipped running tests before pushing. The skill needed updating to enforce mandatory quality checks.
+
+**What was added:**
+- **New step 4: Run quality gates (MANDATORY)** — Added between "Update changelog" and "Leela owns release notes":
+  - `dotnet format --verify-no-changes` — verify formatting; fix any issues before proceeding
+  - `dotnet test` — all tests must pass; do NOT proceed if any test fails
+  - Explicit recovery instruction: if either command fails, fix the issue and restart from step 2
+- **Updated YAML description** — Added "quality gates (format+test)" to the release workflow description so the skill summary clearly names this requirement
+- **Anti-Pattern entry** — Added "❌ Pushing a release without running `dotnet test` first" to Anti-Patterns list
+- **Examples block** — Added the two commands in the correct position (after editing artifacts, before git commit)
+- **Step renumbering** — Old steps 4–9 became steps 5–10; post-tag verification now step 10
+
+**Key insight:**
+- Release processes must make quality gates **mandatory and visible** — not optional or buried in CI. By placing quality gates as a numbered step with MANDATORY capitalization and explicit recovery instructions, we ensure no human can accidentally skip them. The anti-pattern callout reinforces this behaviorally.
+
 ### 2026-05-03: Entra ID OAuth Guide — Bugs 5–7 (Live Debugging Findings)
 
 **Task:** Integrate three new live-debugging findings into `docs/entra-id-oauth-implementation-guide.md`.
