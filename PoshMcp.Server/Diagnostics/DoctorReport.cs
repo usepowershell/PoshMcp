@@ -228,7 +228,7 @@ public sealed record DoctorReport
 
         const string scopeClaim = "scp";
         var scopes = principal.FindAll(scopeClaim).Select(c => c.Value).ToList();
-        var roles = principal.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+        var roles = principal.FindAll("roles").Select(c => c.Value).ToList();
 
         return new IdentitySection
         {

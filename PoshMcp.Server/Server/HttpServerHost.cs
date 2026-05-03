@@ -16,6 +16,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using ModelContextProtocol.Server;
+using ModelContextProtocol.AspNetCore;
 using PoshMcp.Server.Authentication;
 using PoshMcp.Server.Health;
 using PoshMcp.Server.McpPrompts;
@@ -112,9 +113,15 @@ internal static class HttpServerHost
         var promptsConfig = ConfigurationLoader.LoadPromptsConfiguration(finalConfigPath);
         var httpConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? Directory.GetCurrentDirectory();
         var httpPromptHandler = new McpPromptHandler(promptsConfig, httpConfigDirectory, bootstrapLoggerFactory.CreateLogger<McpPromptHandler>());
+        var mcpServerConfig = authRootConfig.GetSection("McpServer").Get<McpServerConfiguration>()
+            ?? new McpServerConfiguration();
+
         var mcpBuilder = builder.Services
             .AddMcpServer()
-            .WithHttpTransport()
+            .WithHttpTransport(opts =>
+            {
+                opts.IdleTimeout = TimeSpan.FromSeconds(mcpServerConfig.IdleSessionTimeoutSeconds);
+            })
             .WithTools(tools)
             .WithListResourcesHandler(resourceHandler.HandleListAsync)
             .WithReadResourceHandler(resourceHandler.HandleReadAsync)

@@ -45,6 +45,15 @@ public static class AuthenticationServiceExtensions
                         options.Authority = scheme.Authority;
                         options.Audience = scheme.Audience;
                         options.RequireHttpsMetadata = scheme.RequireHttpsMetadata;
+                        // Disable default claim-type mapping so JWT claim names (e.g. "scp",
+                        // "roles", "aud") remain as-is in ClaimsPrincipal instead of being
+                        // transformed to long WS-Fed URIs.  This keeps scope/role checks
+                        // consistent with the short names used in appsettings RequiredScopes.
+                        options.MapInboundClaims = false;
+                        // Tell the token validator which short claim name carries roles so that
+                        // ClaimsPrincipal.IsInRole() (used by RequireRole policy) resolves correctly
+                        // now that inbound claim mapping is disabled.
+                        options.TokenValidationParameters.RoleClaimType = scheme.ClaimsMapping.RoleClaim;
 
                         // Build the full set of valid audiences: primary Audience + any extras.
                         var allAudiences = scheme.ValidAudiences.ToList();

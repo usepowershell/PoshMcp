@@ -171,17 +171,38 @@ public static class OAuthProxyEndpoints
                 .SelectMany(kv => kv.Value.Select(v => new KeyValuePair<string, string?>(kv.Key, v)))
                 .ToList();
 
+            var requestFieldNames = fields.Select(kv => kv.Key).Distinct().ToList();
             logger.LogDebug(
-                "Proxying /token to Entra tenant {TenantId}, stripped `resource` parameter if present",
-                proxy.TenantId);
+                "Proxying /token to Entra tenant {TenantId}, stripped `resource` parameter if present. Request fields: {FieldNames}",
+                proxy.TenantId,
+                string.Join(", ", requestFieldNames));
 
             using var client = httpClientFactory.CreateClient();
             var entraResponse = await client.PostAsync(tokenEndpoint, new FormUrlEncodedContent(fields!));
 
             var responseBody = await entraResponse.Content.ReadAsStringAsync();
             var contentType = entraResponse.Content.Headers.ContentType?.ToString() ?? "application/json";
+            var statusCode = (int)entraResponse.StatusCode;
 
-            return Results.Content(responseBody, contentType, statusCode: (int)entraResponse.StatusCode);
+            if (statusCode >= 200 && statusCode < 300)
+            {
+                logger.LogInformation(
+                    "/token proxy: token obtained successfully from Entra tenant {TenantId}. Status: {StatusCode}, Content-Type: {ContentType}",
+                    proxy.TenantId,
+                    statusCode,
+                    contentType);
+            }
+            else
+            {
+                logger.LogWarning(
+                    "/token proxy: non-2xx response from Entra tenant {TenantId}. Status: {StatusCode}, Content-Type: {ContentType}, Body: {ResponseBody}",
+                    proxy.TenantId,
+                    statusCode,
+                    contentType,
+                    responseBody);
+            }
+
+            return Results.Content(responseBody, contentType, statusCode: statusCode);
         }).AllowAnonymous();
 
         return app;
