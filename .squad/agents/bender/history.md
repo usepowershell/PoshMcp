@@ -1,6 +1,55 @@
 # Bender Work History
 
-## Recent Work (2026-05-02 — CURRENT SESSION)
+**Status:** 37.6 KB (checked 2026-05-03: within 90-day retention, no archival required)
+
+## Recent Work (2026-05-03 — CURRENT SESSION)
+
+### Feature: Claims Mapping Fix + Token Proxy Logging
+**Date:** 2026-05-03
+**Status:** Complete
+
+- Fixed MapInboundClaims pipeline to correctly transform inbound OAuth claims
+- Ensured scope fields properly populated from claim paths
+- Fixed RequiredScopes validation for authority/issuer handling
+- Updated DoctorReport diagnostic output to reflect fixes
+- Enhanced token proxy logging for OAuth flow traceability
+- All integration tests passing
+
+**Files modified:**
+- OAuth proxy claim transformation logic
+- RequiredScopes validation code
+- DoctorReport diagnostic output
+- Token proxy logging configuration
+
+## Recent Work (2026-05-02 — PRIOR SESSION)
+
+### Feature: Token diagnostics + configurable IdleTimeout (v0.9.12 prep)
+**Date:** 2026-05-02
+**Status:** Complete
+
+#### 1. Token Diagnostics in `/token` proxy
+- Upgraded `OAuthProxyEndpoints.cs` `/token` handler with diagnostic logging
+- `LogInformation` on 2xx: logs status code and Content-Type (no token body)
+- `LogWarning` on non-2xx: logs status code, Content-Type, and full response body (error JSON)
+- `LogDebug` for request field names only (excludes `resource`; field names only, no values)
+- Removed old single-line Debug log; replaced with structured conditional logging
+
+#### 2. Configurable `IdleSessionTimeoutSeconds`
+- Created `PoshMcp.Server/McpServerConfiguration.cs` with `McpServerConfiguration` class (namespace `PoshMcp`)
+- Added `"McpServer": { "IdleSessionTimeoutSeconds": 60 }` to `appsettings.json`
+- Updated `HttpServerHost.cs`: reads `McpServer` section via `authRootConfig`, passes `IdleTimeout` via `WithHttpTransport(opts => ...)` delegate overload
+- Added `using ModelContextProtocol.AspNetCore;` to `HttpServerHost.cs`
+
+**Key findings:**
+- `WithHttpTransport` in `ModelContextProtocol.AspNetCore` 1.2.0 DOES have an overload accepting `Action<HttpServerTransportOptions>` — confirmed via package XML docs
+- `HttpServerTransportOptions.IdleTimeout` is a `TimeSpan` property
+- Build succeeded: 0 errors, 19 pre-existing warnings (no new warnings introduced)
+
+**Files modified:**
+- `PoshMcp.Server/Authentication/OAuthProxyEndpoints.cs` — enhanced /token logging
+- `PoshMcp.Server/Server/HttpServerHost.cs` — IdleTimeout wiring + using
+- `PoshMcp.Server/appsettings.json` — added McpServer section
+- `PoshMcp.Server/McpServerConfiguration.cs` — new file (created)
 
 ### Diagnostic: Auth challenge/redirect on no-token MCP connect
 **Date:** 2026-05-02
@@ -80,6 +129,8 @@
 - **Reverse proxy scheme detection**: Always use `req.Headers["X-Forwarded-Proto"].FirstOrDefault() ?? req.Scheme` in code that builds public-facing URLs. Azure Container Apps (and other proxies) terminate TLS and forward `http` internally. The `UseForwardedHeaders` middleware can be used for app-wide forwarding, but targeted header reads are fine for isolated handlers.
 - **Consistency check**: When fixing a header-reading bug, search all auth files for the same pattern. `OAuthProxyEndpoints` and `ProtectedResourceMetadataEndpoint` already had the correct pattern via a `GetServerBaseUrl` helper — the fix brought `AuthenticationServiceExtensions` in line.
 - **Prefer `req.Host.ToUriComponent()` over `req.Host.ToString()`** when building URLs — `ToUriComponent()` includes the port only when non-default, which is the correct behaviour.
+- **AS metadata must advertise explicit scopes, not `.default`**: Advertising `api://{audience}/.default` in `scopes_supported` causes Entra to issue v1.0 tokens (issuer: `https://sts.windows.net/{tenant}/`) when the app registration targets v1.0 endpoints. v2.0 `ValidIssuers` validation then fails with `SecurityTokenInvalidIssuerException`. Always advertise an explicit delegated scope (e.g. `api://{audience}/user_impersonation`) so Entra issues v2.0 tokens with the expected issuer.
+- **Use `DefaultPolicy.RequiredScopes` for dynamic scope resolution**: `AuthenticationConfiguration.DefaultPolicy.RequiredScopes` holds the configured explicit scopes. Prefer the first entry matching the audience over hardcoding `user_impersonation` — this keeps AS metadata in sync with what token validators actually require.
 
 ## Previous Work (2026-04-20)
 ### Spec 009 Phase 3 PR 3: StdioServerHost and HttpServerHost Extraction

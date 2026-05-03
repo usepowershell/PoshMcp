@@ -6,7 +6,11 @@
 - **20260418T201500Z**: ✓ v0.6.0 Release Notes & Resources/Prompts Documentation — Audited docs for gaps (Resources/Prompts methods and config were undocumented), created comprehensive `docs/articles/resources-and-prompts.md` user guide (4,600 words with configuration, examples, MCP methods, best practices, troubleshooting), added release notes at `docs/release-notes/0.6.0.md`, updated README.md with feature mentions, and added resources-and-prompts to docs/toc.yml. Committed and pushed.
 - **20260502T152041Z**: ✓ Entra ID OAuth Implementation Guide (Internal Learning Document) — Documented all OAuth proxy bugs and fixes encountered during Azure Container Apps deployment. Created `docs/entra-id-oauth-implementation-guide.md` (32KB, comprehensive internal reference) covering: (1) OAuth proxy pattern & two-tier auth architecture, (2) complete end-to-end flow with HTTP examples, (3) four critical bugs with root causes (issuer mismatch v0.9.9, scope format config, missing /authorize endpoint v0.9.10, X-Forwarded-Proto reverse proxy scheme), (4) configuration reference with all auth config fields explained, (5) Entra ID app registration checklist, (6) validation checklist with curl examples, (7) debugging tips & manual testing procedures. Used honest first-person "we" voice emphasizing lessons learned. NOT added to toc.yml (internal learning doc only).
 
+- **20260503T061240Z**: ✓ Entra ID OAuth Guide — Bug 5 finalization + documentation (Session) — Integrated MapInboundClaims fix, VS Code scope gotcha, non-refreshable token section, updated checklists and summary. Validated examples against corrected auth implementation.
+
 # Leela — History
+
+**Status:** 35.9 KB (checked 2026-05-03: within 90-day retention, no archival required)
 
 
 
@@ -33,6 +37,25 @@
 
 
 ## Learnings
+
+### 2026-05-03: Entra ID OAuth Guide — Bugs 5–7 (Live Debugging Findings)
+
+**Task:** Integrate three new live-debugging findings into `docs/entra-id-oauth-implementation-guide.md`.
+
+**What was added:**
+- **Bug 5 — `MapInboundClaims = false`**: ASP.NET Core JWT Bearer middleware silently remaps short JWT claim names (`scp`, `roles`) to long WS-Federation URI forms by default. This caused `RequireClaim("scp", "user_impersonation")` to always fail even with valid tokens — the claim was present but under the wrong key. Fix: set `options.MapInboundClaims = false` and explicitly set `TokenValidationParameters.RoleClaimType`. Added to bugs section after Bug 4, cross-referenced to Bug 2.
+- **VS Code `mcp.json` scope field**: An explicit `scope` in VS Code's `mcp.json` causes silent token acquisition failure — VS Code sends requests with no `Authorization` header. Fix: remove the `scope` field and let Protected Resource Metadata drive scope discovery. Added as a new section "VS Code MCP Client Configuration Gotchas" between Configuration Reference and Entra ID App Registration Requirements.
+- **Non-Refreshable Tokens**: Federated/guest accounts may not receive refresh tokens, giving ~88-minute token lifetimes with forced re-auth. Added as "Non-Refreshable Tokens (Federated Accounts)" subsection in Debugging Tips.
+
+**Other changes:**
+- Added `MapInboundClaims = false` check to Validation Checklist
+- Added lessons 5 and 6 to Summary section
+- Added safe-implementation bullet points for both new lessons
+
+**Key insights:**
+- The `MapInboundClaims` issue is a .NET-ism that affects all JWT Bearer auth — not Entra-specific. It's silent: token validates fine, claim is present, but authorization check fails because the claim is stored under a different key. The only signal is `scp=[]` in AUTHZ DIAG logs.
+- The VS Code `scope` field bug is entirely client-side; server logs showing `HasBearerToken=False` on every request is the diagnostic signal. Removing the field lets VS Code use server-advertised metadata correctly.
+- Both Bug 2 (short scope names in config) and Bug 5 (`MapInboundClaims = false`) are required together — fixing only one is insufficient.
 
 ### 2026-05-01: Consolidated Entra ID Authentication Documentation
 

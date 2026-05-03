@@ -1,5 +1,5 @@
 # Decisions Archive
-Entries archived on 2026-04-18.
+Entries archived on 2026-04-18 and 2026-05-03.
 
 ## Archived Entries (older than 7 days)
 
@@ -3921,3 +3921,19 @@ None. Documentation fully addresses out-of-process hosting scope and is ready fo
 - `.squad/agents/leela/history.md` — Learnings from this documentation work
 
 
+
+## 2025-07-17
+
+### Default build type for --generate-dockerfile
+
+**Date:** 2025-07-17
+**Author:** Bender (Backend Developer)
+**Status:** Implemented
+
+The poshmcp build command supports two image types: ase (builds from ./Dockerfile) and custom (uses xamples/Dockerfile.user). When --generate-dockerfile is used without an explicit --type, default to ase. When actual Docker build without --type, default to custom (existing behavior).
+
+**Decision:** 
+- --generate-dockerfile without --type → default to ase
+- Actual build without --type → default to custom (unchanged)
+
+**Result:** poshmcp build --generate-dockerfile works without errors. Primary workflow unaffected. Users wanting to generate custom Dockerfile must pass --type custom.
