@@ -59,7 +59,7 @@ Before you can add scopes, you must first set the **Application ID URI**. This i
 2. If **Application ID URI** is not set, click **Set** and accept the default (`api://{client-id}`) or enter a custom URI like `api://poshmcp-prod`
 3. Click **Add a scope**
 4. Fill in the scope details:
-   - **Scope name** (required): `access_as_server` — becomes part of the full scope URI: `api://poshmcp-prod/access_as_server`
+   - **Scope name** (required): `user_impersonation` — becomes part of the full scope URI: `api://poshmcp-prod/user_impersonation`
    - **Who can consent?**: Select "Admins only" for server-to-server (M2M) scenarios; "Admins and users" for delegated user consent
    - **Admin consent display name** (required): e.g., `Access PoshMcp Server` — shown on admin consent screens
    - **Admin consent description** (required): e.g., `Allows the app to execute PowerShell commands via PoshMcp` — shown on admin consent screens
@@ -86,7 +86,7 @@ Edit `appsettings.json`:
     "DefaultScheme": "Bearer",
     "DefaultPolicy": {
       "RequireAuthentication": true,
-      "RequiredScopes": ["api://poshmcp-prod/access_as_server"]
+      "RequiredScopes": ["user_impersonation"]
     },
     "Schemes": {
       "Bearer": {
@@ -101,7 +101,7 @@ Edit `appsettings.json`:
       "Resource": "api://poshmcp-prod",
       "ResourceName": "PoshMcp Server",
       "AuthorizationServers": ["https://login.microsoftonline.com/{tenant-id}"],
-      "ScopesSupported": ["api://poshmcp-prod/access_as_server"],
+      "ScopesSupported": ["api://poshmcp-prod/user_impersonation"],
       "BearerMethodsSupported": ["header"]
     }
   },
@@ -235,7 +235,7 @@ Expected response:
   "resource": "api://poshmcp-prod",
   "resource_name": "PoshMcp Server",
   "authorization_servers": ["https://login.microsoftonline.com/{tenant-id}"],
-  "scopes_supported": ["api://poshmcp-prod/access_as_server"],
+  "scopes_supported": ["api://poshmcp-prod/user_impersonation"],
   "bearer_methods_supported": ["header"]
 }
 ```

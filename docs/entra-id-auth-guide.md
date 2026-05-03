@@ -115,7 +115,7 @@ Scopes define what permissions clients can request. Create at least one scope th
 
 5. Click **Add a scope**
 6. Fill in all required fields:
-   - **Scope name** (required): `access_as_server` — becomes part of the full URI: `api://poshmcp-prod/access_as_server`
+   - **Scope name** (required): `user_impersonation` — becomes part of the full URI: `api://poshmcp-prod/user_impersonation`
    - **Who can consent?** (required): 
      - Select **"Admins only"** for server-to-server (M2M) scenarios where PoshMcp acts on its own behalf
      - Select **"Admins and users"** for delegated access where end-users grant consent
@@ -126,7 +126,7 @@ Scopes define what permissions clients can request. Create at least one scope th
    - **State**: Ensure **Enabled** is selected
 7. Click **Add scope**
 
-**Result**: The full scope URI is `api://poshmcp-prod/access_as_server` (used in `RequiredScopes` and `ScopesSupported`). When a token is issued, the scope appears in the `scp` claim as just `access_as_server`.
+**Result**: The full scope URI is `api://poshmcp-prod/user_impersonation` (used in `RequiredScopes` and `ScopesSupported`). When a token is issued, the scope appears in the `scp` claim as just `user_impersonation`. VS Code looks for this scope by default during OAuth discovery.
 
 #### Step 2b: Authorize Client Applications (Required for VS Code and MCP Clients)
 
@@ -136,7 +136,7 @@ To allow VS Code and other MCP clients to authenticate with your PoshMcp server,
 2. Scroll down to **Authorized client applications** and click **Add a client application**
 3. For VS Code MCP support, add the pre-registered VS Code client ID:
    - **Client ID**: `aebc6443-996d-45c2-90f0-388ff96faa56` (VS Code's fixed MCP client ID)
-   - **Scopes**: Check the scopes you created (e.g., `access_as_server`)
+   - **Scopes**: Check the scopes you created (e.g., `user_impersonation`)
 4. Click **Add application**
 
 **Why this step is critical:** VS Code uses a pre-registered client ID (`aebc6443-996d-45c2-90f0-388ff96faa56`) and does not support dynamic client registration (RFC 7591). Without this authorization, VS Code will fail with: *"Dynamic client registration not supported"*.
@@ -152,7 +152,7 @@ If you selected "Admins only" for the scope, you must grant admin consent:
 3. Click **Add a permission**
 4. Select **My APIs** → choose your PoshMcp Server app
 5. Select **Application permissions**
-6. Check the `access_as_server` scope
+6. Check the `user_impersonation` scope
 7. Click **Add permissions**
 8. Click **Grant admin consent for [tenant name]** (only admins can do this)
 
@@ -196,7 +196,7 @@ Authentication configuration goes in the `Authentication` section of your PoshMc
     "DefaultScheme": "Bearer",
     "DefaultPolicy": {
       "RequireAuthentication": true,
-      "RequiredScopes": ["api://poshmcp-prod/access_as_server"],
+      "RequiredScopes": ["user_impersonation"],
       "RequiredRoles": []
     },
     "Schemes": {
@@ -216,19 +216,95 @@ Authentication configuration goes in the `Authentication` section of your PoshMc
       "Resource": "api://poshmcp-prod",
       "ResourceName": "PoshMcp Server",
       "AuthorizationServers": ["https://login.microsoftonline.com/{tenant-id}"],
-      "ScopesSupported": ["api://poshmcp-prod/access_as_server"],
+      "ScopesSupported": ["api://poshmcp-prod/user_impersonation"],
       "BearerMethodsSupported": ["header"]
     },
     "Cors": {
       "AllowedOrigins": ["http://localhost:3000"],
       "AllowCredentials": false
-    }
-  },
-  "PowerShellConfiguration": {
-    "CommandNames": ["Get-Process", "Get-Service"]
+    },
+    "ValidAudiences": []
   }
 }
 ```
+
+#### Understanding Audience Validation
+
+The `Audience` field (primary) and `ValidAudiences` list (additional) control which audience values the server accepts in tokens. This is critical for debugging token validation failures:
+
+- **`Audience`** (required): The main App ID URI. Tokens must carry this in the `aud` claim.
+- **`ValidAudiences`** (optional list): Accept tokens that have *either* the primary `Audience` *or* any value in this list. Useful when:
+  - Tokens may carry the audience as a bare GUID (e.g., `80939099-d811-4488-8333-83eb0409ed53`) instead of the full App ID URI
+  - You're migrating between audience values and need backward compatibility
+  - Testing with tokens from different Entra app registrations
+
+**Example with multiple accepted audiences:**
+
+```json
+{
+  "Authentication": {
+    "Schemes": {
+      "Bearer": {
+        "Audience": "api://poshmcp-prod",
+        "ValidAudiences": [
+          "80939099-d811-4488-8333-83eb0409ed53",
+          "api://poshmcp-staging"
+        ]
+      }
+    }
+  }
+}
+```
+
+This configuration accepts tokens with `aud` claim equal to any of:
+- `api://poshmcp-prod` (primary, always included)
+- `80939099-d811-4488-8333-83eb0409ed53` (GUID form)
+- `api://poshmcp-staging` (alternate App ID URI)
+
+**Debugging token validation failures**: Decode your token at [jwt.io](https://jwt.io) and check the `aud` claim. If it doesn't match `Audience` or any item in `ValidAudiences`, the token will be rejected. Common issues:
+- Token has `aud: "api://poshmcp-prod"` but config has `Audience: "api://poshmcp-prod-abc123"` → mismatch
+- Token has `aud: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"` but config only has `Audience: "api://poshmcp-prod"` → add the GUID to `ValidAudiences`
+
+#### Scope and Role Authorization Semantics
+
+**Critical distinction**: Scopes and roles use **different logic** for authorization:
+
+- **`RequiredScopes`** uses **AND semantics**: User must have **ALL** required scopes
+- **`RequiredRoles`** uses **OR semantics**: User must have **AT LEAST ONE** of the required roles
+
+**Scopes (AND):**
+```json
+{
+  "DefaultPolicy": {
+    "RequiredScopes": ["user_impersonation", "read_data"]
+  }
+}
+```
+User token must have BOTH `user_impersonation` AND `read_data` in the `scp` claim, or access is denied.
+
+**Roles (OR):**
+```json
+{
+  "DefaultPolicy": {
+    "RequiredRoles": ["mcp.admin", "mcp.operator"]
+  }
+}
+```
+User token must have EITHER `mcp.admin` OR `mcp.operator` in the `roles` claim. If they have both, access is allowed. If they have neither, access is denied.
+
+**Why the difference?** Scopes represent delegated permissions ("this client is allowed to do X"). A token typically has one scope or a small set. Roles represent the user's organizational role ("this user is an admin or operator"). A token typically has zero or more roles, and you want to grant access if the user matches any of the allowed roles.
+
+**In appsettings.json**, use the **short scope name** (not the full URI):
+```json
+{
+  "DefaultPolicy": {
+    "RequiredScopes": [
+      "user_impersonation"
+    ]
+  }
+}
+```
+NOT: `"api://poshmcp-prod/user_impersonation"`. Entra ID encodes scope in JWT as the short name only.
 
 #### Replace Placeholders
 
@@ -237,11 +313,13 @@ Update these values with your Azure AD app info:
 | Placeholder | Value | Example |
 |-------------|-------|---------|
 | `{tenant-id}` | Directory (tenant) ID from app registration | `12345678-1234-1234-1234-123456789012` |
-| `Authority` | Entra ID token endpoint | `https://login.microsoftonline.com/12345678-1234-1234-1234-123456789012` |
+| `Authority` | **Entra v2.0 token endpoint** (must include `/v2.0`; v1.0 may issue incorrect token formats) | `https://login.microsoftonline.com/12345678-1234-1234-1234-123456789012/v2.0` |
 | `Audience` | App ID URI from "Expose an API" | `api://poshmcp-prod` |
-| `ValidIssuers[0]` | Entra ID issuer URL | `https://login.microsoftonline.com/12345678-1234-1234-1234-123456789012/v2.0` |
+| `ValidIssuers[0]` | **Entra v2.0 issuer URL** (must match token issuer) | `https://login.microsoftonline.com/12345678-1234-1234-1234-123456789012/v2.0` |
 | `Resource` | Same as Audience | `api://poshmcp-prod` |
-| `AuthorizationServers[0]` | Same as Authority | `https://login.microsoftonline.com/12345678-1234-1234-1234-123456789012` |
+| `AuthorizationServers[0]` | **Entra v2.0 base URL** (v1.0 may issue v1.0 tokens) | `https://login.microsoftonline.com/12345678-1234-1234-1234-123456789012/v2.0` |
+| `ClaimsMapping.ScopeClaim` | Short claim name for scopes (always `scp` for Entra v2.0) | `scp` |
+| `ClaimsMapping.RoleClaim` | Short claim name for roles (typically `roles` for Entra) | `roles` |
 
 #### Production Configuration
 
@@ -278,7 +356,7 @@ Have these values ready:
 - **Tenant ID**: `12345678-1234-1234-1234-123456789012`
 - **Client ID**: `87654321-4321-4321-4321-210987654321`
 - **Client Secret** (if M2M testing): `your-secret-value`
-- **Scope**: `api://poshmcp-prod/access_as_server`
+- **Scope**: `api://poshmcp-prod/user_impersonation` (requested as short name: `user_impersonation`)
 - **PoshMcp URL**: `https://poshmcp.example.com` or `https://localhost:8080`
 
 #### Test 1: Check Protected Resource Metadata
@@ -296,7 +374,7 @@ Expected response:
   "resource": "api://poshmcp-prod",
   "resource_name": "PoshMcp Server",
   "authorization_servers": ["https://login.microsoftonline.com/12345678-1234-1234-1234-123456789012"],
-  "scopes_supported": ["api://poshmcp-prod/access_as_server"],
+  "scopes_supported": ["api://poshmcp-prod/user_impersonation"],
   "bearer_methods_supported": ["header"]
 }
 ```
@@ -412,7 +490,7 @@ Your MCP server must expose `/.well-known/oauth-protected-resource` (RFC 9728). 
       "Resource": "api://poshmcp-prod",
       "ResourceName": "PoshMcp Server",
       "AuthorizationServers": [],
-      "ScopesSupported": ["api://poshmcp-prod/access_as_server"],
+      "ScopesSupported": ["api://poshmcp-prod/user_impersonation"],
       "BearerMethodsSupported": ["header"]
     }
   }
@@ -437,7 +515,7 @@ Expected response (with OAuth proxy enabled):
     "https://poshmcp.example.com"
   ],
   "scopes_supported": [
-    "api://poshmcp-prod/access_as_server"
+    "api://poshmcp-prod/user_impersonation"
   ],
   "bearer_methods_supported": ["header"]
 }
@@ -463,7 +541,7 @@ Enable the proxy by adding an `OAuthProxy` section to your `Authentication` conf
     "DefaultScheme": "Bearer",
     "DefaultPolicy": {
       "RequireAuthentication": true,
-      "RequiredScopes": ["api://poshmcp-prod/access_as_server"]
+      "RequiredScopes": ["user_impersonation"]
     },
     "Schemes": {
       "Bearer": {
@@ -476,7 +554,7 @@ Enable the proxy by adding an `OAuthProxy` section to your `Authentication` conf
       "Resource": "api://poshmcp-prod",
       "ResourceName": "PoshMcp Server",
       "AuthorizationServers": [],
-      "ScopesSupported": ["api://poshmcp-prod/access_as_server"]
+      "ScopesSupported": ["api://poshmcp-prod/user_impersonation"]
     },
     "OAuthProxy": {
       "Enabled": true,
@@ -740,7 +818,7 @@ The configuration is identical to app registration; the difference is where cred
     "DefaultScheme": "Bearer",
     "DefaultPolicy": {
       "RequireAuthentication": true,
-      "RequiredScopes": ["api://poshmcp-prod/access_as_server"],
+      "RequiredScopes": ["user_impersonation"],
       "RequiredRoles": []
     },
     "Schemes": {
@@ -760,7 +838,7 @@ The configuration is identical to app registration; the difference is where cred
       "Resource": "api://poshmcp-prod",
       "ResourceName": "PoshMcp Server",
       "AuthorizationServers": ["https://login.microsoftonline.com/{tenant-id}"],
-      "ScopesSupported": ["api://poshmcp-prod/access_as_server"],
+      "ScopesSupported": ["api://poshmcp-prod/user_impersonation"],
       "BearerMethodsSupported": ["header"]
     },
     "Cors": {
@@ -829,7 +907,7 @@ Client authentication flow is identical. Clients still acquire tokens via app re
 │ │ Token Validation (App Registration)                 │   │
 │ │ - Validates client's token signature                │   │
 │ │ - Checks audience: api://poshmcp-prod               │   │
-│ │ - Checks scopes: api://poshmcp-prod/access_as_server│   │
+│ │ - Checks scopes: user_impersonation │   │
 │ └──────────────────────────────────────────────────────┘   │
 │                       │                                      │
 │                       ▼ (if token is valid)                 │
@@ -920,7 +998,7 @@ Server responds:
     "https://login.microsoftonline.com/12345678-1234-1234-1234-123456789012"
   ],
   "scopes_supported": [
-    "api://poshmcp-prod/access_as_server"
+    "api://poshmcp-prod/user_impersonation"
   ],
   "bearer_methods_supported": ["header"]
 }
@@ -1084,7 +1162,138 @@ Managed identity has no secrets to rotate.
 
 ---
 
+## Common OAuth Scope Mistakes and Best Practices
+
+### Scope Advertising and v1.0 Token Issuance
+
+When configuring the OAuth proxy's `ScopesSupported`, be explicit about your delegated scope rather than using `.default`:
+
+**Good:**
+```json
+{
+  "Authentication": {
+    "OAuthProxy": {
+      "Audience": "api://poshmcp-prod"
+    },
+    "DefaultPolicy": {
+      "RequiredScopes": ["user_impersonation"]
+    }
+  }
+}
+```
+The proxy advertises: `api://poshmcp-prod/user_impersonation`
+
+**Problematic:**
+```json
+{
+  "OAuthProxy": {
+    "Audience": "api://poshmcp-prod"
+  }
+}
+```
+Without `RequiredScopes` configured, the proxy defaults to `api://poshmcp-prod/.default`. When clients request the `.default` scope from Entra v1.0 or certain app registration configurations, Entra may issue **v1.0 tokens** with issuer `sts.windows.net` instead of the expected v2.0 issuer (`login.microsoftonline.com/{tenantId}/v2.0`). Your JWT validation will reject these tokens as having an invalid issuer.
+
+**Solution**: Always set `RequiredScopes` to your actual delegated scope names (e.g., `user_impersonation`). The proxy will advertise those explicitly instead of `.default`.
+
+### Configuring Entra App Registration Scopes
+
+In your Entra app registration, define delegated scopes that match what your PoshMcp server requires:
+
+**In Azure Portal:**
+1. Navigate to your app registration → **Expose an API**
+2. Ensure **Application ID URI** is set (e.g., `api://poshmcp-prod`)
+3. Add a scope named `user_impersonation` with:
+   - **Scope name**: `user_impersonation`
+   - **Who can consent?**: Admins only (for M2M) or Admins and users (for delegated access)
+   - Full scope URI becomes: `api://poshmcp-prod/user_impersonation`
+
+**In PoshMcp appsettings.json:**
+```json
+{
+  "Authentication": {
+    "DefaultPolicy": {
+      "RequiredScopes": ["user_impersonation"]
+    },
+    "ProtectedResource": {
+      "ScopesSupported": ["api://poshmcp-prod/user_impersonation"]
+    }
+  }
+}
+```
+
+Clients will:
+1. See `ScopesSupported: ["api://poshmcp-prod/user_impersonation"]` in the Protected Resource Metadata
+2. Request the `user_impersonation` scope during OAuth flow
+3. Receive tokens with `scp: "user_impersonation"` claim (short name, not full URI)
+
+---
+
 ## Troubleshooting
+
+### JWT Validation Failures and Diagnostics
+
+**Problem**: Tokens are being rejected (403 Forbidden) despite appearing valid.
+
+**Solution**: Check the server logs for JWT diagnostics. PoshMcp logs authorization-relevant claims at every token validation:
+
+```
+JWT AUTHZ DIAG: aud=[api://poshmcp-prod] scp=[user_impersonation] roles=[mcp.user]
+```
+
+If this line shows `scp=[]` or `roles=[]` while other claims are present, you have a claims mapping issue (usually resolved by `MapInboundClaims: false` — already default in modern versions).
+
+**Decode your token** at [jwt.io](https://jwt.io) and compare:
+- Token's `aud` claim → Must match config's `Audience` or be in `ValidAudiences`
+- Token's `scp` claim → Must contain all values in config's `RequiredScopes` (AND semantics)
+- Token's `roles` claim → Must contain at least one value from config's `RequiredRoles` (OR semantics)
+- Token's `iss` claim → Must match config's `ValidIssuers` exactly
+
+**If `aud` is missing or wrong:**
+- Check that your app registration's **Application ID URI** matches the config's `Audience`
+- Verify the token was issued for the correct app registration
+- If testing with multiple apps, add alternative audiences to `ValidAudiences`
+
+**If `scp` is empty even with a valid delegated scope token:**
+- Verify your app registration has a scope defined (e.g., `api://poshmcp-prod/user_impersonation`)
+- Verify you're requesting the correct scope during OAuth flow (short name: `user_impersonation` in request, appears as short name in token)
+- Check that the scope is included in `ScopesSupported` in Protected Resource Metadata
+
+**If `roles` is empty but you expected role claims:**
+- Entra ID doesn't automatically include role claims in app-only (client credentials) flows
+- For user-delegated flows, roles come from either:
+  - App role assignments (Azure Portal → App registrations → App roles → assign users/groups)
+  - Directory roles (if configured via custom claims)
+  - Custom claims in Entra ID Token configuration
+
+### Authority vs ValidIssuers Mismatch (v1.0 vs v2.0)
+
+**Problem**: Server shows a warning or tokens are rejected:
+```
+[PoshMcp WARNING] JwtBearer scheme 'Bearer': Authority 'https://login.microsoftonline.com/...' 
+uses the Entra v1.0 OIDC endpoint but ValidIssuers contains a v2.0 issuer.
+```
+
+**Root cause**: `Authority` points to the v1.0 endpoint (no `/v2.0`), but `ValidIssuers` expects v2.0 tokens. Tokens obtained via v1.0 will have an issuer mismatch.
+
+**Solution**: Set both `Authority` and `ValidIssuers` to v2.0:
+```json
+{
+  "Schemes": {
+    "Bearer": {
+      "Authority": "https://login.microsoftonline.com/{tenantId}/v2.0",
+      "ValidIssuers": ["https://login.microsoftonline.com/{tenantId}/v2.0"]
+    }
+  }
+}
+```
+
+**Why this matters**: Entra ID's v1.0 and v2.0 endpoints are incompatible in subtle ways:
+- v1.0 issues tokens with issuer `https://sts.windows.net/{tenantId}/`
+- v2.0 issues tokens with issuer `https://login.microsoftonline.com/{tenantId}/v2.0`
+- v1.0 ignores the `scope` request parameter (uses `resource` instead), leading to tokens without an `scp` claim
+- v2.0 requires `scope` and may fail if the legacy `resource` parameter is present (AADSTS9010010)
+
+Always use **v2.0** for modern OAuth 2.1 and OpenID Connect compliance.
 
 ### App Registration Issues
 
@@ -1119,7 +1328,7 @@ The claim 'scp' does not contain any of the required values (the claim value was
 
 1. Verify the token includes the required scope. Decode the token and check the `scp` claim.
 2. In Entra ID, verify the app registration has the scope defined in "Expose an API."
-3. Verify the client requested the correct scope when acquiring the token (e.g., `scope=api://poshmcp-prod/access_as_server`).
+3. Verify the client requested the correct scope when acquiring the token (e.g., `scope=api://poshmcp-prod/user_impersonation`, or request the short name `scope=user_impersonation` and let Entra resolve it).
 4. In `appsettings.json`, check `DefaultPolicy.RequiredScopes` matches what you're testing.
 
 #### Issue: `RequireHttpsMetadata` validation failure

@@ -14,6 +14,7 @@ PoshMcp doesn't act as an OAuth authorization server itself. Instead, it acts as
    - Advertising Entra's real endpoints in `/.well-known/oauth-authorization-server`
    - Providing a `/register` endpoint for dynamic client registration (DCR) — Entra doesn't support this for public clients
    - Providing an `/authorize` redirect endpoint that forwards requests to Entra's real authorize URL
+   - Providing a `/token` proxy endpoint that strips the legacy `resource` parameter (v1.0) before forwarding to Entra's v2.0 endpoint, preventing AADSTS9010010 errors
 
 ### Two-Tier Authentication Architecture
 
@@ -25,6 +26,7 @@ PoshMcp doesn't act as an OAuth authorization server itself. Instead, it acts as
        │ (1) POSTs initialize
        │ (3) Discovers auth server at {base}/.well-known/oauth-*
        │ (5) Uses /authorize proxy → redirects to Entra
+       │ (6b) Uses /token proxy to exchange auth code
        │ (8) Retries initialize with token
        │
        ▼
@@ -33,10 +35,12 @@ PoshMcp doesn't act as an OAuth authorization server itself. Instead, it acts as
 │  /.well-known/oauth-*-server    │
 │  /register (DCR proxy)          │
 │  /authorize (redirect proxy)    │
+│  /token (token exchange proxy)  │
 │  Token validation & JWT check   │
 └──────┬──────────────────────────┘
        │
        │ (6) /authorize redirects to Entra
+       │ (6a) /token strips resource param, forwards to Entra
        │ (7) User authenticates, Entra issues token
        │
        ▼
@@ -571,6 +575,119 @@ JWT AUTHZ DIAG: aud=[api://poshmcp-prod] scp=[user_impersonation] roles=[mcp.use
 ```
 
 Not `scp=[]`.
+
+---
+
+### Bug 6: Resource Parameter Causes AADSTS9010010 (v1.0 vs v2.0 Incompatibility)
+
+**Versions**: v0.9.10 and earlier  
+**Fixed**: v0.9.11
+
+#### What Happened
+
+Clients performing OAuth flows against Entra would receive the error:
+
+```
+error=invalid_scope
+error_description=AADSTS9010010: The resource parameter must not be provided when the requested scopes are specified.
+```
+
+#### Why It Happens
+
+The OAuth proxy was forwarding all client query parameters directly to Entra's `/token` endpoint without modification. When an older client or library included the legacy `resource` parameter (common in v1.0 flows), Entra v2.0's `/token` endpoint rejected the request because it doesn't accept both `resource` (v1.0 style) and `scope` (v2.0 style) in the same request.
+
+**Root cause**: v1.0 and v2.0 endpoints have incompatible parameter schemas:
+- **v1.0** uses `resource` to specify what API the token is for
+- **v2.0** uses `scope` and doesn't understand `resource`
+- If both are present, v2.0 rejects with AADSTS9010010
+
+#### The Fix
+
+Implement a **`/token` proxy endpoint** that:
+1. Accepts token exchange requests from the client
+2. **Strips the `resource` parameter** (v1.0 only)
+3. Forwards the request to Entra's real `/token` endpoint
+4. Returns the token response to the client
+
+This allows PoshMcp to bridge v1.0-style clients with the v2.0 endpoint.
+
+**Code location**: `PoshMcp.Server/Authentication/OAuthProxyEndpoints.cs`, lines 150–200:
+
+```csharp
+// ── /token (token exchange proxy) ─────────────────────────────────────
+// Clients obtain tokens by POSTing to this endpoint with an authorization code.
+// We forward the request to Entra's real /token endpoint, but strip the legacy
+// `resource` parameter which causes AADSTS9010010 on Entra v2.0 when both
+// `resource` and `scope` are present.
+app.MapPost("/token", async (HttpRequest request, IHttpClientFactory httpClientFactory, ILoggerFactory loggerFactory) =>
+{
+    var logger = loggerFactory.CreateLogger("PoshMcp.Server.Authentication.OAuthProxyEndpoints");
+
+    // Read the entire request body
+    var body = await new StreamReader(request.Body).ReadToEndAsync();
+    var parameters = QueryHelpers.ParseQuery(body);
+
+    // Strip the `resource` parameter (v1.0 only; v2.0 uses `scope`)
+    var filteredParams = parameters
+        .Where(kvp => !kvp.Key.Equals("resource", StringComparison.OrdinalIgnoreCase))
+        .SelectMany(kvp => kvp.Value.Select(v => new KeyValuePair<string, string?>(kvp.Key, v)))
+        .ToList();
+
+    // Forward to Entra's real token endpoint
+    using var httpClient = httpClientFactory.CreateClient();
+    var content = new FormUrlEncodedContent(filteredParams.ToDictionary(kv => kv.Key, kv => kv.Value ?? ""));
+    var response = await httpClient.PostAsync(tokenEndpoint, content);
+
+    return Results.StatusCode((int)response.StatusCode);
+}).AllowAnonymous();
+```
+
+#### Why We Got It Wrong
+
+We initially assumed that strict RFC 8414 compliance meant forwarding all parameters unchanged. In practice, the proxy sits between clients with different expectations (some using v1.0, some using v2.0) and needs to translate between them.
+
+#### How to Debug
+
+Check server logs for errors with the `/token` endpoint. If clients send `resource=...`, it will be stripped before reaching Entra:
+
+```
+[Debug] POST /token: Forwarding to Entra with stripped resource parameter
+```
+
+If you still see AADSTS9010010, verify that `scope` is present in the request:
+
+```bash
+# Test the token endpoint manually
+curl -X POST https://poshmcp.example.com/token \
+  -d "grant_type=authorization_code" \
+  -d "code=M.R3_BAY..." \
+  -d "redirect_uri=http://localhost:1234/callback" \
+  -d "client_id=xxx" \
+  -d "scope=api://poshmcp-prod/user_impersonation" \
+  # Note: Do NOT include resource=... parameter
+```
+
+#### Impact on Configuration
+
+The `/token` proxy also respects `ScopesSupported` configuration. It advertises the explicit delegated scope (e.g., `user_impersonation`) rather than `.default` to prevent Entra from issuing v1.0 tokens when the app registration is configured for v1.0.
+
+In `appsettings.json`:
+
+```json
+{
+  "Authentication": {
+    "OAuthProxy": {
+      "Enabled": true,
+      "Audience": "api://poshmcp-prod"
+    },
+    "DefaultPolicy": {
+      "RequiredScopes": ["user_impersonation"]
+    }
+  }
+}
+```
+
+The proxy automatically advertises `api://poshmcp-prod/user_impersonation` instead of `api://poshmcp-prod/.default`, which instructs clients to request the correct scope during token exchange.
 
 ---
 
