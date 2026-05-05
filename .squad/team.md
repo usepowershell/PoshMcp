@@ -18,6 +18,7 @@
 | Amy | DevOps / Platform / Azure | [charter](agents/amy/charter.md) | 🟢 Active |
 | Fry | Tester | [charter](agents/fry/charter.md) | 🟢 Active |
 | Leela | Developer Advocate | [charter](agents/leela/charter.md) | 🟢 Active |
+| Cubert | Fact Checker | [charter](agents/cubert/charter.md) | 🟢 Active |
 | Scribe | Session Logger | [charter](agents/scribe/charter.md) | 🟢 Active |
 | Ralph | Work Monitor | [charter](agents/ralph/charter.md) | 🟢 Active |
 

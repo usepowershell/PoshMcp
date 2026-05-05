@@ -14,6 +14,7 @@ How to decide who handles what.
 | Release management | Amy (primary) + Leela (release notes) | "release", "version bump", "prepare release", "tag release", "publish release" |
 | Testing & quality | Fry | Unit tests, integration tests, performance baselines |
 | Documentation & guides | Leela | Technical writing, tutorials, examples, developer experience |
+| Fact checking & claim verification | Cubert | Verify docs, release notes, blog claims, citations, version numbers, examples that actually run |
 | Code review | Farnsworth | Review PRs, check quality, architectural alignment |
 | Testing & validation | Fry | Verify implementations, edge cases, test coverage |
 | Scope & priorities | Farnsworth | What to build next, trade-offs, roadmap decisions |
@@ -40,6 +41,7 @@ When work crosses domains, spawn relevant agents in parallel:
 | `squad:amy` | Metrics, monitoring, health | Amy |
 | `squad:fry` | Testing, quality checks | Fry |
 | `squad:leela` | Documentation, tutorials, examples | Leela |
+| `squad:cubert` | Fact checking, claim verification, citation audits | Cubert |
 
 ### How Issue Assignment Works
 

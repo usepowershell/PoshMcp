@@ -378,6 +378,6 @@ That's the squad story: **a diverse team, clear roles, mutual respect, and a sha
 - **Repository:** https://github.com/usepowershell/PoshMcp
 - **Documentation:** https://usepowershell.github.io/PoshMcp/
 - **Release:** v0.8.4+ (with all documented features)
-- **NuGet Package:** 700+ downloads from nuget.org
+- **NuGet Package:** 1,600+ downloads from nuget.org
 - **Test Coverage:** 520+ tests (unit, functional, integration)
-- **Team:** 8-person squad + continuous community contribution
+- **Team:** 9-person squad + continuous community contribution
