@@ -158,19 +158,28 @@ internal static class McpToolSetupService
             return null;
         }
 
-        var executorLogger = loggerFactory.CreateLogger<OutOfProcessCommandExecutor>();
         var setupTimeout = config.Environment?.SetupTimeoutSeconds is > 0
             ? TimeSpan.FromSeconds(config.Environment.SetupTimeoutSeconds)
             : TimeSpan.FromSeconds(120);
-        var executor = new OutOfProcessCommandExecutor(
-            executorLogger,
-            requestTimeout: null,
-            hostMode: config.SubprocessHostMode,
-            runspacePoolSize: config.SubprocessRunspacePoolSize);
-        await executor.StartAsync();
-        logger.LogInformation(
-            "Started out-of-process PowerShell executor (HostMode={HostMode}, PoolSize={PoolSize})",
-            config.SubprocessHostMode, config.SubprocessRunspacePoolSize);
+        ICommandExecutor executor;
+        if (config.SubprocessHostMode == SubprocessHostMode.ProcessPool)
+        {
+            executor = await StartProcessPoolExecutorAsync(config, loggerFactory, logger).ConfigureAwait(false);
+        }
+        else
+        {
+            var executorLogger = loggerFactory.CreateLogger<OutOfProcessCommandExecutor>();
+            var singleExecutor = new OutOfProcessCommandExecutor(
+                executorLogger,
+                requestTimeout: null,
+                hostMode: config.SubprocessHostMode,
+                runspacePoolSize: config.SubprocessRunspacePoolSize);
+            await singleExecutor.StartAsync();
+            executor = singleExecutor;
+            logger.LogInformation(
+                "Started out-of-process PowerShell executor (HostMode={HostMode}, PoolSize={PoolSize})",
+                config.SubprocessHostMode, config.SubprocessRunspacePoolSize);
+        }
 
         if (config.Environment is not null)
         {
@@ -183,17 +192,54 @@ internal static class McpToolSetupService
     }
 
     /// <summary>
+    /// Builds and starts an <see cref="OutOfProcessSubprocessPool"/> using the
+    /// per-process configuration knobs from <paramref name="config"/>.
+    /// </summary>
+    private static async Task<ICommandExecutor> StartProcessPoolExecutorAsync(
+        PowerShellConfiguration config,
+        ILoggerFactory loggerFactory,
+        ILogger logger)
+    {
+        // Resolve pwsh + host script via the same logic the single executor uses,
+        // but without launching its subprocess.
+        var executorLogger = loggerFactory.CreateLogger<OutOfProcessCommandExecutor>();
+        var resolver = new OutOfProcessCommandExecutor(executorLogger);
+        var hostScriptPath = await resolver.ResolveHostScriptPathAsync().ConfigureAwait(false);
+        var pwshPath = OutOfProcessCommandExecutor.ResolvePwshPath();
+        await resolver.DisposeAsync().ConfigureAwait(false);
+
+        var poolOptions = new OutOfProcessSubprocessPoolOptions
+        {
+            PoolSize = config.SubprocessPoolSize > 0 ? config.SubprocessPoolSize : 4,
+            MinHealthyForStartup = config.SubprocessMinHealthyForStartup > 0
+                ? Math.Min(config.SubprocessMinHealthyForStartup, Math.Max(1, config.SubprocessPoolSize))
+                : 1,
+        };
+
+        var pool = new OutOfProcessSubprocessPool(
+            pwshPath, hostScriptPath, poolOptions, loggerFactory);
+
+        await pool.StartAsync().ConfigureAwait(false);
+
+        logger.LogInformation(
+            "Started out-of-process PowerShell executor (ProcessPool, size={PoolSize}, minHealthy={MinHealthy}).",
+            poolOptions.PoolSize, poolOptions.MinHealthyForStartup);
+
+        return pool;
+    }
+
+    /// <summary>
     /// Disposable wrapper for out-of-process executor lifecycle management.
     /// Ensures proper cleanup of PowerShell executor resources.
     /// </summary>
     internal sealed class OutOfProcessExecutorLease : IAsyncDisposable
     {
-        public OutOfProcessExecutorLease(OutOfProcessCommandExecutor executor)
+        public OutOfProcessExecutorLease(ICommandExecutor executor)
         {
             Executor = executor;
         }
 
-        public OutOfProcessCommandExecutor Executor { get; }
+        public ICommandExecutor Executor { get; }
 
         public async ValueTask DisposeAsync()
         {

@@ -16,5 +16,12 @@ public enum SubprocessHostMode
     /// Runspace pool inside a single subprocess (oop-host-pool.ps1).
     /// Multiple invokes execute concurrently on pre-warmed runspaces.
     /// </summary>
-    Pool
+    Pool,
+
+    /// <summary>
+    /// Pool of N independent subprocess hosts (OutOfProcessSubprocessPool).
+    /// Each request leases one host; crashes are reconciled per-slot
+    /// without disturbing other hosts.
+    /// </summary>
+    ProcessPool
 }
