@@ -58,6 +58,7 @@
   <ItemGroup>
     <EmbeddedResource Include="default.appsettings.json" />
     <EmbeddedResource Include="PowerShell\OutOfProcess\oop-host.ps1" />
+    <EmbeddedResource Include="PowerShell\OutOfProcess\oop-host-pool.ps1" />
     <EmbeddedResource Include="..\infrastructure\azure\deploy.ps1" Link="Infrastructure\Azure\deploy.ps1" />
     <EmbeddedResource Include="..\infrastructure\azure\validate.ps1" Link="Infrastructure\Azure\validate.ps1" />
     <EmbeddedResource Include="..\infrastructure\azure\main.bicep" Link="Infrastructure\Azure\main.bicep" />

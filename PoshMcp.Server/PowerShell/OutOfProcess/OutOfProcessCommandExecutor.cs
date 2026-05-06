@@ -30,6 +30,8 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
     private readonly ILogger<OutOfProcessCommandExecutor> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private readonly TimeSpan _requestTimeout;
+    private readonly SubprocessHostMode _hostMode;
+    private readonly int _poolSize;
 
     private OutOfProcessHost? _host;
     private bool _disposed;
@@ -42,13 +44,19 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
     /// <param name="requestTimeout">
     /// Timeout for individual requests to the subprocess. Defaults to 30 seconds.
     /// </param>
+    /// <param name="hostMode">Selects the host script (Single or Pool). Defaults to Single.</param>
+    /// <param name="runspacePoolSize">Pool size when <paramref name="hostMode"/> is Pool. 0 lets the host pick a default.</param>
     public OutOfProcessCommandExecutor(
         ILogger<OutOfProcessCommandExecutor> logger,
-        TimeSpan? requestTimeout = null)
+        TimeSpan? requestTimeout = null,
+        SubprocessHostMode hostMode = SubprocessHostMode.Single,
+        int runspacePoolSize = 0)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _loggerFactory = NullLoggerFactory.Instance;
         _requestTimeout = requestTimeout ?? TimeSpan.FromSeconds(30);
+        _hostMode = hostMode;
+        _poolSize = runspacePoolSize;
     }
 
     /// <summary>
@@ -58,13 +66,22 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
     /// </summary>
     public OutOfProcessCommandExecutor(
         ILoggerFactory loggerFactory,
-        TimeSpan? requestTimeout = null)
+        TimeSpan? requestTimeout = null,
+        SubprocessHostMode hostMode = SubprocessHostMode.Single,
+        int runspacePoolSize = 0)
     {
         ArgumentNullException.ThrowIfNull(loggerFactory);
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<OutOfProcessCommandExecutor>();
         _requestTimeout = requestTimeout ?? TimeSpan.FromSeconds(30);
+        _hostMode = hostMode;
+        _poolSize = runspacePoolSize;
     }
+
+    /// <summary>
+    /// The host mode this executor was constructed with.
+    /// </summary>
+    public SubprocessHostMode HostMode => _hostMode;
 
     /// <inheritdoc />
     public async Task StartAsync(CancellationToken cancellationToken = default)
@@ -188,6 +205,8 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
             skipPublisherCheck = config.SkipPublisherCheck,
             allowClobber = config.AllowClobber,
             installTimeoutSeconds = config.InstallTimeoutSeconds,
+            // Pool host reads this to size its runspace pool. Ignored by single-runspace host.
+            runspacePoolSize = _poolSize,
         };
 
         _logger.LogInformation("Sending environment setup to OOP subprocess.");
@@ -306,17 +325,21 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
     }
 
     /// <summary>
-    /// Resolves the path to the oop-host.ps1 script.
+    /// Resolves the path to the host script for the configured <see cref="HostMode"/>.
     /// Priority: environment variable override → embedded resource extraction → build output fallback.
     /// </summary>
     internal async Task<string> ResolveHostScriptPathAsync()
     {
+        var scriptName = _hostMode == SubprocessHostMode.Pool
+            ? "oop-host-pool.ps1"
+            : "oop-host.ps1";
+
         var overridePath = Environment.GetEnvironmentVariable("POSHMCP_OOP_HOST_PATH");
         if (!string.IsNullOrWhiteSpace(overridePath))
         {
             if (File.Exists(overridePath))
             {
-                _logger.LogInformation("Using override oop-host.ps1 from POSHMCP_OOP_HOST_PATH: {Path}", overridePath);
+                _logger.LogInformation("Using override OOP host script from POSHMCP_OOP_HOST_PATH: {Path}", overridePath);
                 return overridePath;
             }
 
@@ -325,29 +348,29 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
                 overridePath);
         }
 
-        var extractedPath = await ExtractHostScriptAsync().ConfigureAwait(false);
+        var extractedPath = await ExtractHostScriptAsync(scriptName).ConfigureAwait(false);
         if (extractedPath is not null)
         {
-            _logger.LogInformation("Using embedded oop-host.ps1 extracted to: {Path}", extractedPath);
+            _logger.LogInformation("Using embedded {Script} extracted to: {Path}", scriptName, extractedPath);
             return extractedPath;
         }
 
-        var basePath = Path.Combine(AppContext.BaseDirectory, "PowerShell", "OutOfProcess", "oop-host.ps1");
+        var basePath = Path.Combine(AppContext.BaseDirectory, "PowerShell", "OutOfProcess", scriptName);
         if (File.Exists(basePath))
         {
-            _logger.LogInformation("Using oop-host.ps1 from build output: {Path}", basePath);
+            _logger.LogInformation("Using {Script} from build output: {Path}", scriptName, basePath);
             return basePath;
         }
 
-        var domainPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PowerShell", "OutOfProcess", "oop-host.ps1");
+        var domainPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PowerShell", "OutOfProcess", scriptName);
         if (File.Exists(domainPath))
         {
-            _logger.LogInformation("Using oop-host.ps1 from domain base: {Path}", domainPath);
+            _logger.LogInformation("Using {Script} from domain base: {Path}", scriptName, domainPath);
             return domainPath;
         }
 
         throw new FileNotFoundException(
-            "Could not locate oop-host.ps1. Searched:\n" +
+            $"Could not locate {scriptName}. Searched:\n" +
             "  POSHMCP_OOP_HOST_PATH environment variable\n" +
             "  Embedded assembly resource\n" +
             $"  {basePath}\n" +
@@ -355,20 +378,20 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
     }
 
     /// <summary>
-    /// Extracts the embedded oop-host.ps1 resource to a temp directory.
-    /// Uses a SHA256 content hash to avoid unnecessary rewrites.
+    /// Extracts the embedded host script resource (oop-host.ps1 or oop-host-pool.ps1)
+    /// to a temp directory. Uses a SHA256 content hash to avoid unnecessary rewrites.
     /// Returns the extracted path, or null if the embedded resource is not found.
     /// </summary>
-    internal async Task<string?> ExtractHostScriptAsync()
+    internal async Task<string?> ExtractHostScriptAsync(string scriptName = "oop-host.ps1")
     {
         var assembly = Assembly.GetExecutingAssembly();
         var resourceName = assembly
             .GetManifestResourceNames()
-            .FirstOrDefault(name => name.EndsWith("oop-host.ps1", StringComparison.OrdinalIgnoreCase));
+            .FirstOrDefault(name => name.EndsWith(scriptName, StringComparison.OrdinalIgnoreCase));
 
         if (resourceName is null)
         {
-            _logger.LogDebug("Embedded oop-host.ps1 resource not found in assembly.");
+            _logger.LogDebug("Embedded {Script} resource not found in assembly.", scriptName);
             return null;
         }
 
@@ -385,15 +408,15 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
         var hash = Convert.ToHexStringLower(SHA256.HashData(resourceBytes));
 
         var extractDir = Path.Combine(Path.GetTempPath(), "poshmcp");
-        var extractPath = Path.Combine(extractDir, "oop-host.ps1");
-        var hashPath = Path.Combine(extractDir, "oop-host.ps1.sha256");
+        var extractPath = Path.Combine(extractDir, scriptName);
+        var hashPath = Path.Combine(extractDir, scriptName + ".sha256");
 
         if (File.Exists(extractPath) && File.Exists(hashPath))
         {
             var existingHash = await File.ReadAllTextAsync(hashPath).ConfigureAwait(false);
             if (string.Equals(existingHash.Trim(), hash, StringComparison.OrdinalIgnoreCase))
             {
-                _logger.LogDebug("Embedded oop-host.ps1 already extracted with matching hash.");
+                _logger.LogDebug("Embedded {Script} already extracted with matching hash.", scriptName);
                 return extractPath;
             }
         }
@@ -402,7 +425,7 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
         await File.WriteAllBytesAsync(extractPath, resourceBytes).ConfigureAwait(false);
         await File.WriteAllTextAsync(hashPath, hash).ConfigureAwait(false);
 
-        _logger.LogDebug("Extracted oop-host.ps1 to {Path} (hash: {Hash}).", extractPath, hash);
+        _logger.LogDebug("Extracted {Script} to {Path} (hash: {Hash}).", scriptName, extractPath, hash);
         return extractPath;
     }
 

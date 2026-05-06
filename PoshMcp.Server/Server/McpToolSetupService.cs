@@ -162,9 +162,15 @@ internal static class McpToolSetupService
         var setupTimeout = config.Environment?.SetupTimeoutSeconds is > 0
             ? TimeSpan.FromSeconds(config.Environment.SetupTimeoutSeconds)
             : TimeSpan.FromSeconds(120);
-        var executor = new OutOfProcessCommandExecutor(executorLogger);
+        var executor = new OutOfProcessCommandExecutor(
+            executorLogger,
+            requestTimeout: null,
+            hostMode: config.SubprocessHostMode,
+            runspacePoolSize: config.SubprocessRunspacePoolSize);
         await executor.StartAsync();
-        logger.LogInformation("Started out-of-process PowerShell executor");
+        logger.LogInformation(
+            "Started out-of-process PowerShell executor (HostMode={HostMode}, PoolSize={PoolSize})",
+            config.SubprocessHostMode, config.SubprocessRunspacePoolSize);
 
         if (config.Environment is not null)
         {
