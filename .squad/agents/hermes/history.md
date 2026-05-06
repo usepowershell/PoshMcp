@@ -197,3 +197,31 @@
 - Local function `DiagnoseOneCommand` inside the `ExecuteThreadSafe` lambda avoids explicit `System.Management.Automation.PowerShell` type reference in Program.cs
 - For JSON format, diagnostics run in both `RunDoctorAsync` (wasted) and `BuildDoctorJson` (used) — acceptable for a non-hot diagnostic command path
 - `ConfiguredFunctionStatus` uses positional record syntax with `ResolutionReason = null` default for backwards compatibility
+
+### 2026-05-06: OOP runspace pool vs multi-process R&D plan (Issue #65)
+
+**Context:** Phases 1-4 of spec 004 (subprocess lifecycle, ndjson protocol, setup, discover, invoke) are complete and shipping. Today's single-subprocess executor serializes invokes through _sendLock (SemaphoreSlim(1,1)) — protocol layer is already async-correlated by id, but only one runspace exists.
+
+**Key files surveyed:**
+- PoshMcp.Server/PowerShell/OutOfProcess/OutOfProcessCommandExecutor.cs — single-process lifecycle, ndjson framing, _pending ConcurrentDictionary keyed by GUID id, ReadLoopAsync + StderrLoopAsync, IsNonJsonPowerShellStreamLine backstop for stream pollution
+- PoshMcp.Server/PowerShell/OutOfProcess/oop-host.ps1 — single-runspace host, synchronous Invoke-*Handler functions, Write-NdjsonResponse to [Console]::Out
+- specs/004-out-of-process-execution/spec.md — FR-051 mandates serialization today; future pool work will need to revisit
+
+**Plan filed:** specs/004-out-of-process-execution/runspace-pool-experiment-plan.md
+
+**Key design decisions in the plan:**
+- Option A (runspace pool in one process): use [runspacefactory]::CreateRunspacePool with InitialSessionState pre-warmed with modules; introduce a sync-locked stdout writer because multiple completion callbacks will write concurrently; clear $Error per-invoke (it's per-runspace state); ship as new file oop-host-pool.ps1 selected by SubprocessHostMode config flag rather than mutating the working host
+- Option B (process pool): wrap N OutOfProcessHost instances in OutOfProcessSubprocessPool; dispatch via Channel<OutOfProcessHost> for FIFO fairness; per-host crash/restart logic unchanged; SubprocessPoolSize: 1 collapses to current behavior
+- Refactor first: extract OutOfProcessHost from OutOfProcessCommandExecutor so per-process state is reusable by both prototypes (issue #1 in the phasing)
+- Benchmark harness: separate PoshMcp.Benchmarks console project (BenchmarkDotNet for latency/throughput, custom harness for crash recovery), 8 scenarios including isolation as a pass/fail
+- Hard worry: Option A shares an AppDomain → loses the isolation guarantee that motivated OOP in the first place. Benchmark scenario explicitly measures this and the plan recommends defaulting to B if neither cleanly passes isolation.
+
+**PowerShell-specific concurrency hazards documented:**
+- Stdout writes must be lock-protected (one writer for protocol channel)
+- $Error is per-runspace, must be cleared inside the script block before each user command runs
+- Cmdlets that write directly to [Console]::Out bypass any host-level lock; mitigations are NO_COLOR=1, System.Management.Automation.PSStyle.OutputRendering='PlainText', plus the existing IsNonJsonPowerShellStreamLine backstop on the .NET side
+- ISS pre-warming avoids first-touch import cost on each new runspace lease
+
+**Phasing recommended:** 6 follow-up issues — (1) extract OutOfProcessHost, (2) Option A prototype, (3) Option B prototype, (4) benchmark harness, (5) run benchmarks + write findings, (6) adopt winner. (2)/(3)/(4) parallelize after (1).
+
+**Branch / PR:** squad/65-runspace-pool-experiment-plan, draft PR opened, "Refs #65" not "Closes" (issue stays open through prototype work).
