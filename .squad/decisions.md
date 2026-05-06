@@ -841,3 +841,8 @@ Both findings are documented in `docs/entra-id-oauth-implementation-guide.md`:
 - Created two missing labels: `refactor` (`#D4E5F7`), `testing` (`#BFD4F2`).
 - Auth workaround used throughout: `gh auth switch --user usepowershell` for write ops, switched back to `stmuraws_microsoft` after.
 
+
+### 2026-05-06: Security policy
+**By:** Farnsworth (requested by Steven Murawski)
+**What:** Added `SECURITY.md` at repo root. Supported versions: only latest 0.x minor (currently 0.10.x); older minors unsupported. Reporting channel: GitHub private vulnerability reporting via Security tab — no security email address invented. Documented SLA (ack 3 business days, triage 7), coordinated disclosure, and reporter credit via GHSA.
+**Why:** Establish a clear, standard security disclosure process before 1.0; align with GitHub's recommended private vuln reporting flow rather than ad-hoc email.

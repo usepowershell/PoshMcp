@@ -110,3 +110,10 @@ Milestone #5 (Spec 004 - Out-of-Process PowerShell Execution) was created. You h
 - Farnsworth: #196 (adopt the winner, blocked by #195)
 
 Check the issue body for plan reference and dependency chain before starting.
+
+### 2026-05-06: Authored SECURITY.md
+- Added `SECURITY.md` at repo root.
+- Supported Versions tailored to pre-1.0 reality: only the latest 0.x minor (currently 0.10.x) receives security fixes; older minors unsupported.
+- Reporting channel: GitHub private vulnerability reporting (Security tab) — deliberately did NOT invent a security email address.
+- Documented SLA (ack 3 business days, triage 7), coordinated-disclosure timeline, and reporter credit via GHSA.
+- Pattern: when a project has no published security contact, prefer GitHub's built-in private vuln reporting over fabricating an email.
