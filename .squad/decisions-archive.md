@@ -4339,3 +4339,776 @@ FR-309 requires transport mode as a custom dimension. Implemented via `.Configur
 
 `Math.Clamp(options.SamplingPercentage, 1, 100)` is applied before converting to ratio. This makes runtime behaviour predictable even with out-of-range config values. Doctor validation (future issue) will surface the out-of-range warning to users at config time.
 
+
+---
+## Archived 2026-05-06 (entries older than 2026-04-29)
+### 2026-04-28: Doctor AppInsights validation architecture
+**By:** Bender (Backend Dev)
+**What:** Added a `ConfigurationErrors` list to `DoctorReport` (separate from `Warnings`) so `ComputeStatus` can distinguish error-level config issues from warnings. `BuildConfigurationWarnings` now returns a `(Warnings, Errors)` tuple and accepts the config path to load `ApplicationInsights` settings via `BuildRootConfiguration`. This keeps validation offline (no network calls per FR-315).
+**Why:** Empty connection string with `Enabled: true` is a hard error (blocks telemetry), while a malformed format or out-of-range sampling is a softer warning. Keeping these separate preserves the existing `ComputeStatus` severity model.
+
+### 2026-04-27: User directive
+**By:** Steven Murawski (via Copilot)
+**What:** Never merge main back into a branch. Feature branches must stay clean — no back-merges from main. Rebase if needed.
+**Why:** User request — captured for team memory
+
+### 2026-04-27T14:50:29Z: User directive
+**By:** Steven Murawski (via Copilot)
+**What:** Never merge main back into a branch. Feature branches should never have main merged into them.
+**Why:** User request — captured for team memory
+
+### 2026-04-27: User directive
+**By:** Steven Murawski (via Copilot)
+**What:** Always use rebase. When updating feature branches with upstream changes, use git rebase, never git merge.
+**Why:** User request — captured for team memory
+
+# PR #180 Review: ConfigureApplicationInsights() — REQUEST CHANGES
+
+**Reviewer:** Farnsworth (Lead/Architect)
+**Date:** 2026-04-28
+**Branch:** squad/172-configure-app-insights
+**Verdict:** REQUEST CHANGES
+
+---
+
+## Spec Compliance Summary
+
+| FR | Status | Notes |
+|----|--------|-------|
+| FR-303 | ✅ PASS | Early return when `!options.Enabled` — no SDK wiring |
+| FR-304 | ✅ PASS | Env var fallback via `Environment.GetEnvironmentVariable` |
+| FR-305 | ✅ PASS | `Console.Error.WriteLine` warning + return |
+| FR-306 | ✅ PASS | Package is `Azure.Monitor.OpenTelemetry.AspNetCore` v1.4.0 |
+| FR-307 | ✅ PASS | Exact method signature match |
+| FR-308 | ✅ PASS | `services.AddOpenTelemetry().UseAzureMonitor(...)` |
+| FR-309 | ✅ PASS | `transport.mode` resource attribute (becomes global dimension) |
+| FR-310 | ❌ FAIL | **Not implemented** — no telemetry enrichment adds parameter names |
+| FR-311 | ⚠️ GAP | No active suppression; Debug-level logs include parameter values |
+| FR-312 | ⚠️ GAP | No active suppression for PowerShell output |
+| FR-316 | ✅ PASS | Serilog untouched |
+| FR-317 | ✅ PASS | McpMetrics meter flows through shared OTel pipeline |
+| FR-318 | ✅ PASS | appsettings section present with `Enabled: false` |
+
+---
+
+## Required Changes
+
+### 1. FR-310: Tool parameter names as custom properties (BLOCKING)
+
+The spec requires tool parameter **names** to appear in custom properties on telemetry. The current implementation only wires the Azure Monitor exporter but adds no telemetry enrichment. This requires one of:
+
+- An `ITelemetryInitializer` that inspects incoming telemetry and adds parameter name tags
+- Activity tag additions in the tool execution path (in `PowerShellAssemblyGenerator.cs`)
+- A custom `ActivitySource` span wrapping tool invocations that includes `param.name.*` tags
+
+**Recommendation:** Add Activity tags at the point where tool parameters are resolved (around line 692-730 in `PowerShellAssemblyGenerator.cs`). Add tags like `tool.param.names = "Name,Id,Module"` (comma-separated list). This keeps VALUES out but exposes the schema.
+
+### 2. FR-311/FR-312: Active suppression of parameter values and output (BLOCKING)
+
+`UseAzureMonitor()` enables the OpenTelemetry **log exporter** by default. The existing code at `PowerShellAssemblyGenerator.cs:731-738` logs:
+
+```csharp
+logger.LogDebug("Tool parameter detail: ... Value={ParameterValue}", ..., paramValue);
+```
+
+And at line 801-808:
+```csharp
+logger.LogDebug("Bound parameter: ... Value={Value}", ..., convertedValue);
+```
+
+While these are at `Debug` level (suppressed by default `Information` filter), the spec says **MUST NOT** — meaning defensive suppression is required regardless of log level configuration. Options:
+
+**Option A (preferred):** Configure `UseAzureMonitor` to disable log export entirely — only export traces + metrics:
+```csharp
+services.AddOpenTelemetry()
+    .UseAzureMonitor(opts => { ... })
+    .WithLogging(logBuilder => logBuilder.AddFilter("*", LogLevel.None)); // suppress all OTel log export
+```
+
+**Option B:** Add a log filter category that excludes the `PowerShellAssemblyGenerator` category from OTel export.
+
+**Option C:** Strip the `Value=` fields from those log templates (replace with `HasValue={HasValue}` bool). This is the most invasive but cleanest long-term.
+
+**I recommend Option A** for this PR — it's additive, non-invasive, and satisfies FR-311/FR-312 definitively. FR-316 (Serilog continues unchanged) is also preserved since Serilog operates at the ILogger provider level, independent of OTel log export.
+
+---
+
+## Non-Blocking Observations
+
+1. **Double `AddOpenTelemetry()` call ordering:** The implementation correctly relies on `AddOpenTelemetry()` idempotency. Add a brief comment at the call site noting that this builds on the metrics registration from `ConfigureOpenTelemetry`/`ConfigureOpenTelemetryForHttp`.
+
+2. **`SamplingRatio` type:** The SDK's `SamplingRatio` is a `float`. The division `samplingPercentage / 100.0f` is correct but note that `Math.Clamp` returns `int`, so this always produces a clean float division. Fine.
+
+3. **Missing `SectionName` constant:** PR #177 (previously approved) included `public const string SectionName = "ApplicationInsights"` on the options class. This PR uses inline `"ApplicationInsights"` string. Minor inconsistency — prefer the constant.
+
+---
+
+## Architectural Assessment
+
+The plumbing is correct. The method placement (after `ConfigureOpenTelemetry*`), the early-return guard, the connection string resolution chain, and the `ConfigureResource` approach for global dimensions are all architecturally sound. The gaps are in telemetry enrichment and defensive security filtering — both required by spec.
+
+---
+
+## Assignment
+
+Return to original author for fixes. The changes are well-scoped additions to the existing method — no architectural rework needed.
+
+# Wave 1 Review — Spec 008 Application Insights Logging
+
+**Reviewer:** Farnsworth (Lead Architect)
+**Date:** 2026-04-27
+**Spec:** 008-application-insights-logging
+
+---
+
+## PR #176 — feat: add Azure.Monitor.OpenTelemetry.AspNetCore package reference
+
+**Branch:** squad/170-azure-monitor-otel-package
+**Verdict:** ✅ APPROVED
+
+### Findings
+
+| Check | Status | Notes |
+|-------|--------|-------|
+| Package name | ✅ Pass | Azure.Monitor.OpenTelemetry.AspNetCore (correct, not legacy) |
+| Package version | ✅ Pass | 1.4.0 |
+| FR-306 compliance | ✅ Pass | Uses modern OpenTelemetry-based SDK |
+| Build | ✅ Pass | 0 errors, 9 warnings (pre-existing) |
+
+### Diff Summary
+
+```diff
++    <PackageReference Include="Azure.Monitor.OpenTelemetry.AspNetCore" Version="1.4.0" />
+```
+
+---
+
+## PR #177 — feat: add ApplicationInsights config section and binding model
+
+**Branch:** squad/171-app-insights-config-section
+**Verdict:** ✅ APPROVED
+
+### Findings
+
+| Check | Status | Notes |
+|-------|--------|-------|
+| Enabled default | ✅ Pass | false (zero overhead) |
+| ConnectionString default | ✅ Pass | empty string |
+| SamplingPercentage default | ✅ Pass | 100 |
+| SectionName constant | ✅ Pass | "ApplicationInsights" |
+| XML documentation | ✅ Pass | All public members documented |
+| appsettings.json section | ✅ Pass | Present with Enabled: false |
+| FR-300 compliance | ✅ Pass | |
+| FR-301 compliance | ✅ Pass | |
+| FR-302 compliance | ✅ Pass | |
+| FR-318 compliance | ✅ Pass | |
+| Build | ✅ Pass | 0 errors, 9 warnings (pre-existing) |
+
+### Diff Summary — appsettings.json
+
+```diff
++  "ApplicationInsights": {
++    "Enabled": false,
++    "ConnectionString": "",
++    "SamplingPercentage": 100
++  },
+```
+
+### Diff Summary — ApplicationInsightsOptions.cs
+
+New file with correct structure:
+- `SectionName` constant
+- `Enabled` property (default: false)
+- `ConnectionString` property (default: empty)
+- `SamplingPercentage` property (default: 100)
+- XML docs on class and all properties
+
+---
+
+## Recommendation
+
+Both PRs are ready to merge. Wave 1 infrastructure for spec 008 is complete.
+
+# Diagnosis: OAuthProxy Configuration Not Reachable in Deployed Image
+
+**Date:** 2026-05-02  
+**Investigator:** Amy (DevOps/Platform/Azure)  
+**Issue:** `/.well-known/oauth-authorization-server` returns 404 → `Authentication__OAuthProxy__Enabled` is false or missing  
+**Root Cause:** OAuthProxy configuration is not present in ANY appsettings.json file in the PoshMcp repository, and the deployment pipeline does not support it.
+
+---
+
+## Findings
+
+### 1. Dockerfile Analysis
+**File:** `./Dockerfile` (lines 1-88)
+
+- **Build Stage:** Compiles PoshMcp.Server project with `dotnet publish`
+- **Publish Location:** `/app/publish/server` → copied to container image as `/app/server`
+- **Appsettings Handling:** The Dockerfile does NOT explicitly copy any appsettings.json file
+- **Config Source:** The `dotnet publish` command includes `./PoshMcp.Server/appsettings.json` in the published output by default
+- **No Overlay:** The Dockerfile does not layer additional appsettings files on top of the published application
+
+**Implication:** The appsettings.json bundled in the container image is EXACTLY what exists in `./PoshMcp.Server/appsettings.json` at build time.
+
+### 2. PoshMcp.Server appsettings.json Status
+**File:** `./PoshMcp.Server/appsettings.json`
+
+- **OAuthProxy Configuration:** ❌ NOT PRESENT
+- **Current Authentication Section:**
+  ```json
+  "Authentication": {
+    "Enabled": false,
+    "DefaultScheme": "Bearer",
+    "DefaultPolicy": {
+      "RequireAuthentication": true,
+      "RequiredScopes": [],
+      "RequiredRoles": []
+    },
+    "Schemes": {}
+  }
+  ```
+- **No `OAuthProxy` subsection:** The file contains no `OAuthProxy` configuration at all
+
+### 3. Other Appsettings Files Checked
+- `./PoshMcp.Server/appsettings.azure.json` — PowerShell config only, no auth
+- `./PoshMcp.Server/appsettings.modules.json` — PowerShell module config only
+- `./PoshMcp.Server/appsettings.environment-example.json` — Example template, no OAuthProxy
+- `./PoshMcp.Server/default.appsettings.json` — Not present or empty
+- `./examples/appsettings*.json` — All templates/examples only
+
+**None of these files contain OAuthProxy configuration.**
+
+### 4. Deployment Pipeline Analysis
+**File:** `./infrastructure/azure/deploy.ps1` (lines 302–407)
+
+The `ConvertTo-McpServerEnvVars()` function translates appsettings.json keys to Container App environment variables.
+
+**Supported Translations:**
+- `PowerShellConfiguration.*` → `PowerShellConfiguration__*`
+- `Authentication.Enabled` → `Authentication__Enabled`
+- `Logging.LogLevel.Default` → `Logging__LogLevel__Default`
+
+**Missing:** ❌ No handling for `Authentication.OAuthProxy.*` or any nested auth properties  
+**Missing:** ❌ No support for `ProtectedResource.*` or `IdentityProvider.*`
+
+**Impact:** Even if OAuthProxy were added to an appsettings.json file, the deployment script would silently ignore it and NOT convert it to an env var.
+
+---
+
+## Root Cause Chain
+
+1. **OAuthProxy is not defined in PoshMcp.Server/appsettings.json**
+   - The base/default appsettings has only minimal Authentication config
+   
+2. **The Dockerfile does not overlay a custom appsettings file**
+   - There is no `COPY` instruction for any alternate appsettings files
+   - The bundled config is what's published by `dotnet publish`
+
+3. **The ASP.NET Core configuration system loads appsettings.json from the working directory**
+   - Container working directory: `/app` (line 33 of Dockerfile)
+   - The published binary is in `/app/server/`
+   - ASP.NET Core loads `./appsettings.json` relative to the executable, which is `/app/server/appsettings.json`
+   - This matches what was published during build
+
+4. **No environment variables are setting OAuthProxy values**
+   - The Container App revisions have no `Authentication__OAuthProxy__*` env vars
+   - Even if they did, the Bicep/deploy.ps1 doesn't have logic to inject them
+
+5. **Result:** The server runs with `Authentication.Enabled = false`, no OAuthProxy section → returns 404 for `/.well-known/oauth-authorization-server`
+
+---
+
+## What Steven Meant (and What's Wrong)
+
+**Steven's Statement:**  
+> "The appsettings.json with OAuthProxy settings IS bundled into the container image — env vars shouldn't be needed."
+
+**Reality:**  
+- ❌ There is NO appsettings.json in the repo with OAuthProxy settings
+- ❌ The Dockerfile does not perform any custom bundling of appsettings files
+- ✅ In theory, IF an appsettings.json with OAuthProxy were in `./PoshMcp.Server/`, it WOULD be bundled by `dotnet publish`
+- ❌ But that file does not exist yet
+
+**Likely Scenario:**  
+Either Fry or another team member:
+1. Created a patched appsettings.json (e.g., in a separate branch or external to this repo)
+2. Assumed it would be included in the image
+3. Did NOT merge the patch into `./PoshMcp.Server/appsettings.json`
+4. Did NOT rebuild/redeploy the image with the patched config
+
+---
+
+## Resolution Path
+
+### **Option A: Add OAuthProxy to PoshMcp.Server/appsettings.json (Recommended)**
+
+1. Update `./PoshMcp.Server/appsettings.json` with a complete `Authentication.OAuthProxy` section
+2. Include `TenantId`, `ClientId`, `Audience`, `Scopes`, etc.
+3. Rebuild the image: `docker build -t poshmcp:latest .`
+4. Deploy the new image to Azure Container Apps
+5. OAuthProxy config will be bundled in the image and used by ASP.NET Core's config system
+
+**Pros:**  
+- Config is immutable, baked into the image
+- No env var surprises or shadowing
+- Follows `.NET standard` (appsettings.json is the config source)
+
+**Cons:**  
+- Credentials/secrets should use Azure Key Vault, not hardcoded JSON
+- Requires rebuild + redeploy for config changes
+
+### **Option B: Update Deployment Pipeline to Support OAuthProxy Env Vars**
+
+1. Extend `ConvertTo-McpServerEnvVars()` in `deploy.ps1` to handle `Authentication.OAuthProxy.*` keys
+2. Ensure Bicep resource template accepts and injects these env vars
+3. Deploy OAuthProxy config as Container App environment variables (with Key Vault secrets for sensitive values)
+
+**Pros:**  
+- Config can be updated without image rebuild
+- Secrets managed via Key Vault
+- Flexible for multi-environment deployments
+
+**Cons:**  
+- More complex deployment logic
+- Requires changes to Bicep, deploy.ps1, and possible env var structure
+
+### **Option C: Both (Recommended for Production)**
+
+1. Add a minimal OAuthProxy template to `./PoshMcp.Server/appsettings.json` with placeholder values
+2. Extend `deploy.ps1` and Bicep to support overriding OAuthProxy values via env vars
+3. At deploy time, inject actual credentials as Container App env vars
+4. This gives flexibility + security
+
+---
+
+## Next Steps
+
+1. **Clarify with Fry/Steven:** Where is the patch to appsettings.json that adds OAuthProxy? Is it in a separate branch, external repo, or lost?
+
+2. **For Bender (Development/Build):**  
+   - If the OAuthProxy config exists externally, add it to `./PoshMcp.Server/appsettings.json`
+   - Update `deploy.ps1` `ConvertTo-McpServerEnvVars()` function to translate OAuthProxy keys
+   - Add integration test to verify OAuthProxy settings are passed as env vars
+
+3. **For Amy (Deployment):**  
+   - Once config is in place, rebuild image: `./docker.ps1 build -ImageTag latest`
+   - Push image to registry
+   - Deploy with `infrastructure/azure/deploy.ps1`
+   - Verify `/.well-known/oauth-authorization-server` returns 200
+
+---
+
+## References
+
+- **Dockerfile:** Publishes from `./PoshMcp.Server/` with `dotnet publish`
+- **PoshMcp.Server/appsettings.json:** Currently has minimal Authentication config, no OAuthProxy
+- **deploy.ps1 (ConvertTo-McpServerEnvVars):** Does not translate OAuthProxy keys to env vars
+- **ASP.NET Core Config Loading:** Reads `appsettings.json` from app working directory
+
+# Release v0.9.10
+
+**By:** Amy (DevOps / Platform / Azure Engineer)  
+**Date:** 2026-05-02  
+**Status:** Applied  
+
+## What
+
+Completed release of PoshMcp v0.9.10 by:
+1. Verifying fix commit (b81a55d: OAuth issuer in Entra metadata)
+2. Confirming version bump to 0.9.10 in `PoshMcp.Server/PoshMcp.csproj`
+3. Pushing main branch to origin (2 commits)
+4. Creating and pushing annotated tag `v0.9.10`
+5. Verifying CI triggered automatically
+
+## Why
+
+Release implements security/configuration fix for OAuth Entra issuer metadata propagation. Bender had prepared all necessary changes (fix commit, version bump, release notes); Amy executed the final push and tagging steps to trigger the container build pipeline.
+
+## Technical Details
+
+- **Fix commit:** b81a55d on main — sets Entra issuer in AS metadata for OAuth compliance
+- **Release notes:** Updated `docs/release-notes/0.9.10.md` and `docs/toc.yml`
+- **CI Triggered:** GitHub Actions workflow "Build and Publish Packages" (Run 25254551703)
+  - Builds Dockerfile → pushes container to `ghcr.io/usepowershell/poshmcp:0.9.10`
+  - Expected completion: ~5-10 minutes
+
+## Next Steps (Steven)
+
+1. Monitor workflow at https://github.com/usepowershell/PoshMcp/actions/runs/25254551703
+2. Confirm container image published to GHCR with tag `0.9.10`
+3. Coordinate AdvocacyBami update with new base image reference (do NOT modify AdvocacyBami files in this release)
+
+## Context
+
+This is a .NET/Docker project using tag-based release model (not npm). Release notes and version were already prepared by Bender. Amy's role was infrastructure/operations — pushing to origin and triggering CI.
+
+## Rule Going Forward
+
+Tag push automatically triggers GitHub Actions workflows. No additional manual steps needed — just monitor the container build completion and publish status.
+
+# Decision: v0.9.11 Release — OAuth /authorize Proxy Endpoint
+
+**Date:** 2026-05-02T10:11:52-05:00
+**Agent:** Amy (DevOps / Platform Engineer)
+**Status:** COMPLETED
+
+## Context
+
+Bender committed `feat(auth): add /authorize proxy redirect endpoint for VS Code OAuth` and bumped the version to 0.9.11 in PoshMcp.Server/PoshMcp.csproj.
+
+The commit introduced a critical OAuth fix: VS Code MCP clients were constructing auth URLs as `{proxy_base}/authorize` and receiving 404 errors. The new endpoint acts as a proxy that:
+- Accepts all OAuth2 PKCE parameters
+- Issues a 302 redirect to Entra's authorize endpoint
+- Replaces the ephemeral DCR client_id with the real Entra client_id from config
+
+## Decision
+
+Release v0.9.11 with the following artifacts:
+
+### 1. Release Notes (`docs/release-notes/0.9.11.md`)
+
+Created following the established pattern from v0.9.10:
+- **Title:** PoshMcp v0.9.11 Release Notes
+- **What's New:** OAuth /authorize proxy redirect endpoint feature
+- **Bug Fixes:** OAuth flow now completes for VS Code MCP clients
+- **Upgrade Notes:** Configuration guidance for Authentication.ClientId and TenantId
+
+### 2. Table of Contents (`docs/toc.yml`)
+
+Updated Release Notes section to include:
+```yaml
+- name: v0.9.11
+  href: release-notes/0.9.11.md
+```
+
+Added at the top of the release notes list, maintaining reverse chronological order.
+
+### 3. Git Workflow
+
+- **Commit:** `docs: add v0.9.11 release notes` (7e67ac9)
+  - Included Copilot co-author trailer as per project standards
+  - Modified: docs/release-notes/0.9.11.md, docs/toc.yml
+- **Push:** Pushed commit to origin main (b81a55d → 7e67ac9)
+- **Tag:** Created lightweight tag `v0.9.11` on commit 7e67ac9
+- **Push Tag:** Pushed tag to origin (new tag on remote)
+
+## Rationale
+
+### Release Timing
+
+The OAuth /authorize endpoint is a critical bug fix for VS Code MCP client compatibility. Without this fix, VS Code clients cannot complete the OAuth flow, making the MCP server unusable with that client. This warrants an immediate patch release.
+
+### Release Notes Format
+
+Followed the established release notes pattern:
+- Single-file release notes document per version
+- Listed in toc.yml in reverse chronological order
+- Clear sections: Features, Bug Fixes, Upgrade Notes
+- Concise descriptions tied to user impact
+
+### Version Numbering
+
+No decision needed — Bender already bumped to 0.9.11 in the csproj. This is a patch release (0.9.10 → 0.9.11) appropriate for a bug fix + proxy endpoint.
+
+## Implementation Checklist
+
+- ✅ Version confirmed: 0.9.11 in PoshMcp.Server/PoshMcp.csproj
+- ✅ Release notes created with feature and bug fix details
+- ✅ Table of contents updated
+- ✅ Commit created with proper trailer
+- ✅ Changes pushed to origin main
+- ✅ Git tag created and pushed
+- ✅ Release is now discoverable by CI/CD (publish-packages.yml listens for v* tags)
+
+## Artifacts Created
+
+- `docs/release-notes/0.9.11.md` — Release notes document
+- `docs/toc.yml` — Updated table of contents
+- Git commit: `7e67ac9` — Release notes commit on main
+- Git tag: `v0.9.11` — Release tag pointing to commit 7e67ac9
+
+## Next Steps (Async — CI Handles Automatically)
+
+The publish-packages.yml GitHub Actions workflow will automatically:
+1. Detect the `v0.9.11` tag push
+2. Build and test the release
+3. Create a GitHub Release with the release notes
+4. Publish poshmcp v0.9.11 to NuGet.org
+
+No manual intervention required unless CI reports failures.
+
+## Related Documents
+
+- `.squad/agents/amy/history.md` — Updated with session entry
+- `.copilot/skills/release-process/SKILL.md` — Release process guidelines (reviewed)
+- `docs/release-notes/0.9.11.md` — This release's notes
+- `docs/toc.yml` — Navigation updated
+
+# Decision: Advertise explicit delegated scope in AS metadata
+
+**Date:** 2026-05-02
+**Author:** Bender (Backend Developer)
+**Status:** Implemented
+
+## Problem
+
+After the `/authorize` redirect succeeded and the user authenticated, the token exchange returned a JWT that failed with `SecurityTokenInvalidIssuerException`.
+
+**Root cause:** `OAuthProxyEndpoints.cs` advertised `api://{audience}/.default` in `scopes_supported` of the AS metadata document. When VS Code requested the `.default` scope, Entra issued a **v1.0 token** whose issuer claim is `https://sts.windows.net/{tenant}/`. The configured `ValidIssuers` expected the v2.0 issuer `https://login.microsoftonline.com/{tenant}/v2.0`, causing validation failure.
+
+## Decision
+
+Change `scopes_supported` to advertise an explicit delegated scope instead of `.default`.
+
+**Resolution order:**
+1. Look up `config.DefaultPolicy.RequiredScopes` for an entry that starts with the configured audience URI.
+2. If found, use it — keeps AS metadata aligned with what token validators require.
+3. Otherwise, fall back to `{audience}/user_impersonation`.
+
+## Implementation
+
+**File:** `PoshMcp.Server/Authentication/OAuthProxyEndpoints.cs`
+
+```csharp
+// Before
+scopesSupported.Add($"{proxy.Audience.TrimEnd('/')}/.default");
+
+// After
+var audienceBase = proxy.Audience.TrimEnd('/');
+var explicitScope = config.DefaultPolicy?.RequiredScopes
+    .FirstOrDefault(s => s.StartsWith(audienceBase, StringComparison.OrdinalIgnoreCase));
+scopesSupported.Add(explicitScope ?? $"{audienceBase}/user_impersonation");
+```
+
+**Commit:** `fix: advertise explicit user_impersonation scope in AS metadata to prevent v1.0 token issuance`
+
+## Why `.default` is wrong here
+
+The `.default` scope instructs Entra to grant all statically-declared permissions for the app. When the app registration is a v1.0 registration (or has no explicit v2.0 access token configuration), Entra issues a v1.0 token signed by `sts.windows.net`. Our middleware validates against `login.microsoftonline.com/.../v2.0` — these are different issuers. Explicit delegated scopes (e.g. `user_impersonation`) force v2.0 token issuance regardless of app registration version.
+
+## Impact
+
+- VS Code now requests `api://{audience}/user_impersonation` instead of `.default`.
+- Entra issues v2.0 tokens; issuer validation passes.
+- No changes required to `ValidIssuers` or token validation configuration.
+
+# Decision: Fix Auth Challenge Not Firing for No-Token Requests
+
+**Date:** 2026-05-02
+**Author:** Bender (Backend Developer)
+**Status:** Implemented
+
+## Problem
+
+When VS Code's MCP client connects with no pre-existing auth credentials, it was not being redirected to sign in — the connection hung at `initialize`. The container log showed `aspnetcore.authentication.result: none` (expected — no token was presented), but the OAuth browser redirect never happened.
+
+## Root Cause
+
+Two related defects in the auth challenge path:
+
+### 1. `OnChallenge` condition too narrow (`AuthenticationServiceExtensions.cs`)
+
+The `OnChallenge` handler that injects `WWW-Authenticate: Bearer resource_metadata="..."` was gated on:
+
+```csharp
+if (cfg.Value.ProtectedResource?.Resource is not null)
+```
+
+The `AuthenticationConfigurationValidator` does **not** require `ProtectedResource.Resource` to be set — it is optional. When `Resource` is null (a valid configuration), the condition is `false`. The handler fell through to the default JWT Bearer challenge, which emits only `WWW-Authenticate: Bearer` with no `resource_metadata` parameter.
+
+VS Code's MCP client reads `resource_metadata` to discover the OAuth Authorization Server. Without it, no browser redirect is triggered and the connection hangs waiting for the MCP `initialize` response.
+
+This affects the "no token" case (`authentication.result: none`) specifically because a valid token would have bypassed the challenge entirely.
+
+### 2. RFC 9728 `resource` field could be `null` in PRM response (`ProtectedResourceMetadataEndpoint.cs`)
+
+The Protected Resource Metadata endpoint only substituted non-HTTPS URIs with `serverBase`. If `Resource` was `null` or empty, the `resource` field in the PRM JSON was `null`. RFC 9728 requires `resource` to be an absolute HTTPS URI — a null value breaks the VS Code OAuth discovery chain even if the challenge had fired correctly.
+
+## Fix
+
+**`AuthenticationServiceExtensions.cs`:** Changed condition from `ProtectedResource?.Resource is not null` to `ProtectedResource is not null`. This aligns with `MapProtectedResourceMetadata`'s own gate (also `ProtectedResource is not null`), ensuring `resource_metadata` is always sent in the challenge whenever the PRM endpoint is available.
+
+**`ProtectedResourceMetadataEndpoint.cs`:** Added a null/empty fallback so `resource` is always computed as `serverBase` when `Resource` is not configured, before applying the existing non-HTTPS substitution. This ensures the PRM `resource` field always satisfies RFC 9728.
+
+## Expected Flow After Fix
+
+1. VS Code sends `POST /` with no token
+2. Server returns `401` + `WWW-Authenticate: Bearer resource_metadata="https://host/.well-known/oauth-protected-resource"` (now fires even when `Resource` is null)
+3. VS Code fetches the PRM; `resource` is now always a valid HTTPS URI
+4. VS Code reads `authorization_servers`, fetches AS metadata
+5. VS Code opens browser → user signs in → token obtained → retry succeeds
+
+# Decision: Use Entra v2.0 Authority URL for JWT Bearer authentication
+
+**Date:** 2026-05-02
+**Author:** Bender (Backend Developer)
+**Status:** Accepted and implemented
+
+## Context
+
+AdvocacyBami was logging `SecurityTokenSignatureKeyNotFoundException` followed by 401 responses. The JWT Bearer middleware was configured with `Authority = https://login.microsoftonline.com/{tenant}` (no `/v2.0` suffix), which resolves to the Entra **v1.0** OIDC discovery document. The v1.0 JWKS (`/common/discovery/keys`) does not contain the signing keys used for tokens issued via the v2.0 token endpoint (`/oauth2/v2.0/token`), which is what VS Code uses.
+
+## Decision
+
+1. **Always append `/v2.0` to the Entra Authority URL** when the token flow uses the v2.0 endpoint. Specifically: `https://login.microsoftonline.com/{tenant}/v2.0`.
+
+2. **PoshMcp server should warn at startup** when it detects the dangerous mismatch: Authority is a v1.0 Entra URL but `ValidIssuers` contains a v2.0 issuer. This is implemented via `Console.Error.WriteLine` in `AuthenticationServiceExtensions.cs`.
+
+## Rationale
+
+- Entra v1.0 and v2.0 endpoints use different JWKS URIs and issue tokens with different signing keys.
+- A v1.0 Authority with a v2.0 token always fails signature validation silently — no obvious configuration error is reported until runtime failure.
+- The startup warning gives operators an actionable message before the first request fails.
+
+## Consequences
+
+- **AdvocacyBami**: `appsettings.json` Authority updated. JWT validation now succeeds for v2.0 tokens.
+- **PoshMcp**: Any deployment with this misconfiguration will log a clear warning on startup.
+- **No breaking changes**: The v2.0 OIDC discovery doc is a superset of v1.0 for validation purposes.
+
+## Affected Files
+
+- `C:\Users\stmuraws\source\emu\gim-home\AdvocacyBami\appsettings.json`
+- `PoshMcp.Server/Authentication/AuthenticationServiceExtensions.cs`
+
+# Decision: Add /authorize proxy redirect endpoint
+
+**Date:** 2026-05-02
+**Author:** Bender (Backend Developer)
+**Status:** Implemented — v0.9.11
+
+## Context
+
+VS Code's MCP OAuth client does not use `authorization_endpoint` from the Authorization Server metadata document directly. Instead it constructs the auth URL as `{authorization_server_base}/authorize`, where `authorization_server_base` comes from `authorization_servers[0]` in the Protected Resource Metadata. Since PoshMcp is the authorization server base, VS Code was issuing `GET /authorize?...` → **404**.
+
+Root cause diagnosed by Fry.
+
+## Decision
+
+Add a `GET /authorize` endpoint to `OAuthProxyEndpoints.cs` that acts as a redirect proxy to Entra's real authorize endpoint.
+
+## Implementation
+
+**File:** `PoshMcp.Server/Authentication/OAuthProxyEndpoints.cs`
+
+The endpoint:
+1. Accepts all incoming query parameters via `HttpContext.Request.Query`
+2. Iterates params with `SelectMany` to handle multi-value params; replaces `client_id` (case-insensitive) with `proxy.ClientId` from config
+3. Ensures `client_id` is always present even if the caller omits it
+4. Builds the redirect URL: `https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/authorize` + `QueryString.Create(params)`
+5. Returns `Results.Redirect(url, permanent: false)` — HTTP 302
+6. Logs at Debug level: tenant ID only (no code_challenge, state, or other sensitive values)
+
+All other params (`scope`, `response_type`, `code_challenge`, `code_challenge_method`, `redirect_uri`, `state`) pass through unchanged. Scope transformation is deliberately omitted — Entra handles `api://.../.default` scopes natively.
+
+## Alternatives Considered
+
+- **Rewrite `authorization_endpoint` in AS metadata to point at Entra directly**: Would fix VS Code but break other clients that rely on the proxy for `client_id` substitution. Rejected.
+- **Update Protected Resource Metadata to point at Entra as authorization server**: Would require clients to handle the real Entra authorize URL directly, losing the DCR proxy benefit. Rejected.
+
+## Guard rails
+
+- Endpoint is only registered when `proxy.Enabled == true` and `proxy.TenantId` is non-empty (same guards as existing proxy endpoints)
+- Returns `501 Not Implemented` if `proxy.ClientId` is unconfigured
+- Marked `.AllowAnonymous()` — auth challenge must not intercept the OAuth handshake itself
+
+## Version
+
+`PoshMcp.csproj` bumped from `0.9.10` → `0.9.11`
+
+# Decision: Honor X-Forwarded-Proto in All Public-URL Construction
+
+**Date:** 2026-05-02  
+**Author:** Bender (Backend Developer)  
+**Status:** Implemented
+
+## Context
+
+Fry's v0.9.8 functional check found that the `WWW-Authenticate: Bearer resource_metadata=` URL
+returned by the server used `http://` instead of `https://` when deployed to Azure Container Apps.
+Azure Container Apps (and similar reverse-proxy platforms) terminate TLS and forward requests
+internally over HTTP, setting `X-Forwarded-Proto: https` to indicate the original public scheme.
+
+`HttpContext.Request.Scheme` returns `http` in this configuration, producing incorrect URLs.
+
+## Decision
+
+**Any code that constructs a public-facing URL from the current request MUST read
+`X-Forwarded-Proto` (and optionally `X-Forwarded-Host`) before falling back to the raw request
+values.**
+
+Canonical pattern:
+
+```csharp
+var scheme = req.Headers["X-Forwarded-Proto"].FirstOrDefault() ?? req.Scheme;
+var host   = req.Headers["X-Forwarded-Host"].FirstOrDefault() ?? req.Host.ToUriComponent();
+var url    = $"{scheme}://{host}{path}";
+```
+
+## Rationale
+
+- `OAuthProxyEndpoints.GetServerBaseUrl` and `ProtectedResourceMetadataEndpoint` already
+  implemented this pattern correctly.
+- `AuthenticationServiceExtensions.OnChallenge` was the only location that did not; this
+  inconsistency caused the bug reported by Fry.
+- Using the forwarded headers is the standard ASP.NET Core approach for hosted-behind-proxy
+  scenarios (cf. `UseForwardedHeaders` middleware, `ForwardedHeadersOptions`).
+
+## Scope of Change
+
+- `PoshMcp.Server/Authentication/AuthenticationServiceExtensions.cs` — fixed `OnChallenge` handler
+- `PoshMcp.Server/PoshMcp.csproj` — version bumped to 0.9.9
+
+## Affected Deployments
+
+All deployments behind a reverse proxy that terminates TLS (Azure Container Apps, nginx, etc.).
+Local/stdio deployments are unaffected (fallback to `req.Scheme` = `https` or `http` as
+configured).
+
+# Decision: OAuth Issuer and Scope Fix (v0.9.10)
+
+**By:** Bender (Backend Developer)
+**Date:** 2026-05-02
+**Status:** Applied
+
+## What
+
+Fixed two bugs causing MCP `initialize` timeout when using Entra ID authentication:
+
+1. **Issuer mismatch** — `OAuthProxyEndpoints.cs` returned the container's own URL as `issuer` in the `/.well-known/oauth-authorization-server` metadata. Changed to `https://login.microsoftonline.com/{tenantId}/v2.0`.
+
+2. **Scope format mismatch** — `RequiredScopes` in `AdvocacyBami/appsettings.json` used the full URI form (`api://.../{clientId}/user_impersonation`). Entra v2.0 tokens carry `scp` as the short name only (`user_impersonation`). Changed to `["user_impersonation"]`.
+
+## Why
+
+RFC 8414 requires MCP clients to validate `token.iss == AS.issuer`. With the issuer set to the container URL, Entra tokens were always rejected, triggering infinite `initialize` retries. The scope mismatch caused every authenticated request to return 401.
+
+## Rules Going Forward
+
+- The `issuer` field in `/.well-known/oauth-authorization-server` MUST always be the Entra v2.0 issuer URL, not the server's base URL.
+- `RequiredScopes` in configuration MUST use the short scope name (`user_impersonation`), not the full application URI form — Entra v2.0 tokens never include the full URI in the `scp` claim.
+- When configuring `RequiredScopes`, test against a real token's decoded `scp` claim to confirm the exact format.
+
+# Decision: Token Diagnostics and Configurable IdleTimeout
+
+**By:** Bender (Backend Developer)
+**Date:** 2026-05-02
+**Status:** Applied
+
+## What
+
+1. **Token diagnostics**: Enhanced `/token` proxy in `OAuthProxyEndpoints.cs` to log HTTP status, Content-Type, and response body (on error) from Entra. On success, logs status+content-type only (no token body). Request field names are logged at Debug (no values to avoid leaking secrets).
+
+2. **Configurable IdleTimeout**: Added `McpServerConfiguration` class and `McpServer.IdleSessionTimeoutSeconds` appsettings key. `HttpServerHost` reads this and passes it to `WithHttpTransport(opts => opts.IdleTimeout = ...)`.
+
+## Why
+
+- `/token` proxy failures were invisible — no logging on Entra errors made auth debugging very hard.
+- VS Code's ~5s initialize timeout causes double auth redirect loops when server startup takes time. `IdleSessionTimeoutSeconds` lets operators tune the session idle timeout without code changes.
+
+## Rule Going Forward
+
+- Never log token values, auth codes, or client secrets — log field names and HTTP metadata only.
+- `WithHttpTransport` in MCP SDK 1.2.0 accepts `Action<HttpServerTransportOptions>` — use this overload for transport configuration rather than `builder.Services.Configure<HttpServerTransportOptions>()` separately.
+
