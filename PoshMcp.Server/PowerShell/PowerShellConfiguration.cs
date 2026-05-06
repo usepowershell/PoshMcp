@@ -18,6 +18,23 @@ public class PowerShellConfiguration
     public RuntimeMode RuntimeMode { get; set; } = RuntimeMode.InProcess;
 
     /// <summary>
+    /// Selects which OOP host script is launched when <see cref="RuntimeMode"/> is
+    /// <see cref="RuntimeMode.OutOfProcess"/>. <see cref="SubprocessHostMode.Single"/> (default)
+    /// launches the single-runspace host (<c>oop-host.ps1</c>).
+    /// <see cref="SubprocessHostMode.Pool"/> launches a runspace-pool host
+    /// (<c>oop-host-pool.ps1</c>) that runs invokes concurrently.
+    /// </summary>
+    public SubprocessHostMode SubprocessHostMode { get; set; } = SubprocessHostMode.Single;
+
+    /// <summary>
+    /// Maximum number of runspaces in the pool when <see cref="SubprocessHostMode"/> is
+    /// <see cref="SubprocessHostMode.Pool"/>. When unset or non-positive, the pool host
+    /// defaults to <see cref="System.Environment.ProcessorCount"/> capped at 8.
+    /// Ignored in <see cref="SubprocessHostMode.Single"/> mode.
+    /// </summary>
+    public int SubprocessRunspacePoolSize { get; set; } = 0;
+
+    /// <summary>
     /// Specific command names to expose as MCP tools.
     /// This is the preferred property; use instead of FunctionNames.
     /// </summary>
