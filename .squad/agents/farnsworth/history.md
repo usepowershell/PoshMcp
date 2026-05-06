@@ -1,31 +1,18 @@
-**PR:** #96 (Hermes original, Bender fix) — `feat: surface resolution reasons for missing commands in poshmcp doctor`
-**Outcome:** Squash merged to `main`. Branch `squad/91-doctor-commands-resolved` deleted (remote). Fixes #91.
+# Farnsworth — Lead/Architect — Work History
 
-**Fix pattern (Bender's second commit):**
-- `RunDoctorAsync` now calls `DiagnoseMissingCommands` once, enriches `configuredFunctionStatus` records with `ResolutionReason`, then passes the list to `BuildDoctorJson` via new optional `precomputedFunctionStatus` parameter.
-- `BuildDoctorJson` uses `precomputedFunctionStatus ?? BuildConfiguredFunctionStatus(...)` to skip re-computation when data is provided.
-- Belt-and-suspenders guard: `BuildDoctorJson` independently checks `configuredFunctionStatus.All(s => s.Found || s.ResolutionReason is null)` before calling `DiagnoseMissingCommands`, so standalone callers still get diagnosis but the `RunDoctorAsync` path doesn't double-execute.
-- `ConfiguredFunctionStatus` promoted from `private` to `internal` — necessary for the type to appear in `BuildDoctorJson`'s parameter list. Safe: sealed record, assembly-scoped.
+## Project Context
+**Project:** PoshMcp — Model Context Protocol (MCP) server for PowerShell
+**Tech Stack:** .NET 10, C#, PowerShell SDK, OpenTelemetry, ASP.NET Core, xUnit
+**Primary User:** Steven Murawski
 
-**Rejection lockout pattern validated:** Hermes wrote the bug, was locked out, Bender delivered the fix cleanly. Pattern works — fresh eyes caught what the original author missed.
-
-
-
-### 2026-07-15: Authored 4 new team skills from history review
-
-Skills created: worktree-pr-merge, precomputed-optional-parameter, unserializable-type-handling, cli-bool-flag-pattern.
-All at confidence: medium (except unserializable-type-handling: high — 33 tests).
-Source: earned patterns from PRs #92–#96 and agent histories.
-
-📌 Team update (2026-04-14T00:00:00Z): Docs publishing now uses a dedicated GitHub Pages workflow with docs-only path trigger and prebuilt `docs/_site` artifact strategy — decided by Amy.
-
-
-
-### 2026-07-15: MCP Resources and Prompts spec authored
-
-**Spec:** `specs/002-mcp-resources-and-prompts/spec.md`
-
-
+## Pre-2026-05-02 Summary (archived to history-archive.md on 2026-05-06)
+- 2026-04-17: Restructured loose specs (003 prompts, 004 OOP, 005 large-result) into speckit format; FR-035..FR-064, SC-016..SC-030.
+- 2026-04-18: Approved PR #130 (MimeType nullable fix) — pattern: model nullable + handler-applied default preserves validator signal.
+- 2026-04-20: Filed Spec 006 (Doctor Output Restructure) milestone #3 with 27 issues T001-T027 (#140-#166) split Bender/Fry.
+- 2026-07-15: MCP Resources/Prompts spec (002) authored; 4 team skills extracted from PRs #92-#96.
+- 2026-07-18: Triaged Issue #131 (stdio logging to file) — Serilog file sink, ClearProviders unconditional in stdio mode, 3-tier resolution (CLI > env > config). Approved PRs #132 (stdio logging), #134 (docker buildx context fix).
+- 2026-07-28: Approved PR #167 (Spec 006 Doctor Output Restructure) — DoctorReport records + DoctorTextRenderer architecture.
+- See history-archive.md for full entries.
 
 ### 2026-05-02: Reviewed PR #184 — Program.cs Refactoring (squad/program-cs-refactor)
 
@@ -64,140 +51,62 @@ Source: earned patterns from PRs #92–#96 and agent histories.
 
 
 
-### 2026-04-17: Spec restructure — loose specs → speckit format
 
-**What was done:**
-- Rewrote `specs/powershell-interactive-input.md`, `specs/out-of-process-execution.md`, and `specs/large-result-performance.md` into the speckit format (matching specs 001 and 002)
-- Created `specs/003-powershell-interactive-input/spec.md`, `specs/004-out-of-process-execution/spec.md`, `specs/005-large-result-performance/spec.md`
-- Numbering: FR-035–FR-064, SC-016–SC-030; next available FR-065, SC-031
+### 2026-05-06: PR #187 review — Hermes runspace pool vs multi-process experiment plan
 
-**Patterns noted:**
-- Original loose specs were RFC-style design docs (implementation code, C# classes, architecture diagrams) — speckit strips all of that; requirements must be written from user perspective with no class names
-- The stateless retry pattern (Option D in the interactive input RFC) is the correct architecture for prompt handling given MCP's request/response model — captured as the design assumption in spec 003
-- "Fail-fast" is the right default for prompt behavior; structured prompt response is P2 (requires fail-fast infrastructure first)
-- Property filtering via `DefaultDisplayPropertySet` should be ON by default (95%+ payload reduction); result caching via `Tee-Object` should be OFF by default (most callers never use replay tools)
-- Spec 003 (prompt handling) logically precedes spec 004 (OOP) because the OOP interactive prompt strategy is defined as "defer to spec 003 / fail-fast in OOP mode"
+**Verdict:** APPROVE (review saved to `$env:TEMP\farnsworth-pr187-review.md` — EMU policy blocks `gh pr review` AND `gh pr comment` from this account; surfaced to user for manual paste).
 
+**Plan strengths confirmed:**
+- `OutOfProcessHost` extraction is the correct shared seam — per-process state in current `OutOfProcessCommandExecutor` (process, streams, `_sendLock`, `_pending`, read/stderr loops, `Process.Exited`) factors cleanly out, leaving `ICommandExecutor` as the public surface. Single-host executor becomes a thin wrapper; process pool composes N hosts.
+- Protocol layer is genuinely parallel-ready (id-keyed `_pending` + async `ReadLoopAsync`). Only the host serializes today. Plan correctly notes this — minimizes C# churn.
+- Isolation as benchmark pass/fail gate (not vibes) is the right discipline. "Default to B if neither passes isolation" is the correct tiebreaker — preserves the original OOP motivation.
+- Phasing: 1 unblocks 2/3, 4 parallel, 5 fans in, 6 cleans up. `SubprocessHostMode` flag keeps a known-good baseline available for bisecting.
+- `SubprocessPoolSize: 1` collapses Option B to current behavior — clean fallback knob.
 
+**Architectural concerns to fold into prototype issues (non-blocking for plan):**
+- A1 — Stream pollution: `[Console]::Out` swap won't catch `Write-Host` (which goes through `$Host.UI` snapshotted at runspace open). Need a custom `PSHost` / `PSHostUserInterface` for the pool. The .NET-side `IsNonJsonPowerShellStreamLine` should be defense-in-depth, not load-bearing.
+- A2 — Setup race: pool close-rebuild-reopen needs an explicit drain barrier (stop accept → wait `_pending` empty → close → rebuild → reopen). Plan's "setup is rare and cannot race" is aspirational.
+- A3 — Per-runspace `$Error` is correctly identified; also reset `$LASTEXITCODE` and `$ErrorActionPreference`. Existing single-runspace host already leaks `$Error` across invokes (separate fix issue).
+- B1 — Channel-lease `finally` must check liveness before re-enqueue; dead host stays out of channel until replacement passes `ping` + `setup`. Otherwise pool slowly bleeds capacity.
+- B2 — Discovery cache assumption ("schemas identical") only holds while every subprocess runs the same setup. Cache discovery keyed by setup-payload hash; re-discover on hash mismatch.
+- 4 — Benchmark harness must use BDN `[GlobalSetup]` / `[IterationSetup]` to keep process spawn out of per-iteration measurements; otherwise B loses on Az.Accounts import time for the wrong reason.
+- 5 — Pass/fail "≥ 4× baseline at 10 concurrent" doesn't apply to CPU-bound (ceiling = ProcessorCount) or CPU-light (dispatch overhead floor). Recommend rewriting as scenario × metric × threshold table.
+- 6 — Cancellation scope-out: until cancellation lands, Option A's effective capacity under adversarial load is `N - stuck_invokes`. Don't flip default to A in issue #6 without it.
+- 7 — Memory metric: sample Win32 handle count alongside working set. Az workloads leak handles characteristically.
 
-### 2026-07-18: PR #130 review — approved (MimeType nullable fix)
+**Answers to plan §6 open questions:**
+1. Default N = `Environment.ProcessorCount` for prototype. Don't pick a fixed number until network-shaped benchmark confirms scaling.
+2. Don't ship the loser. Two host scripts is real maintenance cost — issue #6 deletes the loser.
+3. Local `HttpListener` for harness; one manual real-Azure end-to-end for the findings doc; not in CI.
+4. Cancellation as separate issue, agreed; conditional on concern #6.
 
-**PR:** #130 (fixes #129) — `Fix MimeType default — null model property, apply text/plain at runtime in handler`
-**Verdict:** APPROVED
+**Pattern noted (logging):**
+- EMU blocks BOTH `gh pr review` and `gh pr comment` for usepowershell/PoshMcp from this account. Cubert recently logged the same finding. Future PR reviews must be saved to `$env:TEMP` and surfaced for manual paste — do not waste cycles attempting either gh subcommand.
+- Plan-only PRs that quote internals are high-signal fact-check targets — every cited line either resolves or doesn't. Cross-reference cmdlet usage at the call site, not by global grep (e.g., `ConvertTo-Json -Depth N` legitimately varies per call site).
+## Learnings (2026-05-06)
+- PR #187 review (runspace pool vs multi-process experiment plan, branch squad/65-runspace-pool-experiment-plan): verdict = comment / approve direction with revisions. Plan is sound; #1 (extract OutOfProcessHost) can start immediately.
+- Key architectural concerns raised:
+  - Option A: `[Console]::Out` cannot be redirected per-runspace (it's process-global) — plan's stream-pollution mitigation needs correction; use custom PSHost via CreateRunspacePool instead.
+  - Option A: setup-while-running quiesce protocol is underspecified — `OutOfProcessCommandExecutor.SendRequestAsync` does not gate setup against in-flight invokes today (only `_sendLock` for stdin writes).
+  - Option B: Channel<OutOfProcessHost> + Process.Exited race when host crashes mid-lease needs explicit reconciliation (don't end up with N+1 or N-1).
+  - Option B: fail-fast on all-N setup is a regression vs single-host; recommend fail-fast on first host then per-host retries.
+  - Benchmark: crash-recovery scenario as written measures process restart (same as baseline) — for Option A's real isolation gate, induce runspace-level corruption, not process exit.
+  - Benchmark: 4× throughput gate is wrong for CPU-bound; needs per-scenario thresholds.
+  - Phasing: split #4 (benchmark harness) into infrastructure (parallel) and wire-up (blocked on #2/#3).
+- Verified current OOP code matches plan's description: `OutOfProcessCommandExecutor.cs` (_sendLock at line 29, _pending dict, SendRequestAsync at line 362), `oop-host.ps1` (Write-NdjsonResponse flush, handler ordering).
+- Posting via gh failed (EMU policy on usepowershell/poshmcp blocks `gh pr review`). Review body left at C:\Users\stmuraws\AppData\Local\Temp\tmpsvtizs.md for manual posting.
 
-**Pattern validated — "model reflects truth, handler applies default":**
-- `McpResourceConfiguration.MimeType` changed from `string` (default `"text/plain"`) to `string?` (no default)
-- Runtime fallback `?? "text/plain"` applied via `string.IsNullOrWhiteSpace()` in `McpResourceHandler` at both list and read response sites
-- Validator already used `IsNullOrWhiteSpace` — no change needed there
-- All 3 `.MimeType` access sites in server code audited and confirmed null-safe
-- Edge cases (empty string, whitespace) handled by `IsNullOrWhiteSpace` in both handler and validator
-- No serialization cascade — MimeType is consumed, never re-serialized from the model
-- Build: 0 errors; Tests: 471 passed, 0 failed
+### 2026-05-06 — EMU blocks `gh issue create` too
+The `usepowershell/PoshMcp` repo's EMU policy not only blocks `gh pr review` / `gh pr comment` (already known) but also `gh issue create` with the same `Unauthorized: As an Enterprise Managed User` GraphQL error. When asked to file an issue, write the body to a temp file outside the repo and hand the path to the user to create the issue manually. Do not retry `gh issue create` under this account.
 
-**Key pattern:** When a config property has a protocol-level default, keep the model nullable to distinguish "not configured" from "explicitly configured to the default value". Apply the default at the last responsible moment (the handler constructing the response).
+### 2026-05-06 — Cancellation propagation gap (issue body drafted at C:\Users\stmuraws\AppData\Local\Temp\poshmcp-cancellation-issue.md)
+Confirmed: `CancellationToken` in `OutOfProcessCommandExecutor.SendRequestAsync` only governs the .NET-side wait (`_sendLock.WaitAsync`, `_stdin.WriteLineAsync`, the linked `timeoutCts` failing the local TCS). It is never forwarded to the OOP subprocess, and `oop-host.ps1` runs a single-threaded dispatcher loop (L630–L650) that cannot read a `cancel` while `Invoke-InvokeHandler` (L498) is blocked inside `& $cmdInfo @boundParams`. In-process is worse: `IsolatedPowerShellRunspace.ExecuteThreadSafeAsync` doesn't accept a CT at all; the only `_powerShell.Stop()` is inside Dispose() (PowerShellRunspaceImplementations.cs L146). Layered fix: (1) cooperative `Stop()/StopAsync()` registration on the in-process pipeline, (2) a `cancel` JSON-RPC method + concurrent-readable dispatcher for OOP, (3) bounded escalation cooperative → forced → process kill + recycle via `PowerShellCleanupService`.
 
+## 2026-05-06: New milestone-tagged issues assigned
 
-### 2026-04-18: PR #130 review (issue #129 — MimeType fix)
+Milestone #5 (Spec 004 - Out-of-Process PowerShell Execution) was created. You have issues assigned via squad:* labels:
+- Bender: #190 (extract OutOfProcessHost), #192 (Option B - process pool prototype, blocked by #190)
+- Fry: #193 (benchmark harness infra), #194 (wire harness to executors, blocked by #191/#192/#193)
+- Farnsworth: #196 (adopt the winner, blocked by #195)
 
-**Verdict:** ✅ APPROVED
-**Summary:** MimeType model nullable change restores validator signal while maintaining runtime fallback behavior. All 471 tests pass, 0 build warnings. Validator correctly flags missing MimeType in config; handler provides runtime "text/plain" default in HandleListAsync and HandleReadAsync.
-**Key takeaway:** Model defaults that prevent validators from firing should be moved to runtime handlers. This preserves diagnostic signals while keeping runtime contracts stable.
-
-
-
-### 2026-07-18: Issue #131 triage — STDIO logging to file
-
-**Decisions made:**
-- Use Serilog (Serilog.Extensions.Hosting + Serilog.Sinks.File) as the file logging provider; no existing file logger in the project, Serilog is the idiomatic .NET choice
-- In stdio mode: `builder.Logging.ClearProviders()` unconditionally, then add Serilog file sink only if a log file path is configured — silent by default, no startup failure
-- Log file resolution priority: `--log-file` CLI > `POSHMCP_LOG_FILE` env var > `Logging.File.Path` appsettings key > silent
-- OTel `AddConsoleExporter()` suppressed in stdio mode by passing `isStdioMode` flag to `ConfigureOpenTelemetry`; HTTP path unchanged
-- HTTP transport logging behavior is entirely unchanged
-- Pre-startup `Console.Error.WriteLine` error paths stay as-is (correct for CLI errors before stdio server starts)
-
-**Branch created:** `squad/131-stdio-logging-to-file`
-
-**Agents assigned:**
-- **Bender** — C# implementation: `Program.cs` changes, Serilog wiring, `--log-file` CLI option, `POSHMCP_LOG_FILE` env var, unit + integration tests
-- **Amy** — OTel console suppression, `appsettings.json` schema (`Logging.File.Path`), documentation (README.md, DOCKER.md, appsettings.environment-example.json)
-
-**GitHub note:** Label addition and issue comment blocked by Enterprise Managed User policy — triage notes saved to `.squad/decisions/inbox/farnsworth-131-stdio-logging-design.md` instead.
-
-
-
-### 2026-07-18: PR #132 review — approved (STDIO logging suppression)
-
-**PR:** #132 (fixes #131) — `feat: suppress console logging in stdio transport, add Serilog file sink`
-**Verdict:** APPROVED
-
-**Implementation quality:** Clean match to design spec. Bender handled C# changes (ConfigureStdioLogging, ResolveLogFilePath, CLI option, Serilog wiring), Amy handled OTel suppression, appsettings schema, and documentation. No merge conflicts expected.
-
-**Key validation points:**
-- `ClearProviders()` is unconditionally first in `ConfigureStdioLogging` — correct
-- Serilog packages updated to 10.0.0/10.0.0/7.0.0 (newer than spec's 9.0.0/9.0.0/6.0.0) — correct per spec guidance
-- OTel `AddConsoleExporter()` properly gated by `isStdioMode` flag
-- 3-tier resolution (CLI > env > config > silent) works correctly
-- HTTP transport completely unaffected
-- 10 new tests (7 unit + 3 functional), all pass; full suite 487/0/1
-
-**Non-blocking notes:**
-- `default.appsettings.json` (embedded) missing `Logging.File.Path` — absent = silent, functionally correct
-- Root handler (bare `poshmcp`) doesn't resolve `POSHMCP_LOG_FILE` — legacy path, low priority
-- Pattern: `CreateLoggerFactory` didn't need changes because it's never called from the stdio server path — design spec was overcautious on this point
-
-
-
-### 2026-07-18: PR #134 review — approved (docker buildx missing build context path)
-
-**PR:** #134 (fixes #133) — `fix(#133): add missing build context path to docker buildx build command`
-**Verdict:** APPROVED (comment posted — GitHub blocked self-review via API)
-
-**Fix:** Single-character change: added ` .` to the end of `buildArgs` in the `buildCommand.SetHandler` lambda in `Program.cs` line 692.
-
-**Validation points:**
-- Bug is real: `docker build` requires a PATH argument for the build context; without it the command fails unconditionally
-- `File.Exists(imageFile)` guard before the build args line implicitly validates CWD — if CWD were wrong, the Dockerfile check exits early with `ExitCodeConfigError`; by the time `.` is appended, CWD is the repo root
-- Consistent with entire codebase: `docker.ps1` (3 sites), `docker.sh`, `infrastructure/azure/deploy.ps1`, `infrastructure/azure/deploy.sh` all use `.` as build context
-- CI (`publish-packages.yml`) invokes from repo root — no CWD surprise
-
-**Pattern noted:** When a CLI tool wraps an external command, every required positional argument must be present in the assembled arg string. The `File.Exists` guard doubles as implicit CWD validation — a pattern worth documenting for future Docker command wrappers.
-
-
-
-### 2026-04-20: Spec 006 — Doctor Output Restructure milestone created
-
-**Actions taken:**
-1. Renamed `specs/doctor-output-restructure/` → `specs/006-doctor-output-restructure/` via git mv, added spec number to frontmatter, committed and pushed to main.
-2. Created GitHub milestone #3: "Spec 006 - Doctor Output Restructure" (https://github.com/usepowershell/PoshMcp/milestone/3).
-3. Created 27 GitHub issues (T001–T027, #140–#166) across 8 phases:
-   - **Bender** (squad:bender): 22 issues — Phases 1–6 (T001–T018) and Phase 8 (T024–T027)
-   - **Fry** (squad:fry): 5 issues — Phase 7 (T019–T023, tests)
-
-**Issue mapping:**
-- Phase 1 (DoctorReport Record Hierarchy): T001=#140, T002=#141, T003=#142, T004=#143, T005=#144
-- Phase 2 (DoctorTextRenderer): T006=#145, T007=#146, T008=#147, T009=#148
-- Phase 3 (Wire into RunDoctorAsync): T010=#149, T011=#150, T012=#151
-- Phase 4 (Environment Variables): T013=#152, T014=#153
-- Phase 5 (Summary Banner): T015=#154, T016=#155
-- Phase 6 (Update MCP Tool): T017=#156, T018=#157
-- Phase 7 (Tests): T019=#158, T020=#159, T021=#160, T022=#161, T023=#162
-- Phase 8 (Cleanup/Validation): T024=#163, T025=#164, T026=#165, T027=#166
-
-**Note:** Push to main required rebase to remove a pre-existing merge commit (a77dfcc) that violated repo rules.
-
-
-
-### 2026-07-28: PR #167 review — approved (Spec 006: Doctor Output Restructure)
-
-**PR:** #167 — `feat(spec-006): restructure doctor output`
-**Verdict:** ✅ APPROVED (comment — self-approval blocked by GitHub)
-
-**Implementation quality:** Clean match to spec 006. Architecture is solid: `DoctorReport` (pure data model with records + `[JsonPropertyName]`), `DoctorTextRenderer` (static class, pure rendering), `Program.cs` (thin orchestration). Build: 0 errors. Tests: 520 passed, 0 failed, 7 skipped.
-
-**Spec compliance verified:**
-- Banner: `╔═══╗` box-drawing chars, `BannerInnerWidth = 42`, correct status symbols (✓/⚠/✗)
-- Section headers: `── Name ──` format, padded to 44 chars
-- JSON: 7 top-level keys match FR-106, `effectivePowerShellConfiguration` dropped, camelCase throughout
-
----
-*Older entries (pre-2026-05-05 bulk) moved to `history-archive.md` on 2026-05-05 by Scribe to satisfy 15KB hard gate. See archive for full record.*
+Check the issue body for plan reference and dependency chain before starting.

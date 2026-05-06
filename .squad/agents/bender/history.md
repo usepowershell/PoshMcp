@@ -101,3 +101,12 @@
 
 ---
 *Further trimmed to 100 lines on 2026-05-05 by Scribe (15KB gate). Full record in `history-archive.md`.*
+
+## 2026-05-06: New milestone-tagged issues assigned
+
+Milestone #5 (Spec 004 - Out-of-Process PowerShell Execution) was created. You have issues assigned via squad:* labels:
+- Bender: #190 (extract OutOfProcessHost), #192 (Option B - process pool prototype, blocked by #190)
+- Fry: #193 (benchmark harness infra), #194 (wire harness to executors, blocked by #191/#192/#193)
+- Farnsworth: #196 (adopt the winner, blocked by #195)
+
+Check the issue body for plan reference and dependency chain before starting.
