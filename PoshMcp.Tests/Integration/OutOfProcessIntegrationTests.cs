@@ -407,9 +407,7 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
             await Task.Delay(500);
 
             // Kill recently-started pwsh processes to simulate a crash
-            var processField = typeof(OutOfProcessCommandExecutor)
-                .GetField("_process", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            var oopProcess = (Process?)processField!.GetValue(executor);
+            var oopProcess = GetSubprocess(executor);
             Assert.NotNull(oopProcess);
 
             _logger.LogInformation("Killing OOP subprocess PID {Pid} to simulate crash", oopProcess.Id);
@@ -453,9 +451,7 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
             Assert.NotNull(result);
 
             // Kill the subprocess via reflection to get the exact process instance
-            var processField = typeof(OutOfProcessCommandExecutor)
-                .GetField("_process", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            var oopProcess = (Process?)processField!.GetValue(executor);
+            var oopProcess = GetSubprocess(executor);
             Assert.NotNull(oopProcess);
 
             _output.WriteLine($"Killing OOP subprocess PID {oopProcess.Id}");
@@ -476,6 +472,23 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
         {
             await executor.DisposeAsync();
         }
+    }
+
+    /// <summary>
+    /// Reflects through the executor's OutOfProcessHost to grab the live pwsh
+    /// Process. Used by tests that need to forcibly kill the subprocess to
+    /// simulate a crash.
+    /// </summary>
+    private static Process? GetSubprocess(OutOfProcessCommandExecutor executor)
+    {
+        var hostField = typeof(OutOfProcessCommandExecutor)
+            .GetField("_host", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var host = hostField!.GetValue(executor);
+        if (host is null) return null;
+
+        var processField = host.GetType()
+            .GetField("_process", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        return (Process?)processField!.GetValue(host);
     }
 }
 
