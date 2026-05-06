@@ -872,11 +872,26 @@ function Invoke-InvokeHandler {
     # (cleared so contamination from a prior invoke on the same runspace
     # cannot leak). The pipeline pre-serializes the result to JSON so the
     # C# dispatcher can embed it without a second round-trip into PowerShell.
+    # The ConvertTo-Json call is wrapped in try/catch with a Select-Object *
+    # fallback to tolerate objects whose CLR type shadows a base-class
+    # member of the same name (e.g. BasicHtmlWebResponseObject's 'Content'
+    # shadows WebResponseObject.Content). See issue #203.
     $userScript = {
         param($Name, $Splat)
         $Error.Clear()
         $r = & $Name @Splat
-        return ($r | ConvertTo-Json -Depth 4 -Compress -WarningAction SilentlyContinue)
+        if ($null -eq $r) { return 'null' }
+        try {
+            return ($r | ConvertTo-Json -Depth 4 -Compress -WarningAction SilentlyContinue)
+        }
+        catch [System.ArgumentException] {
+            try {
+                return ($r | Select-Object * | ConvertTo-Json -Depth 4 -Compress -WarningAction SilentlyContinue)
+            }
+            catch {
+                return (($r | Out-String).Trim() | ConvertTo-Json -Compress)
+            }
+        }
     }
     [void]$ps.AddScript($userScript)
     [void]$ps.AddArgument($commandName)
