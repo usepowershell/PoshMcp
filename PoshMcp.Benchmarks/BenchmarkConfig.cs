@@ -1,6 +1,8 @@
+using BenchmarkDotNet.Columns;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Exporters;
 using BenchmarkDotNet.Loggers;
+using BenchmarkDotNet.Reports;
 
 namespace PoshMcp.Benchmarks;
 
@@ -26,5 +28,18 @@ public sealed class BenchmarkConfig : ManualConfig
         // BenchmarkDotNet so we don't have to enumerate them here. Scenarios
         // that need per-scenario tuning use attributes on the [Benchmark] methods.
         Add(DefaultConfig.Instance);
+
+        // Surface percentile columns called out in the AC for #194:
+        // "Markdown table includes columns: mode, scenario, payload size,
+        //  mean, p95, p99, crash-recovery time".
+        // BDN ships a static StatisticColumn.P95 but not P99 — see
+        // P99StatisticColumn for the custom column we add to fill the gap.
+        // For crash-recovery scenarios the Mean column IS the recovery time
+        // (each iteration kills + recovers); documented in
+        // PoshMcp.Benchmarks/README.md.
+        AddColumn(StatisticColumn.P95);
+        AddColumn(new P99StatisticColumn());
+
+        SummaryStyle = SummaryStyle.Default.WithRatioStyle(RatioStyle.Trend);
     }
 }
