@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -481,14 +482,80 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
     /// </summary>
     private static Process? GetSubprocess(OutOfProcessCommandExecutor executor)
     {
-        var hostField = typeof(OutOfProcessCommandExecutor)
-            .GetField("_host", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        var host = hostField!.GetValue(executor);
+        var host = GetHost(executor);
         if (host is null) return null;
 
-        var processField = host.GetType()
+        var processField = typeof(OutOfProcessHost)
             .GetField("_process", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
         return (Process?)processField!.GetValue(host);
+    }
+
+    /// <summary>
+    /// Reflects through the executor to grab the live OutOfProcessHost so tests
+    /// can issue raw JSON-RPC requests (SendRequestAsync) that surface the full
+    /// response envelope (e.g., the hadErrors flag).
+    /// </summary>
+    private static OutOfProcessHost? GetHost(OutOfProcessCommandExecutor executor)
+    {
+        var hostField = typeof(OutOfProcessCommandExecutor)
+            .GetField("_host", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        return (OutOfProcessHost?)hostField!.GetValue(executor);
+    }
+
+    // ---- Regression tests ----
+
+    /// <summary>
+    /// Regression for issue #189: in the single-runspace OOP host, $Error is process-global
+    /// and was not cleared between invokes. A failing invoke would leak its error count into
+    /// the next invoke's hadErrors flag, producing a false positive. The fix is a one-line
+    /// $Error.Clear() in Invoke-InvokeHandler before the user command runs.
+    ///
+    /// This test calls invoke twice via the host's SendRequestAsync (which exposes the raw
+    /// response): first an intentionally failing call (nonexistent path), then a clean call.
+    /// Pre-fix, the second call returns hadErrors=true. Post-fix, hadErrors=false.
+    /// </summary>
+    [PwshAvailableFact]
+    public async Task HadErrorsDoesNotLeakAcrossInvokes()
+    {
+        Assert.NotNull(_executor);
+        var host = GetHost(_executor!);
+        Assert.NotNull(host);
+
+        // First invoke: deliberately produce a non-terminating error.
+        // Get-ChildItem on a path that does not exist writes to $Error but does not throw.
+        var missingPath = Path.Combine(_testTempDir, "definitely-does-not-exist-" + Guid.NewGuid().ToString("N"));
+        var failingParams = new
+        {
+            command = "Get-ChildItem",
+            parameters = new Dictionary<string, object?>
+            {
+                ["Path"] = missingPath,
+                ["ErrorAction"] = "SilentlyContinue"
+            }
+        };
+
+        var first = await host!.SendRequestAsync<JsonElement>(
+            "invoke", failingParams, CancellationToken.None);
+
+        Assert.True(first.TryGetProperty("hadErrors", out var firstHadErrors),
+            "First response should include hadErrors property.");
+        Assert.True(firstHadErrors.GetBoolean(),
+            "First (failing) invoke should report hadErrors=true.");
+
+        // Second invoke: a clean command. Pre-fix, hadErrors leaks from the previous call.
+        var cleanParams = new
+        {
+            command = "Get-Date",
+            parameters = new Dictionary<string, object?>()
+        };
+
+        var second = await host.SendRequestAsync<JsonElement>(
+            "invoke", cleanParams, CancellationToken.None);
+
+        Assert.True(second.TryGetProperty("hadErrors", out var secondHadErrors),
+            "Second response should include hadErrors property.");
+        Assert.False(secondHadErrors.GetBoolean(),
+            "Second (clean) invoke must report hadErrors=false. Errors from the prior invoke must not leak into this one (#189).");
     }
 }
 

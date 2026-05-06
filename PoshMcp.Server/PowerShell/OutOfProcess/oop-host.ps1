@@ -556,6 +556,11 @@ function Invoke-InvokeHandler {
 
     Write-Diag "Invoking: $commandName with $($splatParams.Count) parameter(s)"
 
+    # Clear $Error before invoking so non-terminating errors from prior invokes
+    # in this single-runspace host don't leak into this invoke's hadErrors flag.
+    # See issue #189.
+    $Error.Clear()
+
     try {
         $result = & $commandName @splatParams
         $hadErrors = $false
