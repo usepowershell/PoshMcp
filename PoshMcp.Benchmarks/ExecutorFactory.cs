@@ -51,53 +51,53 @@ internal static class ExecutorFactory
         switch (mode)
         {
             case HostMode.Single:
-            {
-                var exec = new OutOfProcessCommandExecutor(
-                    NullLoggerFactory.Instance,
-                    requestTimeout: timeout,
-                    hostMode: SubprocessHostMode.Single,
-                    runspacePoolSize: 0);
-                await exec.StartAsync(cancellationToken).ConfigureAwait(false);
-                return new SingleOrPoolBenchExecutor(exec);
-            }
+                {
+                    var exec = new OutOfProcessCommandExecutor(
+                        NullLoggerFactory.Instance,
+                        requestTimeout: timeout,
+                        hostMode: SubprocessHostMode.Single,
+                        runspacePoolSize: 0);
+                    await exec.StartAsync(cancellationToken).ConfigureAwait(false);
+                    return new SingleOrPoolBenchExecutor(exec);
+                }
 
             case HostMode.Pool:
-            {
-                var exec = new OutOfProcessCommandExecutor(
-                    NullLoggerFactory.Instance,
-                    requestTimeout: timeout,
-                    hostMode: SubprocessHostMode.Pool,
-                    runspacePoolSize: DefaultRunspacePoolSize);
-                await exec.StartAsync(cancellationToken).ConfigureAwait(false);
-                return new SingleOrPoolBenchExecutor(exec);
-            }
+                {
+                    var exec = new OutOfProcessCommandExecutor(
+                        NullLoggerFactory.Instance,
+                        requestTimeout: timeout,
+                        hostMode: SubprocessHostMode.Pool,
+                        runspacePoolSize: DefaultRunspacePoolSize);
+                    await exec.StartAsync(cancellationToken).ConfigureAwait(false);
+                    return new SingleOrPoolBenchExecutor(exec);
+                }
 
             case HostMode.ProcessPool:
-            {
-                // Resolve pwsh + the single-runspace host script (ProcessPool
-                // hosts run oop-host.ps1, not the pool variant — each subprocess
-                // owns one runspace).
-                var resolver = new OutOfProcessCommandExecutor(
-                    NullLoggerFactory.Instance,
-                    hostMode: SubprocessHostMode.Single);
-                var hostScript = await resolver.ResolveHostScriptPathAsync().ConfigureAwait(false);
-                var pwshPath = OutOfProcessCommandExecutor.ResolvePwshPath();
-                await resolver.DisposeAsync().ConfigureAwait(false);
+                {
+                    // Resolve pwsh + the single-runspace host script (ProcessPool
+                    // hosts run oop-host.ps1, not the pool variant — each subprocess
+                    // owns one runspace).
+                    var resolver = new OutOfProcessCommandExecutor(
+                        NullLoggerFactory.Instance,
+                        hostMode: SubprocessHostMode.Single);
+                    var hostScript = await resolver.ResolveHostScriptPathAsync().ConfigureAwait(false);
+                    var pwshPath = OutOfProcessCommandExecutor.ResolvePwshPath();
+                    await resolver.DisposeAsync().ConfigureAwait(false);
 
-                var pool = new OutOfProcessSubprocessPool(
-                    pwshPath,
-                    hostScript,
-                    new OutOfProcessSubprocessPoolOptions
-                    {
-                        PoolSize = DefaultProcessPoolSize,
-                        MinHealthyForStartup = 1,
-                    },
-                    NullLoggerFactory.Instance,
-                    requestTimeout: timeout);
+                    var pool = new OutOfProcessSubprocessPool(
+                        pwshPath,
+                        hostScript,
+                        new OutOfProcessSubprocessPoolOptions
+                        {
+                            PoolSize = DefaultProcessPoolSize,
+                            MinHealthyForStartup = 1,
+                        },
+                        NullLoggerFactory.Instance,
+                        requestTimeout: timeout);
 
-                await pool.StartAsync(cancellationToken).ConfigureAwait(false);
-                return new ProcessPoolBenchExecutor(pool);
-            }
+                    await pool.StartAsync(cancellationToken).ConfigureAwait(false);
+                    return new ProcessPoolBenchExecutor(pool);
+                }
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown HostMode.");
