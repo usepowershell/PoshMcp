@@ -90,3 +90,75 @@ Job: `IterationCount=3, WarmupCount=3, LaunchCount=1`
 ## Next
 
 Findings + recommendation for issue #196 (adopt winner) follow in `benchmark-findings.md` (separate commit).
+
+
+---
+
+## Run-4 — Reaffirmation against post-#207 main (cancellation refactor)
+
+**Date:** 2026-05-06
+**Base commit:** `17b11f8` (`feat(oop): cancellation propagation (#188) (#207)`)
+**Branch:** `squad/196b-bench-rerun`
+**Issue:** #196 (bench reaffirmation requested by Farnsworth in `farnsworth-207-review.md`)
+
+### Methodology
+
+- Harness: `PoshMcp.Benchmarks` (BenchmarkDotNet v0.14.0)
+- Filter: `*WarmInvokeThroughputBenchmark*` (focused rerun — cancellation refactor did not touch ColdStart or PayloadSize paths)
+- Job: `--job long` (LongRun: `IterationCount=100, LaunchCount=3, MaxIterationCount=20, MinIterationCount=5, WarmupCount=15`)
+- Build: `dotnet build PoshMcp.sln -c Release`
+- Total wall time: 12m 11s (3 benchmarks × 3 launches × 100 iterations)
+- Matrix: 3 `HostMode` values — `Single`, `Pool`, `ProcessPool`
+
+### Environment
+
+- BenchmarkDotNet v0.14.0
+- Windows 11 (10.0.26200.8328)
+- Processor: Unknown (Arm64)
+- .NET SDK 10.0.202
+- Host runtime: .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+- GC: Concurrent Server
+
+### Why this rerun
+
+PR #207 refactored cancellation handling in both `Single` and `Pool` host modes:
+
+- The `Single` mode dispatcher was rewritten in C# (`SingleDispatcher`) with a `BlockingCollection` queue, a dedicated worker thread, and a `ConcurrentDictionary` active-invocation registry.
+- `Pool` gained a `PoolDispatcher` for active-invocation tracking, with per-invoke `[powershell]` allocation so `BeginStop(requestId)` can target the matching pipeline without head-of-line blocking.
+- Both modes now allocate one `[powershell]` per invoke and add a dispatcher hop on the host script side.
+
+The added per-invoke allocation and dispatcher hop could plausibly add small overhead. The reaffirmation question is narrow: does `Pool` still clear the spec's ≥4× I/O bar against `Single` after #207?
+
+### WarmInvoke throughput (concurrency = 10, network-shaped)
+
+| Mode        | Mean     | StdDev  | Median   | P95      | P99        | Allocated   |
+|-------------|---------:|--------:|---------:|---------:|-----------:|------------:|
+| Single      | 664.4 ms | 7.81 ms | 662.0 ms | 677.0 ms | 682.438 ms | 205.32 KB   |
+| Pool        | 136.4 ms | 3.26 ms | 135.8 ms | 143.2 ms | 145.277 ms | 200.09 KB   |
+| ProcessPool | 205.4 ms | 4.83 ms | 203.8 ms | 214.8 ms | 219.077 ms | 203.81 KB   |
+
+### Speedup vs Single (run-4)
+
+| Mode        | Mean speedup | P99 speedup |
+|-------------|-------------:|------------:|
+| Pool        | **4.87×**    | **4.70×**   |
+| ProcessPool | 3.23×        | 3.12×       |
+
+### Delta vs run-3 (post-#204, pre-#207)
+
+| Mode        | Run-3 mean | Run-4 mean | Δ mean   | Run-3 P99   | Run-4 P99   | Δ P99    |
+|-------------|-----------:|-----------:|---------:|------------:|------------:|---------:|
+| Single      | 661.2 ms   | 664.4 ms   | **+0.48%** | 686.233 ms | 682.438 ms | **−0.55%** |
+| Pool        | 136.2 ms   | 136.4 ms   | **+0.15%** | 143.321 ms | 145.277 ms | **+1.36%** |
+| ProcessPool | 200.7 ms   | 205.4 ms   | **+2.34%** | 201.406 ms | 219.077 ms | **+8.78%** |
+
+All three mean deltas are within run-to-run noise. `Pool`'s P99 is essentially unchanged (+2 ms over a 145 ms tail). `ProcessPool`'s P99 widened the most (+17.7 ms / +8.78%); the most likely source is the new `SingleDispatcher` that backs each pooled subprocess host now adding a worker-thread hop per invoke. The mean change is small (+4.7 ms) and `ProcessPool` still falls comfortably within the spec's per-scenario thresholds — opt-in mode, not the default.
+
+### Verdict
+
+**Gate REAFFIRMED.** `Pool` clears the per-scenario ≥4× I/O bar against `Single` at concurrency 10 (4.87× mean / 4.70× P99). The cancellation refactor (#207) introduced no measurable warm-I/O regression; the `Pool`/`Single` ratio is statistically indistinguishable from run-3 (4.87× vs 4.86× mean). Default-mode adoption (Farnsworth's PR #208 / issue #196) is supported by post-#207 numbers.
+
+### Files
+
+- Raw log: `bench-runs/run-4.log`
+- BenchmarkDotNet artifacts (csv / html / github md): `bench-runs/run-4-artifacts/`
