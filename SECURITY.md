@@ -29,3 +29,14 @@ Report vulnerabilities privately through GitHub's built-in private vulnerability
 - **Credit:** Reporters are credited in the published GitHub Security Advisory unless you request otherwise.
 
 If GitHub's private vulnerability reporting is not available to you, open a minimal public issue asking maintainers to enable a private contact channel — **do not include vulnerability details in the public issue**.
+
+## Repository Security Controls
+
+The following GitHub-native security features are expected to be enabled on this repository:
+
+- **Secret scanning** — automatically detects committed credentials, API keys, and tokens in the repository history and new pushes.
+- **Push protection** — blocks pushes that contain detected secrets before they reach the remote, giving contributors a chance to remove or rotate them.
+- **Dependabot alerts** — surfaces vulnerable dependencies in NuGet and GitHub Actions manifests.
+- **CodeQL analysis** — static analysis for C# and GitHub Actions workflows runs on pull requests and on the default branch.
+
+These controls are configured in **Settings → Code security** by repository administrators. Contributors who encounter a push protection block should rotate the affected secret rather than bypassing the check.

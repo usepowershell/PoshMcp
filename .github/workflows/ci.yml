@@ -16,6 +16,13 @@ on:
       - '**.sln'
       - '.github/workflows/ci.yml'
 
+# Minimum permissions for the whole workflow. The build job only needs to read
+# repository contents; uploading test result artifacts via actions/upload-artifact@v4
+# does not require additional GITHUB_TOKEN scopes. Any future job that needs more
+# (e.g. posting check runs, writing PR comments, publishing packages) should
+# request those scopes at the job level rather than widening this top-level grant.
+permissions:
+  contents: read
 
 jobs:
   build:
