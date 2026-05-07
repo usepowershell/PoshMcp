@@ -2,7 +2,47 @@
 
 **Status:** 37.6 KB (checked 2026-05-03: within 90-day retention, no archival required)
 
-## Recent Work (2026-05-03 — CURRENT SESSION)
+## Recent Work (2026-05-06 — CURRENT SESSION)
+
+### Fix: CWE-117 log forging — `LogSanitizer` + call-site scrubbing
+**Date:** 2026-05-06
+**Status:** Complete (committed, not pushed — coordinator orchestrates push)
+**Branch:** `squad/security-codeql-cleanup`
+
+- Added `PoshMcp.Server/Observability/LogSanitizer.cs` — `Scrub(string?)` static helper.
+  - Replaces CR/LF with visible escape sequences (`\\r`, `\\n`); other ASCII C0 controls and DEL → `\\xNN`; TAB → `\\t`.
+  - Truncates at 2048 chars with `…(truncated)` suffix.
+  - Null → `"<null>"`.
+  - Allocation-conscious: returns input unchanged when no escapes needed and within length.
+- Applied at call sites only (Farnsworth's call: CodeQL `cs/log-forging` is call-site sink-tracked, so a Serilog enricher would not close the alerts).
+  - `LoggerExtensions.BeginCorrelationScope` — scrub `OperationName` before it enters scope.
+  - `AuthenticationServiceExtensions` `OnMessageReceived` — scrub `context.Request.Path` (attacker-controlled).
+  - `PowerShellAssemblyGenerator`:
+    - Introduced `safeCommandName` local once at top of `ExecutePowerShellCommandTyped`; replaced all log/metric sink uses of `commandName` (≈25 sites) with the sanitized form. Raw `commandName` still used at `ps.AddCommand(...)`/`OperationContext.BeginOperation(...)` and in the JSON error responses returned to MCP callers.
+    - Scrubbed `paramInfo.Name`, `paramValue`, `convertedValue`, PowerShell error stream messages, exception messages.
+    - Generation-time logs (`GenerateAssembly`, `GenerateMethodForCommand`) — scrubbed `command.Name`, `commandInfo.Name`, `parameterSet.Name`, `ex.Message`. Also converted several `$"..."` interpolated log calls to structured templates while wrapping tainted args.
+    - `HandlePowerShellErrors`, `InvokePowerShellSafe`, `InvokePowerShellSafeAsync`, `ConvertToJson` — scrubbed `operationName` (interpolates `commandName` at call sites) and PS error messages at every log sink.
+- Added 9 focused tests at `PoshMcp.Tests/Unit/Observability/LogSanitizerTests.cs`. All pass.
+- Build clean (0 errors; 19 pre-existing warnings — no new warnings introduced).
+- Full Unit test slice: 452 passed, 0 failed.
+
+**Files modified:**
+- `PoshMcp.Server/Observability/LogSanitizer.cs` (new)
+- `PoshMcp.Server/Observability/LoggerExtensions.cs`
+- `PoshMcp.Server/Authentication/AuthenticationServiceExtensions.cs`
+- `PoshMcp.Server/PowerShell/PowerShellAssemblyGenerator.cs`
+- `PoshMcp.Tests/Unit/Observability/LogSanitizerTests.cs` (new)
+
+## Learnings
+
+- **CWE-117 / `cs/log-forging`** — CodeQL's taint analysis tracks **call-site sinks**, not whether a Serilog enricher exists in the pipeline. Centralized enrichers do not close the alerts; call-site `Scrub()` does. (Farnsworth call.)
+- When a log statement uses interpolated `$"..."` strings, prefer converting to structured templates (`"... {Foo} ..."` + arg) when adding scrub wrappers — it's both safer and gives observability platforms structured fields. Keep the change minimal: don't restructure messages that don't need scrubbing.
+- For methods with many log calls referencing the same tainted value (here: `commandName` ≈25× in `ExecutePowerShellCommandTyped`), introduce one `safeFoo` local at the method top rather than wrapping `Scrub(...)` 25 times. Easier to read, single allocation, and you can document the sanitization rationale once.
+- Distinguish carefully between log sinks and operational uses of the same value. `ps.AddCommand(commandName)` MUST stay raw — escaping the cmdlet name would break invocation. Only sanitize where the value flows into a logger/metric tag/scope.
+
+---
+
+## Recent Work (2026-05-03 — PRIOR SESSION)
 
 ### Fix: RequiredRoles OR Semantics
 **Date:** 2026-05-03
