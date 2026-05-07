@@ -304,6 +304,8 @@ Full-featured configuration with Azure integration:
 - Advanced module usage
 - Pattern-based function filtering
 
+**Runtime mode:** This sample sets `RuntimeMode: "OutOfProcess"` with `SubprocessHostMode: "Pool"` (the recommended default since 2026-05-06). Heavy modules such as `Az.*` benefit from subprocess isolation, and the runspace pool delivers the best concurrent throughput for typical MCP workloads. Pool size auto-tunes to `min(ProcessorCount, 8)` when `SubprocessRunspacePoolSize` is `0`. See [Advanced Configuration → Out-of-Process PowerShell](../docs/articles/advanced.md#out-of-process-powershell) for the full taxonomy.
+
 ### appsettings.tenant.json
 
 Multi-tenant configuration:
@@ -327,6 +329,8 @@ Multi-tenant configuration:
 - Tenant-specific initialization
 - Per-tenant module management
 - Isolated PowerShell runspaces per tenant
+
+**Runtime mode:** This sample sets `RuntimeMode: "OutOfProcess"` with `SubprocessHostMode: "ProcessPool"` (`SubprocessPoolSize: 4`, `SubprocessMinHealthyForStartup: 2`). `ProcessPool` leases an independent `pwsh` subprocess per request, which gives each tenant invocation hard process isolation and per-slot crash recovery — the right tradeoff when trust boundaries between callers matter more than peak throughput. Tune `SubprocessPoolSize` to your expected concurrency. See [Advanced Configuration → Out-of-Process PowerShell](../docs/articles/advanced.md#out-of-process-powershell).
 
 ## Startup Scripts Explained
 

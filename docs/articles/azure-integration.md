@@ -85,7 +85,7 @@ These settings from your server's `appsettings.json` are automatically converted
 
 - **PowerShellConfiguration.CommandNames** — Exposed PowerShell functions
 - **PowerShellConfiguration.Modules** — Preinstalled modules
-- **PowerShellConfiguration.RuntimeMode** — Execution mode (sync/async)
+- **PowerShellConfiguration.RuntimeMode** — Execution mode (`InProcess` or `OutOfProcess`; `OutOfProcess` runs commands in a `pwsh` subprocess for module isolation)
 - **Logging settings** — Log levels and sinks
 - **Authentication settings** — Identity provider configuration
 - **Health check configuration** — Diagnostics and monitoring
