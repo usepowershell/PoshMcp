@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>PoshMcp.Benchmarks.Scenarios.PayloadSizeSerializationBenchmark-20260506-214936</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.14.0, Windows 11 (10.0.26200.8328)
+Unknown processor
+.NET SDK 10.0.202
+  [Host]   : .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+  ShortRun : .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+</code></pre>
+<pre><code>Job=ShortRun  IterationCount=3  LaunchCount=1  
+MaxIterationCount=15  MinIterationCount=5  WarmupCount=3  
+</code></pre>
+
+<table>
+<thead><tr><th>Method                                                   </th><th>Mode </th><th>PayloadBytes</th><th>Mean </th><th>Error </th><th>StdDev</th><th>P99</th><th>Median</th><th>P95  </th><th>Gen0</th><th>Gen1</th><th>Gen2</th><th>Allocated</th>
+</tr>
+</thead><tbody><tr><td>&#39;Round-trip a string of size PayloadBytes through Write-Output&#39;</td><td>Single</td><td>1024</td><td>286.3 &mu;s</td><td>267.3 &mu;s</td><td>14.65 &mu;s</td><td>0.297 ms</td><td>292.4 &mu;s</td><td>296.5 &mu;s</td><td>-</td><td>-</td><td>-</td><td>11.78 KB</td>
+</tr><tr><td>&#39;Round-trip a string of size PayloadBytes through Write-Output&#39;</td><td>Single</td><td>16384</td><td>974.6 &mu;s</td><td>562.5 &mu;s</td><td>30.83 &mu;s</td><td>0.994 ms</td><td>991.2 &mu;s</td><td>993.3 &mu;s</td><td>3.9063</td><td>-</td><td>-</td><td>126.96 KB</td>
+</tr><tr><td>&#39;Round-trip a string of size PayloadBytes through Write-Output&#39;</td><td>Single</td><td>262144</td><td>19,822.2 &mu;s</td><td>182,235.9 &mu;s</td><td>9,988.96 &mu;s</td><td>30.946 ms</td><td>15,363.2 &mu;s</td><td>29,674.0 &mu;s</td><td>62.5000</td><td>62.5000</td><td>62.5000</td><td>2486.01 KB</td>
+</tr><tr><td>&#39;Round-trip a string of size PayloadBytes through Write-Output&#39;</td><td>Single</td><td>1048576</td><td>57,208.6 &mu;s</td><td>58,725.6 &mu;s</td><td>3,218.95 &mu;s</td><td>59.355 ms</td><td>58,749.7 &mu;s</td><td>59,305.6 &mu;s</td><td>285.7143</td><td>285.7143</td><td>285.7143</td><td>16339.57 KB</td>
+</tr><tr><td>&#39;Round-trip a string of size PayloadBytes through Write-Output&#39;</td><td>Pool</td><td>1024</td><td>1,667.5 &mu;s</td><td>3,737.7 &mu;s</td><td>204.88 &mu;s</td><td>1.808 ms</td><td>1,761.2 &mu;s</td><td>1,804.0 &mu;s</td><td>-</td><td>-</td><td>-</td><td>12.3 KB</td>
+</tr><tr><td>&#39;Round-trip a string of size PayloadBytes through Write-Output&#39;</td><td>Pool</td><td>16384</td><td>2,475.0 &mu;s</td><td>5,246.1 &mu;s</td><td>287.56 &mu;s</td><td>2.702 ms</td><td>2,567.2 &mu;s</td><td>2,691.4 &mu;s</td><td>3.9063</td><td>-</td><td>-</td><td>124.87 KB</td>
+</tr><tr><td>&#39;Round-trip a string of size PayloadBytes through Write-Output&#39;</td><td>Pool</td><td>262144</td><td>19,115.3 &mu;s</td><td>104,464.0 &mu;s</td><td>5,726.02 &mu;s</td><td>25.381 ms</td><td>17,223.9 &mu;s</td><td>24,715.4 &mu;s</td><td>62.5000</td><td>62.5000</td><td>62.5000</td><td>2459.68 KB</td>
+</tr><tr><td>&#39;Round-trip a string of size PayloadBytes through Write-Output&#39;</td><td>Pool</td><td>1048576</td><td>51,358.4 &mu;s</td><td>49,854.8 &mu;s</td><td>2,732.71 &mu;s</td><td>53.976 ms</td><td>51,482.2 &mu;s</td><td>53,772.7 &mu;s</td><td>200.0000</td><td>200.0000</td><td>200.0000</td><td>13786.75 KB</td>
+</tr><tr><td>&#39;Round-trip a string of size PayloadBytes through Write-Output&#39;</td><td>ProcessPool</td><td>1024</td><td>536.8 &mu;s</td><td>1,777.9 &mu;s</td><td>97.45 &mu;s</td><td>0.646 ms</td><td>487.4 &mu;s</td><td>632.9 &mu;s</td><td>-</td><td>-</td><td>-</td><td>12.25 KB</td>
+</tr><tr><td>&#39;Round-trip a string of size PayloadBytes through Write-Output&#39;</td><td>ProcessPool</td><td>16384</td><td>1,128.1 &mu;s</td><td>413.8 &mu;s</td><td>22.68 &mu;s</td><td>1.151 ms</td><td>1,126.1 &mu;s</td><td>1,149.1 &mu;s</td><td>3.9063</td><td>-</td><td>-</td><td>125.5 KB</td>
+</tr><tr><td>&#39;Round-trip a string of size PayloadBytes through Write-Output&#39;</td><td>ProcessPool</td><td>262144</td><td>14,400.0 &mu;s</td><td>31,677.0 &mu;s</td><td>1,736.32 &mu;s</td><td>16.345 ms</td><td>13,415.4 &mu;s</td><td>16,105.9 &mu;s</td><td>62.5000</td><td>62.5000</td><td>62.5000</td><td>2830.12 KB</td>
+</tr><tr><td>&#39;Round-trip a string of size PayloadBytes through Write-Output&#39;</td><td>ProcessPool</td><td>1048576</td><td>55,332.0 &mu;s</td><td>34,508.4 &mu;s</td><td>1,891.52 &mu;s</td><td>57.051 ms</td><td>55,590.0 &mu;s</td><td>56,932.2 &mu;s</td><td>375.0000</td><td>375.0000</td><td>375.0000</td><td>17363.35 KB</td>
+</tr></tbody></table>
+</body>
+</html>

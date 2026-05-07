@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>PoshMcp.Benchmarks.Scenarios.ColdStartBenchmark-20260506-214735</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.14.0, Windows 11 (10.0.26200.8328)
+Unknown processor
+.NET SDK 10.0.202
+  [Host]   : .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+  ShortRun : .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+</code></pre>
+<pre><code>Job=ShortRun  InvocationCount=1  IterationCount=3  
+LaunchCount=1  MaxIterationCount=10  MinIterationCount=3  
+UnrollFactor=1  WarmupCount=3  
+</code></pre>
+
+<table>
+<thead><tr><th>Method                                       </th><th>Mode </th><th>Mean</th><th>Error</th><th>StdDev</th><th>P99   </th><th>P95</th>
+</tr>
+</thead><tbody><tr><td>&#39;Cold start: ctor → start → first invoke → dispose&#39;</td><td>Single</td><td>5.403 s</td><td>0.2624 s</td><td>0.0144 s</td><td>5,417.913 ms</td><td>5.416 s</td>
+</tr><tr><td>&#39;Cold start: ctor → start → first invoke → dispose&#39;</td><td>Pool</td><td>5.881 s</td><td>0.7962 s</td><td>0.0436 s</td><td>5,929.122 ms</td><td>5.924 s</td>
+</tr><tr><td>&#39;Cold start: ctor → start → first invoke → dispose&#39;</td><td>ProcessPool</td><td>5.803 s</td><td>0.3335 s</td><td>0.0183 s</td><td>5,821.786 ms</td><td>5.820 s</td>
+</tr></tbody></table>
+</body>
+</html>
