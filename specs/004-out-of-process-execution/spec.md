@@ -2,7 +2,7 @@
 
 **Feature Branch**: `004-out-of-process-execution`
 **Created**: 2026-04-17
-**Status**: Draft
+**Status**: Implemented (default `SubprocessHostMode = Pool` as of 2026-05-06, issue #196)
 **Input**: Run PowerShell commands in a separate persistent `pwsh` subprocess so that heavy or conflicting modules (Az, Microsoft.Graph) cannot crash or deadlock the MCP server
 
 ## User Scenarios & Testing *(mandatory)*
@@ -177,3 +177,37 @@ The server's doctor/health tooling MUST verify the following when `RuntimeMode` 
 - Module installation in the subprocess (`Install-Module`) requires internet access or a configured repository; the server does not manage offline module caches
 - In out-of-process mode, interactive prompt support is out of scope (see spec 003); all commands must be non-interactive
 - The subprocess host script is shipped alongside the server binary and does not require a separate installation step
+
+---
+
+## Implementation Notes (added 2026-05-06)
+
+The original spec assumed a single subprocess with one runspace and serialized requests. The implementation has expanded that surface; the original requirements still hold for the `Single` host mode and the assumption above is **superseded** by the host-mode taxonomy below.
+
+### `SubprocessHostMode`
+
+When `RuntimeMode` is `OutOfProcess`, the `PowerShellConfiguration:SubprocessHostMode` setting selects the host topology:
+
+| `SubprocessHostMode` | Topology | Notes |
+|----------------------|----------|-------|
+| `Pool` (default) | One subprocess, runspace pool inside it (`oop-host-pool.ps1`) | Default since 2026-05-06 (#196). Best concurrent warm-invoke throughput; uses a custom `PSHost` to keep `[Console]::Out` ordering safe across runspaces. Pool size is `SubprocessRunspacePoolSize` (0 = auto-size to `min(ProcessorCount, 8)`). |
+| `ProcessPool` | N independent single-runspace subprocess hosts, leased per request | For tail-latency- or trust-boundary-sensitive workloads. Pool size is `SubprocessPoolSize` (default 4); `SubprocessMinHealthyForStartup` is the gate (clamped to `[1, SubprocessPoolSize]`). |
+| `Single` | One subprocess, one runspace, serialized requests (`oop-host.ps1`) | The original spec contract. Backward compatible; useful for bisecting and for callers who care only about cold-start. |
+
+The benchmark study driving the default flip is recorded in [`benchmark-findings.md`](benchmark-findings.md) (run-3 data). Doctor (`poshmcp doctor`) reports the resolved host mode, effective pool sizes, the host-script path, and clamp warnings.
+
+### Cancellation Contract
+
+- The MCP request-side `CancellationToken` is propagated through `OutOfProcessHost.InvokeAsync` to the subprocess channel, including when the call is awaiting a response.
+- For `Pool`: when a token is cancelled, the host issues a stop request to the matching runspace and the lease is returned. The pool's effective concurrency under stuck-but-cancelled invokes is `N - in_flight_uncancelled`, not `N - stuck`.
+- For `ProcessPool`: cancellation tears down the leased subprocess and the pool spins a replacement. The remaining hosts are unaffected.
+- For `Single`: the historical timeout-and-restart behavior remains. A cancelled invoke does not preserve the host.
+- Cancellation propagation is a hard prerequisite for the `Pool` default and was wired through PR #207 prior to the default flip.
+
+### Supersedence of Original Assumptions
+
+- "One subprocess instance is created per executor" — superseded by `ProcessPool`.
+- "Concurrency is handled by serializing requests" — superseded by both `Pool` (intra-process concurrency via runspace pool) and `ProcessPool` (inter-process concurrency via lease).
+- FR-051 ("MUST serialize out-of-process tool invocations to prevent concurrent in-flight requests from corrupting the subprocess communication channel") still applies, but the unit of serialization is now the **channel writer**, not the request stream. The subprocess protocol carries a request id so the host can multiplex responses back to the correct caller.
+
+The remaining requirements (FR-044 through FR-054), success criteria, and edge cases continue to hold for all three host modes.

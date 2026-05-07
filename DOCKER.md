@@ -90,6 +90,7 @@ poshmcp build --modules "Az.Accounts Az.KeyVault" --tag myorg/poshmcp:prod
 - `POSHMCP_TRANSPORT` --- `http` or `stdio` (default: `http`)
 - `POSHMCP_LOG_LEVEL` --- `trace|debug|info|warn|error`
 - `POSHMCP_LOG_FILE` --- Path to log file (stdio mode only). In containers, use a volume-mounted path (e.g., `/data/poshmcp.log`) for persistence
+- `POSHMCP_RUNTIME_MODE` --- `InProcess` (default) or `OutOfProcess`. Selects the PowerShell execution model. Use `OutOfProcess` for module-isolation scenarios; configure the host topology via the `PowerShellConfiguration:SubprocessHostMode` setting in appsettings.json (default `Pool`). See [README.md](README.md#out-of-process-powershell-runtime-advanced).
 
 Run `poshmcp doctor --help` for all diagnostic options.
 

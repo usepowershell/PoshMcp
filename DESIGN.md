@@ -31,7 +31,7 @@ This project bridges traditional scripting with modern AI interfaces, extending 
 
 ### Execution engine
 - Isolated PowerShell runspace per session for resource isolation
-- Runtime mode support: in-process (default) and out-of-process PowerShell execution
+- Runtime mode support: in-process (default) and out-of-process PowerShell execution. Out-of-process mode launches a runspace-pool host (`SubprocessHostMode: Pool`) by default; `ProcessPool` and `Single` remain available as opt-in topologies. Default rationale and benchmark data are recorded in [`specs/004-out-of-process-execution/benchmark-findings.md`](specs/004-out-of-process-execution/benchmark-findings.md).
 - Input/output translation for AI consumption
 - Azure Managed Identity support when deployed as a container in Azure (no code changes required)
 
