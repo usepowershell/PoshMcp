@@ -171,9 +171,9 @@ internal static class DoctorService
             authConfig: authConfig,
             currentIdentity: currentIdentity)
             with
-            {
-                OutOfProcess = BuildOutOfProcessSection(config, configurationPath, Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance),
-            };
+        {
+            OutOfProcess = BuildOutOfProcessSection(config, configurationPath, Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance),
+        };
     }
 
     /// <summary>
