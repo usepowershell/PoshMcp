@@ -101,3 +101,32 @@
 
 ---
 *Further trimmed to 100 lines on 2026-05-05 by Scribe (15KB gate). Full record in `history-archive.md`.*
+
+### 2026-05-07: OOP Docs + Samples Audit (PR #210)
+
+**Task:** Audit whether spec 004 OOP changes (default flip to Pool, SubprocessHostMode taxonomy, pool sizing knobs, cancellation contract) reached the configuration docs under `./docs` and the sample `appsettings.json` files.
+
+**Verdict:** Docs — gaps (substantive). Samples — partial.
+
+**What needed updating:**
+- `docs/articles/advanced.md` — Out-of-Process section was stale: only mentioned `POSHMCP_RUNTIME_MODE=out-of-process` (wrong casing), no `SubprocessHostMode`, no Pool default, no sizing knobs, no cancellation contract.
+- `docs/articles/configuration.md` — full `appsettings.json` reference omitted `RuntimeMode` and `SubprocessHostMode` entirely.
+- `docs/articles/azure-integration.md` — described `RuntimeMode` as "sync/async". It's `InProcess` / `OutOfProcess`.
+- `examples/appsettings.advanced.json` — no PowerShell runtime tuning, despite loading `Az.*` modules.
+- `examples/appsettings.tenant.json` — no PowerShell runtime tuning, despite the multi-tenant trust-boundary use case being exactly what `ProcessPool` exists for.
+
+**What I left alone:**
+- `examples/appsettings.basic.json` — purpose is simple/learning. Adding OOP config there changes the sample's purpose.
+- `PoshMcp.Server/default.appsettings.json`, `appsettings.modules.json`, `appsettings.azure.json`, `appsettings.environment-example.json` — loaded by dev server / tests in source builds. Out of audit scope; would silently change dev runtime.
+- `README.md` / `DOCKER.md` — already updated in #208.
+- `docs/release-notes/` — release notes for the default flip belong with the release that ships it.
+
+**Key insight — when to extend an existing doc vs add a new one:**
+The task brief offered the option of creating a new "Out-of-Process Execution Modes" article. I extended `advanced.md` instead because (a) the existing OOP section was the natural home for the topic, (b) `configuration.md` already had a full `appsettings.json` reference that needed the `RuntimeMode`/`SubprocessHostMode` row added regardless, and (c) cross-linking from the brief reference in configuration.md into the deep-dive in advanced.md gives readers two natural entry points without duplicating content. Net result: one rewritten section + one new section + one fix, no new TOC entry, no content split across two articles.
+
+**Key insight — sample-rationale belongs in the README, not as JSON comments:**
+`appsettings.json` doesn't support comments. To explain why advanced.json picks `Pool` and tenant.json picks `ProcessPool`, I added a "Runtime mode" note to each sample's section in `examples/README.md` rather than trying to encode rationale in key names or duplicate the schema docs. This keeps the samples copy-pasteable as-is.
+
+**Build sanity:** `dotnet build PoshMcp.sln -c Debug` — green; only pre-existing nullable warnings.
+
+**PR:** #210 (do not merge — pending Steven's review).
