@@ -6,8 +6,8 @@ PoshMcp is currently in pre-1.0 development. Only the latest 0.x minor release l
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.10.x  | :white_check_mark: |
-| < 0.10  | :x:                |
+| 0.11.x  | :white_check_mark: |
+| < 0.11  | :x:                |
 
 Once 1.0 ships, this policy will be revised to cover one or more stable release lines.
 

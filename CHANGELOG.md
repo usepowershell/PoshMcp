@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented here.
 
+## [0.11.0] - 2026-05-07
+
+### Added
+- **Out-of-process subprocess pool (marquee)** — New `Pool` host mode runs PowerShell in a pool of warm out-of-process `pwsh` hosts, dramatically reducing per-invoke latency vs. cold-start while keeping each host isolated. `Pool` is now the default `SubprocessHostMode`. (#196)
+  - `ProcessPool` mode: process-per-invoke pool executor for workloads requiring full process isolation. (#175 series)
+  - Extracted `OutOfProcessHost` abstraction so host strategies (single, pool, process-pool) share a common contract.
+  - Cancellation propagation across the OOP boundary — client-cancelled invokes now reliably terminate the underlying host work. (#188)
+- **PoshMcp.Benchmarks harness** — New BenchmarkDotNet-based project covering cold-start, warm-invoke throughput, and payload-size serialization scenarios, with a custom P99 statistic column for tail-latency reporting.
+
+### Improved
+- **Documentation** — README and DESIGN updated to reflect `Pool` as the default host mode and to document the full `SubprocessHostMode` taxonomy (InProcess / Subprocess / Pool / ProcessPool). (#210)
+- **Spec 004** — Runspace pool experiment plan published under `specs/004-out-of-process-execution/`. (#187)
+
+### Fixed
+- **OOP host: `ConvertTo-Json` wrapping** — Result serialization for OOP hosts now wraps output through `ConvertTo-Json` consistently, fixing payload shape regressions for complex objects. (#203)
+- **OOP host: `$Error` cleared before invoke** — Prevents stale errors from a previous invocation leaking into the next caller's diagnostic output. (#189)
+
+### Security
+- **CWE-117 log-injection hardening in OOP host** — All log call sites consuming attacker-controllable values (MCP method names, subprocess stdout/stderr, echoed request ids) are now scrubbed via `LogSanitizer.Scrub()` before logging.
+- **CI hardening** — All GitHub Actions workflows pinned to minimum required permissions; `SECURITY.md` published with vulnerability reporting policy.
+
 ## [0.10.0] - 2026-05-03
 
 ### Added
