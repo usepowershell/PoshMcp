@@ -1,0 +1,1562 @@
+// Validating benchmarks:
+// ***** BenchmarkRunner: Start   *****
+// ***** Found 18 benchmark(s) in total *****
+// ***** Building 1 exe(s) in Parallel: Start   *****
+// start dotnet  restore /p:UseSharedCompilation=false /p:BuildInParallel=false /m:1 /p:Deterministic=true /p:Optimize=true /p:IntermediateOutputPath="C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\obj\Release\net10.0/" /p:OutDir="C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0/" /p:OutputPath="C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0/" in C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7
+// command took 1.09 sec and exited with 0
+// start dotnet  build -c Release --no-restore /p:UseSharedCompilation=false /p:BuildInParallel=false /m:1 /p:Deterministic=true /p:Optimize=true /p:IntermediateOutputPath="C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\obj\Release\net10.0/" /p:OutDir="C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0/" /p:OutputPath="C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0/" --output "C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0/" in C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7
+// command took 8.77 sec and exited with 0
+// ***** Done, took 00:00:09 (9.95 sec)   *****
+// Found 3 benchmarks:
+//   ColdStartBenchmark.'Cold start: ctor ΓåÆ start ΓåÆ first invoke ΓåÆ dispose': ShortRun(InvocationCount=1, IterationCount=3, LaunchCount=1, MaxIterationCount=10, MinIterationCount=3, UnrollFactor=1, WarmupCount=3) [Mode=Single]
+//   ColdStartBenchmark.'Cold start: ctor ΓåÆ start ΓåÆ first invoke ΓåÆ dispose': ShortRun(InvocationCount=1, IterationCount=3, LaunchCount=1, MaxIterationCount=10, MinIterationCount=3, UnrollFactor=1, WarmupCount=3) [Mode=Pool]
+//   ColdStartBenchmark.'Cold start: ctor ΓåÆ start ΓåÆ first invoke ΓåÆ dispose': ShortRun(InvocationCount=1, IterationCount=3, LaunchCount=1, MaxIterationCount=10, MinIterationCount=3, UnrollFactor=1, WarmupCount=3) [Mode=ProcessPool]
+
+Setup power plan (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c FriendlyName: High performance)
+// **************************
+// Benchmark: ColdStartBenchmark.'Cold start: ctor ΓåÆ start ΓåÆ first invoke ΓåÆ dispose': ShortRun(InvocationCount=1, IterationCount=3, LaunchCount=1, MaxIterationCount=10, MinIterationCount=3, UnrollFactor=1, WarmupCount=3) [Mode=Single]
+// *** Execute ***
+// Launch: 1 / 1
+// Execute: dotnet ac3d9e17-70ef-40b4-ba10-f0200a0edfe7.dll --anonymousPipes 1756 1900 --benchmarkName "PoshMcp.Benchmarks.Scenarios.ColdStartBenchmark.ColdStart(Mode: Single)" --job ShortRun --benchmarkId 0 in C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0
+// BeforeAnythingElse
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.14.0
+// Runtime=.NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+// GC=Concurrent Server
+// HardwareIntrinsics=AdvSIMD,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: ShortRun(InvocationCount=1, IterationCount=3, LaunchCount=1, MaxIterationCount=10, MinIterationCount=3, UnrollFactor=1, WarmupCount=3)
+
+OverheadJitting  1: 1 op, 164200.00 ns, 164.2000 us/op
+WorkloadJitting  1: 1 op, 5638418300.00 ns, 5.6384 s/op
+
+OverheadWarmup   1: 1 op, 100.00 ns, 100.0000 ns/op
+OverheadWarmup   2: 1 op, 300.00 ns, 300.0000 ns/op
+OverheadWarmup   3: 1 op, 200.00 ns, 200.0000 ns/op
+OverheadWarmup   4: 1 op, 300.00 ns, 300.0000 ns/op
+OverheadWarmup   5: 1 op, 400.00 ns, 400.0000 ns/op
+OverheadWarmup   6: 1 op, 300.00 ns, 300.0000 ns/op
+
+OverheadActual   1: 1 op, 600.00 ns, 600.0000 ns/op
+OverheadActual   2: 1 op, 500.00 ns, 500.0000 ns/op
+OverheadActual   3: 1 op, 300.00 ns, 300.0000 ns/op
+OverheadActual   4: 1 op, 300.00 ns, 300.0000 ns/op
+OverheadActual   5: 1 op, 300.00 ns, 300.0000 ns/op
+OverheadActual   6: 1 op, 200.00 ns, 200.0000 ns/op
+OverheadActual   7: 1 op, 300.00 ns, 300.0000 ns/op
+OverheadActual   8: 1 op, 200.00 ns, 200.0000 ns/op
+OverheadActual   9: 1 op, 300.00 ns, 300.0000 ns/op
+OverheadActual  10: 1 op, 200.00 ns, 200.0000 ns/op
+
+WorkloadWarmup   1: 1 op, 5399397800.00 ns, 5.3994 s/op
+WorkloadWarmup   2: 1 op, 5442304100.00 ns, 5.4423 s/op
+WorkloadWarmup   3: 1 op, 5405032900.00 ns, 5.4050 s/op
+
+// BeforeActualRun
+WorkloadActual   1: 1 op, 5399073000.00 ns, 5.3991 s/op
+WorkloadActual   2: 1 op, 5418297700.00 ns, 5.4183 s/op
+WorkloadActual   3: 1 op, 5390158400.00 ns, 5.3902 s/op
+
+// AfterActualRun
+WorkloadResult   1: 1 op, 5399072700.00 ns, 5.3991 s/op
+WorkloadResult   2: 1 op, 5418297400.00 ns, 5.4183 s/op
+WorkloadResult   3: 1 op, 5390158100.00 ns, 5.3902 s/op
+
+// AfterAll
+// Benchmark Process 53704 has exited with code 0.
+
+Mean = 5.403 s, StdErr = 0.008 s (0.15%), N = 3, StdDev = 0.014 s
+Min = 5.390 s, Q1 = 5.395 s, Median = 5.399 s, Q3 = 5.409 s, Max = 5.418 s
+IQR = 0.014 s, LowerFence = 5.374 s, UpperFence = 5.430 s
+ConfidenceInterval = [5.140 s; 5.665 s] (CI 99.9%), Margin = 0.262 s (4.86% of Mean)
+Skewness = 0.23, Kurtosis = 0.67, MValue = 2
+
+// ** Remained 17 (94.4%) benchmark(s) to run. Estimated finish 2026-05-06 21:59 (0h 10m from now) **
+Setup power plan (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c FriendlyName: High performance)
+// **************************
+// Benchmark: ColdStartBenchmark.'Cold start: ctor ΓåÆ start ΓåÆ first invoke ΓåÆ dispose': ShortRun(InvocationCount=1, IterationCount=3, LaunchCount=1, MaxIterationCount=10, MinIterationCount=3, UnrollFactor=1, WarmupCount=3) [Mode=Pool]
+// *** Execute ***
+// Launch: 1 / 1
+// Execute: dotnet ac3d9e17-70ef-40b4-ba10-f0200a0edfe7.dll --anonymousPipes 2256 1752 --benchmarkName "PoshMcp.Benchmarks.Scenarios.ColdStartBenchmark.ColdStart(Mode: Pool)" --job ShortRun --benchmarkId 1 in C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0
+// BeforeAnythingElse
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.14.0
+// Runtime=.NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+// GC=Concurrent Server
+// HardwareIntrinsics=AdvSIMD,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: ShortRun(InvocationCount=1, IterationCount=3, LaunchCount=1, MaxIterationCount=10, MinIterationCount=3, UnrollFactor=1, WarmupCount=3)
+
+OverheadJitting  1: 1 op, 125000.00 ns, 125.0000 us/op
+WorkloadJitting  1: 1 op, 6171667500.00 ns, 6.1717 s/op
+
+OverheadWarmup   1: 1 op, 200.00 ns, 200.0000 ns/op
+OverheadWarmup   2: 1 op, 200.00 ns, 200.0000 ns/op
+OverheadWarmup   3: 1 op, 100.00 ns, 100.0000 ns/op
+OverheadWarmup   4: 1 op, 1100.00 ns, 1.1000 us/op
+OverheadWarmup   5: 1 op, 200.00 ns, 200.0000 ns/op
+
+OverheadActual   1: 1 op, 100.00 ns, 100.0000 ns/op
+OverheadActual   2: 1 op, 200.00 ns, 200.0000 ns/op
+OverheadActual   3: 1 op, 500.00 ns, 500.0000 ns/op
+OverheadActual   4: 1 op, 100.00 ns, 100.0000 ns/op
+OverheadActual   5: 1 op, 100.00 ns, 100.0000 ns/op
+OverheadActual   6: 1 op, 100.00 ns, 100.0000 ns/op
+OverheadActual   7: 1 op, 0.00 ns, 0.0000 ns/op
+OverheadActual   8: 1 op, 800.00 ns, 800.0000 ns/op
+OverheadActual   9: 1 op, 200.00 ns, 200.0000 ns/op
+OverheadActual  10: 1 op, 200.00 ns, 200.0000 ns/op
+
+WorkloadWarmup   1: 1 op, 5844271000.00 ns, 5.8443 s/op
+WorkloadWarmup   2: 1 op, 5857543500.00 ns, 5.8575 s/op
+WorkloadWarmup   3: 1 op, 5831874900.00 ns, 5.8319 s/op
+
+// BeforeActualRun
+WorkloadActual   1: 1 op, 5861130800.00 ns, 5.8611 s/op
+WorkloadActual   2: 1 op, 5849945400.00 ns, 5.8499 s/op
+WorkloadActual   3: 1 op, 5930509300.00 ns, 5.9305 s/op
+
+// AfterActualRun
+WorkloadResult   1: 1 op, 5861130650.00 ns, 5.8611 s/op
+WorkloadResult   2: 1 op, 5849945250.00 ns, 5.8499 s/op
+WorkloadResult   3: 1 op, 5930509150.00 ns, 5.9305 s/op
+
+// AfterAll
+// Benchmark Process 46936 has exited with code 0.
+
+Mean = 5.881 s, StdErr = 0.025 s (0.43%), N = 3, StdDev = 0.044 s
+Min = 5.850 s, Q1 = 5.856 s, Median = 5.861 s, Q3 = 5.896 s, Max = 5.931 s
+IQR = 0.040 s, LowerFence = 5.795 s, UpperFence = 5.956 s
+ConfidenceInterval = [5.084 s; 6.677 s] (CI 99.9%), Margin = 0.796 s (13.54% of Mean)
+Skewness = 0.36, Kurtosis = 0.67, MValue = 2
+
+// ** Remained 16 (88.9%) benchmark(s) to run. Estimated finish 2026-05-06 21:59 (0h 10m from now) **
+Setup power plan (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c FriendlyName: High performance)
+// **************************
+// Benchmark: ColdStartBenchmark.'Cold start: ctor ΓåÆ start ΓåÆ first invoke ΓåÆ dispose': ShortRun(InvocationCount=1, IterationCount=3, LaunchCount=1, MaxIterationCount=10, MinIterationCount=3, UnrollFactor=1, WarmupCount=3) [Mode=ProcessPool]
+// *** Execute ***
+// Launch: 1 / 1
+// Execute: dotnet ac3d9e17-70ef-40b4-ba10-f0200a0edfe7.dll --anonymousPipes 2296 1752 --benchmarkName "PoshMcp.Benchmarks.Scenarios.ColdStartBenchmark.ColdStart(Mode: ProcessPool)" --job ShortRun --benchmarkId 2 in C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0
+// BeforeAnythingElse
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.14.0
+// Runtime=.NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+// GC=Concurrent Server
+// HardwareIntrinsics=AdvSIMD,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: ShortRun(InvocationCount=1, IterationCount=3, LaunchCount=1, MaxIterationCount=10, MinIterationCount=3, UnrollFactor=1, WarmupCount=3)
+
+OverheadJitting  1: 1 op, 151000.00 ns, 151.0000 us/op
+WorkloadJitting  1: 1 op, 5848612600.00 ns, 5.8486 s/op
+
+OverheadWarmup   1: 1 op, 600.00 ns, 600.0000 ns/op
+OverheadWarmup   2: 1 op, 600.00 ns, 600.0000 ns/op
+OverheadWarmup   3: 1 op, 200.00 ns, 200.0000 ns/op
+OverheadWarmup   4: 1 op, 500.00 ns, 500.0000 ns/op
+OverheadWarmup   5: 1 op, 300.00 ns, 300.0000 ns/op
+
+OverheadActual   1: 1 op, 700.00 ns, 700.0000 ns/op
+OverheadActual   2: 1 op, 500.00 ns, 500.0000 ns/op
+OverheadActual   3: 1 op, 300.00 ns, 300.0000 ns/op
+OverheadActual   4: 1 op, 400.00 ns, 400.0000 ns/op
+OverheadActual   5: 1 op, 400.00 ns, 400.0000 ns/op
+OverheadActual   6: 1 op, 400.00 ns, 400.0000 ns/op
+OverheadActual   7: 1 op, 300.00 ns, 300.0000 ns/op
+OverheadActual   8: 1 op, 300.00 ns, 300.0000 ns/op
+OverheadActual   9: 1 op, 600.00 ns, 600.0000 ns/op
+OverheadActual  10: 1 op, 600.00 ns, 600.0000 ns/op
+
+WorkloadWarmup   1: 1 op, 5824094200.00 ns, 5.8241 s/op
+WorkloadWarmup   2: 1 op, 5809066300.00 ns, 5.8091 s/op
+WorkloadWarmup   3: 1 op, 5816301200.00 ns, 5.8163 s/op
+
+// BeforeActualRun
+WorkloadActual   1: 1 op, 5822217600.00 ns, 5.8222 s/op
+WorkloadActual   2: 1 op, 5800667400.00 ns, 5.8007 s/op
+WorkloadActual   3: 1 op, 5785861500.00 ns, 5.7859 s/op
+
+// AfterActualRun
+WorkloadResult   1: 1 op, 5822217200.00 ns, 5.8222 s/op
+WorkloadResult   2: 1 op, 5800667000.00 ns, 5.8007 s/op
+WorkloadResult   3: 1 op, 5785861100.00 ns, 5.7859 s/op
+
+// AfterAll
+// Benchmark Process 60780 has exited with code 0.
+
+Mean = 5.803 s, StdErr = 0.011 s (0.18%), N = 3, StdDev = 0.018 s
+Min = 5.786 s, Q1 = 5.793 s, Median = 5.801 s, Q3 = 5.811 s, Max = 5.822 s
+IQR = 0.018 s, LowerFence = 5.766 s, UpperFence = 5.839 s
+ConfidenceInterval = [5.469 s; 6.136 s] (CI 99.9%), Margin = 0.334 s (5.75% of Mean)
+Skewness = 0.12, Kurtosis = 0.67, MValue = 2
+
+// ** Remained 15 (83.3%) benchmark(s) to run. Estimated finish 2026-05-06 21:59 (0h 10m from now) **
+Successfully reverted power plan (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c FriendlyName: High performance)
+// ***** BenchmarkRunner: Finish  *****
+
+// * Export *
+  BenchmarkDotNet.Artifacts\results\PoshMcp.Benchmarks.Scenarios.ColdStartBenchmark-report-github.md
+  BenchmarkDotNet.Artifacts\results\PoshMcp.Benchmarks.Scenarios.ColdStartBenchmark-report.csv
+  BenchmarkDotNet.Artifacts\results\PoshMcp.Benchmarks.Scenarios.ColdStartBenchmark-report.html
+
+// * Detailed results *
+ColdStartBenchmark.'Cold start: ctor ΓåÆ start ΓåÆ first invoke ΓåÆ dispose': ShortRun(InvocationCount=1, IterationCount=3, LaunchCount=1, MaxIterationCount=10, MinIterationCount=3, UnrollFactor=1, WarmupCount=3) [Mode=Single]
+Runtime = .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD; GC = Concurrent Server
+Mean = 5.403 s, StdErr = 0.008 s (0.15%), N = 3, StdDev = 0.014 s
+Min = 5.390 s, Q1 = 5.395 s, Median = 5.399 s, Q3 = 5.409 s, Max = 5.418 s
+IQR = 0.014 s, LowerFence = 5.374 s, UpperFence = 5.430 s
+ConfidenceInterval = [5.140 s; 5.665 s] (CI 99.9%), Margin = 0.262 s (4.86% of Mean)
+Skewness = 0.23, Kurtosis = 0.67, MValue = 2
+-------------------- Histogram --------------------
+[5.377 s ; 5.431 s) | @@@
+---------------------------------------------------
+
+ColdStartBenchmark.'Cold start: ctor ΓåÆ start ΓåÆ first invoke ΓåÆ dispose': ShortRun(InvocationCount=1, IterationCount=3, LaunchCount=1, MaxIterationCount=10, MinIterationCount=3, UnrollFactor=1, WarmupCount=3) [Mode=Pool]
+Runtime = .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD; GC = Concurrent Server
+Mean = 5.881 s, StdErr = 0.025 s (0.43%), N = 3, StdDev = 0.044 s
+Min = 5.850 s, Q1 = 5.856 s, Median = 5.861 s, Q3 = 5.896 s, Max = 5.931 s
+IQR = 0.040 s, LowerFence = 5.795 s, UpperFence = 5.956 s
+ConfidenceInterval = [5.084 s; 6.677 s] (CI 99.9%), Margin = 0.796 s (13.54% of Mean)
+Skewness = 0.36, Kurtosis = 0.67, MValue = 2
+-------------------- Histogram --------------------
+[5.810 s ; 5.970 s) | @@@
+---------------------------------------------------
+
+ColdStartBenchmark.'Cold start: ctor ΓåÆ start ΓåÆ first invoke ΓåÆ dispose': ShortRun(InvocationCount=1, IterationCount=3, LaunchCount=1, MaxIterationCount=10, MinIterationCount=3, UnrollFactor=1, WarmupCount=3) [Mode=ProcessPool]
+Runtime = .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD; GC = Concurrent Server
+Mean = 5.803 s, StdErr = 0.011 s (0.18%), N = 3, StdDev = 0.018 s
+Min = 5.786 s, Q1 = 5.793 s, Median = 5.801 s, Q3 = 5.811 s, Max = 5.822 s
+IQR = 0.018 s, LowerFence = 5.766 s, UpperFence = 5.839 s
+ConfidenceInterval = [5.469 s; 6.136 s] (CI 99.9%), Margin = 0.334 s (5.75% of Mean)
+Skewness = 0.12, Kurtosis = 0.67, MValue = 2
+-------------------- Histogram --------------------
+[5.769 s ; 5.839 s) | @@@
+---------------------------------------------------
+
+// * Summary *
+
+BenchmarkDotNet v0.14.0, Windows 11 (10.0.26200.8328)
+Unknown processor
+.NET SDK 10.0.202
+  [Host]   : .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+  ShortRun : .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+
+Job=ShortRun  InvocationCount=1  IterationCount=3  
+LaunchCount=1  MaxIterationCount=10  MinIterationCount=3  
+UnrollFactor=1  WarmupCount=3  
+
+| Method                                              | Mode        | Mean    | Error    | StdDev   | P99          | P95     |
+|---------------------------------------------------- |------------ |--------:|---------:|---------:|-------------:|--------:|
+| 'Cold start: ctor ΓåÆ start ΓåÆ first invoke ΓåÆ dispose' | Single      | 5.403 s | 0.2624 s | 0.0144 s | 5,417.913 ms | 5.416 s |
+| 'Cold start: ctor ΓåÆ start ΓåÆ first invoke ΓåÆ dispose' | Pool        | 5.881 s | 0.7962 s | 0.0436 s | 5,929.122 ms | 5.924 s |
+| 'Cold start: ctor ΓåÆ start ΓåÆ first invoke ΓåÆ dispose' | ProcessPool | 5.803 s | 0.3335 s | 0.0183 s | 5,821.786 ms | 5.820 s |
+// * Config Issues *
+
+// * Warnings *
+Configuration
+  Summary -> The exporter MarkdownExporter-github is already present in configuration. There may be unexpected results.
+
+// * Legends *
+  Mode   : Value of the 'Mode' parameter
+  Mean   : Arithmetic mean of all measurements
+  Error  : Half of 99.9% confidence interval
+  StdDev : Standard deviation of all measurements
+  P99    : Percentile 99 of per-operation latency.
+  P95    : Percentile 95
+  1 s    : 1 Second (1 sec)
+
+// ***** BenchmarkRunner: End *****
+Run time: 00:02:01 (121.13 sec), executed benchmarks: 3
+
+// Found 12 benchmarks:
+//   PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Single, PayloadBytes=1024]
+//   PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Single, PayloadBytes=16384]
+//   PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Single, PayloadBytes=262144]
+//   PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Single, PayloadBytes=1048576]
+//   PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Pool, PayloadBytes=1024]
+//   PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Pool, PayloadBytes=16384]
+//   PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Pool, PayloadBytes=262144]
+//   PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Pool, PayloadBytes=1048576]
+//   PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=ProcessPool, PayloadBytes=1024]
+//   PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=ProcessPool, PayloadBytes=16384]
+//   PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=ProcessPool, PayloadBytes=262144]
+//   PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=ProcessPool, PayloadBytes=1048576]
+
+Setup power plan (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c FriendlyName: High performance)
+// **************************
+// Benchmark: PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Single, PayloadBytes=1024]
+// *** Execute ***
+// Launch: 1 / 1
+// Execute: dotnet ac3d9e17-70ef-40b4-ba10-f0200a0edfe7.dll --anonymousPipes 2372 2368 --benchmarkName "PoshMcp.Benchmarks.Scenarios.PayloadSizeSerializationBenchmark.Serialize(Mode: Single, PayloadBytes: 1024)" --job ShortRun --benchmarkId 3 in C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0
+// BeforeAnythingElse
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.14.0
+// Runtime=.NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+// GC=Concurrent Server
+// HardwareIntrinsics=AdvSIMD,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3)
+
+OverheadJitting  1: 1 op, 155900.00 ns, 155.9000 us/op
+WorkloadJitting  1: 1 op, 18787000.00 ns, 18.7870 ms/op
+
+OverheadJitting  2: 16 op, 482500.00 ns, 30.1563 us/op
+WorkloadJitting  2: 16 op, 21184600.00 ns, 1.3240 ms/op
+
+WorkloadPilot    1: 16 op, 15163600.00 ns, 947.7250 us/op
+WorkloadPilot    2: 32 op, 35662500.00 ns, 1.1145 ms/op
+WorkloadPilot    3: 64 op, 52740500.00 ns, 824.0703 us/op
+WorkloadPilot    4: 128 op, 92741100.00 ns, 724.5398 us/op
+WorkloadPilot    5: 256 op, 238318400.00 ns, 930.9313 us/op
+WorkloadPilot    6: 512 op, 369900900.00 ns, 722.4627 us/op
+WorkloadPilot    7: 1024 op, 699687200.00 ns, 683.2883 us/op
+
+OverheadWarmup   1: 1024 op, 4300.00 ns, 4.1992 ns/op
+OverheadWarmup   2: 1024 op, 2900.00 ns, 2.8320 ns/op
+OverheadWarmup   3: 1024 op, 3000.00 ns, 2.9297 ns/op
+OverheadWarmup   4: 1024 op, 3100.00 ns, 3.0273 ns/op
+OverheadWarmup   5: 1024 op, 2700.00 ns, 2.6367 ns/op
+OverheadWarmup   6: 1024 op, 3100.00 ns, 3.0273 ns/op
+OverheadWarmup   7: 1024 op, 2800.00 ns, 2.7344 ns/op
+
+OverheadActual   1: 1024 op, 2500.00 ns, 2.4414 ns/op
+OverheadActual   2: 1024 op, 2600.00 ns, 2.5391 ns/op
+OverheadActual   3: 1024 op, 3600.00 ns, 3.5156 ns/op
+OverheadActual   4: 1024 op, 2600.00 ns, 2.5391 ns/op
+OverheadActual   5: 1024 op, 3000.00 ns, 2.9297 ns/op
+OverheadActual   6: 1024 op, 2700.00 ns, 2.6367 ns/op
+OverheadActual   7: 1024 op, 2700.00 ns, 2.6367 ns/op
+OverheadActual   8: 1024 op, 2600.00 ns, 2.5391 ns/op
+OverheadActual   9: 1024 op, 2400.00 ns, 2.3438 ns/op
+OverheadActual  10: 1024 op, 2400.00 ns, 2.3438 ns/op
+OverheadActual  11: 1024 op, 3200.00 ns, 3.1250 ns/op
+OverheadActual  12: 1024 op, 2600.00 ns, 2.5391 ns/op
+OverheadActual  13: 1024 op, 2700.00 ns, 2.6367 ns/op
+OverheadActual  14: 1024 op, 2300.00 ns, 2.2461 ns/op
+OverheadActual  15: 1024 op, 2600.00 ns, 2.5391 ns/op
+
+WorkloadWarmup   1: 1024 op, 636177900.00 ns, 621.2675 us/op
+WorkloadWarmup   2: 1024 op, 524177700.00 ns, 511.8923 us/op
+WorkloadWarmup   3: 1024 op, 350272000.00 ns, 342.0625 us/op
+
+// BeforeActualRun
+WorkloadActual   1: 1024 op, 304079000.00 ns, 296.9521 us/op
+WorkloadActual   2: 1024 op, 299386400.00 ns, 292.3695 us/op
+WorkloadActual   3: 1024 op, 276062300.00 ns, 269.5921 us/op
+
+// AfterActualRun
+WorkloadResult   1: 1024 op, 304076400.00 ns, 296.9496 us/op
+WorkloadResult   2: 1024 op, 299383800.00 ns, 292.3670 us/op
+WorkloadResult   3: 1024 op, 276059700.00 ns, 269.5896 us/op
+// GC:  0 0 0 12347392 1024
+// Threading:  5147 3 1024
+
+// AfterAll
+// Benchmark Process 49600 has exited with code 0.
+
+Mean = 286.302 us, StdErr = 8.460 us (2.96%), N = 3, StdDev = 14.654 us
+Min = 269.590 us, Q1 = 280.978 us, Median = 292.367 us, Q3 = 294.658 us, Max = 296.950 us
+IQR = 13.680 us, LowerFence = 260.458 us, UpperFence = 315.178 us
+ConfidenceInterval = [18.964 us; 553.640 us] (CI 99.9%), Margin = 267.338 us (93.38% of Mean)
+Skewness = -0.34, Kurtosis = 0.67, MValue = 2
+
+// ** Remained 14 (77.8%) benchmark(s) to run. Estimated finish 2026-05-06 21:57 (0h 7m from now) **
+Setup power plan (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c FriendlyName: High performance)
+// **************************
+// Benchmark: PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Single, PayloadBytes=16384]
+// *** Execute ***
+// Launch: 1 / 1
+// Execute: dotnet ac3d9e17-70ef-40b4-ba10-f0200a0edfe7.dll --anonymousPipes 2372 1744 --benchmarkName "PoshMcp.Benchmarks.Scenarios.PayloadSizeSerializationBenchmark.Serialize(Mode: Single, PayloadBytes: 16384)" --job ShortRun --benchmarkId 4 in C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0
+// BeforeAnythingElse
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.14.0
+// Runtime=.NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+// GC=Concurrent Server
+// HardwareIntrinsics=AdvSIMD,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3)
+
+OverheadJitting  1: 1 op, 157700.00 ns, 157.7000 us/op
+WorkloadJitting  1: 1 op, 8162600.00 ns, 8.1626 ms/op
+
+OverheadJitting  2: 16 op, 483300.00 ns, 30.2063 us/op
+WorkloadJitting  2: 16 op, 43226400.00 ns, 2.7017 ms/op
+
+WorkloadPilot    1: 16 op, 31511900.00 ns, 1.9695 ms/op
+WorkloadPilot    2: 32 op, 53029700.00 ns, 1.6572 ms/op
+WorkloadPilot    3: 64 op, 89731800.00 ns, 1.4021 ms/op
+WorkloadPilot    4: 128 op, 205871800.00 ns, 1.6084 ms/op
+WorkloadPilot    5: 256 op, 402325300.00 ns, 1.5716 ms/op
+WorkloadPilot    6: 512 op, 892315100.00 ns, 1.7428 ms/op
+
+OverheadWarmup   1: 512 op, 3000.00 ns, 5.8594 ns/op
+OverheadWarmup   2: 512 op, 1600.00 ns, 3.1250 ns/op
+OverheadWarmup   3: 512 op, 1500.00 ns, 2.9297 ns/op
+OverheadWarmup   4: 512 op, 1700.00 ns, 3.3203 ns/op
+OverheadWarmup   5: 512 op, 1300.00 ns, 2.5391 ns/op
+OverheadWarmup   6: 512 op, 1300.00 ns, 2.5391 ns/op
+OverheadWarmup   7: 512 op, 1300.00 ns, 2.5391 ns/op
+
+OverheadActual   1: 512 op, 1800.00 ns, 3.5156 ns/op
+OverheadActual   2: 512 op, 1600.00 ns, 3.1250 ns/op
+OverheadActual   3: 512 op, 1700.00 ns, 3.3203 ns/op
+OverheadActual   4: 512 op, 1700.00 ns, 3.3203 ns/op
+OverheadActual   5: 512 op, 1400.00 ns, 2.7344 ns/op
+OverheadActual   6: 512 op, 1300.00 ns, 2.5391 ns/op
+OverheadActual   7: 512 op, 1300.00 ns, 2.5391 ns/op
+OverheadActual   8: 512 op, 1400.00 ns, 2.7344 ns/op
+OverheadActual   9: 512 op, 1500.00 ns, 2.9297 ns/op
+OverheadActual  10: 512 op, 1400.00 ns, 2.7344 ns/op
+OverheadActual  11: 512 op, 1200.00 ns, 2.3438 ns/op
+OverheadActual  12: 512 op, 1300.00 ns, 2.5391 ns/op
+OverheadActual  13: 512 op, 1300.00 ns, 2.5391 ns/op
+OverheadActual  14: 512 op, 2500.00 ns, 4.8828 ns/op
+OverheadActual  15: 512 op, 1400.00 ns, 2.7344 ns/op
+
+WorkloadWarmup   1: 512 op, 894961400.00 ns, 1.7480 ms/op
+WorkloadWarmup   2: 512 op, 542731700.00 ns, 1.0600 ms/op
+WorkloadWarmup   3: 512 op, 489431000.00 ns, 955.9199 us/op
+
+// BeforeActualRun
+WorkloadActual   1: 512 op, 507476300.00 ns, 991.1646 us/op
+WorkloadActual   2: 512 op, 508720100.00 ns, 993.5939 us/op
+WorkloadActual   3: 512 op, 480778300.00 ns, 939.0201 us/op
+
+// AfterActualRun
+WorkloadResult   1: 512 op, 507474900.00 ns, 991.1619 us/op
+WorkloadResult   2: 512 op, 508718700.00 ns, 993.5912 us/op
+WorkloadResult   3: 512 op, 480776900.00 ns, 939.0174 us/op
+// GC:  2 0 0 66565128 512
+// Threading:  18502 5 512
+
+// AfterAll
+// Benchmark Process 33100 has exited with code 0.
+
+Mean = 974.590 us, StdErr = 17.800 us (1.83%), N = 3, StdDev = 30.831 us
+Min = 939.017 us, Q1 = 965.090 us, Median = 991.162 us, Q3 = 992.377 us, Max = 993.591 us
+IQR = 27.287 us, LowerFence = 924.159 us, UpperFence = 1,033.307 us
+ConfidenceInterval = [412.120 us; 1,537.060 us] (CI 99.9%), Margin = 562.470 us (57.71% of Mean)
+Skewness = -0.38, Kurtosis = 0.67, MValue = 2
+
+// ** Remained 13 (72.2%) benchmark(s) to run. Estimated finish 2026-05-06 21:56 (0h 6m from now) **
+Setup power plan (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c FriendlyName: High performance)
+// **************************
+// Benchmark: PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Single, PayloadBytes=262144]
+// *** Execute ***
+// Launch: 1 / 1
+// Execute: dotnet ac3d9e17-70ef-40b4-ba10-f0200a0edfe7.dll --anonymousPipes 1704 2396 --benchmarkName "PoshMcp.Benchmarks.Scenarios.PayloadSizeSerializationBenchmark.Serialize(Mode: Single, PayloadBytes: 262144)" --job ShortRun --benchmarkId 5 in C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0
+// BeforeAnythingElse
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.14.0
+// Runtime=.NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+// GC=Concurrent Server
+// HardwareIntrinsics=AdvSIMD,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3)
+
+OverheadJitting  1: 1 op, 150000.00 ns, 150.0000 us/op
+WorkloadJitting  1: 1 op, 28411800.00 ns, 28.4118 ms/op
+
+OverheadJitting  2: 16 op, 270300.00 ns, 16.8938 us/op
+WorkloadJitting  2: 16 op, 198882600.00 ns, 12.4302 ms/op
+
+WorkloadPilot    1: 16 op, 223347400.00 ns, 13.9592 ms/op
+WorkloadPilot    2: 32 op, 500466700.00 ns, 15.6396 ms/op
+
+OverheadWarmup   1: 32 op, 1700.00 ns, 53.1250 ns/op
+OverheadWarmup   2: 32 op, 1300.00 ns, 40.6250 ns/op
+OverheadWarmup   3: 32 op, 700.00 ns, 21.8750 ns/op
+OverheadWarmup   4: 32 op, 1300.00 ns, 40.6250 ns/op
+OverheadWarmup   5: 32 op, 1100.00 ns, 34.3750 ns/op
+OverheadWarmup   6: 32 op, 1500.00 ns, 46.8750 ns/op
+OverheadWarmup   7: 32 op, 500.00 ns, 15.6250 ns/op
+
+OverheadActual   1: 32 op, 700.00 ns, 21.8750 ns/op
+OverheadActual   2: 32 op, 1000.00 ns, 31.2500 ns/op
+OverheadActual   3: 32 op, 800.00 ns, 25.0000 ns/op
+OverheadActual   4: 32 op, 700.00 ns, 21.8750 ns/op
+OverheadActual   5: 32 op, 600.00 ns, 18.7500 ns/op
+OverheadActual   6: 32 op, 300.00 ns, 9.3750 ns/op
+OverheadActual   7: 32 op, 700.00 ns, 21.8750 ns/op
+OverheadActual   8: 32 op, 1100.00 ns, 34.3750 ns/op
+OverheadActual   9: 32 op, 600.00 ns, 18.7500 ns/op
+OverheadActual  10: 32 op, 500.00 ns, 15.6250 ns/op
+OverheadActual  11: 32 op, 600.00 ns, 18.7500 ns/op
+OverheadActual  12: 32 op, 700.00 ns, 21.8750 ns/op
+OverheadActual  13: 32 op, 600.00 ns, 18.7500 ns/op
+OverheadActual  14: 32 op, 500.00 ns, 15.6250 ns/op
+OverheadActual  15: 32 op, 500.00 ns, 15.6250 ns/op
+
+WorkloadWarmup   1: 32 op, 677925800.00 ns, 21.1852 ms/op
+WorkloadWarmup   2: 32 op, 734771600.00 ns, 22.9616 ms/op
+WorkloadWarmup   3: 32 op, 517956600.00 ns, 16.1861 ms/op
+
+// BeforeActualRun
+WorkloadActual   1: 32 op, 491623200.00 ns, 15.3632 ms/op
+WorkloadActual   2: 32 op, 1000450300.00 ns, 31.2641 ms/op
+WorkloadActual   3: 32 op, 410860000.00 ns, 12.8394 ms/op
+
+// AfterActualRun
+WorkloadResult   1: 32 op, 491622600.00 ns, 15.3632 ms/op
+WorkloadResult   2: 32 op, 1000449700.00 ns, 31.2641 ms/op
+WorkloadResult   3: 32 op, 410859400.00 ns, 12.8394 ms/op
+// GC:  2 2 2 81461720 32
+// Threading:  15122 0 32
+
+// AfterAll
+// Benchmark Process 58540 has exited with code 0.
+
+Mean = 19.822 ms, StdErr = 5.767 ms (29.09%), N = 3, StdDev = 9.989 ms
+Min = 12.839 ms, Q1 = 14.101 ms, Median = 15.363 ms, Q3 = 23.314 ms, Max = 31.264 ms
+IQR = 9.212 ms, LowerFence = 0.283 ms, UpperFence = 37.132 ms
+ConfidenceInterval = [-162.414 ms; 202.058 ms] (CI 99.9%), Margin = 182.236 ms (919.35% of Mean)
+Skewness = 0.36, Kurtosis = 0.67, MValue = 2
+
+// ** Remained 12 (66.7%) benchmark(s) to run. Estimated finish 2026-05-06 21:55 (0h 5m from now) **
+Setup power plan (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c FriendlyName: High performance)
+// **************************
+// Benchmark: PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Single, PayloadBytes=1048576]
+// *** Execute ***
+// Launch: 1 / 1
+// Execute: dotnet ac3d9e17-70ef-40b4-ba10-f0200a0edfe7.dll --anonymousPipes 1840 2384 --benchmarkName "PoshMcp.Benchmarks.Scenarios.PayloadSizeSerializationBenchmark.Serialize(Mode: Single, PayloadBytes: 1048576)" --job ShortRun --benchmarkId 6 in C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0
+// BeforeAnythingElse
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.14.0
+// Runtime=.NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+// GC=Concurrent Server
+// HardwareIntrinsics=AdvSIMD,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3)
+
+OverheadJitting  1: 1 op, 206300.00 ns, 206.3000 us/op
+WorkloadJitting  1: 1 op, 63337000.00 ns, 63.3370 ms/op
+
+WorkloadPilot    1: 2 op, 105890500.00 ns, 52.9453 ms/op
+WorkloadPilot    2: 3 op, 152831400.00 ns, 50.9438 ms/op
+WorkloadPilot    3: 4 op, 198921800.00 ns, 49.7305 ms/op
+WorkloadPilot    4: 5 op, 276569600.00 ns, 55.3139 ms/op
+WorkloadPilot    5: 6 op, 378050900.00 ns, 63.0085 ms/op
+WorkloadPilot    6: 7 op, 524459800.00 ns, 74.9228 ms/op
+
+WorkloadWarmup   1: 7 op, 541590800.00 ns, 77.3701 ms/op
+WorkloadWarmup   2: 7 op, 507012500.00 ns, 72.4304 ms/op
+WorkloadWarmup   3: 7 op, 453891400.00 ns, 64.8416 ms/op
+
+// BeforeActualRun
+WorkloadActual   1: 7 op, 415571500.00 ns, 59.3674 ms/op
+WorkloadActual   2: 7 op, 411248000.00 ns, 58.7497 ms/op
+WorkloadActual   3: 7 op, 374562100.00 ns, 53.5089 ms/op
+
+// AfterActualRun
+WorkloadResult   1: 7 op, 415571500.00 ns, 59.3674 ms/op
+WorkloadResult   2: 7 op, 411248000.00 ns, 58.7497 ms/op
+WorkloadResult   3: 7 op, 374562100.00 ns, 53.5089 ms/op
+// GC:  2 2 2 117122016 7
+// Threading:  10870 0 7
+
+// AfterAll
+// Benchmark Process 35200 has exited with code 0.
+
+Mean = 57.209 ms, StdErr = 1.858 ms (3.25%), N = 3, StdDev = 3.219 ms
+Min = 53.509 ms, Q1 = 56.129 ms, Median = 58.750 ms, Q3 = 59.059 ms, Max = 59.367 ms
+IQR = 2.929 ms, LowerFence = 51.735 ms, UpperFence = 63.452 ms
+ConfidenceInterval = [-1.517 ms; 115.934 ms] (CI 99.9%), Margin = 58.726 ms (102.65% of Mean)
+Skewness = -0.37, Kurtosis = 0.67, MValue = 2
+
+// ** Remained 11 (61.1%) benchmark(s) to run. Estimated finish 2026-05-06 21:54 (0h 4m from now) **
+Setup power plan (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c FriendlyName: High performance)
+// **************************
+// Benchmark: PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Pool, PayloadBytes=1024]
+// *** Execute ***
+// Launch: 1 / 1
+// Execute: dotnet ac3d9e17-70ef-40b4-ba10-f0200a0edfe7.dll --anonymousPipes 1896 2088 --benchmarkName "PoshMcp.Benchmarks.Scenarios.PayloadSizeSerializationBenchmark.Serialize(Mode: Pool, PayloadBytes: 1024)" --job ShortRun --benchmarkId 7 in C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0
+// BeforeAnythingElse
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.14.0
+// Runtime=.NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+// GC=Concurrent Server
+// HardwareIntrinsics=AdvSIMD,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3)
+
+OverheadJitting  1: 1 op, 153700.00 ns, 153.7000 us/op
+WorkloadJitting  1: 1 op, 21532400.00 ns, 21.5324 ms/op
+
+OverheadJitting  2: 16 op, 270500.00 ns, 16.9063 us/op
+WorkloadJitting  2: 16 op, 41900300.00 ns, 2.6188 ms/op
+
+WorkloadPilot    1: 16 op, 67947000.00 ns, 4.2467 ms/op
+WorkloadPilot    2: 32 op, 65348600.00 ns, 2.0421 ms/op
+WorkloadPilot    3: 64 op, 165663100.00 ns, 2.5885 ms/op
+WorkloadPilot    4: 128 op, 296514800.00 ns, 2.3165 ms/op
+WorkloadPilot    5: 256 op, 513373900.00 ns, 2.0054 ms/op
+
+OverheadWarmup   1: 256 op, 2300.00 ns, 8.9844 ns/op
+OverheadWarmup   2: 256 op, 1500.00 ns, 5.8594 ns/op
+OverheadWarmup   3: 256 op, 1100.00 ns, 4.2969 ns/op
+OverheadWarmup   4: 256 op, 900.00 ns, 3.5156 ns/op
+OverheadWarmup   5: 256 op, 800.00 ns, 3.1250 ns/op
+OverheadWarmup   6: 256 op, 900.00 ns, 3.5156 ns/op
+OverheadWarmup   7: 256 op, 1300.00 ns, 5.0781 ns/op
+OverheadWarmup   8: 256 op, 900.00 ns, 3.5156 ns/op
+OverheadWarmup   9: 256 op, 800.00 ns, 3.1250 ns/op
+OverheadWarmup  10: 256 op, 1000.00 ns, 3.9063 ns/op
+
+OverheadActual   1: 256 op, 800.00 ns, 3.1250 ns/op
+OverheadActual   2: 256 op, 1000.00 ns, 3.9063 ns/op
+OverheadActual   3: 256 op, 900.00 ns, 3.5156 ns/op
+OverheadActual   4: 256 op, 1000.00 ns, 3.9063 ns/op
+OverheadActual   5: 256 op, 1200.00 ns, 4.6875 ns/op
+OverheadActual   6: 256 op, 800.00 ns, 3.1250 ns/op
+OverheadActual   7: 256 op, 900.00 ns, 3.5156 ns/op
+OverheadActual   8: 256 op, 900.00 ns, 3.5156 ns/op
+OverheadActual   9: 256 op, 1100.00 ns, 4.2969 ns/op
+OverheadActual  10: 256 op, 1100.00 ns, 4.2969 ns/op
+OverheadActual  11: 256 op, 900.00 ns, 3.5156 ns/op
+OverheadActual  12: 256 op, 1100.00 ns, 4.2969 ns/op
+OverheadActual  13: 256 op, 800.00 ns, 3.1250 ns/op
+OverheadActual  14: 256 op, 900.00 ns, 3.5156 ns/op
+OverheadActual  15: 256 op, 1100.00 ns, 4.2969 ns/op
+
+WorkloadWarmup   1: 256 op, 500958800.00 ns, 1.9569 ms/op
+WorkloadWarmup   2: 256 op, 493940900.00 ns, 1.9295 ms/op
+WorkloadWarmup   3: 256 op, 530427700.00 ns, 2.0720 ms/op
+
+// BeforeActualRun
+WorkloadActual   1: 256 op, 463042500.00 ns, 1.8088 ms/op
+WorkloadActual   2: 256 op, 450867900.00 ns, 1.7612 ms/op
+WorkloadActual   3: 256 op, 366726400.00 ns, 1.4325 ms/op
+
+// AfterActualRun
+WorkloadResult   1: 256 op, 463041600.00 ns, 1.8088 ms/op
+WorkloadResult   2: 256 op, 450867000.00 ns, 1.7612 ms/op
+WorkloadResult   3: 256 op, 366725500.00 ns, 1.4325 ms/op
+// GC:  0 0 0 3224496 256
+// Threading:  1471 1 256
+
+// AfterAll
+// Benchmark Process 56140 has exited with code 0.
+
+Mean = 1.667 ms, StdErr = 0.118 ms (7.09%), N = 3, StdDev = 0.205 ms
+Min = 1.433 ms, Q1 = 1.597 ms, Median = 1.761 ms, Q3 = 1.785 ms, Max = 1.809 ms
+IQR = 0.188 ms, LowerFence = 1.315 ms, UpperFence = 2.067 ms
+ConfidenceInterval = [-2.070 ms; 5.405 ms] (CI 99.9%), Margin = 3.738 ms (224.15% of Mean)
+Skewness = -0.36, Kurtosis = 0.67, MValue = 2
+
+// ** Remained 10 (55.6%) benchmark(s) to run. Estimated finish 2026-05-06 21:54 (0h 3m from now) **
+Setup power plan (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c FriendlyName: High performance)
+// **************************
+// Benchmark: PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Pool, PayloadBytes=16384]
+// *** Execute ***
+// Launch: 1 / 1
+// Execute: dotnet ac3d9e17-70ef-40b4-ba10-f0200a0edfe7.dll --anonymousPipes 1964 2196 --benchmarkName "PoshMcp.Benchmarks.Scenarios.PayloadSizeSerializationBenchmark.Serialize(Mode: Pool, PayloadBytes: 16384)" --job ShortRun --benchmarkId 8 in C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0
+// BeforeAnythingElse
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.14.0
+// Runtime=.NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+// GC=Concurrent Server
+// HardwareIntrinsics=AdvSIMD,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3)
+
+OverheadJitting  1: 1 op, 165400.00 ns, 165.4000 us/op
+WorkloadJitting  1: 1 op, 16458200.00 ns, 16.4582 ms/op
+
+OverheadJitting  2: 16 op, 274300.00 ns, 17.1438 us/op
+WorkloadJitting  2: 16 op, 69834700.00 ns, 4.3647 ms/op
+
+WorkloadPilot    1: 16 op, 48362800.00 ns, 3.0227 ms/op
+WorkloadPilot    2: 32 op, 78915300.00 ns, 2.4661 ms/op
+WorkloadPilot    3: 64 op, 179662200.00 ns, 2.8072 ms/op
+WorkloadPilot    4: 128 op, 363358300.00 ns, 2.8387 ms/op
+WorkloadPilot    5: 256 op, 678451400.00 ns, 2.6502 ms/op
+
+OverheadWarmup   1: 256 op, 2200.00 ns, 8.5938 ns/op
+OverheadWarmup   2: 256 op, 1700.00 ns, 6.6406 ns/op
+OverheadWarmup   3: 256 op, 900.00 ns, 3.5156 ns/op
+OverheadWarmup   4: 256 op, 800.00 ns, 3.1250 ns/op
+OverheadWarmup   5: 256 op, 900.00 ns, 3.5156 ns/op
+OverheadWarmup   6: 256 op, 1700.00 ns, 6.6406 ns/op
+OverheadWarmup   7: 256 op, 900.00 ns, 3.5156 ns/op
+OverheadWarmup   8: 256 op, 600.00 ns, 2.3438 ns/op
+OverheadWarmup   9: 256 op, 600.00 ns, 2.3438 ns/op
+OverheadWarmup  10: 256 op, 600.00 ns, 2.3438 ns/op
+
+OverheadActual   1: 256 op, 1100.00 ns, 4.2969 ns/op
+OverheadActual   2: 256 op, 1100.00 ns, 4.2969 ns/op
+OverheadActual   3: 256 op, 900.00 ns, 3.5156 ns/op
+OverheadActual   4: 256 op, 1000.00 ns, 3.9063 ns/op
+OverheadActual   5: 256 op, 700.00 ns, 2.7344 ns/op
+OverheadActual   6: 256 op, 600.00 ns, 2.3438 ns/op
+OverheadActual   7: 256 op, 800.00 ns, 3.1250 ns/op
+OverheadActual   8: 256 op, 700.00 ns, 2.7344 ns/op
+OverheadActual   9: 256 op, 800.00 ns, 3.1250 ns/op
+OverheadActual  10: 256 op, 1500.00 ns, 5.8594 ns/op
+OverheadActual  11: 256 op, 900.00 ns, 3.5156 ns/op
+OverheadActual  12: 256 op, 900.00 ns, 3.5156 ns/op
+OverheadActual  13: 256 op, 1000.00 ns, 3.9063 ns/op
+OverheadActual  14: 256 op, 900.00 ns, 3.5156 ns/op
+OverheadActual  15: 256 op, 1100.00 ns, 4.2969 ns/op
+
+WorkloadWarmup   1: 256 op, 728906600.00 ns, 2.8473 ms/op
+WorkloadWarmup   2: 256 op, 751503200.00 ns, 2.9356 ms/op
+WorkloadWarmup   3: 256 op, 702933000.00 ns, 2.7458 ms/op
+
+// BeforeActualRun
+WorkloadActual   1: 256 op, 692543800.00 ns, 2.7052 ms/op
+WorkloadActual   2: 256 op, 657193800.00 ns, 2.5672 ms/op
+WorkloadActual   3: 256 op, 551093400.00 ns, 2.1527 ms/op
+
+// AfterActualRun
+WorkloadResult   1: 256 op, 692542900.00 ns, 2.7052 ms/op
+WorkloadResult   2: 256 op, 657192900.00 ns, 2.5672 ms/op
+WorkloadResult   3: 256 op, 551092500.00 ns, 2.1527 ms/op
+// GC:  1 0 0 32732768 256
+// Threading:  6716 1 256
+
+// AfterAll
+// Benchmark Process 61920 has exited with code 0.
+
+Mean = 2.475 ms, StdErr = 0.166 ms (6.71%), N = 3, StdDev = 0.288 ms
+Min = 2.153 ms, Q1 = 2.360 ms, Median = 2.567 ms, Q3 = 2.636 ms, Max = 2.705 ms
+IQR = 0.276 ms, LowerFence = 1.946 ms, UpperFence = 3.051 ms
+ConfidenceInterval = [-2.771 ms; 7.721 ms] (CI 99.9%), Margin = 5.246 ms (211.96% of Mean)
+Skewness = -0.29, Kurtosis = 0.67, MValue = 2
+
+// ** Remained 9 (50.0%) benchmark(s) to run. Estimated finish 2026-05-06 21:53 (0h 3m from now) **
+Setup power plan (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c FriendlyName: High performance)
+// **************************
+// Benchmark: PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Pool, PayloadBytes=262144]
+// *** Execute ***
+// Launch: 1 / 1
+// Execute: dotnet ac3d9e17-70ef-40b4-ba10-f0200a0edfe7.dll --anonymousPipes 2452 2448 --benchmarkName "PoshMcp.Benchmarks.Scenarios.PayloadSizeSerializationBenchmark.Serialize(Mode: Pool, PayloadBytes: 262144)" --job ShortRun --benchmarkId 9 in C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0
+// BeforeAnythingElse
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.14.0
+// Runtime=.NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+// GC=Concurrent Server
+// HardwareIntrinsics=AdvSIMD,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3)
+
+OverheadJitting  1: 1 op, 152000.00 ns, 152.0000 us/op
+WorkloadJitting  1: 1 op, 21654700.00 ns, 21.6547 ms/op
+
+OverheadJitting  2: 16 op, 304600.00 ns, 19.0375 us/op
+WorkloadJitting  2: 16 op, 258890600.00 ns, 16.1807 ms/op
+
+WorkloadPilot    1: 16 op, 282721000.00 ns, 17.6701 ms/op
+WorkloadPilot    2: 32 op, 625480500.00 ns, 19.5463 ms/op
+
+OverheadWarmup   1: 32 op, 2500.00 ns, 78.1250 ns/op
+OverheadWarmup   2: 32 op, 300.00 ns, 9.3750 ns/op
+OverheadWarmup   3: 32 op, 1100.00 ns, 34.3750 ns/op
+OverheadWarmup   4: 32 op, 600.00 ns, 18.7500 ns/op
+OverheadWarmup   5: 32 op, 600.00 ns, 18.7500 ns/op
+OverheadWarmup   6: 32 op, 600.00 ns, 18.7500 ns/op
+
+OverheadActual   1: 32 op, 600.00 ns, 18.7500 ns/op
+OverheadActual   2: 32 op, 1100.00 ns, 34.3750 ns/op
+OverheadActual   3: 32 op, 900.00 ns, 28.1250 ns/op
+OverheadActual   4: 32 op, 500.00 ns, 15.6250 ns/op
+OverheadActual   5: 32 op, 500.00 ns, 15.6250 ns/op
+OverheadActual   6: 32 op, 600.00 ns, 18.7500 ns/op
+OverheadActual   7: 32 op, 500.00 ns, 15.6250 ns/op
+OverheadActual   8: 32 op, 600.00 ns, 18.7500 ns/op
+OverheadActual   9: 32 op, 1400.00 ns, 43.7500 ns/op
+OverheadActual  10: 32 op, 500.00 ns, 15.6250 ns/op
+OverheadActual  11: 32 op, 800.00 ns, 25.0000 ns/op
+OverheadActual  12: 32 op, 500.00 ns, 15.6250 ns/op
+OverheadActual  13: 32 op, 400.00 ns, 12.5000 ns/op
+OverheadActual  14: 32 op, 800.00 ns, 25.0000 ns/op
+OverheadActual  15: 32 op, 500.00 ns, 15.6250 ns/op
+
+WorkloadWarmup   1: 32 op, 471205400.00 ns, 14.7252 ms/op
+WorkloadWarmup   2: 32 op, 469321100.00 ns, 14.6663 ms/op
+WorkloadWarmup   3: 32 op, 519260500.00 ns, 16.2269 ms/op
+
+// BeforeActualRun
+WorkloadActual   1: 32 op, 551166700.00 ns, 17.2240 ms/op
+WorkloadActual   2: 32 op, 817529500.00 ns, 25.5478 ms/op
+WorkloadActual   3: 32 op, 466378300.00 ns, 14.5743 ms/op
+
+// AfterActualRun
+WorkloadResult   1: 32 op, 551166100.00 ns, 17.2239 ms/op
+WorkloadResult   2: 32 op, 817528900.00 ns, 25.5478 ms/op
+WorkloadResult   3: 32 op, 466377700.00 ns, 14.5743 ms/op
+// GC:  2 2 2 80598840 32
+// Threading:  12927 0 32
+
+// AfterAll
+// Benchmark Process 15480 has exited with code 0.
+
+Mean = 19.115 ms, StdErr = 3.306 ms (17.29%), N = 3, StdDev = 5.726 ms
+Min = 14.574 ms, Q1 = 15.899 ms, Median = 17.224 ms, Q3 = 21.386 ms, Max = 25.548 ms
+IQR = 5.487 ms, LowerFence = 7.669 ms, UpperFence = 29.616 ms
+ConfidenceInterval = [-85.349 ms; 123.579 ms] (CI 99.9%), Margin = 104.464 ms (546.49% of Mean)
+Skewness = 0.29, Kurtosis = 0.67, MValue = 2
+
+// ** Remained 8 (44.4%) benchmark(s) to run. Estimated finish 2026-05-06 21:53 (0h 2m from now) **
+Setup power plan (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c FriendlyName: High performance)
+// **************************
+// Benchmark: PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Pool, PayloadBytes=1048576]
+// *** Execute ***
+// Launch: 1 / 1
+// Execute: dotnet ac3d9e17-70ef-40b4-ba10-f0200a0edfe7.dll --anonymousPipes 2444 2116 --benchmarkName "PoshMcp.Benchmarks.Scenarios.PayloadSizeSerializationBenchmark.Serialize(Mode: Pool, PayloadBytes: 1048576)" --job ShortRun --benchmarkId 10 in C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0
+// BeforeAnythingElse
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.14.0
+// Runtime=.NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+// GC=Concurrent Server
+// HardwareIntrinsics=AdvSIMD,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3)
+
+OverheadJitting  1: 1 op, 155400.00 ns, 155.4000 us/op
+WorkloadJitting  1: 1 op, 62416300.00 ns, 62.4163 ms/op
+
+WorkloadPilot    1: 2 op, 103331300.00 ns, 51.6657 ms/op
+WorkloadPilot    2: 3 op, 151499200.00 ns, 50.4997 ms/op
+WorkloadPilot    3: 4 op, 213867900.00 ns, 53.4670 ms/op
+WorkloadPilot    4: 5 op, 251394300.00 ns, 50.2789 ms/op
+WorkloadPilot    5: 6 op, 311326000.00 ns, 51.8877 ms/op
+WorkloadPilot    6: 7 op, 329161900.00 ns, 47.0231 ms/op
+WorkloadPilot    7: 8 op, 417889800.00 ns, 52.2362 ms/op
+WorkloadPilot    8: 9 op, 497009600.00 ns, 55.2233 ms/op
+WorkloadPilot    9: 10 op, 580881700.00 ns, 58.0882 ms/op
+
+WorkloadWarmup   1: 10 op, 569330600.00 ns, 56.9331 ms/op
+WorkloadWarmup   2: 10 op, 530731300.00 ns, 53.0731 ms/op
+WorkloadWarmup   3: 10 op, 476454600.00 ns, 47.6455 ms/op
+
+// BeforeActualRun
+WorkloadActual   1: 10 op, 485659300.00 ns, 48.5659 ms/op
+WorkloadActual   2: 10 op, 514822400.00 ns, 51.4822 ms/op
+WorkloadActual   3: 10 op, 540271400.00 ns, 54.0271 ms/op
+
+// AfterActualRun
+WorkloadResult   1: 10 op, 485659300.00 ns, 48.5659 ms/op
+WorkloadResult   2: 10 op, 514822400.00 ns, 51.4822 ms/op
+WorkloadResult   3: 10 op, 540271400.00 ns, 54.0271 ms/op
+// GC:  2 2 2 141176368 10
+// Threading:  15864 0 10
+
+// AfterAll
+// Benchmark Process 10888 has exited with code 0.
+
+Mean = 51.358 ms, StdErr = 1.578 ms (3.07%), N = 3, StdDev = 2.733 ms
+Min = 48.566 ms, Q1 = 50.024 ms, Median = 51.482 ms, Q3 = 52.755 ms, Max = 54.027 ms
+IQR = 2.731 ms, LowerFence = 45.928 ms, UpperFence = 56.851 ms
+ConfidenceInterval = [1.504 ms; 101.213 ms] (CI 99.9%), Margin = 49.855 ms (97.07% of Mean)
+Skewness = -0.05, Kurtosis = 0.67, MValue = 2
+
+// ** Remained 7 (38.9%) benchmark(s) to run. Estimated finish 2026-05-06 21:53 (0h 2m from now) **
+Setup power plan (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c FriendlyName: High performance)
+// **************************
+// Benchmark: PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=ProcessPool, PayloadBytes=1024]
+// *** Execute ***
+// Launch: 1 / 1
+// Execute: dotnet ac3d9e17-70ef-40b4-ba10-f0200a0edfe7.dll --anonymousPipes 2108 2112 --benchmarkName "PoshMcp.Benchmarks.Scenarios.PayloadSizeSerializationBenchmark.Serialize(Mode: ProcessPool, PayloadBytes: 1024)" --job ShortRun --benchmarkId 11 in C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0
+// BeforeAnythingElse
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.14.0
+// Runtime=.NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+// GC=Concurrent Server
+// HardwareIntrinsics=AdvSIMD,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3)
+
+OverheadJitting  1: 1 op, 201400.00 ns, 201.4000 us/op
+WorkloadJitting  1: 1 op, 30741200.00 ns, 30.7412 ms/op
+
+OverheadJitting  2: 16 op, 311700.00 ns, 19.4813 us/op
+WorkloadJitting  2: 16 op, 72625300.00 ns, 4.5391 ms/op
+
+WorkloadPilot    1: 16 op, 31491600.00 ns, 1.9682 ms/op
+WorkloadPilot    2: 32 op, 48699300.00 ns, 1.5219 ms/op
+WorkloadPilot    3: 64 op, 77195600.00 ns, 1.2062 ms/op
+WorkloadPilot    4: 128 op, 177251700.00 ns, 1.3848 ms/op
+WorkloadPilot    5: 256 op, 275016400.00 ns, 1.0743 ms/op
+WorkloadPilot    6: 512 op, 524844900.00 ns, 1.0251 ms/op
+
+OverheadWarmup   1: 512 op, 3400.00 ns, 6.6406 ns/op
+OverheadWarmup   2: 512 op, 1800.00 ns, 3.5156 ns/op
+OverheadWarmup   3: 512 op, 1400.00 ns, 2.7344 ns/op
+OverheadWarmup   4: 512 op, 1500.00 ns, 2.9297 ns/op
+OverheadWarmup   5: 512 op, 1700.00 ns, 3.3203 ns/op
+OverheadWarmup   6: 512 op, 1300.00 ns, 2.5391 ns/op
+OverheadWarmup   7: 512 op, 1400.00 ns, 2.7344 ns/op
+OverheadWarmup   8: 512 op, 1700.00 ns, 3.3203 ns/op
+OverheadWarmup   9: 512 op, 1400.00 ns, 2.7344 ns/op
+
+OverheadActual   1: 512 op, 1600.00 ns, 3.1250 ns/op
+OverheadActual   2: 512 op, 2700.00 ns, 5.2734 ns/op
+OverheadActual   3: 512 op, 2000.00 ns, 3.9063 ns/op
+OverheadActual   4: 512 op, 1600.00 ns, 3.1250 ns/op
+OverheadActual   5: 512 op, 1700.00 ns, 3.3203 ns/op
+OverheadActual   6: 512 op, 2400.00 ns, 4.6875 ns/op
+OverheadActual   7: 512 op, 2000.00 ns, 3.9063 ns/op
+OverheadActual   8: 512 op, 20500.00 ns, 40.0391 ns/op
+OverheadActual   9: 512 op, 2200.00 ns, 4.2969 ns/op
+OverheadActual  10: 512 op, 2500.00 ns, 4.8828 ns/op
+OverheadActual  11: 512 op, 2600.00 ns, 5.0781 ns/op
+OverheadActual  12: 512 op, 2000.00 ns, 3.9063 ns/op
+OverheadActual  13: 512 op, 2100.00 ns, 4.1016 ns/op
+OverheadActual  14: 512 op, 1800.00 ns, 3.5156 ns/op
+OverheadActual  15: 512 op, 1700.00 ns, 3.3203 ns/op
+
+WorkloadWarmup   1: 512 op, 486231900.00 ns, 949.6717 us/op
+WorkloadWarmup   2: 512 op, 510212000.00 ns, 996.5078 us/op
+WorkloadWarmup   3: 512 op, 400868100.00 ns, 782.9455 us/op
+
+// BeforeActualRun
+WorkloadActual   1: 512 op, 332335000.00 ns, 649.0918 us/op
+WorkloadActual   2: 512 op, 242672800.00 ns, 473.9703 us/op
+WorkloadActual   3: 512 op, 249570500.00 ns, 487.4424 us/op
+
+// AfterActualRun
+WorkloadResult   1: 512 op, 332333000.00 ns, 649.0879 us/op
+WorkloadResult   2: 512 op, 242670800.00 ns, 473.9664 us/op
+WorkloadResult   3: 512 op, 249568500.00 ns, 487.4385 us/op
+// GC:  0 0 0 6424544 512
+// Threading:  2581 8 512
+
+// AfterAll
+// Benchmark Process 62216 has exited with code 0.
+
+Mean = 536.831 us, StdErr = 56.263 us (10.48%), N = 3, StdDev = 97.450 us
+Min = 473.966 us, Q1 = 480.702 us, Median = 487.438 us, Q3 = 568.263 us, Max = 649.088 us
+IQR = 87.561 us, LowerFence = 349.361 us, UpperFence = 699.604 us
+ConfidenceInterval = [-1,241.028 us; 2,314.690 us] (CI 99.9%), Margin = 1,777.859 us (331.18% of Mean)
+Skewness = 0.38, Kurtosis = 0.67, MValue = 2
+
+// ** Remained 6 (33.3%) benchmark(s) to run. Estimated finish 2026-05-06 21:53 (0h 1m from now) **
+Setup power plan (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c FriendlyName: High performance)
+// **************************
+// Benchmark: PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=ProcessPool, PayloadBytes=16384]
+// *** Execute ***
+// Launch: 1 / 1
+// Execute: dotnet ac3d9e17-70ef-40b4-ba10-f0200a0edfe7.dll --anonymousPipes 2100 1996 --benchmarkName "PoshMcp.Benchmarks.Scenarios.PayloadSizeSerializationBenchmark.Serialize(Mode: ProcessPool, PayloadBytes: 16384)" --job ShortRun --benchmarkId 12 in C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0
+// BeforeAnythingElse
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.14.0
+// Runtime=.NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+// GC=Concurrent Server
+// HardwareIntrinsics=AdvSIMD,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3)
+
+OverheadJitting  1: 1 op, 194700.00 ns, 194.7000 us/op
+WorkloadJitting  1: 1 op, 26711700.00 ns, 26.7117 ms/op
+
+OverheadJitting  2: 16 op, 292900.00 ns, 18.3063 us/op
+WorkloadJitting  2: 16 op, 104689000.00 ns, 6.5431 ms/op
+
+WorkloadPilot    1: 16 op, 32918300.00 ns, 2.0574 ms/op
+WorkloadPilot    2: 32 op, 71133800.00 ns, 2.2229 ms/op
+WorkloadPilot    3: 64 op, 147453700.00 ns, 2.3040 ms/op
+WorkloadPilot    4: 128 op, 245703300.00 ns, 1.9196 ms/op
+WorkloadPilot    5: 256 op, 491440300.00 ns, 1.9197 ms/op
+WorkloadPilot    6: 512 op, 1109632600.00 ns, 2.1673 ms/op
+
+OverheadWarmup   1: 512 op, 3000.00 ns, 5.8594 ns/op
+OverheadWarmup   2: 512 op, 2200.00 ns, 4.2969 ns/op
+OverheadWarmup   3: 512 op, 2400.00 ns, 4.6875 ns/op
+OverheadWarmup   4: 512 op, 2000.00 ns, 3.9063 ns/op
+OverheadWarmup   5: 512 op, 1800.00 ns, 3.5156 ns/op
+OverheadWarmup   6: 512 op, 1800.00 ns, 3.5156 ns/op
+OverheadWarmup   7: 512 op, 1800.00 ns, 3.5156 ns/op
+
+OverheadActual   1: 512 op, 2300.00 ns, 4.4922 ns/op
+OverheadActual   2: 512 op, 1700.00 ns, 3.3203 ns/op
+OverheadActual   3: 512 op, 2300.00 ns, 4.4922 ns/op
+OverheadActual   4: 512 op, 2200.00 ns, 4.2969 ns/op
+OverheadActual   5: 512 op, 2300.00 ns, 4.4922 ns/op
+OverheadActual   6: 512 op, 2000.00 ns, 3.9063 ns/op
+OverheadActual   7: 512 op, 1800.00 ns, 3.5156 ns/op
+OverheadActual   8: 512 op, 1500.00 ns, 2.9297 ns/op
+OverheadActual   9: 512 op, 2500.00 ns, 4.8828 ns/op
+OverheadActual  10: 512 op, 2100.00 ns, 4.1016 ns/op
+OverheadActual  11: 512 op, 1800.00 ns, 3.5156 ns/op
+OverheadActual  12: 512 op, 1600.00 ns, 3.1250 ns/op
+OverheadActual  13: 512 op, 2100.00 ns, 4.1016 ns/op
+OverheadActual  14: 512 op, 2100.00 ns, 4.1016 ns/op
+OverheadActual  15: 512 op, 1800.00 ns, 3.5156 ns/op
+
+WorkloadWarmup   1: 512 op, 751951400.00 ns, 1.4687 ms/op
+WorkloadWarmup   2: 512 op, 617473300.00 ns, 1.2060 ms/op
+WorkloadWarmup   3: 512 op, 631225900.00 ns, 1.2329 ms/op
+
+// BeforeActualRun
+WorkloadActual   1: 512 op, 566511400.00 ns, 1.1065 ms/op
+WorkloadActual   2: 512 op, 576588100.00 ns, 1.1261 ms/op
+WorkloadActual   3: 512 op, 589671100.00 ns, 1.1517 ms/op
+
+// AfterActualRun
+WorkloadResult   1: 512 op, 566509300.00 ns, 1.1065 ms/op
+WorkloadResult   2: 512 op, 576586000.00 ns, 1.1261 ms/op
+WorkloadResult   3: 512 op, 589669000.00 ns, 1.1517 ms/op
+// GC:  2 0 0 65796032 512
+// Threading:  13934 5 512
+
+// AfterAll
+// Benchmark Process 42272 has exited with code 0.
+
+Mean = 1.128 ms, StdErr = 0.013 ms (1.16%), N = 3, StdDev = 0.023 ms
+Min = 1.106 ms, Q1 = 1.116 ms, Median = 1.126 ms, Q3 = 1.139 ms, Max = 1.152 ms
+IQR = 0.023 ms, LowerFence = 1.082 ms, UpperFence = 1.173 ms
+ConfidenceInterval = [0.714 ms; 1.542 ms] (CI 99.9%), Margin = 0.414 ms (36.68% of Mean)
+Skewness = 0.09, Kurtosis = 0.67, MValue = 2
+
+// ** Remained 5 (27.8%) benchmark(s) to run. Estimated finish 2026-05-06 21:53 (0h 1m from now) **
+Setup power plan (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c FriendlyName: High performance)
+// **************************
+// Benchmark: PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=ProcessPool, PayloadBytes=262144]
+// *** Execute ***
+// Launch: 1 / 1
+// Execute: dotnet ac3d9e17-70ef-40b4-ba10-f0200a0edfe7.dll --anonymousPipes 2024 2440 --benchmarkName "PoshMcp.Benchmarks.Scenarios.PayloadSizeSerializationBenchmark.Serialize(Mode: ProcessPool, PayloadBytes: 262144)" --job ShortRun --benchmarkId 13 in C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0
+// BeforeAnythingElse
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.14.0
+// Runtime=.NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+// GC=Concurrent Server
+// HardwareIntrinsics=AdvSIMD,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3)
+
+OverheadJitting  1: 1 op, 154000.00 ns, 154.0000 us/op
+WorkloadJitting  1: 1 op, 36014200.00 ns, 36.0142 ms/op
+
+WorkloadPilot    1: 2 op, 68350900.00 ns, 34.1755 ms/op
+WorkloadPilot    2: 3 op, 79226800.00 ns, 26.4089 ms/op
+WorkloadPilot    3: 4 op, 60438100.00 ns, 15.1095 ms/op
+WorkloadPilot    4: 5 op, 71214200.00 ns, 14.2428 ms/op
+WorkloadPilot    5: 6 op, 79681000.00 ns, 13.2802 ms/op
+WorkloadPilot    6: 7 op, 99964000.00 ns, 14.2806 ms/op
+WorkloadPilot    7: 8 op, 139868700.00 ns, 17.4836 ms/op
+WorkloadPilot    8: 9 op, 149838900.00 ns, 16.6488 ms/op
+WorkloadPilot    9: 10 op, 160907600.00 ns, 16.0908 ms/op
+WorkloadPilot   10: 11 op, 175576900.00 ns, 15.9615 ms/op
+WorkloadPilot   11: 12 op, 192150700.00 ns, 16.0126 ms/op
+WorkloadPilot   12: 13 op, 199328800.00 ns, 15.3330 ms/op
+WorkloadPilot   13: 14 op, 248515800.00 ns, 17.7511 ms/op
+WorkloadPilot   14: 15 op, 319395700.00 ns, 21.2930 ms/op
+WorkloadPilot   15: 16 op, 322776000.00 ns, 20.1735 ms/op
+WorkloadPilot   16: 32 op, 552801000.00 ns, 17.2750 ms/op
+
+WorkloadWarmup   1: 32 op, 446699100.00 ns, 13.9593 ms/op
+WorkloadWarmup   2: 32 op, 430558400.00 ns, 13.4550 ms/op
+WorkloadWarmup   3: 32 op, 402660100.00 ns, 12.5831 ms/op
+
+// BeforeActualRun
+WorkloadActual   1: 32 op, 429292800.00 ns, 13.4154 ms/op
+WorkloadActual   2: 32 op, 428152000.00 ns, 13.3798 ms/op
+WorkloadActual   3: 32 op, 524954100.00 ns, 16.4048 ms/op
+
+// AfterActualRun
+WorkloadResult   1: 32 op, 429292800.00 ns, 13.4154 ms/op
+WorkloadResult   2: 32 op, 428152000.00 ns, 13.3798 ms/op
+WorkloadResult   3: 32 op, 524954100.00 ns, 16.4048 ms/op
+// GC:  2 2 2 92737360 32
+// Threading:  12260 0 32
+
+// AfterAll
+// Benchmark Process 17804 has exited with code 0.
+
+Mean = 14.400 ms, StdErr = 1.002 ms (6.96%), N = 3, StdDev = 1.736 ms
+Min = 13.380 ms, Q1 = 13.398 ms, Median = 13.415 ms, Q3 = 14.910 ms, Max = 16.405 ms
+IQR = 1.513 ms, LowerFence = 11.129 ms, UpperFence = 17.179 ms
+ConfidenceInterval = [-17.277 ms; 46.077 ms] (CI 99.9%), Margin = 31.677 ms (219.98% of Mean)
+Skewness = 0.38, Kurtosis = 0.67, MValue = 2
+
+// ** Remained 4 (22.2%) benchmark(s) to run. Estimated finish 2026-05-06 21:52 (0h 1m from now) **
+Setup power plan (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c FriendlyName: High performance)
+// **************************
+// Benchmark: PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=ProcessPool, PayloadBytes=1048576]
+// *** Execute ***
+// Launch: 1 / 1
+// Execute: dotnet ac3d9e17-70ef-40b4-ba10-f0200a0edfe7.dll --anonymousPipes 1744 2024 --benchmarkName "PoshMcp.Benchmarks.Scenarios.PayloadSizeSerializationBenchmark.Serialize(Mode: ProcessPool, PayloadBytes: 1048576)" --job ShortRun --benchmarkId 14 in C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0
+// BeforeAnythingElse
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.14.0
+// Runtime=.NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+// GC=Concurrent Server
+// HardwareIntrinsics=AdvSIMD,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3)
+
+OverheadJitting  1: 1 op, 158900.00 ns, 158.9000 us/op
+WorkloadJitting  1: 1 op, 77708400.00 ns, 77.7084 ms/op
+
+WorkloadPilot    1: 2 op, 186221300.00 ns, 93.1107 ms/op
+WorkloadPilot    2: 3 op, 208555100.00 ns, 69.5184 ms/op
+WorkloadPilot    3: 4 op, 245137000.00 ns, 61.2843 ms/op
+WorkloadPilot    4: 5 op, 295474200.00 ns, 59.0948 ms/op
+WorkloadPilot    5: 6 op, 346090100.00 ns, 57.6817 ms/op
+WorkloadPilot    6: 7 op, 430848400.00 ns, 61.5498 ms/op
+WorkloadPilot    7: 8 op, 597557100.00 ns, 74.6946 ms/op
+
+WorkloadWarmup   1: 8 op, 573424000.00 ns, 71.6780 ms/op
+WorkloadWarmup   2: 8 op, 534830700.00 ns, 66.8538 ms/op
+WorkloadWarmup   3: 8 op, 487060000.00 ns, 60.8825 ms/op
+
+// BeforeActualRun
+WorkloadActual   1: 8 op, 456650400.00 ns, 57.0813 ms/op
+WorkloadActual   2: 8 op, 444719800.00 ns, 55.5900 ms/op
+WorkloadActual   3: 8 op, 426597900.00 ns, 53.3247 ms/op
+
+// AfterActualRun
+WorkloadResult   1: 8 op, 456650400.00 ns, 57.0813 ms/op
+WorkloadResult   2: 8 op, 444719800.00 ns, 55.5900 ms/op
+WorkloadResult   3: 8 op, 426597900.00 ns, 53.3247 ms/op
+// GC:  3 3 3 142240552 8
+// Threading:  12504 1 8
+
+// AfterAll
+// Benchmark Process 43020 has exited with code 0.
+
+Mean = 55.332 ms, StdErr = 1.092 ms (1.97%), N = 3, StdDev = 1.892 ms
+Min = 53.325 ms, Q1 = 54.457 ms, Median = 55.590 ms, Q3 = 56.336 ms, Max = 57.081 ms
+IQR = 1.878 ms, LowerFence = 51.640 ms, UpperFence = 59.153 ms
+ConfidenceInterval = [20.824 ms; 89.840 ms] (CI 99.9%), Margin = 34.508 ms (62.37% of Mean)
+Skewness = -0.13, Kurtosis = 0.67, MValue = 2
+
+// ** Remained 3 (16.7%) benchmark(s) to run. Estimated finish 2026-05-06 21:52 (0h 0m from now) **
+Successfully reverted power plan (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c FriendlyName: High performance)
+// ***** BenchmarkRunner: Finish  *****
+
+// * Export *
+  BenchmarkDotNet.Artifacts\results\PoshMcp.Benchmarks.Scenarios.PayloadSizeSerializationBenchmark-report-github.md
+  BenchmarkDotNet.Artifacts\results\PoshMcp.Benchmarks.Scenarios.PayloadSizeSerializationBenchmark-report.csv
+  BenchmarkDotNet.Artifacts\results\PoshMcp.Benchmarks.Scenarios.PayloadSizeSerializationBenchmark-report.html
+
+// * Detailed results *
+PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Single, PayloadBytes=1024]
+Runtime = .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD; GC = Concurrent Server
+Mean = 286.302 us, StdErr = 8.460 us (2.96%), N = 3, StdDev = 14.654 us
+Min = 269.590 us, Q1 = 280.978 us, Median = 292.367 us, Q3 = 294.658 us, Max = 296.950 us
+IQR = 13.680 us, LowerFence = 260.458 us, UpperFence = 315.178 us
+ConfidenceInterval = [18.964 us; 553.640 us] (CI 99.9%), Margin = 267.338 us (93.38% of Mean)
+Skewness = -0.34, Kurtosis = 0.67, MValue = 2
+-------------------- Histogram --------------------
+[256.254 us ; 281.323 us) | @
+[281.323 us ; 310.285 us) | @@
+---------------------------------------------------
+
+PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Single, PayloadBytes=16384]
+Runtime = .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD; GC = Concurrent Server
+Mean = 974.590 us, StdErr = 17.800 us (1.83%), N = 3, StdDev = 30.831 us
+Min = 939.017 us, Q1 = 965.090 us, Median = 991.162 us, Q3 = 992.377 us, Max = 993.591 us
+IQR = 27.287 us, LowerFence = 924.159 us, UpperFence = 1,033.307 us
+ConfidenceInterval = [412.120 us; 1,537.060 us] (CI 99.9%), Margin = 562.470 us (57.71% of Mean)
+Skewness = -0.38, Kurtosis = 0.67, MValue = 2
+-------------------- Histogram --------------------
+[938.247 us ; 994.362 us) | @@@
+---------------------------------------------------
+
+PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Single, PayloadBytes=262144]
+Runtime = .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD; GC = Concurrent Server
+Mean = 19.822 ms, StdErr = 5.767 ms (29.09%), N = 3, StdDev = 9.989 ms
+Min = 12.839 ms, Q1 = 14.101 ms, Median = 15.363 ms, Q3 = 23.314 ms, Max = 31.264 ms
+IQR = 9.212 ms, LowerFence = 0.283 ms, UpperFence = 37.132 ms
+ConfidenceInterval = [-162.414 ms; 202.058 ms] (CI 99.9%), Margin = 182.236 ms (919.35% of Mean)
+Skewness = 0.36, Kurtosis = 0.67, MValue = 2
+-------------------- Histogram --------------------
+[ 3.749 ms ; 23.192 ms) | @@
+[23.192 ms ; 40.354 ms) | @
+---------------------------------------------------
+
+PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Single, PayloadBytes=1048576]
+Runtime = .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD; GC = Concurrent Server
+Mean = 57.209 ms, StdErr = 1.858 ms (3.25%), N = 3, StdDev = 3.219 ms
+Min = 53.509 ms, Q1 = 56.129 ms, Median = 58.750 ms, Q3 = 59.059 ms, Max = 59.367 ms
+IQR = 2.929 ms, LowerFence = 51.735 ms, UpperFence = 63.452 ms
+ConfidenceInterval = [-1.517 ms; 115.934 ms] (CI 99.9%), Margin = 58.726 ms (102.65% of Mean)
+Skewness = -0.37, Kurtosis = 0.67, MValue = 2
+-------------------- Histogram --------------------
+[53.509 ms ; 59.367 ms) | @@@
+---------------------------------------------------
+
+PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Pool, PayloadBytes=1024]
+Runtime = .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD; GC = Concurrent Server
+Mean = 1.667 ms, StdErr = 0.118 ms (7.09%), N = 3, StdDev = 0.205 ms
+Min = 1.433 ms, Q1 = 1.597 ms, Median = 1.761 ms, Q3 = 1.785 ms, Max = 1.809 ms
+IQR = 0.188 ms, LowerFence = 1.315 ms, UpperFence = 2.067 ms
+ConfidenceInterval = [-2.070 ms; 5.405 ms] (CI 99.9%), Margin = 3.738 ms (224.15% of Mean)
+Skewness = -0.36, Kurtosis = 0.67, MValue = 2
+-------------------- Histogram --------------------
+[1.246 ms ; 1.599 ms) | @
+[1.599 ms ; 1.995 ms) | @@
+---------------------------------------------------
+
+PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Pool, PayloadBytes=16384]
+Runtime = .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD; GC = Concurrent Server
+Mean = 2.475 ms, StdErr = 0.166 ms (6.71%), N = 3, StdDev = 0.288 ms
+Min = 2.153 ms, Q1 = 2.360 ms, Median = 2.567 ms, Q3 = 2.636 ms, Max = 2.705 ms
+IQR = 0.276 ms, LowerFence = 1.946 ms, UpperFence = 3.051 ms
+ConfidenceInterval = [-2.771 ms; 7.721 ms] (CI 99.9%), Margin = 5.246 ms (211.96% of Mean)
+Skewness = -0.29, Kurtosis = 0.67, MValue = 2
+-------------------- Histogram --------------------
+[1.891 ms ; 2.375 ms) | @
+[2.375 ms ; 2.967 ms) | @@
+---------------------------------------------------
+
+PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Pool, PayloadBytes=262144]
+Runtime = .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD; GC = Concurrent Server
+Mean = 19.115 ms, StdErr = 3.306 ms (17.29%), N = 3, StdDev = 5.726 ms
+Min = 14.574 ms, Q1 = 15.899 ms, Median = 17.224 ms, Q3 = 21.386 ms, Max = 25.548 ms
+IQR = 5.487 ms, LowerFence = 7.669 ms, UpperFence = 29.616 ms
+ConfidenceInterval = [-85.349 ms; 123.579 ms] (CI 99.9%), Margin = 104.464 ms (546.49% of Mean)
+Skewness = 0.29, Kurtosis = 0.67, MValue = 2
+-------------------- Histogram --------------------
+[10.688 ms ; 21.110 ms) | @@
+[21.110 ms ; 30.759 ms) | @
+---------------------------------------------------
+
+PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=Pool, PayloadBytes=1048576]
+Runtime = .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD; GC = Concurrent Server
+Mean = 51.358 ms, StdErr = 1.578 ms (3.07%), N = 3, StdDev = 2.733 ms
+Min = 48.566 ms, Q1 = 50.024 ms, Median = 51.482 ms, Q3 = 52.755 ms, Max = 54.027 ms
+IQR = 2.731 ms, LowerFence = 45.928 ms, UpperFence = 56.851 ms
+ConfidenceInterval = [1.504 ms; 101.213 ms] (CI 99.9%), Margin = 49.855 ms (97.07% of Mean)
+Skewness = -0.05, Kurtosis = 0.67, MValue = 2
+-------------------- Histogram --------------------
+[46.079 ms ; 50.268 ms) | @
+[50.268 ms ; 55.242 ms) | @@
+---------------------------------------------------
+
+PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=ProcessPool, PayloadBytes=1024]
+Runtime = .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD; GC = Concurrent Server
+Mean = 536.831 us, StdErr = 56.263 us (10.48%), N = 3, StdDev = 97.450 us
+Min = 473.966 us, Q1 = 480.702 us, Median = 487.438 us, Q3 = 568.263 us, Max = 649.088 us
+IQR = 87.561 us, LowerFence = 349.361 us, UpperFence = 699.604 us
+ConfidenceInterval = [-1,241.028 us; 2,314.690 us] (CI 99.9%), Margin = 1,777.859 us (331.18% of Mean)
+Skewness = 0.38, Kurtosis = 0.67, MValue = 2
+-------------------- Histogram --------------------
+[472.844 us ; 650.211 us) | @@@
+---------------------------------------------------
+
+PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=ProcessPool, PayloadBytes=16384]
+Runtime = .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD; GC = Concurrent Server
+Mean = 1.128 ms, StdErr = 0.013 ms (1.16%), N = 3, StdDev = 0.023 ms
+Min = 1.106 ms, Q1 = 1.116 ms, Median = 1.126 ms, Q3 = 1.139 ms, Max = 1.152 ms
+IQR = 0.023 ms, LowerFence = 1.082 ms, UpperFence = 1.173 ms
+ConfidenceInterval = [0.714 ms; 1.542 ms] (CI 99.9%), Margin = 0.414 ms (36.68% of Mean)
+Skewness = 0.09, Kurtosis = 0.67, MValue = 2
+-------------------- Histogram --------------------
+[1.096 ms ; 1.137 ms) | @@
+[1.137 ms ; 1.172 ms) | @
+---------------------------------------------------
+
+PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=ProcessPool, PayloadBytes=262144]
+Runtime = .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD; GC = Concurrent Server
+Mean = 14.400 ms, StdErr = 1.002 ms (6.96%), N = 3, StdDev = 1.736 ms
+Min = 13.380 ms, Q1 = 13.398 ms, Median = 13.415 ms, Q3 = 14.910 ms, Max = 16.405 ms
+IQR = 1.513 ms, LowerFence = 11.129 ms, UpperFence = 17.179 ms
+ConfidenceInterval = [-17.277 ms; 46.077 ms] (CI 99.9%), Margin = 31.677 ms (219.98% of Mean)
+Skewness = 0.38, Kurtosis = 0.67, MValue = 2
+-------------------- Histogram --------------------
+[13.312 ms ; 16.472 ms) | @@@
+---------------------------------------------------
+
+PayloadSizeSerializationBenchmark.'Round-trip a string of size PayloadBytes through Write-Output': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=15, MinIterationCount=5, WarmupCount=3) [Mode=ProcessPool, PayloadBytes=1048576]
+Runtime = .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD; GC = Concurrent Server
+Mean = 55.332 ms, StdErr = 1.092 ms (1.97%), N = 3, StdDev = 1.892 ms
+Min = 53.325 ms, Q1 = 54.457 ms, Median = 55.590 ms, Q3 = 56.336 ms, Max = 57.081 ms
+IQR = 1.878 ms, LowerFence = 51.640 ms, UpperFence = 59.153 ms
+ConfidenceInterval = [20.824 ms; 89.840 ms] (CI 99.9%), Margin = 34.508 ms (62.37% of Mean)
+Skewness = -0.13, Kurtosis = 0.67, MValue = 2
+-------------------- Histogram --------------------
+[51.603 ms ; 54.614 ms) | @
+[54.614 ms ; 58.057 ms) | @@
+---------------------------------------------------
+
+// * Summary *
+
+BenchmarkDotNet v0.14.0, Windows 11 (10.0.26200.8328)
+Unknown processor
+.NET SDK 10.0.202
+  [Host]   : .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+  ShortRun : .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+
+Job=ShortRun  IterationCount=3  LaunchCount=1  
+MaxIterationCount=15  MinIterationCount=5  WarmupCount=3  
+
+| Method                                                          | Mode        | PayloadBytes | Mean        | Error        | StdDev      | P99       | Median      | P95         | Gen0     | Gen1     | Gen2     | Allocated   |
+|---------------------------------------------------------------- |------------ |------------- |------------:|-------------:|------------:|----------:|------------:|------------:|---------:|---------:|---------:|------------:|
+| 'Round-trip a string of size PayloadBytes through Write-Output' | Single      | 1024         |    286.3 us |     267.3 us |    14.65 us |  0.297 ms |    292.4 us |    296.5 us |        - |        - |        - |    11.78 KB |
+| 'Round-trip a string of size PayloadBytes through Write-Output' | Single      | 16384        |    974.6 us |     562.5 us |    30.83 us |  0.994 ms |    991.2 us |    993.3 us |   3.9063 |        - |        - |   126.96 KB |
+| 'Round-trip a string of size PayloadBytes through Write-Output' | Single      | 262144       | 19,822.2 us | 182,235.9 us | 9,988.96 us | 30.946 ms | 15,363.2 us | 29,674.0 us |  62.5000 |  62.5000 |  62.5000 |  2486.01 KB |
+| 'Round-trip a string of size PayloadBytes through Write-Output' | Single      | 1048576      | 57,208.6 us |  58,725.6 us | 3,218.95 us | 59.355 ms | 58,749.7 us | 59,305.6 us | 285.7143 | 285.7143 | 285.7143 | 16339.57 KB |
+| 'Round-trip a string of size PayloadBytes through Write-Output' | Pool        | 1024         |  1,667.5 us |   3,737.7 us |   204.88 us |  1.808 ms |  1,761.2 us |  1,804.0 us |        - |        - |        - |     12.3 KB |
+| 'Round-trip a string of size PayloadBytes through Write-Output' | Pool        | 16384        |  2,475.0 us |   5,246.1 us |   287.56 us |  2.702 ms |  2,567.2 us |  2,691.4 us |   3.9063 |        - |        - |   124.87 KB |
+| 'Round-trip a string of size PayloadBytes through Write-Output' | Pool        | 262144       | 19,115.3 us | 104,464.0 us | 5,726.02 us | 25.381 ms | 17,223.9 us | 24,715.4 us |  62.5000 |  62.5000 |  62.5000 |  2459.68 KB |
+| 'Round-trip a string of size PayloadBytes through Write-Output' | Pool        | 1048576      | 51,358.4 us |  49,854.8 us | 2,732.71 us | 53.976 ms | 51,482.2 us | 53,772.7 us | 200.0000 | 200.0000 | 200.0000 | 13786.75 KB |
+| 'Round-trip a string of size PayloadBytes through Write-Output' | ProcessPool | 1024         |    536.8 us |   1,777.9 us |    97.45 us |  0.646 ms |    487.4 us |    632.9 us |        - |        - |        - |    12.25 KB |
+| 'Round-trip a string of size PayloadBytes through Write-Output' | ProcessPool | 16384        |  1,128.1 us |     413.8 us |    22.68 us |  1.151 ms |  1,126.1 us |  1,149.1 us |   3.9063 |        - |        - |    125.5 KB |
+| 'Round-trip a string of size PayloadBytes through Write-Output' | ProcessPool | 262144       | 14,400.0 us |  31,677.0 us | 1,736.32 us | 16.345 ms | 13,415.4 us | 16,105.9 us |  62.5000 |  62.5000 |  62.5000 |  2830.12 KB |
+| 'Round-trip a string of size PayloadBytes through Write-Output' | ProcessPool | 1048576      | 55,332.0 us |  34,508.4 us | 1,891.52 us | 57.051 ms | 55,590.0 us | 56,932.2 us | 375.0000 | 375.0000 | 375.0000 | 17363.35 KB |
+// * Config Issues *
+
+// * Warnings *
+Configuration
+  Summary -> The exporter MarkdownExporter-github is already present in configuration. There may be unexpected results.
+
+// * Legends *
+  Mode         : Value of the 'Mode' parameter
+  PayloadBytes : Value of the 'PayloadBytes' parameter
+  Mean         : Arithmetic mean of all measurements
+  Error        : Half of 99.9% confidence interval
+  StdDev       : Standard deviation of all measurements
+  P99          : Percentile 99 of per-operation latency.
+  Median       : Value separating the higher half of all measurements (50th percentile)
+  P95          : Percentile 95
+  Gen0         : GC Generation 0 collects per 1000 operations
+  Gen1         : GC Generation 1 collects per 1000 operations
+  Gen2         : GC Generation 2 collects per 1000 operations
+  Allocated    : Allocated memory per single operation (managed only, inclusive, 1KB = 1024B)
+  1 us         : 1 Microsecond (0.000001 sec)
+
+// * Diagnostic Output - MemoryDiagnoser *
+
+
+// ***** BenchmarkRunner: End *****
+Run time: 00:02:19 (139.12 sec), executed benchmarks: 12
+
+// Found 3 benchmarks:
+//   WarmInvokeThroughputBenchmark.'Warm invoke @ N concurrency (network-shaped, 4├ù bar)': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=20, MinIterationCount=5, WarmupCount=3) [Mode=Single, Concurrency=10]
+//   WarmInvokeThroughputBenchmark.'Warm invoke @ N concurrency (network-shaped, 4├ù bar)': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=20, MinIterationCount=5, WarmupCount=3) [Mode=Pool, Concurrency=10]
+//   WarmInvokeThroughputBenchmark.'Warm invoke @ N concurrency (network-shaped, 4├ù bar)': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=20, MinIterationCount=5, WarmupCount=3) [Mode=ProcessPool, Concurrency=10]
+
+Setup power plan (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c FriendlyName: High performance)
+// **************************
+// Benchmark: WarmInvokeThroughputBenchmark.'Warm invoke @ N concurrency (network-shaped, 4├ù bar)': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=20, MinIterationCount=5, WarmupCount=3) [Mode=Single, Concurrency=10]
+// *** Execute ***
+// Launch: 1 / 1
+// Execute: dotnet ac3d9e17-70ef-40b4-ba10-f0200a0edfe7.dll --anonymousPipes 1964 1744 --benchmarkName "PoshMcp.Benchmarks.Scenarios.WarmInvokeThroughputBenchmark.WarmInvoke(Mode: Single, Concurrency: 10)" --job ShortRun --benchmarkId 15 in C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0
+// BeforeAnythingElse
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.14.0
+// Runtime=.NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+// GC=Concurrent Server
+// HardwareIntrinsics=AdvSIMD,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=20, MinIterationCount=5, WarmupCount=3)
+
+OverheadJitting  1: 1 op, 117500.00 ns, 117.5000 us/op
+WorkloadJitting  1: 1 op, 792571500.00 ns, 792.5715 ms/op
+
+OverheadJitting  2: 1 op, 300.00 ns, 300.0000 ns/op
+WorkloadJitting  2: 1 op, 665085200.00 ns, 665.0852 ms/op
+
+WorkloadWarmup   1: 1 op, 672302000.00 ns, 672.3020 ms/op
+WorkloadWarmup   2: 1 op, 653514000.00 ns, 653.5140 ms/op
+WorkloadWarmup   3: 1 op, 670759700.00 ns, 670.7597 ms/op
+
+// BeforeActualRun
+WorkloadActual   1: 1 op, 686951900.00 ns, 686.9519 ms/op
+WorkloadActual   2: 1 op, 650992300.00 ns, 650.9923 ms/op
+WorkloadActual   3: 1 op, 645726900.00 ns, 645.7269 ms/op
+
+// AfterActualRun
+WorkloadResult   1: 1 op, 686951900.00 ns, 686.9519 ms/op
+WorkloadResult   2: 1 op, 650992300.00 ns, 650.9923 ms/op
+WorkloadResult   3: 1 op, 645726900.00 ns, 645.7269 ms/op
+// GC:  0 0 0 241664 1
+// Threading:  99 0 1
+
+// AfterAll
+// Benchmark Process 17588 has exited with code 0.
+
+Mean = 661.224 ms, StdErr = 12.954 ms (1.96%), N = 3, StdDev = 22.436 ms
+Min = 645.727 ms, Q1 = 648.360 ms, Median = 650.992 ms, Q3 = 668.972 ms, Max = 686.952 ms
+IQR = 20.613 ms, LowerFence = 617.441 ms, UpperFence = 699.891 ms
+ConfidenceInterval = [251.903 ms; 1,070.545 ms] (CI 99.9%), Margin = 409.321 ms (61.90% of Mean)
+Skewness = 0.36, Kurtosis = 0.67, MValue = 2
+
+// ** Remained 2 (11.1%) benchmark(s) to run. Estimated finish 2026-05-06 21:52 (0h 0m from now) **
+Setup power plan (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c FriendlyName: High performance)
+// **************************
+// Benchmark: WarmInvokeThroughputBenchmark.'Warm invoke @ N concurrency (network-shaped, 4├ù bar)': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=20, MinIterationCount=5, WarmupCount=3) [Mode=Pool, Concurrency=10]
+// *** Execute ***
+// Launch: 1 / 1
+// Execute: dotnet ac3d9e17-70ef-40b4-ba10-f0200a0edfe7.dll --anonymousPipes 2500 2196 --benchmarkName "PoshMcp.Benchmarks.Scenarios.WarmInvokeThroughputBenchmark.WarmInvoke(Mode: Pool, Concurrency: 10)" --job ShortRun --benchmarkId 16 in C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0
+// BeforeAnythingElse
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.14.0
+// Runtime=.NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+// GC=Concurrent Server
+// HardwareIntrinsics=AdvSIMD,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=20, MinIterationCount=5, WarmupCount=3)
+
+OverheadJitting  1: 1 op, 176300.00 ns, 176.3000 us/op
+WorkloadJitting  1: 1 op, 365157200.00 ns, 365.1572 ms/op
+
+OverheadJitting  2: 1 op, 600.00 ns, 600.0000 ns/op
+WorkloadJitting  2: 1 op, 158217000.00 ns, 158.2170 ms/op
+
+WorkloadPilot    1: 2 op, 294545600.00 ns, 147.2728 ms/op
+WorkloadPilot    2: 3 op, 447161900.00 ns, 149.0540 ms/op
+WorkloadPilot    3: 4 op, 546422500.00 ns, 136.6056 ms/op
+
+WorkloadWarmup   1: 4 op, 560013600.00 ns, 140.0034 ms/op
+WorkloadWarmup   2: 4 op, 530812100.00 ns, 132.7030 ms/op
+WorkloadWarmup   3: 4 op, 561097500.00 ns, 140.2744 ms/op
+
+// BeforeActualRun
+WorkloadActual   1: 4 op, 528578900.00 ns, 132.1447 ms/op
+WorkloadActual   2: 4 op, 532083700.00 ns, 133.0209 ms/op
+WorkloadActual   3: 4 op, 574124700.00 ns, 143.5312 ms/op
+
+// AfterActualRun
+WorkloadResult   1: 4 op, 528578900.00 ns, 132.1447 ms/op
+WorkloadResult   2: 4 op, 532083700.00 ns, 133.0209 ms/op
+WorkloadResult   3: 4 op, 574124700.00 ns, 143.5312 ms/op
+// GC:  0 0 0 947344 4
+// Threading:  486 0 4
+
+// AfterAll
+// Benchmark Process 20644 has exited with code 0.
+
+Mean = 136.232 ms, StdErr = 3.658 ms (2.69%), N = 3, StdDev = 6.336 ms
+Min = 132.145 ms, Q1 = 132.583 ms, Median = 133.021 ms, Q3 = 138.276 ms, Max = 143.531 ms
+IQR = 5.693 ms, LowerFence = 124.043 ms, UpperFence = 146.816 ms
+ConfidenceInterval = [20.636 ms; 251.828 ms] (CI 99.9%), Margin = 115.596 ms (84.85% of Mean)
+Skewness = 0.38, Kurtosis = 0.67, MValue = 2
+
+// ** Remained 1 (5.6%) benchmark(s) to run. Estimated finish 2026-05-06 21:52 (0h 0m from now) **
+Setup power plan (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c FriendlyName: High performance)
+// **************************
+// Benchmark: WarmInvokeThroughputBenchmark.'Warm invoke @ N concurrency (network-shaped, 4├ù bar)': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=20, MinIterationCount=5, WarmupCount=3) [Mode=ProcessPool, Concurrency=10]
+// *** Execute ***
+// Launch: 1 / 1
+// Execute: dotnet ac3d9e17-70ef-40b4-ba10-f0200a0edfe7.dll --anonymousPipes 2508 1744 --benchmarkName "PoshMcp.Benchmarks.Scenarios.WarmInvokeThroughputBenchmark.WarmInvoke(Mode: ProcessPool, Concurrency: 10)" --job ShortRun --benchmarkId 17 in C:\Users\stmuraws\source\github\usepowershell\poshmcp-195\PoshMcp.Benchmarks\bin\Release\net10.0\ac3d9e17-70ef-40b4-ba10-f0200a0edfe7\bin\Release\net10.0
+// BeforeAnythingElse
+
+// Benchmark Process Environment Information:
+// BenchmarkDotNet v0.14.0
+// Runtime=.NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+// GC=Concurrent Server
+// HardwareIntrinsics=AdvSIMD,AES,CRC32,DP,RDM,SHA1,SHA256 VectorSize=128
+// Job: ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=20, MinIterationCount=5, WarmupCount=3)
+
+OverheadJitting  1: 1 op, 160700.00 ns, 160.7000 us/op
+WorkloadJitting  1: 1 op, 342533500.00 ns, 342.5335 ms/op
+
+OverheadJitting  2: 1 op, 1000.00 ns, 1.0000 us/op
+WorkloadJitting  2: 1 op, 198754600.00 ns, 198.7546 ms/op
+
+WorkloadPilot    1: 2 op, 397644500.00 ns, 198.8223 ms/op
+WorkloadPilot    2: 3 op, 622061600.00 ns, 207.3539 ms/op
+
+WorkloadWarmup   1: 3 op, 655262800.00 ns, 218.4209 ms/op
+WorkloadWarmup   2: 3 op, 597752000.00 ns, 199.2507 ms/op
+WorkloadWarmup   3: 3 op, 608035300.00 ns, 202.6784 ms/op
+
+// BeforeActualRun
+WorkloadActual   1: 3 op, 604226900.00 ns, 201.4090 ms/op
+WorkloadActual   2: 3 op, 603742900.00 ns, 201.2476 ms/op
+WorkloadActual   3: 3 op, 598239100.00 ns, 199.4130 ms/op
+
+// AfterActualRun
+WorkloadResult   1: 3 op, 604226900.00 ns, 201.4090 ms/op
+WorkloadResult   2: 3 op, 603742900.00 ns, 201.2476 ms/op
+WorkloadResult   3: 3 op, 598239100.00 ns, 199.4130 ms/op
+// GC:  0 0 0 774200 3
+// Threading:  312 0 3
+
+// AfterAll
+// Benchmark Process 12636 has exited with code 0.
+
+Mean = 200.690 ms, StdErr = 0.640 ms (0.32%), N = 3, StdDev = 1.109 ms
+Min = 199.413 ms, Q1 = 200.330 ms, Median = 201.248 ms, Q3 = 201.328 ms, Max = 201.409 ms
+IQR = 0.998 ms, LowerFence = 198.833 ms, UpperFence = 202.825 ms
+ConfidenceInterval = [180.463 ms; 220.917 ms] (CI 99.9%), Margin = 20.227 ms (10.08% of Mean)
+Skewness = -0.38, Kurtosis = 0.67, MValue = 2
+
+// ** Remained 0 (0.0%) benchmark(s) to run. Estimated finish 2026-05-06 21:52 (0h 0m from now) **
+Successfully reverted power plan (GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c FriendlyName: High performance)
+// ***** BenchmarkRunner: Finish  *****
+
+// * Export *
+  BenchmarkDotNet.Artifacts\results\PoshMcp.Benchmarks.Scenarios.WarmInvokeThroughputBenchmark-report-github.md
+  BenchmarkDotNet.Artifacts\results\PoshMcp.Benchmarks.Scenarios.WarmInvokeThroughputBenchmark-report.csv
+  BenchmarkDotNet.Artifacts\results\PoshMcp.Benchmarks.Scenarios.WarmInvokeThroughputBenchmark-report.html
+
+// * Detailed results *
+WarmInvokeThroughputBenchmark.'Warm invoke @ N concurrency (network-shaped, 4├ù bar)': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=20, MinIterationCount=5, WarmupCount=3) [Mode=Single, Concurrency=10]
+Runtime = .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD; GC = Concurrent Server
+Mean = 661.224 ms, StdErr = 12.954 ms (1.96%), N = 3, StdDev = 22.436 ms
+Min = 645.727 ms, Q1 = 648.360 ms, Median = 650.992 ms, Q3 = 668.972 ms, Max = 686.952 ms
+IQR = 20.613 ms, LowerFence = 617.441 ms, UpperFence = 699.891 ms
+ConfidenceInterval = [251.903 ms; 1,070.545 ms] (CI 99.9%), Margin = 409.321 ms (61.90% of Mean)
+Skewness = 0.36, Kurtosis = 0.67, MValue = 2
+-------------------- Histogram --------------------
+[625.309 ms ; 668.777 ms) | @@
+[668.777 ms ; 707.370 ms) | @
+---------------------------------------------------
+
+WarmInvokeThroughputBenchmark.'Warm invoke @ N concurrency (network-shaped, 4├ù bar)': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=20, MinIterationCount=5, WarmupCount=3) [Mode=Pool, Concurrency=10]
+Runtime = .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD; GC = Concurrent Server
+Mean = 136.232 ms, StdErr = 3.658 ms (2.69%), N = 3, StdDev = 6.336 ms
+Min = 132.145 ms, Q1 = 132.583 ms, Median = 133.021 ms, Q3 = 138.276 ms, Max = 143.531 ms
+IQR = 5.693 ms, LowerFence = 124.043 ms, UpperFence = 146.816 ms
+ConfidenceInterval = [20.636 ms; 251.828 ms] (CI 99.9%), Margin = 115.596 ms (84.85% of Mean)
+Skewness = 0.38, Kurtosis = 0.67, MValue = 2
+-------------------- Histogram --------------------
+[132.072 ms ; 143.604 ms) | @@@
+---------------------------------------------------
+
+WarmInvokeThroughputBenchmark.'Warm invoke @ N concurrency (network-shaped, 4├ù bar)': ShortRun(IterationCount=3, LaunchCount=1, MaxIterationCount=20, MinIterationCount=5, WarmupCount=3) [Mode=ProcessPool, Concurrency=10]
+Runtime = .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD; GC = Concurrent Server
+Mean = 200.690 ms, StdErr = 0.640 ms (0.32%), N = 3, StdDev = 1.109 ms
+Min = 199.413 ms, Q1 = 200.330 ms, Median = 201.248 ms, Q3 = 201.328 ms, Max = 201.409 ms
+IQR = 0.998 ms, LowerFence = 198.833 ms, UpperFence = 202.825 ms
+ConfidenceInterval = [180.463 ms; 220.917 ms] (CI 99.9%), Margin = 20.227 ms (10.08% of Mean)
+Skewness = -0.38, Kurtosis = 0.67, MValue = 2
+-------------------- Histogram --------------------
+[199.402 ms ; 201.420 ms) | @@@
+---------------------------------------------------
+
+// * Summary *
+
+BenchmarkDotNet v0.14.0, Windows 11 (10.0.26200.8328)
+Unknown processor
+.NET SDK 10.0.202
+  [Host]   : .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+  ShortRun : .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+
+Job=ShortRun  IterationCount=3  LaunchCount=1  
+MaxIterationCount=20  MinIterationCount=5  WarmupCount=3  
+
+| Method                                                 | Mode        | Concurrency | Mean     | Error     | StdDev   | P99        | P95      | Allocated |
+|------------------------------------------------------- |------------ |------------ |---------:|----------:|---------:|-----------:|---------:|----------:|
+| 'Warm invoke @ N concurrency (network-shaped, 4├ù bar)' | Single      | 10          | 661.2 ms | 409.32 ms | 22.44 ms | 686.233 ms | 683.4 ms |    236 KB |
+| 'Warm invoke @ N concurrency (network-shaped, 4├ù bar)' | Pool        | 10          | 136.2 ms | 115.60 ms |  6.34 ms | 143.321 ms | 142.5 ms | 231.29 KB |
+| 'Warm invoke @ N concurrency (network-shaped, 4├ù bar)' | ProcessPool | 10          | 200.7 ms |  20.23 ms |  1.11 ms | 201.406 ms | 201.4 ms | 252.02 KB |
+// * Config Issues *
+
+// * Warnings *
+Configuration
+  Summary -> The exporter MarkdownExporter-github is already present in configuration. There may be unexpected results.
+
+// * Legends *
+  Mode        : Value of the 'Mode' parameter
+  Concurrency : Value of the 'Concurrency' parameter
+  Mean        : Arithmetic mean of all measurements
+  Error       : Half of 99.9% confidence interval
+  StdDev      : Standard deviation of all measurements
+  P99         : Percentile 99 of per-operation latency.
+  P95         : Percentile 95
+  Allocated   : Allocated memory per single operation (managed only, inclusive, 1KB = 1024B)
+  1 ms        : 1 Millisecond (0.001 sec)
+
+// * Diagnostic Output - MemoryDiagnoser *
+
+
+// ***** BenchmarkRunner: End *****
+Run time: 00:00:35 (35.97 sec), executed benchmarks: 3
+
+Global total time: 00:05:06 (306.34 sec), executed benchmarks: 18
+// * Artifacts cleanup *
+Artifacts cleanup is finished
