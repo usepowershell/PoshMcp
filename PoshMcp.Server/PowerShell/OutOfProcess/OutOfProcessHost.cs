@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using PoshMcp.Server.Observability;
 
 namespace PoshMcp.Server.PowerShell.OutOfProcess;
 
@@ -174,9 +175,11 @@ public sealed class OutOfProcessHost : IAsyncDisposable
             }
             else
             {
+                // Subprocess output may carry attacker-controllable PowerShell content;
+                // scrub before logging to mitigate CWE-117 log forging.
                 _logger.LogWarning(
                     "OOP subprocess ping returned unexpected result: {Result}",
-                    result.GetRawText());
+                    LogSanitizer.Scrub(result.GetRawText()));
             }
         }
         catch (Exception ex)
@@ -229,7 +232,9 @@ public sealed class OutOfProcessHost : IAsyncDisposable
             await _sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                _logger.LogDebug("Sending request {Id} method={Method}", id, method);
+                // Method names originate from MCP tool/command names supplied by callers;
+                // scrub before logging to mitigate CWE-117 log forging.
+                _logger.LogDebug("Sending request {Id} method={Method}", id, LogSanitizer.Scrub(method));
                 await _stdin!.WriteLineAsync(json.AsMemory(), cancellationToken).ConfigureAwait(false);
                 await _stdin.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
@@ -421,11 +426,13 @@ public sealed class OutOfProcessHost : IAsyncDisposable
                 if (line is null) break; // EOF
                 if (string.IsNullOrWhiteSpace(line)) continue;
 
-                _logger.LogDebug("OOP stdout: {Line}", line);
+                // Subprocess stdout may carry attacker-controllable PowerShell content;
+                // scrub before logging to mitigate CWE-117 log forging.
+                _logger.LogDebug("OOP stdout: {Line}", LogSanitizer.Scrub(line));
 
                 if (IsNonJsonPowerShellStreamLine(line))
                 {
-                    _logger.LogDebug("OOP subprocess non-JSON stream output (suppressed): {Line}", line);
+                    _logger.LogDebug("OOP subprocess non-JSON stream output (suppressed): {Line}", LogSanitizer.Scrub(line));
                     continue;
                 }
 
@@ -436,14 +443,14 @@ public sealed class OutOfProcessHost : IAsyncDisposable
 
                     if (!root.TryGetProperty("id", out var idProp))
                     {
-                        _logger.LogWarning("OOP response missing 'id' field: {Line}", line);
+                        _logger.LogWarning("OOP response missing 'id' field: {Line}", LogSanitizer.Scrub(line));
                         continue;
                     }
 
                     var id = idProp.GetString();
                     if (id is null)
                     {
-                        _logger.LogWarning("OOP response has null 'id': {Line}", line);
+                        _logger.LogWarning("OOP response has null 'id': {Line}", LogSanitizer.Scrub(line));
                         continue;
                     }
 
@@ -457,11 +464,12 @@ public sealed class OutOfProcessHost : IAsyncDisposable
                                 && resForUnknown.TryGetProperty("cancelled", out var cancelledFlag)
                                 && cancelledFlag.ValueKind == JsonValueKind.True))
                         {
-                            _logger.LogDebug("OOP response for already-removed request id '{Id}'.", id);
+                            // The id originates in subprocess stdout — scrub before logging.
+                            _logger.LogDebug("OOP response for already-removed request id '{Id}'.", LogSanitizer.Scrub(id));
                         }
                         else
                         {
-                            _logger.LogWarning("OOP response for unknown request id '{Id}': {Line}", id, line);
+                            _logger.LogWarning("OOP response for unknown request id '{Id}': {Line}", LogSanitizer.Scrub(id), LogSanitizer.Scrub(line));
                         }
                         continue;
                     }
@@ -479,14 +487,14 @@ public sealed class OutOfProcessHost : IAsyncDisposable
                     }
                     else
                     {
-                        _logger.LogWarning("OOP response has neither 'result' nor 'error': {Line}", line);
+                        _logger.LogWarning("OOP response has neither 'result' nor 'error': {Line}", LogSanitizer.Scrub(line));
                         tcs.TrySetException(new InvalidOperationException(
                             "OOP response has neither 'result' nor 'error'."));
                     }
                 }
                 catch (JsonException)
                 {
-                    _logger.LogDebug("OOP stdout: skipping non-JSON line: {Line}", line);
+                    _logger.LogDebug("OOP stdout: skipping non-JSON line: {Line}", LogSanitizer.Scrub(line));
                 }
             }
         }
@@ -513,7 +521,8 @@ public sealed class OutOfProcessHost : IAsyncDisposable
             {
                 var line = await stderr.ReadLineAsync().ConfigureAwait(false);
                 if (line is null) break; // EOF
-                _logger.LogDebug("OOP stderr: {Line}", line);
+                // Subprocess stderr may carry attacker-controllable content; scrub before logging.
+                _logger.LogDebug("OOP stderr: {Line}", LogSanitizer.Scrub(line));
             }
         }
         catch (ObjectDisposedException)
