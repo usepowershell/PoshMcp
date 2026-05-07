@@ -54,7 +54,7 @@ public static class LogSanitizer
 
         if (value.Length == 0)
         {
-            return value;
+            return string.Empty;
         }
 
         // Fast path: if the string contains no characters that need scrubbing
