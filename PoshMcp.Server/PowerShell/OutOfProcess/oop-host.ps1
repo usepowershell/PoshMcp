@@ -29,10 +29,268 @@ function Write-Diag {
     [Console]::Error.WriteLine("[oop-host] $Message")
 }
 
+# --- C# single-host dispatcher (for cancellation propagation, issue #188) ---
+# Compiled once per process. Owns a single worker thread that processes
+# invokes serially against a shared runspace; tracks active items by request
+# id so a 'cancel' message can call BeginStop() on the live pipeline. All
+# stdout writes are serialized through SingleStdout.Lock so the dispatcher
+# main loop and the worker thread can never interleave.
+
+if (-not ('PoshMcp.SingleHost.SingleDispatcher' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Globalization;
+using System.Linq;
+using System.Management.Automation;
+using System.Text;
+using System.Threading;
+
+namespace PoshMcp.SingleHost
+{
+    public static class SingleStdout
+    {
+        public static readonly object Lock = new object();
+
+        public static void Write(string json)
+        {
+            lock (Lock)
+            {
+                Console.Out.WriteLine(json);
+                Console.Out.Flush();
+            }
+        }
+
+        public static string EscapeString(string s)
+        {
+            if (s == null) return "null";
+            var sb = new StringBuilder(s.Length + 2);
+            sb.Append('"');
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                switch (c)
+                {
+                    case '\\': sb.Append("\\\\"); break;
+                    case '"':  sb.Append("\\\""); break;
+                    case '\b': sb.Append("\\b"); break;
+                    case '\f': sb.Append("\\f"); break;
+                    case '\n': sb.Append("\\n"); break;
+                    case '\r': sb.Append("\\r"); break;
+                    case '\t': sb.Append("\\t"); break;
+                    default:
+                        if (c < 0x20)
+                            sb.Append("\\u").Append(((int)c).ToString("x4", CultureInfo.InvariantCulture));
+                        else
+                            sb.Append(c);
+                        break;
+                }
+            }
+            sb.Append('"');
+            return sb.ToString();
+        }
+    }
+
+    public sealed class SingleWorkItem
+    {
+        public string Id;
+        public PowerShell Ps;
+        public bool Cancelled;
+    }
+
+    public sealed class SingleDispatcher : IDisposable
+    {
+        private readonly BlockingCollection<SingleWorkItem> _queue = new BlockingCollection<SingleWorkItem>();
+        private readonly ConcurrentDictionary<string, SingleWorkItem> _active = new ConcurrentDictionary<string, SingleWorkItem>();
+        private readonly Thread _worker;
+
+        public SingleDispatcher()
+        {
+            _worker = new Thread(WorkerLoop);
+            _worker.IsBackground = true;
+            _worker.Name = "PoshMcpSingle-Worker";
+            _worker.Start();
+        }
+
+        public void Submit(string id, PowerShell ps)
+        {
+            var item = new SingleWorkItem { Id = id, Ps = ps };
+            _active[id] = item;
+            _queue.Add(item);
+        }
+
+        public bool Cancel(string requestId)
+        {
+            if (string.IsNullOrEmpty(requestId)) return false;
+            SingleWorkItem item;
+            if (!_active.TryGetValue(requestId, out item)) return false;
+            try
+            {
+                item.Cancelled = true;
+                item.Ps.BeginStop(null, null);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("[oop-host:dispatcher] BeginStop failed for " + requestId + ": " + ex.Message);
+                return false;
+            }
+        }
+
+        private void WorkerLoop()
+        {
+            try
+            {
+                foreach (var w in _queue.GetConsumingEnumerable())
+                {
+                    try
+                    {
+                        ProcessOne(w);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine("[oop-host:dispatcher] worker exception: " + ex);
+                        try { WriteError(w.Id, ex.Message); } catch { }
+                    }
+                    finally
+                    {
+                        try { w.Ps.Dispose(); } catch { }
+                        SingleWorkItem _removed;
+                        _active.TryRemove(w.Id, out _removed);
+                    }
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                // BlockingCollection completed during shutdown.
+            }
+        }
+
+        private void ProcessOne(SingleWorkItem w)
+        {
+            Collection<PSObject> output = null;
+            string invokeError = null;
+            bool wasStopped = false;
+
+            try
+            {
+                output = w.Ps.Invoke();
+            }
+            catch (System.Management.Automation.PipelineStoppedException)
+            {
+                wasStopped = true;
+            }
+            catch (Exception ex)
+            {
+                invokeError = ex.Message;
+            }
+
+            if (!wasStopped)
+            {
+                try
+                {
+                    var state = w.Ps.InvocationStateInfo;
+                    if (state != null && state.State == PSInvocationState.Stopped)
+                    {
+                        wasStopped = true;
+                    }
+                }
+                catch { /* best-effort */ }
+            }
+
+            bool cancelled = wasStopped || w.Cancelled;
+
+            string[] errs = w.Ps.Streams.Error.Select(e => e.ToString()).ToArray();
+            string[] warns = w.Ps.Streams.Warning.Select(x => x.Message).ToArray();
+            bool hadErrors = w.Ps.HadErrors || errs.Length > 0 || cancelled;
+
+            string outputJson;
+            if (invokeError != null && !cancelled)
+            {
+                WriteError(w.Id, invokeError);
+                return;
+            }
+            if (cancelled || output == null || output.Count == 0 || output[0] == null)
+            {
+                outputJson = "null";
+            }
+            else
+            {
+                var first = output[0];
+                outputJson = (first.BaseObject as string) ?? first.ToString() ?? "null";
+            }
+
+            var sb = new StringBuilder();
+            sb.Append("{\"id\":").Append(SingleStdout.EscapeString(w.Id)).Append(",\"result\":{");
+            sb.Append("\"output\":").Append(SingleStdout.EscapeString(outputJson)).Append(',');
+            sb.Append("\"hadErrors\":").Append(hadErrors ? "true" : "false").Append(',');
+            sb.Append("\"cancelled\":").Append(cancelled ? "true" : "false").Append(',');
+            sb.Append("\"errors\":[");
+            for (int i = 0; i < errs.Length; i++)
+            {
+                if (i > 0) sb.Append(',');
+                sb.Append(SingleStdout.EscapeString(errs[i] ?? string.Empty));
+            }
+            sb.Append("],\"warnings\":[");
+            for (int i = 0; i < warns.Length; i++)
+            {
+                if (i > 0) sb.Append(',');
+                sb.Append(SingleStdout.EscapeString(warns[i] ?? string.Empty));
+            }
+            sb.Append("]}}");
+
+            SingleStdout.Write(sb.ToString());
+        }
+
+        private static void WriteError(string id, string message)
+        {
+            var sb = new StringBuilder();
+            sb.Append("{\"id\":").Append(SingleStdout.EscapeString(id ?? string.Empty));
+            sb.Append(",\"error\":{\"code\":-1,\"message\":")
+              .Append(SingleStdout.EscapeString(message ?? string.Empty))
+              .Append("}}");
+            SingleStdout.Write(sb.ToString());
+        }
+
+        public void Dispose()
+        {
+            try { _queue.CompleteAdding(); } catch { }
+        }
+    }
+}
+'@
+}
+
+$script:Dispatcher = $null
+$script:SharedRunspace = $null
+
+function Ensure-SharedRunspace {
+    if ($null -eq $script:SharedRunspace) {
+        $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault2()
+        $script:SharedRunspace = [runspacefactory]::CreateRunspace($iss)
+        $script:SharedRunspace.Open()
+        Write-Diag 'Shared runspace opened.'
+    }
+}
+
+function Ensure-Dispatcher {
+    if ($null -eq $script:Dispatcher) {
+        Ensure-SharedRunspace
+        $script:Dispatcher = [PoshMcp.SingleHost.SingleDispatcher]::new()
+        Write-Diag 'Single-mode dispatcher started.'
+    }
+}
+
 function Write-NdjsonResponse {
     <#
     .SYNOPSIS
         Write a single ndjson response line to stdout.
+    .NOTES
+        Uses [PoshMcp.SingleHost.SingleStdout]::Write so the dispatcher main
+        loop and the worker thread (which writes invoke responses directly
+        from C#) cannot interleave on stdout.
     #>
     param(
         [Parameter(Mandatory)][string]$Id,
@@ -50,8 +308,13 @@ function Write-NdjsonResponse {
     }
 
     $json = $response | ConvertTo-Json -Depth 10 -Compress
-    [Console]::Out.WriteLine($json)
-    [Console]::Out.Flush()
+    if (('PoshMcp.SingleHost.SingleStdout' -as [type])) {
+        [PoshMcp.SingleHost.SingleStdout]::Write($json)
+    }
+    else {
+        [Console]::Out.WriteLine($json)
+        [Console]::Out.Flush()
+    }
 }
 
 function ConvertTo-SafeJson {
@@ -110,6 +373,11 @@ function Invoke-ShutdownHandler {
     param([string]$Id)
     Write-NdjsonResponse -Id $Id -Result @{ status = 'shutting_down' }
     Write-Diag 'Shutdown requested. Exiting.'
+    if ($null -ne $script:Dispatcher) { try { $script:Dispatcher.Dispose() } catch {} }
+    if ($null -ne $script:SharedRunspace) {
+        try { $script:SharedRunspace.Close() } catch {}
+        try { $script:SharedRunspace.Dispose() } catch {}
+    }
     exit 0
 }
 
@@ -537,7 +805,10 @@ function Invoke-DiscoverHandler {
 function Invoke-InvokeHandler {
     <#
     .SYNOPSIS
-        Execute a PowerShell command and return the result.
+        Execute a PowerShell command asynchronously via the SingleDispatcher
+        worker thread. The dispatcher main loop returns to read stdin
+        immediately so a follow-up 'cancel' message can be processed while
+        the user pipeline is in flight.
     #>
     param(
         [string]$Id,
@@ -553,10 +824,11 @@ function Invoke-InvokeHandler {
         return
     }
 
+    Ensure-Dispatcher
+
     # Build parameters hashtable for splatting
     $splatParams = @{}
     if ($null -ne $Params.parameters) {
-        # Convert the PSCustomObject from ConvertFrom-Json into a hashtable
         $Params.parameters.PSObject.Properties | ForEach-Object {
             $splatParams[$_.Name] = $_.Value
         }
@@ -582,7 +854,6 @@ function Invoke-InvokeHandler {
                     $splatParams[$switchName] = [switch]$true
                 }
                 else {
-                    # Remove false switch parameters so they aren't passed
                     $splatParams.Remove($switchName)
                 }
             }
@@ -590,44 +861,71 @@ function Invoke-InvokeHandler {
     }
     catch {
         Write-Diag "Warning: Could not resolve command info for '$commandName': $_"
-        # Proceed anyway — splatting may still work
     }
 
     Write-Diag "Invoking: $commandName with $($splatParams.Count) parameter(s)"
 
-    # Clear $Error before invoking so non-terminating errors from prior invokes
-    # in this single-runspace host don't leak into this invoke's hadErrors flag.
-    # See issue #189.
-    $Error.Clear()
-
-    try {
-        $result = & $commandName @splatParams
-        $hadErrors = $false
-
-        # Check if there were non-terminating errors
-        if ($Error.Count -gt 0) {
-            $hadErrors = $true
+    # User script executes inside the shared runspace. $Error is per-runspace
+    # (cleared so contamination from a prior invoke cannot leak; see #189).
+    # The pipeline pre-serializes the result to JSON so the worker thread can
+    # embed it without a second round-trip into PowerShell. ConvertTo-Json is
+    # wrapped to tolerate shadowed-property objects (see #203).
+    $userScript = {
+        param($Name, $Splat)
+        $Error.Clear()
+        # Wrap the call so terminating errors (e.g. CommandNotFoundException
+        # from the call operator) propagate out of [powershell]::Invoke() as
+        # exceptions rather than being collected into Streams.Error. The
+        # SingleDispatcher uses that exception to emit an error frame, which
+        # the .NET client surfaces as InvalidOperationException.
+        try { $r = & $Name @Splat } catch { throw }
+        if ($null -eq $r) { return 'null' }
+        try {
+            return ($r | ConvertTo-Json -Depth 4 -Compress -WarningAction SilentlyContinue)
         }
-
-        # Use ConvertTo-SafeJson to tolerate shadowed-property objects
-        # (e.g. Invoke-WebRequest results). See issue #203.
-        $jsonOutput = ConvertTo-SafeJson -InputObject $result -Depth 4
-        if ($null -eq $jsonOutput) {
-            $jsonOutput = 'null'
-        }
-
-        Write-NdjsonResponse -Id $Id -Result @{
-            output    = $jsonOutput
-            hadErrors = $hadErrors
-        }
-    }
-    catch {
-        Write-Diag "Error invoking '$commandName': $_"
-        Write-NdjsonResponse -Id $Id -ErrorObj @{
-            code    = -1
-            message = "$_"
+        catch [System.ArgumentException] {
+            try {
+                return ($r | Select-Object * | ConvertTo-Json -Depth 4 -Compress -WarningAction SilentlyContinue)
+            }
+            catch {
+                return (($r | Out-String).Trim() | ConvertTo-Json -Compress)
+            }
         }
     }
+
+    $ps = [powershell]::Create()
+    $ps.Runspace = $script:SharedRunspace
+    [void]$ps.AddScript($userScript)
+    [void]$ps.AddArgument($commandName)
+    [void]$ps.AddArgument($splatParams)
+
+    # Hand off to the worker thread; it writes the response when done.
+    $script:Dispatcher.Submit($Id, $ps)
+}
+
+function Invoke-CancelHandler {
+    <#
+    .SYNOPSIS
+        Cancel an in-flight invoke. Looks up the request id in the dispatcher's
+        active registry and calls BeginStop() on the live pipeline. Always
+        responds promptly with a small ack frame regardless of outcome.
+    #>
+    param(
+        [string]$Id,
+        [object]$Params
+    )
+
+    $requestId = ''
+    if ($null -ne $Params -and $null -ne $Params.requestId) {
+        $requestId = "$($Params.requestId)"
+    }
+
+    $found = $false
+    if (-not [string]::IsNullOrEmpty($requestId) -and $null -ne $script:Dispatcher) {
+        $found = $script:Dispatcher.Cancel($requestId)
+    }
+    Write-Diag "cancel: requestId=$requestId found=$found"
+    Write-NdjsonResponse -Id $Id -Result @{ cancelled = $found; requestId = $requestId }
 }
 
 # --- Main loop ---
@@ -690,6 +988,9 @@ while ($true) {
             }
             'invoke' {
                 Invoke-InvokeHandler -Id $id -Params $params
+            }
+            'cancel' {
+                Invoke-CancelHandler -Id $id -Params $params
             }
             default {
                 Write-NdjsonResponse -Id $id -ErrorObj @{
