@@ -19,14 +19,18 @@ public class PowerShellConfiguration
 
     /// <summary>
     /// Selects which OOP host topology is launched when <see cref="RuntimeMode"/> is
-    /// <see cref="RuntimeMode.OutOfProcess"/>. <see cref="SubprocessHostMode.Single"/> (default)
-    /// launches the single-runspace host (<c>oop-host.ps1</c>).
-    /// <see cref="SubprocessHostMode.Pool"/> launches a runspace-pool host
-    /// (<c>oop-host-pool.ps1</c>) that runs invokes concurrently in one subprocess.
+    /// <see cref="RuntimeMode.OutOfProcess"/>. <see cref="SubprocessHostMode.Pool"/> (default)
+    /// launches a runspace-pool host (<c>oop-host-pool.ps1</c>) that runs invokes
+    /// concurrently in one subprocess and is the recommended setting for typical
+    /// concurrent MCP workloads (see <c>specs/004-out-of-process-execution/benchmark-findings.md</c>).
+    /// <see cref="SubprocessHostMode.Single"/> launches the legacy single-runspace
+    /// host (<c>oop-host.ps1</c>) and remains supported for callers that need the
+    /// historical serialized behavior or are bisecting a regression.
     /// <see cref="SubprocessHostMode.ProcessPool"/> launches a pool of N independent
-    /// single-runspace subprocess hosts, leased per request.
+    /// single-runspace subprocess hosts, leased per request, for trust-boundary or
+    /// tail-latency-sensitive workloads.
     /// </summary>
-    public SubprocessHostMode SubprocessHostMode { get; set; } = SubprocessHostMode.Single;
+    public SubprocessHostMode SubprocessHostMode { get; set; } = SubprocessHostMode.Pool;
 
     /// <summary>
     /// Maximum number of runspaces in the pool when <see cref="SubprocessHostMode"/> is

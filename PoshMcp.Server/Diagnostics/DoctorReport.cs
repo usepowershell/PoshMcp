@@ -54,6 +54,15 @@ public sealed record DoctorReport
     public List<string> Warnings { get; init; } = [];
 
     /// <summary>
+    /// Out-of-process execution diagnostics. Only meaningful when
+    /// <see cref="RuntimeSettingsSection.RuntimeMode"/> resolves to
+    /// <c>OutOfProcess</c>; otherwise <see cref="OutOfProcessSection.Applicable"/>
+    /// is <c>false</c> and the remaining fields hold defaults.
+    /// </summary>
+    [JsonPropertyName("outOfProcess")]
+    public OutOfProcessSection OutOfProcess { get; init; } = new();
+
+    /// <summary>
     /// Computes the overall health status from the diagnostic data.
     /// Returns <c>"errors"</c>, <c>"warnings"</c>, or <c>"healthy"</c>.
     /// </summary>
@@ -498,4 +507,73 @@ public sealed record IdentitySection
 
     [JsonPropertyName("roles")]
     public List<string> Roles { get; init; } = [];
+}
+
+/// <summary>
+/// Diagnostics for the out-of-process PowerShell execution layer, populated
+/// when the resolved <c>RuntimeMode</c> is <c>OutOfProcess</c>.
+/// </summary>
+public sealed record OutOfProcessSection
+{
+    /// <summary>
+    /// True when the active runtime mode is <c>OutOfProcess</c> and the rest
+    /// of the section is meaningful. False otherwise (defaults will be present
+    /// but should not be displayed to the operator).
+    /// </summary>
+    [JsonPropertyName("applicable")]
+    public bool Applicable { get; init; }
+
+    /// <summary>Resolved subprocess host mode (<c>Single</c>, <c>Pool</c>, or <c>ProcessPool</c>).</summary>
+    [JsonPropertyName("hostMode")]
+    public string HostMode { get; init; } = string.Empty;
+
+    /// <summary>How <see cref="HostMode"/> was resolved (<c>config (explicit)</c> or <c>config (default)</c>).</summary>
+    [JsonPropertyName("hostModeSource")]
+    public string HostModeSource { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Configured runspace pool size for <c>Pool</c> mode (0 means
+    /// auto-size to <c>min(ProcessorCount, 8)</c> at the host).
+    /// </summary>
+    [JsonPropertyName("runspacePoolSize")]
+    public int RunspacePoolSize { get; init; }
+
+    /// <summary>
+    /// Effective runspace pool size including any clamping (e.g. negative or
+    /// out-of-range inputs are normalized to 1; 0 is treated as auto).
+    /// </summary>
+    [JsonPropertyName("effectiveRunspacePoolSize")]
+    public string EffectiveRunspacePoolSize { get; init; } = string.Empty;
+
+    /// <summary>Configured process pool size for <c>ProcessPool</c> mode (number of subprocess hosts).</summary>
+    [JsonPropertyName("processPoolSize")]
+    public int ProcessPoolSize { get; init; }
+
+    /// <summary>Effective process pool size after clamping.</summary>
+    [JsonPropertyName("effectiveProcessPoolSize")]
+    public int EffectiveProcessPoolSize { get; init; }
+
+    /// <summary>Minimum healthy hosts required at startup for <c>ProcessPool</c> mode (configured value).</summary>
+    [JsonPropertyName("minHealthyForStartup")]
+    public int MinHealthyForStartup { get; init; }
+
+    /// <summary>Minimum healthy hosts after clamping (capped at the effective pool size).</summary>
+    [JsonPropertyName("effectiveMinHealthyForStartup")]
+    public int EffectiveMinHealthyForStartup { get; init; }
+
+    /// <summary>Per-request timeout enforced by the host for outbound invokes (defaults to 30s).</summary>
+    [JsonPropertyName("requestTimeoutSeconds")]
+    public double RequestTimeoutSeconds { get; init; }
+
+    /// <summary>Resolved on-disk path to the host script for the active mode.</summary>
+    [JsonPropertyName("hostScriptPath")]
+    public string? HostScriptPath { get; init; }
+
+    /// <summary>True when the host script for the active mode resolved successfully.</summary>
+    [JsonPropertyName("hostScriptResolved")]
+    public bool HostScriptResolved { get; init; }
+
+    /// <summary>If <see cref="HostScriptResolved"/> is false, a short error description.</summary>
+    [JsonPropertyName("hostScriptError")]
+    public string? HostScriptError { get; init; }
 }

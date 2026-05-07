@@ -361,16 +361,21 @@ dotnet run --project PoshMcp.Server
 # Set PowerShellConfiguration.RuntimeMode to "OutOfProcess"
 ```
 
-### Trade-offs
+### Host Modes
 
-| Aspect | In-Process (Default) | Out-of-Process |
-|--------|----------------------|-----------------|
-| Latency | ~5 ms | ~120 ms |
-| Memory | ~250 MB | ~330–370 MB |
-| Module isolation | Shared (one failure affects all) | Isolated |
-| Complexity | Simpler | More complex |
+When `RuntimeMode` is `OutOfProcess`, the `SubprocessHostMode` setting selects the host topology:
 
-**For complete documentation, see [docs/articles/transport-modes.md](docs/articles/transport-modes.md) and [specs/out-of-process-execution.md](specs/out-of-process-execution.md).**
+| `SubprocessHostMode` | Topology | When to use |
+|----------------------|----------|-------------|
+| `Pool` (**default**) | One subprocess, runspace pool inside it | Typical concurrent MCP workloads. Best warm-invoke throughput (~4.9× over `Single` at concurrency 10 in run-3 benchmarks). |
+| `ProcessPool` | N independent single-runspace subprocesses, leased per request | Tail-latency-sensitive or trust-boundary-sensitive workloads where one runaway invoke must not affect siblings. |
+| `Single` | One subprocess with one runspace, requests serialized | Backward-compatible legacy mode. Useful for bisecting regressions or when minimal cold-start is the only metric that matters. |
+
+`Pool` is the default since the run-3 benchmark study; see [`specs/004-out-of-process-execution/benchmark-findings.md`](specs/004-out-of-process-execution/benchmark-findings.md) for the full comparison and [`specs/004-out-of-process-execution/spec.md`](specs/004-out-of-process-execution/spec.md) for the configuration surface.
+
+Run `poshmcp doctor` in `OutOfProcess` mode to see the resolved host mode, effective pool size, host script path, and any clamp warnings.
+
+**For complete documentation, see [docs/articles/transport-modes.md](docs/articles/transport-modes.md) and [`specs/004-out-of-process-execution/spec.md`](specs/004-out-of-process-execution/spec.md).**
 
 ---
 

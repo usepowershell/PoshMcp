@@ -11,6 +11,7 @@ using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using PoshMcp.Server.Authentication;
 using PoshMcp.Server.PowerShell;
+using PoshMcp.Server.PowerShell.OutOfProcess;
 
 namespace PoshMcp;
 
@@ -81,6 +82,11 @@ internal static class DoctorService
             configurationErrors: configurationErrors,
             environmentVariables: environmentVariables,
             authConfig: authConfig);
+
+        report = report with
+        {
+            OutOfProcess = BuildOutOfProcessSection(config, settings.FinalConfigPath, loggerFactory),
+        };
 
         if (format == "json")
         {
@@ -163,7 +169,11 @@ internal static class DoctorService
             configurationErrors: configurationErrors,
             environmentVariables: environmentVariables,
             authConfig: authConfig,
-            currentIdentity: currentIdentity);
+            currentIdentity: currentIdentity)
+            with
+        {
+            OutOfProcess = BuildOutOfProcessSection(config, configurationPath, Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance),
+        };
     }
 
     /// <summary>
@@ -184,6 +194,112 @@ internal static class DoctorService
             WriteIndented = writeIndented,
             DefaultIgnoreCondition = JsonIgnoreCondition.Never
         });
+    }
+
+    /// <summary>
+    /// Builds the out-of-process diagnostics section. Returns a non-applicable
+    /// section when <see cref="PowerShellConfiguration.RuntimeMode"/> is not
+    /// <see cref="RuntimeMode.OutOfProcess"/>; otherwise resolves the host
+    /// script path (without launching a subprocess) and reports the effective
+    /// pool sizing.
+    /// </summary>
+    internal static OutOfProcessSection BuildOutOfProcessSection(
+        PowerShellConfiguration config,
+        string? configurationPath,
+        ILoggerFactory loggerFactory)
+    {
+        if (config.RuntimeMode != RuntimeMode.OutOfProcess)
+        {
+            return new OutOfProcessSection { Applicable = false };
+        }
+
+        // Detect explicit-vs-default for HostMode by re-reading the raw config.
+        var hostModeSource = "config (default)";
+        if (!string.IsNullOrWhiteSpace(configurationPath))
+        {
+            try
+            {
+                var rootConfig = ConfigurationLoader.BuildRootConfiguration(configurationPath, reloadOnChange: false);
+                if (!string.IsNullOrWhiteSpace(rootConfig["PowerShellConfiguration:SubprocessHostMode"]))
+                {
+                    hostModeSource = "config (explicit)";
+                }
+            }
+            catch
+            {
+                // Best-effort detection only — fall back to "default".
+            }
+        }
+
+        // Effective sizing per host-mode.
+        var effectiveRunspacePoolSize = config.SubprocessHostMode switch
+        {
+            SubprocessHostMode.Pool when config.SubprocessRunspacePoolSize <= 0 => "auto (min(ProcessorCount, 8))",
+            SubprocessHostMode.Pool => config.SubprocessRunspacePoolSize.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            _ => "n/a",
+        };
+
+        var effectiveProcessPoolSize = config.SubprocessHostMode == SubprocessHostMode.ProcessPool
+            ? (config.SubprocessPoolSize > 0 ? config.SubprocessPoolSize : 4)
+            : 0;
+
+        var effectiveMinHealthy = config.SubprocessHostMode == SubprocessHostMode.ProcessPool
+            ? Math.Max(1, Math.Min(
+                config.SubprocessMinHealthyForStartup > 0 ? config.SubprocessMinHealthyForStartup : 1,
+                effectiveProcessPoolSize > 0 ? effectiveProcessPoolSize : 1))
+            : 0;
+
+        // Best-effort host script resolution. Mirrors the executor's resolution
+        // path without starting the subprocess. Failures are reported, not thrown.
+        string? hostScriptPath = null;
+        var hostScriptResolved = false;
+        string? hostScriptError = null;
+        try
+        {
+            var resolverLogger = loggerFactory.CreateLogger<OutOfProcessCommandExecutor>();
+            var resolver = new OutOfProcessCommandExecutor(
+                resolverLogger,
+                requestTimeout: null,
+                hostMode: config.SubprocessHostMode,
+                runspacePoolSize: config.SubprocessRunspacePoolSize);
+            try
+            {
+                hostScriptPath = resolver.ResolveHostScriptPathAsync().GetAwaiter().GetResult();
+                hostScriptResolved = !string.IsNullOrWhiteSpace(hostScriptPath) && File.Exists(hostScriptPath);
+                if (!hostScriptResolved)
+                {
+                    hostScriptError = "Resolved path does not exist on disk.";
+                }
+            }
+            finally
+            {
+                resolver.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            }
+        }
+        catch (Exception ex)
+        {
+            hostScriptError = ex.Message;
+        }
+
+        return new OutOfProcessSection
+        {
+            Applicable = true,
+            HostMode = config.SubprocessHostMode.ToString(),
+            HostModeSource = hostModeSource,
+            RunspacePoolSize = config.SubprocessRunspacePoolSize,
+            EffectiveRunspacePoolSize = effectiveRunspacePoolSize,
+            ProcessPoolSize = config.SubprocessPoolSize,
+            EffectiveProcessPoolSize = effectiveProcessPoolSize,
+            MinHealthyForStartup = config.SubprocessMinHealthyForStartup,
+            EffectiveMinHealthyForStartup = effectiveMinHealthy,
+            // Per-request timeout is not yet a config knob — OutOfProcessHost
+            // hard-codes the 30-second default. Surfacing it here makes the
+            // contract explicit for operators and signposts the eventual knob.
+            RequestTimeoutSeconds = 30.0,
+            HostScriptPath = hostScriptPath,
+            HostScriptResolved = hostScriptResolved,
+            HostScriptError = hostScriptError,
+        };
     }
 
     private static (List<string> Warnings, List<string> Errors) BuildConfigurationWarnings(PowerShellConfiguration config, string configPath)
@@ -224,6 +340,32 @@ internal static class DoctorService
             if (appInsightsOptions.SamplingPercentage < 1 || appInsightsOptions.SamplingPercentage > 100)
             {
                 warnings.Add($"ApplicationInsights SamplingPercentage is {appInsightsOptions.SamplingPercentage}, which is outside the valid range of 1-100. It will be clamped at runtime.");
+            }
+        }
+
+        // Out-of-process subprocess clamp warnings (only meaningful when OutOfProcess).
+        if (config.RuntimeMode == RuntimeMode.OutOfProcess)
+        {
+            if (config.SubprocessHostMode == SubprocessHostMode.Pool && config.SubprocessRunspacePoolSize < 0)
+            {
+                warnings.Add($"SubprocessRunspacePoolSize is {config.SubprocessRunspacePoolSize} (negative). The Pool host will treat this as 0 (auto-size to min(ProcessorCount, 8)).");
+            }
+
+            if (config.SubprocessHostMode == SubprocessHostMode.ProcessPool)
+            {
+                if (config.SubprocessPoolSize < 1)
+                {
+                    warnings.Add($"SubprocessPoolSize is {config.SubprocessPoolSize}. ProcessPool will fall back to the default size of 4.");
+                }
+
+                if (config.SubprocessMinHealthyForStartup < 1)
+                {
+                    warnings.Add($"SubprocessMinHealthyForStartup is {config.SubprocessMinHealthyForStartup}. ProcessPool will clamp this to 1.");
+                }
+                else if (config.SubprocessPoolSize > 0 && config.SubprocessMinHealthyForStartup > config.SubprocessPoolSize)
+                {
+                    warnings.Add($"SubprocessMinHealthyForStartup ({config.SubprocessMinHealthyForStartup}) exceeds SubprocessPoolSize ({config.SubprocessPoolSize}); it will be clamped to the pool size.");
+                }
             }
         }
 
