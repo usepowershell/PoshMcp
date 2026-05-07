@@ -20,6 +20,8 @@
     "Performance": {
       "EnableResultCaching": true,
       "UseDefaultDisplayProperties": true
-    }
+    },
+    "SubprocessHostMode": "Pool",
+    "SubprocessRunspacePoolSize": 0
   }
 }
