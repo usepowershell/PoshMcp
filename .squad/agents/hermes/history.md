@@ -136,3 +136,6 @@ The Unicode escape sequence is not valid. A valid sequence is `u{ followed by on
 - **EMU workaround used:** Active account was already `usepowershell` on session start, so no EMU failures encountered for `gh pr ready`, `gh pr merge`, `gh api repos/.../milestones`, `gh issue create`, `gh issue comment`. Switched back to `stmuraws_microsoft` after work.
 - **PR merge that keeps the umbrella issue open:** `gh pr merge <N> --squash --delete-branch --subject "..." --body "Refs #65"`. `Refs` (not `Closes`/`Fixes`) keeps the linked issue open after merge.
 - **Local sync after merge:** Had local edits to `.squad/agents/hermes/history.md` blocking checkout. Pattern: `git stash push -m <label> -- <path>` → `git checkout main` → `git pull usepowershell main` → `git stash pop`.
+
+### 2026-05-07: v0.11.0 release shipped (cross-agent note from Scribe)
+Your work landed in v0.11.0 (csproj 0.10.0 → 0.11.0, CHANGELOG entry, release notes at docs/release-notes/0.11.0.md). The release narrative credits the OOP maturity wave: Pool default flip (#196/#208), cancellation propagation across all modes (#207), benchmarks harness + findings (#193/#194/#195/#205), OOP host extraction (#190/#198), bug fixes (#203/#189), CWE-117 log-injection hardening, minimum workflow permissions, and SECURITY.md. Tag/push deferred to Steven.

@@ -1,10 +1,7 @@
 # Decisions
 
 ## Recent Decisions
-### 2026-04-29T15:11:29Z: User directive
-**By:** Steven Murawski (via Copilot)
-**What:** All GitHub posts (issue creation, issue comments, PR creation, PR comments, PR reviews) MUST include the name of the agent posting it. Format: **{emoji} {AgentName} ({Role})**  at the start of the message body.
-**Why:** User request - ensures traceability of which AI team member authored each GitHub interaction.
+> Older entries archived to `decisions-archive.md` (entries >7d removed when file >= 50KB).
 
 ### 2026-05-02T06:39:00-05:00: User directive — progress reporting
 **By:** Steven Murawski (via Copilot)
@@ -846,3 +843,404 @@ Both findings are documented in `docs/entra-id-oauth-implementation-guide.md`:
 **By:** Farnsworth (requested by Steven Murawski)
 **What:** Added `SECURITY.md` at repo root. Supported versions: only latest 0.x minor (currently 0.10.x); older minors unsupported. Reporting channel: GitHub private vulnerability reporting via Security tab — no security email address invented. Documented SLA (ack 3 business days, triage 7), coordinated disclosure, and reporter credit via GHSA.
 **Why:** Establish a clear, standard security disclosure process before 1.0; align with GitHub's recommended private vuln reporting flow rather than ad-hoc email.
+
+
+### 2026-05-06: Spec 004 foundation work — review outcomes
+**By:** Farnsworth (Lead / Architect)
+**Requested by:** Steven Murawski
+
+**Three PRs against the runspace-pool experiment plan §5 sequencing (#0 / #1 / #4a) — all approved (as comments; gh `addPullRequestReview` rejects self-review even from the author's own account):**
+
+- **PR #199 — Hermes — `fix(oop): clear $Error before invoke in single-runspace host (#189)`:** APPROVE. One-line `$Error.Clear()` in `Invoke-InvokeHandler` before user invoke. Regression test asserts both halves: first invoke produces a non-terminating error and reports `hadErrors=true`; second clean invoke reports `hadErrors=false` (pre-fix the second fails). CI green across build/test/CodeQL.
+- **PR #198 — Bender — `refactor(oop): extract OutOfProcessHost (with lifecycle unit tests) (#190)`:** APPROVE. Per-process state cleanly moves to `OutOfProcessHost` (Process+Exited, stdin/stdout/stderr, `_sendLock`, `_pending`, read loops, shutdown sequence, `SendRequestAsync`). Executor keeps `setup`/`discover`/`invoke` payload shaping, `_cachedSchemas`, pwsh/script-path resolution. Lifecycle unit test walks start → ping → setup → shutdown → restart and asserts different PID after restart. Construction guards, double-Start, dispose-before-Start, IsRunning/ProcessId all covered. Integration tests refactored to walk `executor._host._process` via a small `GetSubprocess` helper — production code path unchanged. 591/0 pass. Unblocks #191 and #192.
+- **PR #197 — Fry — `feat(benchmarks): PoshMcp.Benchmarks harness infrastructure (#193)`:** APPROVE. .NET 10 console project, BDN 0.14.0, project-references `PoshMcp.Server`, in `PoshMcp.sln`. `HttpListener` bound to `127.0.0.1:0` via `TcpListener` probe (correct ephemeral-port workaround). All 5 scenario stubs present (cold start, warm invoke, payload size serialization, process crash recovery, runspace corruption recovery). Per-scenario `[MinIterationCount]/[MaxIterationCount]` thresholds. Baseline (`HostMode.Single`) captured in same run via `[Params]` axis. `ApplicationInsights__Enabled=false` set in `Program.cs`. `MarkdownExporter.GitHub` configured. Stubs no-op; wiring is #194. CI checks green (an unrelated `submit-nuget` workflow failure is not a PR check).
+
+**Issue #65 — "OOP: Experiment with runspace pool parallelism vs multiple processes":** CLOSED as completed. Superseded by the experiment plan (PR #187, merged) and its decomposition into issues #189 (prereq `$Error` fix), #190 (extract `OutOfProcessHost`), #191 (Option A prototype), #192 (Option B prototype), #193 (benchmark harness infra), #194 (wire harness to executors), #195 (run benchmarks + findings), #196 (adopt the winner). Tracking continues on the spec 004 milestone. Closing comment also noted the stale path reference in the issue body (`specs/out-of-process-execution.md` → canonical `specs/004-out-of-process-execution/`).
+
+**Non-blocking follow-ups noted on #198 (do not block merge):**
+- Migrate in-tree call sites of `OutOfProcessCommandExecutor` from the legacy `ILogger<OutOfProcessCommandExecutor>` constructor to the new `ILoggerFactory` overload so the host's logger is no longer silently routed to `NullLoggerFactory.Instance`.
+- `IsNonJsonPowerShellStreamLine` promoted from `private` to `internal` to enable reflection-based unit testing — visibility creep is minor and justified.
+
+**Process pattern (logged for team memory):** GitHub's GraphQL `addPullRequestReview` mutation rejects `APPROVE` (and `REQUEST_CHANGES`) when the reviewing identity is the PR author, even on the `usepowershell` account that is otherwise unblocked by EMU policy. Error: `Review Can not approve your own pull request`. Workaround: post the review body via `gh pr comment` instead. The badge-prefixed body preserves attribution either way. This is distinct from the EMU `stmuraws_microsoft` block on `gh pr review` / `gh pr comment` / `gh issue create` already documented in agent histories.
+
+### 2026-05-06: Spec 004 prototypes review — PR #200 (Option B / Bender) and PR #201 (Option A / Hermes)
+**By:** Farnsworth (Lead / Architect), requested by Steven Murawski
+**What:** APPROVED both PRs. Both prototypes meet every architectural criterion in `runspace-pool-experiment-plan.md` §5 #2/#3. PR #200 implements `OutOfProcessSubprocessPool` with the channel + dictionary protocol, slot-0 fail-fast / slots-1..N-1 backoff, SHA-256 environment fingerprint discovery cache, per-request kill-on-timeout, and a parameterized integration test matrix over pool sizes 1/2/4. PR #201 implements `oop-host-pool.ps1` with ISS-based pre-warmed runspace pool, custom `PSHost`/`PSHostUserInterface` (correctly NOT `[Console]::Out`), synchronized stdout writer, per-pipeline `Streams.*` + per-runspace `$Error.Clear()`, full quiesce protocol on `setup` (`DrainEvent` + `PoolDispatcher.WaitIdle` → close → mutate → reopen → resume), and per-invoke metrics on the response frame.
+**Why:** Both prototypes are required for the #194 benchmark phase; the plan's pass/fail comparison cannot run with only one option. Approving both unblocks Fry to wire the harness.
+**Cross-PR collision (BLOCKING for whichever lands second):** Both PRs introduce a type named `SubprocessHostMode`, source-incompatible. PR #200 = `static class` with string constants and `string?` property. PR #201 = `enum SubprocessHostMode { Single, Pool }` with enum property. PR #200 reserved the name `Pool` in its constants signaling intent to coexist. Recommended convergence: standardize on PR #201's `enum`, extend with `ProcessPool` when the second PR rebases. Rebase scope ~30 lines (PowerShellConfiguration property type, McpToolSetupService dispatch check, Bender unit tests).
+**Merge order recommendation:** Land **PR #201 (Option A / Hermes) first**, then have Bender rebase PR #200 onto the enum. Rationale: #201's diff is smaller (+1204 vs +1780), the enum is the more idiomatic C# baseline, and Bender's `IsProcessPool(string?)` helper has fewer call sites to convert than reverse direction. Either order works mechanically; this minimizes net rework.
+**Non-blocking observations recorded in PR comments:** #200 — discovery cache key omits filter parameters (correct but worth doc note); `MinHealthyForStartup` clamp in `McpToolSetupService` is silent; unbounded lease channel; lease loop spins on stale slots. #201 — drain timeout hardcoded 60s (not threaded from `SubprocessTimeoutSeconds`); pool-size cap of 8 is a prototype guard; `Resolve-SwitchParameters` calls `Get-Command` on the host process not in a pool runspace (verify ISS-imported modules are visible).
+
+### 2026-05-06: Farnsworth — PR #202 review (spec-004 benchmark harness wired)
+
+**By:** Farnsworth (Lead / Architect) — review requested by Steven Murawski
+
+**Verdict:** REQUEST CHANGES (single hard blocker is CI; architecture is approved).
+
+**PR:** https://github.com/usepowershell/PoshMcp/pull/202 — Fry — feat(benchmarks): wire harness to executors (#194). Closes #194. Branch: `squad/194-wire-benchmark-harness`. Builds on #190 (OutOfProcessHost extraction), #201 (Hermes Option A — Pool), #200 (Bender Option B — ProcessPool).
+
+**Decisions / calls captured:**
+
+1. **Hard blocker is mechanical, not architectural.** CI `build / Verify formatting` fails: `dotnet format --verify-no-changes` reports ~50 whitespace errors in `PoshMcp.Benchmarks/ExecutorFactory.cs` switch-case bodies. Fix = run `dotnet format PoshMcp.sln`, commit, push. No architectural rework required.
+
+2. **Acceptance criteria are met** (verified in worktree `poshmcp-194`): HostMode `[Params(Single, Pool, ProcessPool)]` on every scenario; all five scenarios implemented end-to-end; AI / spec-008 logging disabled at process start (env vars + harness never builds DI); markdown output includes mode / scenario / payload / mean / p95 / p99 / crash-recovery columns; README documents reproducible invocation.
+
+3. **InternalsVisibleTo widening is acceptable.** One IVT entry added to `PoshMcp.csproj` for `PoshMcp.Benchmarks`. Bench needs `OutOfProcessCommandExecutor`, `OutOfProcessHost`, `OutOfProcessSubprocessPool`, `OutOfProcessSubprocessPoolOptions`, `SubprocessHostMode` — all internal in production. Scoped to one assembly, not a blanket open-up.
+
+4. **Reflection-based crash injection is acceptable.** `KillOneHost()` reaches into `_host`, `_process`, `_slots` private fields from the bench-only assembly. Clearly labeled in XML docs, fails safe on missing fields. Fragility: silent degradation if those field names are ever renamed. Suggested follow-up (non-blocking): startup assertion that the reflection lookups resolve, abort the run if any are gone.
+
+5. **Crash-recovery time as `Mean` column** on `ProcessCrashRecoveryBenchmark` is an acceptable interpretation of the AC. For `ProcessPool` it's a real recovery measurement (kill 1 of N, lease loop skips dead slot, next invoke succeeds). For `Single` / `Pool` the iteration disposes and reconstructs the executor — `Mean` reports cold-start cost, which is honestly the answer to "time until next successful request" for those modes. Documented in code and README.
+
+6. **`RunspaceCorruptionRecoveryBenchmark` deviates in name from what it measures.** Implementation measures head-of-line blocking (slow `Start-Sleep` in flight + fast `Get-Date` probe). Design rationale (process-kill is the wrong gate for Option A — see runspace-pool-experiment-plan.md §4) is sound. Recommend rename to `HeadOfLineBlockingBenchmark` as a small follow-up. Non-blocking.
+
+7. **`OutOfProcessHost.SendRequestAsync` "Key: Content" concurrency race surfaced by the harness does NOT block #194.** This is the central architectural call. The harness's deliverable (per AC #1) is that all three executors are wired and exercised from a single run — provably true (cold-start smoke passes all three). The race is in production code (`OutOfProcessHost`), affects Single + ProcessPool when 10 concurrent invokes share a single host; Option A / Pool (PR #201) does NOT hit it because its dispatcher is concurrent-aware (useful comparative data favoring Option A on this axis). A benchmark surfacing a real production race on first concurrent run is doing its job, not failing. Suppressing it would defeat the purpose of #194 and delay #195 / #196 unnecessarily. **Required before merge:** file the race as a separate `spec:004` / `bug` issue and reference it from the PR body so the failure mode is tracked.
+
+**Bottom line:** Fix CI (`dotnet format`), file the concurrency bug, reference it from the PR body — this is APPROVED. The architecture is right, the AC is met, the surfaced production bug is the harness doing its job.
+
+**Pattern (cross-team):** Benchmark harnesses that exercise concurrent paths against production executors are high-signal regression tests in disguise. When the smoke run on day one surfaces a production race, land the harness, file the bug separately, and use the harness as the regression gate — don't hold the harness PR hostage to the bug it discovered first.
+
+Comment posted at https://github.com/usepowershell/PoshMcp/pull/202#issuecomment-4392814612 (gh pr review remains EMU-blocked on usepowershell/PoshMcp from this account).
+
+### 2026-05-06: PR #204 review — fix(oop): SendRequestAsync 'Key: Content' under parallel invokes (#203)
+**By:** Farnsworth (Lead / Architect)
+**PR:** https://github.com/usepowershell/PoshMcp/pull/204 (branch `squad/203-host-concurrency-fix`)
+**Comment:** https://github.com/usepowershell/PoshMcp/pull/204#issuecomment-4393068861
+
+**Verdict:** APPROVED
+
+**Root cause (Bender's diagnosis, verified):** Not a concurrency bug. `BasicHtmlWebResponseObject.Content` (string body) CLR-shadows `WebResponseObject.Content` (byte[]). `ConvertTo-Json` reflects members into a `Dictionary<string,object>`; the shadowed pair collides on `Add` → `System.ArgumentException: ... Key: Content`. Harness's parallel Invoke-WebRequest pattern made it deterministic; a single invoke would also trip it. The C# correlation map (`_pending`) was correctly identified as a red herring and was not touched.
+
+**Fix shape:**
+- `oop-host.ps1`: extracted `ConvertTo-SafeJson` helper applied at the single failing site (`Invoke-InvokeHandler` user-result serialization).
+- `oop-host-pool.ps1`: same fallback inlined into the runspace user-script scriptblock (correct — scriptblock executes in a pooled runspace and should not depend on host-process functions). Asymmetry is intentional.
+- Fallback chain only triggers on `catch [ArgumentException]`: (1) primary `ConvertTo-Json -Depth 4 -Compress`, (2) `Select-Object * | ConvertTo-Json` (flat PSObject collapses shadowed members; derived `Content` wins → callers get the body), (3) `($r | Out-String).Trim() | ConvertTo-Json` last resort. Happy path unchanged.
+
+**Regression test:** `OutOfProcessHostConcurrencyTests` — `InvokeAsync_ConcurrentInvokeWebRequest_DoesNotThrowDuplicateKeyError` fires 10 parallel `Invoke-WebRequest -UseBasicParsing` against a loopback `HttpListener`, producing a real `BasicHtmlWebResponseObject`. Pre-fix throws `OOP error: ... Key: Content`; post-fix asserts non-empty `output`. Companion test `SendRequestAsync_ConcurrentCallers_AllResponsesCorrelate` is a sanity net for the original (incorrect) hypothesis. Skip guards on `pwsh` and `HttpListener.IsSupported` are correct.
+
+**Non-blocking observations posted on the PR:**
+- Tests cover `oop-host.ps1` directly; pool-host inline fallback is exercised end-to-end via the `WarmInvokeThroughputBenchmark` smoke (Pool 306 ms / 10 calls clean) but not by a dedicated unit test. Optional follow-up.
+- Branch name and issue title retain "concurrency" framing — fine because PR body is explicit that the diagnosis corrected the hypothesis.
+
+**Sequencing observation (cross-PR):** This PR unblocks `WarmInvokeThroughputBenchmark` for `Single` and `ProcessPool` modes. Hermes's PR #195 (benchmarks + findings) has captured runs 1+2 against pre-#203 main, where Single/ProcessPool numbers are unreliable due to the duplicate-key error inside the invoke loop. After #204 merges, Hermes should rebase #195 onto post-#203 main and rerun affected benchmarks before publishing findings. Not blocking #204.
+
+**Pattern noted:** PowerShell serialization-via-reflection failures often masquerade as concurrency bugs when surfaced under parallel harnesses, because parallelism makes them deterministic. When `ConvertTo-Json` throws `ArgumentException: ... Key: <name>`, suspect CLR member shadowing on the input type before suspecting a race.
+
+**EMU caveat:** Posted via `gh pr comment` (gh pr review remains blocked on this account). Comment does not count as a formal GitHub approval for branch protection — Steven (or another non-EMU reviewer) must convert to formal Approve if required for merge.
+
+### 2026-05-06: PR #205 review (Hermes — bench(oop) canonical results + findings, #195) — APPROVE
+
+**Verdict:** APPROVE. Comment posted: https://github.com/usepowershell/PoshMcp/pull/205#issuecomment-4393870722
+(EMU policy continues to block `gh pr review` from this account; `gh pr comment` is the working channel and does not satisfy branch-protection approval requirements.)
+
+**Methodology:** `benchmark-results.md` documents BDN 0.14.0, `--job short` (3×3×1), exact filter/CLI, base commit `e4cf7d9` (post-#204), runtime/OS/arch (Windows 11 / Arm64 / .NET 10.0.6), and the explicit reason runs 1+2 are non-canonical. Reproducible.
+
+**Numbers traceability (spot-checked):** WarmInvoke speedups in findings §1 derive cleanly from results table — Pool 4.857× → reported 4.86×, P99 4.788× → 4.79×; ProcessPool 3.295× → 3.30×, P99 3.408× → 3.41×. ColdStart penalty 400–478 ms → reported "400–500 ms". 1 MB allocations 13.79/16.34/17.36 MB → reported "~13.8/~16.3/~17.4 MB". No rounding flips a conclusion.
+
+**Recommendation assessment:** `Pool` as default is supportable from the data under spec 004's stated workload model (network-shaped concurrent warm invokes). 4.86× clears the per-scenario 4× I/O bar; ProcessPool's 3.30× clears the 2× serialization bar but cannot match Pool on warm dispatch. Strongest counter-argument — single Arm64 host, `--job short`, single workload shape — is disclosed in caveat §5 at the right strength.
+
+**Trust-boundary / cancellation gating (Lead-level call):** Hermes flagged custom `PSHost`/`PSHostUserInterface` work and cancellation propagation as prerequisites. Confirming as **HARD GATES** for the default flip in #196, not "should land before":
+1. Custom `PSHost`/`PSHostUserInterface` for runspace pool — partially landed in PR #201; #196 must verify completeness for default-flip context.
+2. Cancellation propagation: in-process `Stop()`/`StopAsync()` registration, OOP `cancel` JSON-RPC method, concurrent-readable dispatcher, bounded escalation (cooperative → forced → process kill + recycle). Without it, Pool's effective capacity under stuck invokes is `N - stuck_invokes` — a regression vs Single under adversarial load.
+
+Until both land, `Pool` may ship as opt-in only.
+
+**Position on #196 default flip:** Approve flip in principle; gate it on the two prereqs above. Do not flip in #196 if either is unresolved — ship #196 as opt-in `Pool` documentation in that case and re-spawn the flip once gates close. A `--job long` WarmInvoke rerun against post-cancellation main should be captured as run-4 in `benchmark-results.md` and must reaffirm ≥ 4× I/O bar before flipping.
+
+**#196 scope sketch (delivered in review body, summary here):**
+- Config keys: `PowerShell:HostMode` (default flip Single → Pool), `PowerShell:Pool:Size` (default `Environment.ProcessorCount`, hard cap 32), `PowerShell:Pool:DrainTimeoutMs` (thread through config; currently hardcoded 60s per PR #201 review).
+- Doctor must validate pool sizing and surface active HostMode.
+- Opt-in story documented in `DESIGN.md` ("When to switch HostMode") with three cases (Pool default, ProcessPool for tail/isolation, Single for short-lived CLI).
+- Doc sweep: `DESIGN.md`, `README.md`, `examples/appsettings.*.json`, spec 004 `quickstart.md` if present.
+- Acceptance includes the run-4 `--job long` rerun.
+- Out of scope: per-request HostMode override, dynamic pool resizing, removing prototype code paths.
+
+**Patterns reconfirmed:**
+- EMU `gh pr review` block; `gh pr comment` works but is not a formal approval.
+- Docs+data PRs benefit from spot-checking 2–3 headline numbers against source tables — catches both arithmetic errors and rounding inversions.
+- When a recommendation rests on one workload shape, the strongest review move is to make the workload-shape disclosure a gate, not a footnote.
+
+### 2026-05-06: OOP HostMode adoption recommendation (Hermes, #195 → #196)
+
+**Context:** Run-3 benchmarks landed (PR #205) covering Single, Pool (Option A), ProcessPool (Option B) across ColdStart, PayloadSize, and WarmInvoke. Findings doc: `specs/004-out-of-process-execution/benchmark-findings.md`. Issue #196 owns the actual default flip.
+
+**Recommendation:** Default `HostMode` should flip to **Pool** (Option A — in-process runspace pool, single subprocess).
+
+**Why:**
+- Pool wins WarmInvoke @ conc=10 by 4.86× mean / 4.79× P99 vs Single — clears the spec's per-scenario 4× I/O bar.
+- ProcessPool: 3.30× / 3.41× — clears the 1.5× CPU floor and 2× serialization bar but cannot beat Pool's no-IPC dispatch path on warm throughput.
+- ColdStart: Single leads by ~400–500 ms; cost amortizes to zero after invoke #2.
+- PayloadSize: Pool competitive at small sizes, lowest allocations (~13.8 MB) at 1 MB. No payload regime where Pool is the worst choice.
+
+**Tradeoffs (must be reflected in #196's adoption plan):**
+- Keep `ProcessPool` as opt-in for tail-sensitive workloads — posts tightest StdDev (1.11 ms) and P99 (201.4 ms) of the three, and provides hard process isolation between concurrent invokes.
+- Keep `Single` as documented choice for short-lived CLI invocations (cold-start dominates).
+- Pool's trust boundary is weaker than ProcessPool's: shared GC, shared `[Console]::Out`, shared loaded modules. Custom `PSHost`/`PSHostUserInterface` work tracked from PR #187 review (Farnsworth #1) is a prerequisite for relying on Pool as default in adversarial scenarios.
+- Cancellation propagation is not measured in run-3. Under stuck invokes, Pool's effective capacity is `N - stuck_invokes`. Cancellation work should be a gate on the default flip, not a follow-up.
+
+**Open questions for #196:**
+- Default flip vs documented opt-in (default flip changes runtime behavior for every existing deployment).
+- Pool sizing default (`Environment.ProcessorCount`) needs validation on constrained containers (e.g., 2-vCPU pods).
+- Opt-in story: when should callers prefer ProcessPool? Needs a "switch when..." doc rooted in the tail/trust tradeoffs.
+- Doc sweep: `DESIGN.md` and `README.md` reference single-runspace assumptions.
+
+**Caveats on the data:** `--job short` (3 iter × 3 warmup × 1 launch); single Windows 11 / Arm64 host; load shape matters (WarmInvoke is network-shaped per spec 004). Re-run with `--job long` before any SLO-bearing claim.
+
+**Source artifacts:** PR #205, `specs/004-out-of-process-execution/benchmark-results.md`, `specs/004-out-of-process-execution/benchmark-findings.md`, `bench-runs/run-3.log`, `bench-runs/run-3-artifacts/`.
+
+### 2026-05-06: Security review — open alerts triage and fix plan
+**By:** Farnsworth (Lead / Architect), requested by Steven Murawski
+
+**Scope reviewed:**
+- Dependabot alerts (open) — 0
+- CodeQL / code scanning alerts (open) — 25
+- Secret scanning — disabled at repo level
+- `.github/workflows/*` permissions blocks — 14/15 OK, 1 missing
+- SECURITY.md — adequate (private vuln reporting + supported-version policy documented)
+- Recent commits — security fixes are tracked (`v0.9.2` auth bypass fix, `System.Security.Cryptography.Xml` CVE bump)
+
+**Open alert breakdown:**
+| # | Source | Rule | Severity | File / location | Count |
+|---|--------|------|----------|-----------------|-------|
+| 24 | CodeQL | `cs/log-forging` (CWE-117) | medium | `PoshMcp.Server/PowerShell/PowerShellAssemblyGenerator.cs` (lines 709–1030) | 23 |
+| 1 | CodeQL | `cs/log-forging` (CWE-117) | medium | `PoshMcp.Server/Observability/LoggerExtensions.cs` line 31 | 1 |
+| 1 | CodeQL | `cs/log-forging` (CWE-117) | medium | `PoshMcp.Server/Authentication/AuthenticationServiceExtensions.cs` line 111 | 1 |
+| 1 | CodeQL | `actions/missing-workflow-permissions` (CWE-275) | medium | `.github/workflows/ci.yml` job at line 22 | 1 |
+
+**Risk assessment:**
+
+1. **Log-forging (25 alerts) — REAL, medium.** Not a false positive. The flagged sinks log
+   `commandName`, `parameterValues`, `parameterSummary`, etc. in `PowerShellAssemblyGenerator.cs`,
+   plus claim values in `AuthenticationServiceExtensions.cs`, plus correlation/op-name in
+   `LoggerExtensions.cs`. Inputs flow from MCP `tools/call` JSON-RPC payloads, so they are
+   client-controlled in HTTP mode and stdio-peer-controlled in stdio mode. Project ships a
+   Serilog file sink (per spec for issue #131), so embedded `\r\n` in tool names or parameter
+   values will produce forged log lines in plain-text files. Exploitability: low (requires log
+   review by humans/tooling that trusts line boundaries); impact: log-trust erosion, possible
+   audit-trail confusion. **Not a remote code execution path.**
+
+2. **Missing workflow permissions on `ci.yml` — medium.** Default token is read-only at the
+   org level for new repos, but explicit `permissions:` is the documented best practice and is
+   required for CodeQL hygiene. All other 14 workflows (squad-*, publish-packages, docs-pages,
+   etc.) already have explicit blocks — `ci.yml` is the only outlier. Trivial fix.
+
+3. **Secret scanning disabled — medium (configuration gap).** Public repository with auth
+   token handling code; secret-scanning + push-protection should be on. Not a code defect
+   but a repo settings hardening item.
+
+4. **No open Dependabot alerts.** Recent NuGet hygiene is tracked
+   (`System.Security.Cryptography.Xml 10.0.5 → 10.0.6` CVE bump, MCP SDK 1.2.0 upgrade).
+   Continue the current Dependabot-driven cadence.
+
+**Recommended actions (prioritized):**
+
+| Priority | Action | Owner | Mode |
+|----------|--------|-------|------|
+| P1 | Add `permissions: { contents: read }` (or minimal scope) to `.github/workflows/ci.yml` job. Alert #1 closes. | **Amy** (DevOps / Platform) | small PR, ~5 lines |
+| P2 | Add a centralized log-sanitization helper (strip `\r\n`, optionally length-cap) and apply to user-controlled string args at the C# logging boundary in `PowerShellAssemblyGenerator.cs`, `LoggerExtensions.cs`, `AuthenticationServiceExtensions.cs`. Closes 25 alerts in one PR. | **Bender** (Backend Dev) | dedicated PR; needs Fry tests for newline scrubbing |
+| P3 | Enable GitHub secret scanning + push protection on the repository (Security tab → Settings). Document the change in SECURITY.md. | **Amy** (repo admin) | settings change + 1 docs commit |
+| P4 (defer) | Consider adopting Serilog `Destructure.ToMaximumStringLength` and a dedicated `Sanitize()` enricher across the board to make this a build-time invariant rather than per-call discipline. | Bender (proposal), Farnsworth (review) | follow-up issue, not blocking |
+
+**Architectural decision — log sanitization pattern:**
+- Add `LogSanitizer.Scrub(string)` (or extension `string.ScrubForLog()`) in
+  `PoshMcp.Server/Observability/`. Replace `\r`, `\n`, and other control chars with a
+  visible marker (`\u2424` or literal `\\n`) and cap length at a configurable max (default
+  4 KB — generous for tool parameter summaries, prevents log flooding).
+- Apply at the **call site** for any string interpolated into a log message template
+  argument that originated from MCP request payloads, claims, or appsettings-driven names.
+  Do **not** apply globally via a Serilog enricher only — CodeQL's taint analysis tracks
+  call-site sinks, and an enricher won't clear the alerts (and risks double-encoding).
+- Structured properties (`{ToolName}`) flow through the same sanitizer; use a small wrapper
+  type `LogSafe(string)` if call-site noise becomes excessive in a follow-up.
+
+**Out of scope for this triage:**
+- The auth-bypass fix in v0.9.2 was already shipped — no action needed.
+- The CVE-driven `System.Security.Cryptography.Xml` bump is already merged.
+- No active security-relevant specs in `specs/` (1–8 are all feature specs, none are
+  hardening work).
+
+### 2026-05-06: Cancellation propagation for OOP execution (#188)
+**By:** Bender (Backend Developer) for Steven Murawski
+**Decision:** Adopt the cancellation design in `specs/004-out-of-process-execution/cancellation-design.md`. Token cancellation in `OutOfProcessHost.SendRequestAsync` now sends a `cancel` wire frame to the pwsh subprocess, which calls `PowerShell.BeginStop()` on the in-flight pipeline.
+
+**Why this design:** Reuses the existing stdin channel rather than introducing a side-channel (named pipe / OS signal) that would differ across Windows and Linux. The Single-mode async dispatcher refactor is cheaper than a second IPC channel and is required regardless to unblock the dispatcher loop while a pipeline is in flight.
+
+**Per-mode behavior:**
+- **Single (`oop-host.ps1`):** invoke handler runs on a background C# dispatcher thread against a shared runspace; active invocations registered by request id; `cancel` calls `BeginStop`. Stdout serialized via `SingleStdout.Lock` to prevent worker/main interleave.
+- **Pool (`oop-host-pool.ps1`):** `PoolDispatcher` tracks active items in a `ConcurrentDictionary`; `Cancel(requestId)` calls `BeginStop` on the matching `[powershell]`. No head-of-line blocking — concurrent invokes continue on other runspaces.
+- **ProcessPool (`OutOfProcessSubprocessPool`):** inherits soft-cancel propagation from `OutOfProcessHost` for free. Existing per-request kill-on-timeout backstop preserved verbatim.
+
+**Wire protocol additions:** new `cancel` method (frame id prefixed `cancel-`, not registered in `_pending`); optional `cancelled` boolean on invoke responses.
+
+**Tests:** 3 new tests (one per mode) in `OutOfProcessCancellationTests.cs`. Full OOP suite 148 passed, 6 skipped.
+
+**Unblocks:** #196 (default-mode flip to `Pool`).
+
+**PR:** https://github.com/usepowershell/PoshMcp/pull/207
+
+### 2026-05-06: PR #207 review — Bender — feat(oop) cancellation propagation (#188)
+**By:** Farnsworth (Lead / Architect) for Steven Murawski
+**Decision:** APPROVE. Posted via `gh pr comment` (gh pr review still EMU-blocked): https://github.com/usepowershell/PoshMcp/pull/207#issuecomment-4394001550
+
+**Verdict rationale:**
+- Wire protocol matches `specs/004-out-of-process-execution/cancellation-design.md` §3 verbatim. `cancel-` id prefix not registered in `_pending`; read loop downgrades unknown-id warning for `cancel-` prefix and for late `cancelled:true` responses to Debug.
+- Single-mode implementation diverges from design §5.1 in strategy: PR uses C# `SingleDispatcher` (`BlockingCollection` + dedicated worker thread + `ConcurrentDictionary` registry) mirroring `PoolDispatcher` shape, instead of design's `BeginInvoke` + `ThreadPool.QueueUserWorkItem`. Divergence is justified — better code-share with Pool, avoids fighting PowerShell async ergonomics, uniform `SingleStdout`/`PoolStdout.Lock` pattern.
+- Pool: surgical `_active` registry + `Cancel(requestId)` calling `BeginStop` on the matching `[powershell]`. No head-of-line — workers iterate `_queue.GetConsumingEnumerable()` independently.
+- ProcessPool: `OutOfProcessSubprocessPool.cs` not modified. Soft-cancel inherited via Single-mode hosts. Per-request kill-on-timeout backstop at line 421 preserved verbatim.
+- Belt-and-suspenders `wasStopped` detection (catches `PipelineStoppedException` AND falls back to `InvocationStateInfo.State == PSInvocationState.Stopped`) is correct — `BeginStop` does not always raise PSE from synchronous `Invoke()`.
+- `SendRequestAsync`: `timeoutCts` changed from `CreateLinkedTokenSource(cancellationToken)` to plain new CTS — caller cancel and per-request timeout now properly orthogonal. Both registrations dispose in finally; `TrySendCancelFrameAsync` uses independent 2s CTS so caller-token cancel cannot poison the cancel-frame send.
+- Tests: 3 new (one per mode) in `OutOfProcessCancellationTests.cs`. `Start-Sleep -Seconds 60` against 15s `ObservationTimeout` proves cancel actually unblocks. Pool test uses `runspacePoolSize:4` to provably exercise > 1 runspace + concurrent fast invoke for head-of-line check. ProcessPool test asserts `HealthyCount >= 1` after soft cancel (slots stay healthy, kill backstop not invoked).
+- Non-blocking observations posted to PR: vestigial `try { ... } catch { throw }` wrapper in Single user script (semantic no-op); cancel-races-with-success path sends spurious cancel frame (handled, noise-only); `ProcessPool.InvokeAsync` did not get the diagnostic `catch (OperationCanceledException)` from design §4.3 (Bender's history acknowledges this; OCE bubbles up unannotated, fine).
+
+**#196 hard gate status — SATISFIED.** Both gates I called on #205 are now closed:
+1. ✅ Custom PSHost/PSHostUserInterface for runspace pool (PR #201).
+2. ✅ Cancellation propagation (this PR — bounded soft-cancel across all 3 modes, no Pool head-of-line, hosts/slots stay healthy).
+
+**#196 remaining scope (refined from #205):**
+1. Default-mode flip: `SubprocessHostMode.Default` → `Pool`. Keep Single + ProcessPool as opt-in. ProcessPool stays the recommended choice for tail-sensitive / isolation-sensitive workloads (per #195: P99 within 0.7ms of mean).
+2. Config key naming review for `appsettings.json` surface; confirm `SubprocessHostMode` enum-vs-string serialization story; verify no lingering enum collision from #200/#201.
+3. Doctor validation hooks: surface resolved `OutOfProcessMode`, `RunspacePoolSize` (with any clamp applied — recall #201's hardcoded cap of 8), resolved host script path, per-request timeout. Warn (don't error) if Pool configured but pwsh resolution failed.
+4. Doc updates: README, DOCKER.md, spec 004 supersedence note. Document cancellation contract (caller-token → bounded soft-cancel; per-request timeout as backstop; ProcessPool kill-on-timeout preserved).
+5. Bench reaffirmation: Hermes `--job long` `WarmInvokeThroughputBenchmark` against post-#207 main (capture as run-4) confirming ≥ 4× I/O bar still holds. Cancellation refactor adds per-invoke `[powershell]` allocation + dispatcher hop — expect no measurable warm-I/O regression but verify.
+
+**CI at review time:** Squad CI/test, CodeQL actions/python, dependency submission green; CI/build and CodeQL csharp still in progress (additive code, no signature changes — expected to pass).
+
+**PR:** https://github.com/usepowershell/PoshMcp/pull/207 (mergeable, additions 1140 / deletions 40 / 5 files).
+
+### 2026-05-06: PR #208 (Farnsworth — feat(oop): default to Pool host mode, #196) — APPROVE
+**By:** Bender (Backend Developer)
+**Posted:** https://github.com/usepowershell/PoshMcp/pull/208#issuecomment-4394193058 (gh pr review still EMU-blocked; comment with badge prefix; not a formal GitHub approval)
+
+**Verdict:** APPROVE. Default flip is correctly scoped, doctor surfacing is operator-grade, docs match shipped behavior, and the spec §Implementation Notes cancellation contract matches what landed in #207.
+
+**Constructor-default audit (the open question on #208):** All direct construction sites of `OutOfProcessCommandExecutor` in `PoshMcp.Server` checked:
+- `McpToolSetupService.StartOutOfProcessExecutorIfNeededAsync` — explicit `hostMode: config.SubprocessHostMode`. ✅
+- `McpToolSetupService.StartProcessPoolExecutorAsync` — uses parameterless overload (default `Single`), but only as a path resolver for `ResolveHostScriptPathAsync()`. ProcessPool's per-process host script IS `oop-host.ps1` (single-runspace), so default-Single is correct here.
+- `DoctorService.BuildOutOfProcessSection` (new) — explicit `hostMode: config.SubprocessHostMode`. ✅
+
+No production path silently still on Single. Constructor-default Single is documented in the enum's XML doc — acceptable trade-off vs. churning every test fixture. Future-callers footgun mitigated by docs, not code.
+
+**Config keys:** `SubprocessRunspacePoolSize` (Pool) vs `SubprocessPoolSize` (ProcessPool) is mildly confusable, but doctor renderer disambiguates clearly per host-mode. JSON shape uses distinct field names. Renaming is breaking. Worth a follow-up issue: deprecate the flat keys in favor of nested `Pool:Size` / `ProcessPool:Size` for the next major.
+
+**Doctor surfacing — strong.** Reports resolved hostMode + source (explicit/default), per-mode pool sizing with clamp output, min-healthy clamp, host script path with resolution status, hardcoded 30s request timeout (right call to surface even though not yet a config knob). Clamp warnings cover negative/zero/exceed-pool cases. Cancellation contract not surfaced — fine, not a config knob today.
+
+**Doc accuracy:** `DOCKER.md`'s `POSHMCP_RUNTIME_MODE` is correct (consumed by `SettingsResolver` line 31; `ConfigurationFileManager.NormalizeRuntimeMode` accepts both Pascal `InProcess`/`OutOfProcess` and kebab `in-process`/`out-of-process`). README perf claim 4.9× matches benchmark-findings.md (4.86×). DESIGN.md links benchmark-findings correctly.
+
+**Spec:** `Status: Implemented` accurate; cancellation contract section matches #207 shipped behavior (Pool's "N - in_flight_uncancelled" framing is correct, distinct from "stuck"); FR-051 restated as channel-writer serialization with multiplexed responses is the right refactoring of the original assumption.
+
+**Test gap (non-blocking):** No new unit tests for `BuildOutOfProcessSection` or `RenderOutOfProcess`. Pure projection/rendering, low risk, but operator-facing. One rendering test fixture (Pool / ProcessPool / non-applicable) would lock in JSON shape and text format. Recommend follow-up issue, not blocker.
+
+**Patterns:**
+- When a default flip is questioned, audit ALL direct construction sites of the affected type — `grep_search "new TypeName"` across the production project (not tests). Caller-by-caller analysis is faster than reasoning about defaults in isolation.
+- Naming asymmetry between sibling config keys (e.g. `SubprocessRunspacePoolSize` vs `SubprocessPoolSize`) is acceptable when the consuming UI (here, the doctor renderer) renders only the relevant key per active mode. The renderer becomes the disambiguation layer.
+- Surfacing a hardcoded value (30s request timeout) in a doctor report — even though it's not yet a config knob — is good practice. Makes the contract explicit for operators and signposts the eventual configuration surface.
+
+### 2026-05-06: Spec 004 foundation merge wave — 2/3 landed, #199 blocked on conflict
+**By:** Amy (DevOps), requested by Steven Murawski
+**What:** Sequenced merge of PRs #197 → #198 → #199. Each rebased onto fresh `origin/main`, full `dotnet test PoshMcp.sln` ran, only merged when green.
+- ✅ **#197** (`squad/193-benchmark-harness`) merged. Tests: 584/591 (7 skipped). Brings `PoshMcp.Benchmarks` harness onto main.
+- ✅ **#198** (`squad/190-extract-oop-host`) merged. Tests: 593/600 (7 skipped, +9 new unit tests for `OutOfProcessHost`). Extracts the OOP host with lifecycle coverage.
+- ⛔ **#199** (`squad/189-clear-error-before-invoke`) — **STOPPED**. Rebase against post-#198 main hit a content conflict in `PoshMcp.Tests/Integration/OutOfProcessIntegrationTests.cs` (same file the #190 extraction touched). Rebase aborted cleanly; branch on origin is untouched. Needs Hermes (or whoever owns the OOP test surface) to resolve.
+
+**Why:** Spec 004 foundation needed to land in dependency order. The first two PRs were independent enough to rebase clean; the `$Error`-clearing fix in #199 lives in tests that #198 reorganized, so a manual conflict resolution is required.
+
+**Follow-up actions:**
+1. Re-spawn Hermes (or equivalent) on `squad/189-clear-error-before-invoke` to: rebase onto current main, resolve the `OutOfProcessIntegrationTests.cs` conflict, re-run full tests, push --force-with-lease, then re-attempt merge.
+2. After #199 lands, Spec 004 foundation phase is complete and downstream Spec 004 work can fan out.
+
+**Operational note for future merge waves:** PRs created as drafts must be marked ready with `gh pr ready <num>` before `gh pr merge`. The `--delete-branch` flag triggers a local checkout error when run from a worktree (main is already checked out elsewhere) — the remote branch still gets deleted; just clean up worktree separately.
+
+### 2026-05-07: Leela — OOP docs + samples audit (PR #210)
+**By:** Steven Murawski (via Leela)
+**What:** Audited whether spec 004 OOP changes (default flip to `Pool`, `SubprocessHostMode` taxonomy, sizing knobs, cancellation contract) reached `./docs` and the sample `appsettings.json` files. Findings: docs had material gaps (advanced.md stale, configuration.md silent on RuntimeMode/SubprocessHostMode, azure-integration.md described RuntimeMode incorrectly as "sync/async"); samples were partial (root + PoshMcp.Server were current; `examples/appsettings.advanced.json` and `examples/appsettings.tenant.json` had no PowerShell runtime tuning despite being the heavy-Az and multi-tenant scenarios where OOP applies). Updates landed in PR #210: rewrote advanced.md OOP section with full taxonomy, sizing, cancellation contract, ProcessPool example, link to benchmark-findings.md; added Runtime Mode section to configuration.md; fixed azure-integration.md description; added `RuntimeMode: OutOfProcess` + `SubprocessHostMode: Pool` to advanced.json and `RuntimeMode: OutOfProcess` + `SubprocessHostMode: ProcessPool` (size 4, min healthy 2) to tenant.json; documented rationale in `examples/README.md`. Intentionally left alone: examples/appsettings.basic.json (purpose mismatch), PoshMcp.Server/default+modules+azure+environment-example (loaded by dev/tests, out of audit scope), README.md/DOCKER.md (already updated in #208), docs/release-notes (belongs with the shipping release). Build green.
+**Why:** Source-of-truth schema (`PowerShellConfiguration.cs`) shipped Pool as the default but the user-facing docs and the two samples whose use cases are exactly what the modes exist for hadn't been updated to match. Risk was that users following the docs or copying the samples would not know the new default exists, would not know how to opt into ProcessPool for trust-boundary scenarios, and (in azure-integration.md) would read a wrong description of the RuntimeMode field.
+
+### 2026-05-07: Cubert — Fact-check verdict on PR #210 (OOP docs + samples audit)
+**By:** Steven Murawski (via Cubert)
+**Verdict:** REQUEST CHANGES — three substantive errors in `docs/articles/advanced.md`. Samples and other docs check out.
+
+**Verified ✅**
+- All property names in changed docs and samples exist in `PoshMcp.Server/PowerShell/PowerShellConfiguration.cs` with the casing shown: `RuntimeMode`, `SubprocessHostMode`, `SubprocessRunspacePoolSize`, `SubprocessPoolSize`, `SubprocessMinHealthyForStartup`.
+- All `SubprocessHostMode` string values used (`Single`, `Pool`, `ProcessPool`) match the enum defined in `PoshMcp.Server/PowerShell/OutOfProcess/SubprocessHostMode.cs`.
+- Defaults cited match code: `SubprocessHostMode = Pool`, `SubprocessRunspacePoolSize = 0` auto-sizes to `min(ProcessorCount, 8)`, `SubprocessPoolSize = 4`, `SubprocessMinHealthyForStartup = 1`.
+- Clamp claim "Clamped to `[1, SubprocessPoolSize]`" matches `Math.Min(config.SubprocessMinHealthyForStartup, Math.Max(1, config.SubprocessPoolSize))` in `McpToolSetupService.cs:214` and the doctor-warning paths in `DoctorService.cs:361,365`.
+- `4.86×` warm-invoke throughput at concurrency 10 matches `specs/004-out-of-process-execution/benchmark-findings.md` §1 (table: 4.86× mean / 4.79× P99).
+- "Clears the spec's per-scenario 4× bar for I/O-shaped workloads" matches the same findings file.
+- "Default since 2026-05-06" matches the date on `benchmark-findings.md` and the spec-004 default-flip context.
+- `examples/appsettings.advanced.json` and `examples/appsettings.tenant.json` (PR-branch versions) parse as valid JSON. advanced.json uses Pool-mode-relevant key (`SubprocessRunspacePoolSize`); tenant.json uses ProcessPool-mode-relevant keys (`SubprocessPoolSize`, `SubprocessMinHealthyForStartup`) — correct per-mode key selection.
+- `examples/README.md` rationale aligns with `benchmark-findings.md` §4 recommendation (Pool for typical concurrent MCP load, ProcessPool for trust-boundary / tail-latency-sensitive workloads).
+- `docs/articles/azure-integration.md` `RuntimeMode` fix uses real values from the schema (`InProcess`/`OutOfProcess`).
+- `POSHMCP_RUNTIME_MODE=OutOfProcess` (PascalCase) in advanced.md is accepted by `SettingsResolver.NormalizeRuntimeModeValue`.
+- No new TOC entries needed; no broken intra-doc links observed in the diff.
+
+**Discrepancies ❌**
+1. `docs/articles/advanced.md`, "Enable Out-of-Process Mode": "Unrecognized values fall back to `InProcess` with a logged error." Code does not fall back — `ConfigurationLoader.cs:50` **throws `InvalidOperationException`** ("Unsupported runtime mode '{value}'. Supported runtime modes: in-process, out-of-process.") and the server fails to start. Recommend: replace with "Unrecognized values cause the server to fail startup with `InvalidOperationException`."
+2. `docs/articles/advanced.md`, "Cancellation" section, **ProcessPool** bullet: "cancellation tears down the leased subprocess; the pool spins a replacement. Other hosts are unaffected." Per PR #207 (merged 2026-05-07) and `specs/004-out-of-process-execution/cancellation-design.md` §2.3, ProcessPool now inherits soft-cancel via the new `cancel` wire frame. BeginStop is invoked inside the host; the slot **stays healthy** and is returned to the pool. Subprocess teardown is only the **backstop** for wedged hosts (unmanaged code) via the existing per-request kill-on-timeout path. Leela's text describes the backstop as if it were the normal path.
+3. `docs/articles/advanced.md`, "Cancellation" section, **Single** bullet: "cancellation kills the host; the historical timeout-and-restart behavior applies." PR #207 explicitly refactored `oop-host.ps1` so the Single-mode handler runs invokes on a background dispatcher thread; cancel calls `BeginStop` on the matching `[powershell]` instance and **the host stays healthy for follow-ups** (PR #207 description, verbatim). This is pre-#207 behavior.
+
+**Minor ⚠️**
+- `docs/articles/advanced.md` "Valid values: `InProcess`, `OutOfProcess`" is incomplete. `SettingsResolver.NormalizeRuntimeModeValue` also accepts `in-process` / `out-of-process` (kebab-case) and lowercase forms. The repo's own `README.md`, `integration/README.md`, and `CliDefinition.cs:212` describe the kebab form as canonical for the env var/CLI, while `spec.md` uses the PascalCase form. Not blocking, but could mislead.
+
+**Lockout:** Per Reviewer Rejection Protocol — strict lockout. Leela may not self-revise. Recommend Steven assigns Bender (owner of PR #207, cancellation-design.md author) to revise the cancellation bullets and the runtime-mode error-handling claim.
+
+**Why:** External-facing docs that misstate the cancellation contract are exactly what the spec-004 default flip was gated on (`benchmark-findings.md` §6 caveat 5). Shipping these docs as-is would teach users wrong expectations about host survivability after a cancelled invoke — the property the cancellation work was created to provide.
+
+### 2026-05-07: Farnsworth — PR #210 review (Leela — OOP docs + samples audit)
+
+**By:** Steven Murawski (via Farnsworth, Lead / Architect)
+
+**What:** APPROVE with one non-blocking framing nit. Architectural review of PR #210 covering mental model, framing coherence with #208 (default flip), sample-pick rationale, and operator-facing completeness. Cubert handled fact-checking in parallel; this review is scoped to architecture and framing only.
+
+**Mental model assessment — clear.** Two-entry-point split (brief in `configuration.md`, deep-dive in `advanced.md`) avoids duplication. New operator landing on either article reaches the three-mode taxonomy with explicit "when to use" guidance, sizing knobs (pool runspaces vs pool processes vs min healthy), per-mode cancellation contract, and doctor pointer for verification. Decision narrative — `Pool` wins warm throughput (~4.86×, citing `benchmark-findings.md`), `ProcessPool` opt-in for trust/tail, `Single` legacy/bisect — matches the spec 004 study and #208 default-flip rationale exactly.
+
+**Coherence with #208.** `RuntimeMode` correctly described as `InProcess`/`OutOfProcess` (the `azure-integration.md` "sync/async" line was a real bug; correctly fixed). `SubprocessHostMode` is presented as a primary configuration concept rather than a tuning knob — correct framing for post-default-flip docs. Cancellation is documented as a contract per mode, not a footnote — correct framing because cancellation is what made the flip safe.
+
+**Sample-pick rationale — both correct.** `advanced.json` → `Pool` matches Pool's documented strength (concurrent warm-invoke throughput) plus the heavy-Az use case; `SubprocessRunspacePoolSize: 0` (auto-tune to `min(ProcessorCount, 8)`) is the right default for a copy-paste sample. `tenant.json` → `ProcessPool` (size 4, min healthy 2) matches ProcessPool's documented strength (per-slot crash recovery + process-level isolation between callers). The `examples/README.md` rationale names the tradeoff explicitly ("trust boundaries between callers matter more than peak throughput") — multi-tenant is exactly the workload class where peak throughput is the wrong optimization target.
+
+**Operator completeness.** `poshmcp doctor` is referenced from `advanced.md` ("reports the resolved host mode, effective pool sizes, host-script path, and any clamp warnings under Runtime Settings"). Adequate — answers the "how do I verify my config did what I intended?" question without burying it or over-emphasizing.
+
+**Non-blocking framing nit (one):** The Cancellation section in `advanced.md` says of `Single`: *"the historical timeout-and-restart behavior applies."* This undersells what Single mode does post-#207 — the `SingleDispatcher` worker-thread pattern landed in #207 supports the same cooperative soft-cancel contract as Pool/ProcessPool, with the per-request timeout serving as the backstop. As written, an operator could read this as "Single mode does not support cooperative cancellation," which would be inaccurate, and which would also undersell why the default flip became safe across all three modes simultaneously. Suggested follow-up phrasing: *"Single: cooperative cancellation via the dispatcher worker; the per-request timeout acts as the backstop and recycles the host on timeout."* One line. Not blocking #210.
+
+**No architectural gaps that block.** Mental model intact, decision narrative matches engineering, sample picks match documented tradeoffs, doctor surfaced for verification.
+
+**Comment URL:** https://github.com/usepowershell/PoshMcp/pull/210#issuecomment-4396923714
+
+### 2026-05-07: Cubert — Re-verification verdict on PR #210 (post-Bender revision)
+**By:** Steven Murawski (via Cubert)
+**Verdict:** APPROVE — all three blocking findings from prior fact-check are resolved in commit `a4c9ed0`. No collateral defects introduced.
+
+**Scope:** Re-verified `docs/articles/advanced.md` at HEAD (`a4c9ed09a395384596905aa169c3edb30ae60eb0`) on `squad/oop-docs-samples-audit`. Bender (revision author per strict-lockout rule) modified only `advanced.md` per his decision drop.
+
+**Per-finding verdict:**
+
+1. ✅ **`RuntimeMode` invalid-value behavior — RESOLVED.** Doc text now reads: "Unrecognized values cause the server to fail startup with `InvalidOperationException` (`Unsupported runtime mode '<value>'. Supported runtime modes: in-process, out-of-process.`)." Matches ground truth in `PoshMcp.Server/Configuration/ConfigurationLoader.cs:46-50` verbatim — the loader throws when `config.RuntimeMode == RuntimeMode.Unsupported`. No fallback path exists. The non-blocking kebab-case clarification (`in-process` / `out-of-process` accepted by env var/CLI) is folded into the same paragraph correctly.
+
+2. ✅ **ProcessPool cancellation — RESOLVED.** Doc now describes soft-cancel via inherited `OutOfProcessHost` cancel frame as the primary path: "each leased host runs the Single-mode script and inherits the same soft-cancel via the inherited `OutOfProcessHost` cancel frame. If the host honors `BeginStop`, the slot stays healthy and is returned to the pool; other hosts are unaffected. The existing per-request kill-on-timeout path in `OutOfProcessSubprocessPool` remains as a backstop for wedged hosts (e.g., a cmdlet stuck in unmanaged code) that do not honor `BeginStop` within the per-request timeout." Matches `specs/004-out-of-process-execution/cancellation-design.md` §2.3.
+
+3. ✅ **Single cancellation — RESOLVED.** Doc now reads: "`SingleDispatcher` runs the invoke on a background dispatcher thread and calls `BeginStop` on the matching `[powershell]` instance when the cancel frame arrives. The host stays healthy for follow-up requests; the per-request timeout serves as the backstop and recycles the host only if `BeginStop` does not unwind the pipeline in time." Matches `cancellation-design.md` §2.1.
+
+**Collateral check:** Skimmed surrounding cancellation section. The new shared-mechanism lead-in is accurate (`cancel` control frame from `OutOfProcessHost.SendRequestAsync`; cooperative `BeginStop`; .NET awaiter completes with `OperationCanceledException` immediately without waiting for host ack — matches `cancellation-design.md` §3 lines 104, 115). Pool bullet (`PoolDispatcher` looks up active `[powershell]` by request id and calls `BeginStop`, runspace returned without restart) matches §2.2 lines 46-47. No broken markdown links, no broken code fences, no new factual errors introduced. Markdown structure intact.
+
+**CI:** All checks green on `a4c9ed0` (CodeQL actions/csharp/python, Squad CI test, submit-nuget). PR is `MERGEABLE`.
+
+**Lockout note:** With APPROVE verdict, no further lockout triggers. PR cleared from fact-check standpoint.
+
+### 2026-05-07: v0.11.0 minor release version bump
+**By:** Amy (DevOps / Platform / Azure Engineer), requested by Steven Murawski
+**What:** Bumped `PoshMcp.Server/PoshMcp.csproj` version from `0.10.0` to `0.11.0` and added a `## [0.11.0] - 2026-05-07` entry to `CHANGELOG.md`.
+**Why:** Cutting a minor release. The marquee feature is the out-of-process subprocess pool (`Pool` is now the default `SubprocessHostMode`, #196), with supporting work across ProcessPool mode, `OutOfProcessHost` extraction, OOP cancellation propagation (#188), the new `PoshMcp.Benchmarks` harness, OOP fixes (`ConvertTo-Json` wrap #203, `$Error` clear #189), CWE-117 log-injection hardening in the OOP host, CI permission minimization plus `SECURITY.md`, and docs catch-up (#210, #187). Minor-version bump is appropriate — new feature surface (Pool default, ProcessPool, benchmarks) is additive but a meaningful behavior change for OOP users.
+**Status:** Code change shipped (csproj + CHANGELOG). Build verified clean (`dotnet build PoshMcp.sln -c Debug` → 0 errors, only pre-existing nullable warnings). Git tag (`v0.11.0`) and push are intentionally deferred to Steven, after Cubert reviews release notes and Leela finishes `docs/release-notes/` + `SECURITY.md` work.
+
+### 2026-05-07: v0.11.0 release notes published; SECURITY.md support matrix bumped to 0.11.x
+**By:** Leela (Developer Advocate), requested by Steven Murawski
+**What:**
+- Created `docs/release-notes/0.11.0.md`. Lead story is OOP execution maturity: `Pool` is now the default `SubprocessHostMode` (replacing `Single`) backed by ~4.86× warm-invoke throughput at concurrency 10 in the new benchmarks harness; new `ProcessPool` topology for trust-boundary / tail-latency workloads; cancellation now propagates across the OOP boundary. Also covers `PoshMcp.Benchmarks` harness, log-sanitization (CWE-117) hardening, minimum workflow permissions, published `SECURITY.md`, and bug fixes (`ConvertTo-Json` `Content` shadowing, `$Error` clear-before-invoke). Upgrade notes call out the `Pool` default flip explicitly with an opt-out snippet to preserve `Single`.
+- Updated `SECURITY.md` supported-versions table: `0.11.x` now `:white_check_mark:`, `< 0.11` now `:x:`. Replaces the prior `0.10.x` line.
+**Why:** v0.11.0 is the first release where OOP `Pool` is the default — that needs an explicit, accurate upgrade story for users, and the supported-versions matrix must follow the new minor line.
+**Scope:** Did not touch `CHANGELOG.md` or `PoshMcp.Server/PoshMcp.csproj` — those are Amy's. Cubert to review.
+
+### 2026-05-07: v0.11.0 release notes review — config key error in upgrade snippets
+**By:** Cubert (review of Leela's docs/release-notes/0.11.0.md)
+**What:** REJECTED. Both jsonc snippets in the "Upgrade Notes" section use `"PowerShell"` as the top-level config key. The actual section name in every shipping `appsettings.json`, doc, and example is `"PowerShellConfiguration"`. Users copy-pasting the opt-out snippet would silently keep the new `Pool` default instead of restoring `Single` — defeating the entire purpose of the upgrade note.
+**Why:** Verified zero matches for `"PowerShell": { ... }` carrying these properties; 30+ matches for `"PowerShellConfiguration"` as the canonical section. Confirmed against `PoshMcp.Server/PowerShell/PowerShellConfiguration.cs` (binds to the `PowerShellConfiguration` section) and all repo configs/docs.
+**Rule for future release notes:** Spot-check every jsonc/json snippet's top-level keys against an actual shipping `appsettings.json` before publishing. Default-flip snippets are user-facing executable content — wrong keys are silent landmines, not cosmetic bugs.
+**Other claims in v0.11.0 release notes verified accurate:** Pool default flip in code, three-mode taxonomy, sizing knobs, cancellation propagation, benchmarks harness, bug fixes (#203, #189), security hardening, SECURITY.md table update. Format matches prior release notes.

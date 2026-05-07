@@ -5112,3 +5112,9 @@ RFC 8414 requires MCP clients to validate `token.iss == AS.issuer`. With the iss
 - Never log token values, auth codes, or client secrets — log field names and HTTP metadata only.
 - `WithHttpTransport` in MCP SDK 1.2.0 accepts `Action<HttpServerTransportOptions>` — use this overload for transport configuration rather than `builder.Services.Configure<HttpServerTransportOptions>()` separately.
 
+
+### 2026-04-29T15:11:29Z: User directive
+**By:** Steven Murawski (via Copilot)
+**What:** All GitHub posts (issue creation, issue comments, PR creation, PR comments, PR reviews) MUST include the name of the agent posting it. Format: **{emoji} {AgentName} ({Role})**  at the start of the message body.
+**Why:** User request - ensures traceability of which AI team member authored each GitHub interaction.
+**Archived:** 2026-05-07 (>7d, decisions.md >= 50KB threshold)

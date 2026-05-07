@@ -150,3 +150,6 @@ Milestone #5 (Spec 004 - Out-of-Process PowerShell Execution) was created. You h
 - Farnsworth: #196 (adopt the winner, blocked by #195)
 
 Check the issue body for plan reference and dependency chain before starting.
+
+### 2026-05-07: v0.11.0 release shipped (cross-agent note from Scribe)
+Your work landed in v0.11.0 (csproj 0.10.0 → 0.11.0, CHANGELOG entry, release notes at docs/release-notes/0.11.0.md). The release narrative credits the OOP maturity wave: Pool default flip (#196/#208), cancellation propagation across all modes (#207), benchmarks harness + findings (#193/#194/#195/#205), OOP host extraction (#190/#198), bug fixes (#203/#189), CWE-117 log-injection hardening, minimum workflow permissions, and SECURITY.md. Tag/push deferred to Steven.

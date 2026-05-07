@@ -130,3 +130,22 @@ The task brief offered the option of creating a new "Out-of-Process Execution Mo
 **Build sanity:** `dotnet build PoshMcp.sln -c Debug` — green; only pre-existing nullable warnings.
 
 **PR:** #210 (do not merge — pending Steven's review).
+
+### 2026-05-07: v0.11.0 Release Notes + SECURITY.md support matrix
+
+**Task:** Write release notes for v0.11.0 and bump SECURITY.md supported-versions matrix to the new minor line.
+
+**What I did:**
+- Created docs/release-notes/0.11.0.md. Followed the established format (H1 `# PoshMcp v0.11.0 Release Notes`, `## What's New` / `## Bug Fixes` / `## Upgrade Notes` sections, fenced jsonc blocks for config samples, neutral published-docs voice).
+- Lead story: OOP execution maturity. `Pool` is now the default `SubprocessHostMode` (was `Single`), backed by the new benchmarks harness data (~4.86x warm-invoke throughput at concurrency 10). New `ProcessPool` topology for trust-boundary / tail-latency workloads. Cancellation now propagates across the OOP boundary in both Pool and ProcessPool modes.
+- Other sections: `PoshMcp.Benchmarks` harness, security hardening (LogSanitizer for CWE-117 in OOP host, min workflow permissions, published SECURITY.md), bug fixes (`ConvertTo-Json` Content shadowing, `` clear-before-invoke), spec 004 doc work.
+- **Upgrade Notes** explicitly call out the default flip and provide a copy-paste opt-out snippet (`"SubprocessHostMode": "Single"`) plus an opt-in ProcessPool snippet for multi-tenant scenarios. No breaking protocol/CLI/schema changes.
+- Updated SECURITY.md supported-versions table: `0.11.x` now supported, `< 0.11` now unsupported. Replaced the prior `0.10.x` line.
+- Wrote decision entry to `.squad/decisions/inbox/leela-0.11.0-release-notes.md`.
+
+**What I left alone:** CHANGELOG.md and PoshMcp.csproj (Amy owns the version bump). Other docs untouched — release notes are the right surface for the default-flip narrative; deep config docs were already updated under #210.
+
+**Key insight - upgrade notes for default flips:**
+A default-value change is technically non-breaking (no API surface moves) but behaviorally breaking for any user relying on the old default. The release notes have to (a) name the change explicitly under Upgrade Notes, (b) explain *why* it might matter (here: shared runspace state across requests in a pool), and (c) give a copy-paste snippet to restore prior behavior. Burying the change under "What's New" without an opt-out path is what generates GitHub issues a week after release. The opt-in ProcessPool snippet is bonus value: users skimming the upgrade notes also see the better answer for their multi-tenant scenarios.
+
+**Cubert to review.**

@@ -105,3 +105,31 @@
 - Collateral: shared-mechanism lead-in accurate; Pool bullet matches section 2.2; no broken markdown/code blocks. CI green.
 - Lesson: when re-verifying, read the FILE AT HEAD via "gh api .../contents/path?ref=<oid>" and Base64 decode -- gh pr diff shows only changed hunks and can mask context. Cross-check claims against named source files at the line numbers cited in the revision drop, not just the diff.
 - Lesson: the usepowershell account can post review comments via gh pr comment but NOT formal gh pr review --approve (self-review block applies even though Cubert and Bender are different personas). Verdict comment must carry the badge prefix.
+
+### 2026-05-07: Review of v0.11.0 release notes + SECURITY.md (Leela)
+
+**Verdict: ❌ REJECTED**
+
+**Verification report:**
+
+Claims that check out (✅):
+- `Pool` is the new default `SubprocessHostMode` — confirmed at PoshMcp.Server/PowerShell/PowerShellConfiguration.cs:33 (`= SubprocessHostMode.Pool`) and PoshMcp.Server/appsettings.json:64.
+- Three-mode taxonomy (Single / Pool / ProcessPool) — matches `enum SubprocessHostMode` in PoshMcp.Server/PowerShell/OutOfProcess/SubprocessHostMode.cs.
+- Pool sizing knobs (`SubprocessRunspacePoolSize`, `SubprocessPoolSize`, `SubprocessMinHealthyForStartup`) — match doctor service references and configuration.md.
+- Cancellation propagation across OOP boundary — backed by commit 17b11f8 (#207, #188).
+- New `PoshMcp.Benchmarks` harness — backed by commit b2b80be (#193, #197).
+- Bug fixes: `ConvertTo-Json` Content shadowing (#203/#204) and `` clear-before-invoke (#189/#199) — match git log v0.10.0..HEAD.
+- Security: LogSanitizer.Scrub() in OOP host call sites (commits d14b70e/4f4e962), workflow permissions (b69b6f4), SECURITY.md publication.
+- SECURITY.md table now shows 0.11.x ✅ and < 0.11 ❌; rest of file untouched.
+- Format matches established release-notes style (H1, "What's New" / "Bug Fixes" / "Upgrade Notes" sections, fenced jsonc).
+- ~4.86x warm-invoke throughput at concurrency 10 — consistent with bench-runs/run-2-artifacts and the spec 004 narrative; not independently re-run but matches the cited findings file.
+
+Claims that FAIL (❌):
+- **Both JSON snippets in "Upgrade Notes" use the wrong top-level config key.** They show `"PowerShell": { ... }` but every shipping `appsettings.json`, every doc under `docs/articles/`, every `examples/appsettings.*.json`, and the README all use `"PowerShellConfiguration": { ... }`. Verified: 30+ matches for `"PowerShellConfiguration"` across the repo, zero matches for `"PowerShell"` as a top-level config key for these properties. A user copy-pasting the opt-out snippet would silently keep the new Pool default — directly contradicting the upgrade-notes intent. The opt-in ProcessPool snippet has the same defect.
+
+**Required revision:**
+Replace `"PowerShell"` with `"PowerShellConfiguration"` as the top-level key in both jsonc blocks under "Upgrade Notes" in docs/release-notes/0.11.0.md.
+
+**Per Reviewer Rejection Protocol:** Leela cannot self-revise. Route the fix to Amy (release-notes co-owner per charter) or any other agent.
+
+**Cubert.**
