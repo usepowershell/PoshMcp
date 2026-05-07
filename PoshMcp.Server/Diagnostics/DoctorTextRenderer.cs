@@ -22,6 +22,9 @@ public static class DoctorTextRenderer
             FormatSection("Authentication",        RenderAuthentication(report.Authentication, report.Identity)),
         };
 
+        if (report.OutOfProcess.Applicable)
+            parts.Add(FormatSection("Out-of-Process Execution", RenderOutOfProcess(report.OutOfProcess)));
+
         var warningsBody = RenderWarnings(report.Warnings);
         if (!string.IsNullOrEmpty(warningsBody))
             parts.Add(FormatSection("Warnings", warningsBody));
@@ -213,6 +216,35 @@ public static class DoctorTextRenderer
                 if (identity.Roles.Count > 0)
                     lines.Add($"    roles        : {string.Join(", ", identity.Roles)}");
             }
+        }
+
+        return string.Join("\n", lines);
+    }
+
+    private static string RenderOutOfProcess(OutOfProcessSection section)
+    {
+        var lines = new List<string>
+        {
+            $"  host-mode    : {section.HostMode} ({section.HostModeSource})",
+        };
+
+        if (section.HostMode == nameof(PoshMcp.Server.PowerShell.OutOfProcess.SubprocessHostMode.Pool))
+        {
+            lines.Add($"  pool-size    : {section.RunspacePoolSize} → {section.EffectiveRunspacePoolSize}");
+        }
+        else if (section.HostMode == nameof(PoshMcp.Server.PowerShell.OutOfProcess.SubprocessHostMode.ProcessPool))
+        {
+            lines.Add($"  process-pool : {section.ProcessPoolSize} → {section.EffectiveProcessPoolSize}");
+            lines.Add($"  min-healthy  : {section.MinHealthyForStartup} → {section.EffectiveMinHealthyForStartup}");
+        }
+
+        lines.Add($"  request-timeout: {section.RequestTimeoutSeconds:0.#}s");
+
+        var scriptStatus = section.HostScriptResolved ? "✓" : "✗";
+        lines.Add($"  host-script  : [{scriptStatus}] {section.HostScriptPath ?? "(unresolved)"}");
+        if (!section.HostScriptResolved && !string.IsNullOrWhiteSpace(section.HostScriptError))
+        {
+            lines.Add($"      error    : {section.HostScriptError}");
         }
 
         return string.Join("\n", lines);
