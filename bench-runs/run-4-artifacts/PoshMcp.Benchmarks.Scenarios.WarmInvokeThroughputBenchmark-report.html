@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>PoshMcp.Benchmarks.Scenarios.WarmInvokeThroughputBenchmark-20260506-231747</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.14.0, Windows 11 (10.0.26200.8328)
+Unknown processor
+.NET SDK 10.0.202
+  [Host]  : .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+  LongRun : .NET 10.0.6 (10.0.626.17701), Arm64 RyuJIT AdvSIMD
+</code></pre>
+<pre><code>Job=LongRun  IterationCount=100  LaunchCount=3  
+MaxIterationCount=20  MinIterationCount=5  WarmupCount=15  
+</code></pre>
+
+<table>
+<thead><tr><th>Method                                          </th><th>Mode </th><th>Concurrency</th><th>Mean</th><th>Error</th><th>StdDev</th><th>P99 </th><th>Median</th><th>P95</th><th>Allocated</th>
+</tr>
+</thead><tbody><tr><td>&#39;Warm invoke @ N concurrency (network-shaped, 4× bar)&#39;</td><td>Single</td><td>10</td><td>664.4 ms</td><td>1.51 ms</td><td>7.81 ms</td><td>682.438 ms</td><td>662.0 ms</td><td>677.0 ms</td><td>205.32 KB</td>
+</tr><tr><td>&#39;Warm invoke @ N concurrency (network-shaped, 4× bar)&#39;</td><td>Pool</td><td>10</td><td>136.4 ms</td><td>0.64 ms</td><td>3.26 ms</td><td>145.277 ms</td><td>135.8 ms</td><td>143.2 ms</td><td>200.09 KB</td>
+</tr><tr><td>&#39;Warm invoke @ N concurrency (network-shaped, 4× bar)&#39;</td><td>ProcessPool</td><td>10</td><td>205.4 ms</td><td>0.96 ms</td><td>4.83 ms</td><td>219.077 ms</td><td>203.8 ms</td><td>214.8 ms</td><td>203.81 KB</td>
+</tr></tbody></table>
+</body>
+</html>
