@@ -104,7 +104,7 @@ export POSHMCP_RUNTIME_MODE=OutOfProcess
 poshmcp serve --transport http
 ```
 
-The environment variable takes precedence over the config file value. Valid values: `InProcess`, `OutOfProcess`. Unrecognized values fall back to `InProcess` with a logged error.
+The environment variable takes precedence over the config file value. Valid values: `InProcess`, `OutOfProcess` (kebab-case `in-process` / `out-of-process` is also accepted by the env var and CLI). Unrecognized values cause the server to fail startup with `InvalidOperationException` (`Unsupported runtime mode '<value>'. Supported runtime modes: in-process, out-of-process.`).
 
 ### Subprocess Host Modes
 
@@ -149,11 +149,11 @@ ProcessPool example for tenant isolation:
 
 ### Cancellation
 
-The MCP request `CancellationToken` propagates into the subprocess channel for all three host modes:
+The MCP request `CancellationToken` propagates into the subprocess channel for all three host modes via a `cancel` control frame sent by `OutOfProcessHost.SendRequestAsync`. The host attempts a cooperative `BeginStop` on the in-flight pipeline; the .NET awaiter completes with `OperationCanceledException` immediately without waiting for the host to acknowledge. Per-mode behavior:
 
-- `Pool`: cancellation issues a stop request to the matching runspace and returns the lease. Pool capacity under stuck-but-cancelled invokes is `N - in_flight_uncancelled`.
-- `ProcessPool`: cancellation tears down the leased subprocess; the pool spins a replacement. Other hosts are unaffected.
-- `Single`: cancellation kills the host; the historical timeout-and-restart behavior applies.
+- `Pool`: `PoolDispatcher` looks up the active `[powershell]` instance by request id and calls `BeginStop` on it. The runspace is returned to the pool when the pipeline unwinds, so pool capacity recovers without restart. Pool capacity under stuck-but-cancelled invokes is `N - in_flight_uncancelled`.
+- `ProcessPool`: each leased host runs the Single-mode script and inherits the same soft-cancel via the inherited `OutOfProcessHost` cancel frame. If the host honors `BeginStop`, the slot stays healthy and is returned to the pool; other hosts are unaffected. The existing per-request kill-on-timeout path in `OutOfProcessSubprocessPool` remains as a backstop for wedged hosts (e.g., a cmdlet stuck in unmanaged code) that do not honor `BeginStop` within the per-request timeout.
+- `Single`: `SingleDispatcher` runs the invoke on a background dispatcher thread and calls `BeginStop` on the matching `[powershell]` instance when the cancel frame arrives. The host stays healthy for follow-up requests; the per-request timeout serves as the backstop and recycles the host only if `BeginStop` does not unwind the pipeline in time.
 
 ### Diagnostics
 
