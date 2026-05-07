@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.IdentityModel.Tokens.Jwt;
+using PoshMcp.Server.Observability;
 
 namespace PoshMcp.Server.Authentication;
 
@@ -108,7 +109,9 @@ public static class AuthenticationServiceExtensions
                                     .GetRequiredService<ILogger<JwtBearerHandler>>()
                                     .LogInformation(
                                         "JWT OnMessageReceived: HasBearerToken={HasToken}, Path={Path}",
-                                        hasToken, context.Request.Path);
+                                        hasToken,
+                                        // Path is attacker-controlled. Scrub before logging to mitigate CWE-117.
+                                        LogSanitizer.Scrub(context.Request.Path.ToString()));
                                 return Task.CompletedTask;
                             },
 
