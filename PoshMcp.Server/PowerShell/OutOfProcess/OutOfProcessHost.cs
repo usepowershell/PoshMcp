@@ -238,14 +238,33 @@ public sealed class OutOfProcessHost : IAsyncDisposable
                 _sendLock.Release();
             }
 
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            using var timeoutCts = new CancellationTokenSource();
             var requestTimeout = requestTimeoutOverride ?? _requestTimeout;
             timeoutCts.CancelAfter(requestTimeout);
 
-            var registration = timeoutCts.Token.Register(() =>
+            // Per-request timeout: notify the host so its pipeline stops, then trip the TCS.
+            // The cancel frame is best-effort and runs on its own short-lived CTS.
+            var timeoutRegistration = timeoutCts.Token.Register(() =>
             {
+                if (!"cancel".Equals(method, StringComparison.Ordinal))
+                {
+                    _ = TrySendCancelFrameAsync(id);
+                }
                 tcs.TrySetException(new TimeoutException(
                     $"Request {id} (method={method}) timed out after {requestTimeout.TotalSeconds}s."));
+            });
+
+            // Caller cancellation: forward to the host as a cancel frame so the in-flight
+            // pipeline is signaled to stop. The awaiter completes promptly with OCE; the
+            // host's eventual cancelled-response is dropped silently because _pending no
+            // longer has the id (see ReadLoopAsync).
+            var cancelRegistration = cancellationToken.Register(() =>
+            {
+                if (!"cancel".Equals(method, StringComparison.Ordinal))
+                {
+                    _ = TrySendCancelFrameAsync(id);
+                }
+                tcs.TrySetCanceled(cancellationToken);
             });
 
             try
@@ -262,12 +281,63 @@ public sealed class OutOfProcessHost : IAsyncDisposable
             }
             finally
             {
-                await registration.DisposeAsync().ConfigureAwait(false);
+                await timeoutRegistration.DisposeAsync().ConfigureAwait(false);
+                await cancelRegistration.DisposeAsync().ConfigureAwait(false);
             }
         }
         finally
         {
             _pending.TryRemove(id, out _);
+        }
+    }
+
+    /// <summary>
+    /// Best-effort: send a fire-and-forget <c>cancel</c> frame to the host so it can
+    /// signal the in-flight pipeline for <paramref name="requestId"/> to stop.
+    /// The frame id uses a <c>cancel-</c> prefix and is intentionally not registered
+    /// in <see cref="_pending"/>; the host's ack is logged at Debug only.
+    /// </summary>
+    private async Task TrySendCancelFrameAsync(string requestId)
+    {
+        if (_disposed || _stdin is null) return;
+
+        var cancelFrameId = "cancel-" + Guid.NewGuid().ToString("N");
+        var frame = new
+        {
+            id = cancelFrameId,
+            method = "cancel",
+            @params = new { requestId }
+        };
+
+        string json;
+        try
+        {
+            json = JsonSerializer.Serialize(frame);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to serialize cancel frame for request {Id}.", requestId);
+            return;
+        }
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            await _sendLock.WaitAsync(cts.Token).ConfigureAwait(false);
+            try
+            {
+                await _stdin.WriteLineAsync(json.AsMemory(), cts.Token).ConfigureAwait(false);
+                await _stdin.FlushAsync(cts.Token).ConfigureAwait(false);
+                _logger.LogDebug("Sent cancel frame for request {Id}.", requestId);
+            }
+            finally
+            {
+                try { _sendLock.Release(); } catch (ObjectDisposedException) { /* shutting down */ }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to send cancel frame for request {Id}.", requestId);
         }
     }
 
@@ -379,7 +449,20 @@ public sealed class OutOfProcessHost : IAsyncDisposable
 
                     if (!_pending.TryGetValue(id, out var tcs))
                     {
-                        _logger.LogWarning("OOP response for unknown request id '{Id}': {Line}", id, line);
+                        // Cancel-frame acks (id prefix "cancel-") are intentionally
+                        // not registered; a normal invoke response that lost its race
+                        // with caller cancellation is also expected. Both are noise.
+                        if (id.StartsWith("cancel-", StringComparison.Ordinal)
+                            || (root.TryGetProperty("result", out var resForUnknown)
+                                && resForUnknown.TryGetProperty("cancelled", out var cancelledFlag)
+                                && cancelledFlag.ValueKind == JsonValueKind.True))
+                        {
+                            _logger.LogDebug("OOP response for already-removed request id '{Id}'.", id);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("OOP response for unknown request id '{Id}': {Line}", id, line);
+                        }
                         continue;
                     }
 

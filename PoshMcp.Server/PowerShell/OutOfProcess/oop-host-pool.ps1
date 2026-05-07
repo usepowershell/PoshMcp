@@ -208,6 +208,7 @@ namespace PoshMcp.PoolHost
         public int QueueDepthOnArrival;
         public Stopwatch QueueSw;
         public string CommandName;
+        public bool Cancelled; // set by Cancel() before BeginStop fires
     }
 
     public sealed class PoolDispatcher : IDisposable
@@ -217,6 +218,7 @@ namespace PoshMcp.PoolHost
         private readonly Thread[] _workers;
         private readonly ManualResetEventSlim _idle = new ManualResetEventSlim(true);
         private readonly object _idleLock = new object();
+        private readonly ConcurrentDictionary<string, PoolWorkItem> _active = new ConcurrentDictionary<string, PoolWorkItem>();
         private int _activeCount;
         private int _pendingCount; // queued + active, used for IsIdle
 
@@ -260,8 +262,33 @@ namespace PoshMcp.PoolHost
                 _idle.Reset();
             }
 
+            _active[id] = item;
             _queue.Add(item);
             return depth;
+        }
+
+        /// <summary>
+        /// Signal a cancellation request to the in-flight invoke matching
+        /// <paramref name="requestId"/>. Returns true if the request was found
+        /// and BeginStop was called; false if no matching active item exists
+        /// (already completed, queued-only, or unknown id).
+        /// </summary>
+        public bool Cancel(string requestId)
+        {
+            if (string.IsNullOrEmpty(requestId)) return false;
+            PoolWorkItem item;
+            if (!_active.TryGetValue(requestId, out item)) return false;
+            try
+            {
+                item.Cancelled = true;
+                item.Ps.BeginStop(null, null);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("[oop-host-pool:dispatcher] BeginStop failed for " + requestId + ": " + ex.Message);
+                return false;
+            }
         }
 
         /// <summary>Wait until the dispatcher is idle (queue empty + no active work).</summary>
@@ -292,6 +319,8 @@ namespace PoshMcp.PoolHost
                     finally
                     {
                         try { w.Ps.Dispose(); } catch { }
+                        PoolWorkItem _removed;
+                        _active.TryRemove(w.Id, out _removed);
                         Interlocked.Decrement(ref _activeCount);
                         lock (_idleLock)
                         {
@@ -314,29 +343,51 @@ namespace PoshMcp.PoolHost
         {
             Collection<PSObject> output = null;
             string invokeError = null;
+            bool wasStopped = false;
 
             try
             {
                 output = w.Ps.Invoke();
+            }
+            catch (System.Management.Automation.PipelineStoppedException)
+            {
+                wasStopped = true;
             }
             catch (Exception ex)
             {
                 invokeError = ex.Message;
             }
 
+            // BeginStop transitions the pipeline to Stopped without throwing
+            // PipelineStoppedException for some host configurations; double-check.
+            if (!wasStopped)
+            {
+                try
+                {
+                    var state = w.Ps.InvocationStateInfo;
+                    if (state != null && state.State == PSInvocationState.Stopped)
+                    {
+                        wasStopped = true;
+                    }
+                }
+                catch { /* best-effort */ }
+            }
+
+            bool cancelled = wasStopped || w.Cancelled;
+
             string[] errs = w.Ps.Streams.Error.Select(e => e.ToString()).ToArray();
             string[] warns = w.Ps.Streams.Warning.Select(x => x.Message).ToArray();
-            bool hadErrors = w.Ps.HadErrors || errs.Length > 0;
+            bool hadErrors = w.Ps.HadErrors || errs.Length > 0 || cancelled;
 
             // The user script returns a single string from ConvertTo-Json.
             // Embed it as a JSON-string value (escaped).
             string outputJson;
-            if (invokeError != null)
+            if (invokeError != null && !cancelled)
             {
                 WriteError(w.Id, invokeError);
                 return;
             }
-            if (output == null || output.Count == 0 || output[0] == null)
+            if (cancelled || output == null || output.Count == 0 || output[0] == null)
             {
                 outputJson = "null";
             }
@@ -352,6 +403,7 @@ namespace PoshMcp.PoolHost
             sb.Append("{\"id\":").Append(PoolStdout.EscapeString(w.Id)).Append(",\"result\":{");
             sb.Append("\"output\":").Append(PoolStdout.EscapeString(outputJson)).Append(',');
             sb.Append("\"hadErrors\":").Append(hadErrors ? "true" : "false").Append(',');
+            sb.Append("\"cancelled\":").Append(cancelled ? "true" : "false").Append(',');
             sb.Append("\"errors\":[");
             for (int i = 0; i < errs.Length; i++)
             {
@@ -506,6 +558,23 @@ function Invoke-ShutdownHandler {
     if ($null -ne $script:Dispatcher) { try { $script:Dispatcher.Dispose() } catch {} }
     Close-Pool
     exit 0
+}
+
+function Invoke-CancelHandler {
+    param(
+        [string]$Id,
+        [object]$Params
+    )
+    $requestId = ''
+    if ($null -ne $Params -and $null -ne $Params.requestId) {
+        $requestId = "$($Params.requestId)"
+    }
+    $found = $false
+    if (-not [string]::IsNullOrEmpty($requestId) -and $null -ne $script:Dispatcher) {
+        $found = $script:Dispatcher.Cancel($requestId)
+    }
+    Write-Diag "cancel: requestId=$requestId found=$found"
+    Write-NdjsonResponse -Id $Id -Result @{ cancelled = $found; requestId = $requestId }
 }
 
 # --- Setup handler (drains, mutates ISS, reopens pool) -------------------
@@ -936,6 +1005,7 @@ while ($true) {
             'shutdown' { Invoke-ShutdownHandler -Id $id }
             'discover' { Invoke-DiscoverHandler -Id $id -Params $params }
             'invoke'   { Invoke-InvokeHandler   -Id $id -Params $params }
+            'cancel'   { Invoke-CancelHandler   -Id $id -Params $params }
             default {
                 Write-NdjsonResponse -Id $id -ErrorObj @{ code = -1; message = "Unknown method: $method" }
             }
