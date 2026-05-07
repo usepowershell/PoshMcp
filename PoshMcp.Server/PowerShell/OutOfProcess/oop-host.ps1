@@ -54,6 +54,45 @@ function Write-NdjsonResponse {
     [Console]::Out.Flush()
 }
 
+function ConvertTo-SafeJson {
+    <#
+    .SYNOPSIS
+        Serialize an object to compact JSON, tolerating duplicate-property
+        errors thrown by ConvertTo-Json on objects whose CLR type shadows a
+        base-class member of the same name (e.g. BasicHtmlWebResponseObject's
+        'Content' shadows WebResponseObject.Content). Falls back to a
+        Select-Object * projection that materializes a flat PSObject (which
+        de-duplicates shadowed members), then to a string representation.
+    .NOTES
+        See issue #203. Without this wrapper, `Invoke-WebRequest |
+        ConvertTo-Json -Depth 4` throws
+        `An item with the same key has already been added. Key: Content`,
+        which surfaces to the C# client as an OOP error.
+    #>
+    param(
+        [Parameter(Mandatory)][AllowNull()]$InputObject,
+        [int]$Depth = 4
+    )
+
+    if ($null -eq $InputObject) { return 'null' }
+
+    try {
+        return $InputObject | ConvertTo-Json -Depth $Depth -Compress -WarningAction SilentlyContinue 3>$null
+    }
+    catch [System.ArgumentException] {
+        # Duplicate property name (shadowed member). Project to a flat
+        # PSObject so PowerShell's member resolver collapses duplicates.
+        try {
+            $projected = $InputObject | Select-Object *
+            return $projected | ConvertTo-Json -Depth $Depth -Compress -WarningAction SilentlyContinue 3>$null
+        }
+        catch {
+            # Last resort: stringify and JSON-encode the string.
+            return (($InputObject | Out-String).Trim() | ConvertTo-Json -Compress)
+        }
+    }
+}
+
 function Invoke-PingHandler {
     <#
     .SYNOPSIS
@@ -570,7 +609,9 @@ function Invoke-InvokeHandler {
             $hadErrors = $true
         }
 
-        $jsonOutput = $result | ConvertTo-Json -Depth 4 -Compress -WarningAction SilentlyContinue 3>$null
+        # Use ConvertTo-SafeJson to tolerate shadowed-property objects
+        # (e.g. Invoke-WebRequest results). See issue #203.
+        $jsonOutput = ConvertTo-SafeJson -InputObject $result -Depth 4
         if ($null -eq $jsonOutput) {
             $jsonOutput = 'null'
         }
