@@ -120,10 +120,30 @@ Full configuration structure:
       "EnableResultCaching": false,
       "UseDefaultDisplayProperties": true
     },
-    "EnableDynamicReloadTools": false
+    "EnableDynamicReloadTools": false,
+    "RuntimeMode": "InProcess",
+    "SubprocessHostMode": "Pool",
+    "SubprocessRunspacePoolSize": 0
   }
 }
 ```
+
+### Runtime Mode
+
+`PowerShellConfiguration.RuntimeMode` selects whether commands execute in-process (default) or in a separate `pwsh` subprocess:
+
+- `InProcess` (default) — embedded PowerShell SDK; lowest overhead.
+- `OutOfProcess` — commands run in a managed `pwsh` subprocess for module isolation. Recommended when loading heavy modules such as `Az.*` or `Microsoft.Graph.*`.
+
+When `RuntimeMode` is `OutOfProcess`, `SubprocessHostMode` selects the subprocess topology (`Pool` is the default since 2026-05-06):
+
+| `SubprocessHostMode` | When to use |
+|----------------------|-------------|
+| `Pool` (default) | Best concurrent throughput; recommended for typical MCP workloads. |
+| `ProcessPool` | Trust-boundary or tail-latency-sensitive workloads. |
+| `Single` | Backward-compatible serialized mode; useful for bisecting regressions. |
+
+See [Advanced Configuration → Out-of-Process PowerShell](advanced.md#out-of-process-powershell) for sizing options (`SubprocessRunspacePoolSize`, `SubprocessPoolSize`, `SubprocessMinHealthyForStartup`), the cancellation contract, and the benchmark study driving the default.
 
 ## Environment Variables
 

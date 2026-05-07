@@ -83,14 +83,81 @@ docker build \
 
 ## Out-of-Process PowerShell
 
-Run PowerShell in a separate process for better module isolation:
+Run PowerShell in a separate `pwsh` subprocess so that heavy or conflicting modules (Az, Microsoft.Graph) cannot crash or destabilize the MCP server. Requires PowerShell 7.x on `PATH`.
+
+### Enable Out-of-Process Mode
+
+Set `RuntimeMode` in `appsettings.json`:
+
+```json
+{
+  "PowerShellConfiguration": {
+    "RuntimeMode": "OutOfProcess"
+  }
+}
+```
+
+Or via environment variable:
 
 ```bash
-export POSHMCP_RUNTIME_MODE=out-of-process
+export POSHMCP_RUNTIME_MODE=OutOfProcess
 poshmcp serve --transport http
 ```
 
-Requires PowerShell 7.x for out-of-process mode.
+The environment variable takes precedence over the config file value. Valid values: `InProcess`, `OutOfProcess`. Unrecognized values fall back to `InProcess` with a logged error.
+
+### Subprocess Host Modes
+
+When `RuntimeMode` is `OutOfProcess`, `SubprocessHostMode` selects the subprocess topology:
+
+| `SubprocessHostMode` | Topology | When to use |
+|----------------------|----------|-------------|
+| `Pool` (default) | One subprocess, runspace pool inside it | Default since 2026-05-06. Best concurrent warm-invoke throughput; recommended for typical MCP workloads. |
+| `ProcessPool` | N independent single-runspace subprocess hosts, leased per request | Trust-boundary or tail-latency-sensitive workloads. Crashes are reconciled per slot without disturbing other hosts. |
+| `Single` | One subprocess, one runspace, serialized requests | Backward-compatible legacy mode. Useful for bisecting regressions or when only cold-start latency matters. |
+
+The default flip from `Single` to `Pool` was driven by benchmark study — `Pool` posted ~4.86× warm-invoke throughput at concurrency 10 versus `Single`. See [`specs/004-out-of-process-execution/benchmark-findings.md`](https://github.com/usepowershell/PoshMcp/blob/main/specs/004-out-of-process-execution/benchmark-findings.md) for full data.
+
+### Pool Sizing
+
+```json
+{
+  "PowerShellConfiguration": {
+    "RuntimeMode": "OutOfProcess",
+    "SubprocessHostMode": "Pool",
+    "SubprocessRunspacePoolSize": 0
+  }
+}
+```
+
+- `SubprocessRunspacePoolSize` (Pool mode): runspaces in the pool. `0` (default) auto-sizes to `min(ProcessorCount, 8)`. Ignored in `Single` and `ProcessPool` modes.
+- `SubprocessPoolSize` (ProcessPool mode): independent subprocess hosts to launch. Default `4`.
+- `SubprocessMinHealthyForStartup` (ProcessPool mode): minimum healthy hosts required for the pool to start. Clamped to `[1, SubprocessPoolSize]`. Default `1`.
+
+ProcessPool example for tenant isolation:
+
+```json
+{
+  "PowerShellConfiguration": {
+    "RuntimeMode": "OutOfProcess",
+    "SubprocessHostMode": "ProcessPool",
+    "SubprocessPoolSize": 4,
+    "SubprocessMinHealthyForStartup": 2
+  }
+}
+```
+
+### Cancellation
+
+The MCP request `CancellationToken` propagates into the subprocess channel for all three host modes:
+
+- `Pool`: cancellation issues a stop request to the matching runspace and returns the lease. Pool capacity under stuck-but-cancelled invokes is `N - in_flight_uncancelled`.
+- `ProcessPool`: cancellation tears down the leased subprocess; the pool spins a replacement. Other hosts are unaffected.
+- `Single`: cancellation kills the host; the historical timeout-and-restart behavior applies.
+
+### Diagnostics
+
+`poshmcp doctor` reports the resolved host mode, effective pool sizes, host-script path, and any clamp warnings under Runtime Settings.
 
 ## Dynamic Tool Reloading
 
