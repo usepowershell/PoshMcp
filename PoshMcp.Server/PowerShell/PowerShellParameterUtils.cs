@@ -235,6 +235,82 @@ public static class PowerShellParameterUtils
     }
 
     /// <summary>
+    /// Returns <see langword="true"/> when the cmdlet is a function exported by an
+    /// implicit-remoting proxy module (typically the auto-generated module that
+    /// PowerShell 7's <c>WinPSCompatSession</c> creates for Desktop-only modules
+    /// such as the RSAT module set (<c>ActiveDirectory</c>, <c>GroupPolicy</c>,
+    /// <c>DnsServer</c>, ...), <c>Hyper-V</c>, <c>Storage</c>, IIS
+    /// administration, and many third-party Desktop-only modules).
+    /// </summary>
+    /// <remarks>
+    /// PowerShell's <c>Export-PSSession</c> generates proxy functions whose
+    /// parameters are all typed <c>[System.Object]</c> with no <c>Mandatory</c>
+    /// flag, regardless of the original cmdlet's signature. The proxy module is
+    /// tagged with <c>PrivateData['ImplicitRemoting'] = $true</c>, which is the
+    /// most reliable signal. We additionally accept a description prefix and a
+    /// <c>remoteIpMoProxy_</c> RootModule prefix as fallbacks because both have
+    /// been stable conventions for many years.
+    /// </remarks>
+    public static bool IsImplicitRemotingProxy(CommandInfo commandInfo)
+    {
+        var module = commandInfo?.Module;
+        if (module is null) return false;
+
+        // Primary signal: the PrivateData hashtable carries an ImplicitRemoting marker.
+        if (module.PrivateData is System.Collections.IDictionary pd
+            && pd.Contains("ImplicitRemoting"))
+        {
+            var v = pd["ImplicitRemoting"];
+            if (v is bool b && b) return true;
+            if (v is string s && bool.TryParse(s, out var parsed) && parsed) return true;
+        }
+
+        // Fallback 1: WinPSCompatSession-generated modules describe themselves as
+        // "Implicit remoting for <connection-uri>".
+        if (!string.IsNullOrEmpty(module.Description)
+            && module.Description.StartsWith("Implicit remoting for", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Fallback 2: the auto-generated proxy module file is named
+        // remoteIpMoProxy_<original>_<version>_<host>_<guid>.psm1
+        var rootModule = module.RootModule;
+        if (!string.IsNullOrEmpty(rootModule)
+            && rootModule.StartsWith("remoteIpMoProxy_", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns the CLR type that should be used for the generated MCP tool's
+    /// signature for a given parameter. Normally this is just
+    /// <see cref="ParameterMetadata.ParameterType"/>, but for implicit-remoting
+    /// proxy cmdlets (whose parameters are universally typed
+    /// <see cref="object"/>) we substitute <see cref="string"/> so the parameter
+    /// is exposed in the generated JSON Schema instead of being silently dropped
+    /// by <see cref="IsUnserializableType"/>.
+    /// </summary>
+    /// <remarks>
+    /// At runtime the value is still passed to PowerShell as <see cref="object"/>
+    /// (boxed string); the proxy function happily accepts it and forwards it
+    /// over the implicit-remoting channel where the real underlying cmdlet
+    /// performs its normal type coercion (string → Uri / enum / int / etc.).
+    /// </remarks>
+    public static Type EffectiveParameterType(CommandInfo commandInfo, ParameterMetadata parameterMetadata)
+    {
+        var declared = parameterMetadata.ParameterType;
+        if (declared == typeof(object) && IsImplicitRemotingProxy(commandInfo))
+        {
+            return typeof(string);
+        }
+        return declared;
+    }
+
+    /// <summary>
     /// Gets the default value for a given type
     /// </summary>
     public static object? GetDefaultValueForType(Type type)

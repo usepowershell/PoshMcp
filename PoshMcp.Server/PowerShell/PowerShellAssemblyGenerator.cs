@@ -357,18 +357,43 @@ public class PowerShellAssemblyGenerator
     /// </returns>
     private static bool GenerateMethodForCommand(TypeBuilder typeBuilder, CommandInfo commandInfo, FieldBuilder loggerField, FieldBuilder runspaceField, ILogger logger, CommandParameterSetInfo parameterSet)
     {
-        // Get command parameters for this specific parameter set (excluding common parameters) and order by position
-        var parameters = commandInfo.Parameters
+        // Get command parameters for this specific parameter set (excluding common parameters) and order by position.
+        //
+        // Membership rule:
+        //   - Implicit-remoting proxies (WinPSCompatSession) declare every parameter with the
+        //     real underlying cmdlet's ParameterSetName (e.g. "AdHoc", "NonAdHoc"), NOT
+        //     "__AllParameterSets". The proxy itself only exposes a single
+        //     "__AllParameterSets" CommandParameterSetInfo, so the original per-set names
+        //     would never match and we'd drop most parameters.
+        //   - For proxies, fall back to the parameter list reported by parameterSet.Parameters
+        //     (which is the proxy's own enumeration of what should be exposed). For native
+        //     cmdlets, keep the existing per-attribute filtering so multi-parameter-set
+        //     cmdlets still split correctly into one generated method per set.
+        var isProxy = PowerShellParameterUtils.IsImplicitRemotingProxy(commandInfo);
+
+        IEnumerable<KeyValuePair<string, ParameterMetadata>> candidates;
+        if (isProxy)
+        {
+            // Use the parameter set's own parameter enumeration. This matches what the
+            // description string we generate via parameterSet.ToString() advertises.
+            var allowedNames = new HashSet<string>(parameterSet.Parameters.Select(p => p.Name), StringComparer.OrdinalIgnoreCase);
+            candidates = commandInfo.Parameters.Where(p => allowedNames.Contains(p.Key));
+        }
+        else
+        {
+            candidates = commandInfo.Parameters
+                .Where(p =>
+                {
+                    var paramAttrs = p.Value.Attributes.OfType<ParameterAttribute>();
+                    return paramAttrs.Any(attr =>
+                        string.IsNullOrEmpty(attr.ParameterSetName) ||
+                        attr.ParameterSetName == parameterSet.Name ||
+                        attr.ParameterSetName == "__AllParameterSets");
+                });
+        }
+
+        var parameters = candidates
             .Where(p => !PowerShellParameterUtils.IsCommonParameter(p.Key))
-            .Where(p =>
-            {
-                // Check if this parameter belongs to the current parameter set
-                var paramAttrs = p.Value.Attributes.OfType<ParameterAttribute>();
-                return paramAttrs.Any(attr =>
-                    string.IsNullOrEmpty(attr.ParameterSetName) ||
-                    attr.ParameterSetName == parameterSet.Name ||
-                    attr.ParameterSetName == "__AllParameterSets");
-            })
             .OrderBy(p =>
             {
                 // Get the position from the ParameterAttribute for this parameter set
@@ -383,15 +408,18 @@ public class PowerShellAssemblyGenerator
             .ToList();
 
         // Skip the parameter set if any mandatory parameter has an unserializable type.
+        // For implicit-remoting proxy cmdlets, EffectiveParameterType substitutes string
+        // for object so we don't drop the universally-Object-typed proxy parameters.
         var mandatoryUnserializable = parameters
             .Where(p => p.Value.Attributes.OfType<ParameterAttribute>().Any(attr => attr.Mandatory)
-                     && PowerShellParameterUtils.IsUnserializableType(p.Value.ParameterType))
+                     && PowerShellParameterUtils.IsUnserializableType(
+                            PowerShellParameterUtils.EffectiveParameterType(commandInfo, p.Value)))
             .ToList();
 
         if (mandatoryUnserializable.Count > 0)
         {
             logger.LogDebug(
-                "Skipping parameter set '{ParameterSet}' of '{CommandName}' — mandatory parameters with unserializable types: {Parameters}",
+                "Skipping parameter set '{ParameterSet}' of '{CommandName}' \u2014 mandatory parameters with unserializable types: {Parameters}",
                 LogSanitizer.Scrub(parameterSet.Name),
                 LogSanitizer.Scrub(commandInfo.Name),
                 LogSanitizer.Scrub(string.Join(", ", mandatoryUnserializable.Select(p => $"{p.Key} ({p.Value.ParameterType.Name})"))));
@@ -399,9 +427,11 @@ public class PowerShellAssemblyGenerator
         }
 
         // Drop optional parameters whose types cannot be serialized to JSON.
+        // Same EffectiveParameterType substitution as above.
         var skippedOptional = parameters
             .Where(p => !p.Value.Attributes.OfType<ParameterAttribute>().Any(attr => attr.Mandatory)
-                     && PowerShellParameterUtils.IsUnserializableType(p.Value.ParameterType))
+                     && PowerShellParameterUtils.IsUnserializableType(
+                            PowerShellParameterUtils.EffectiveParameterType(commandInfo, p.Value)))
             .ToList();
 
         if (skippedOptional.Count > 0)
@@ -426,7 +456,11 @@ public class PowerShellAssemblyGenerator
 
         foreach (var param in parameters)
         {
-            var paramType = param.Value.ParameterType;
+            // Use EffectiveParameterType so WinPSCompat-proxy Object parameters appear
+            // as strings in the generated C# method signature (and therefore in the
+            // MCP tool's input JSON Schema). The runtime side still receives the value
+            // as object via PowerShellParameterInfo.
+            var paramType = PowerShellParameterUtils.EffectiveParameterType(commandInfo, param.Value);
             var isMandatory = param.Value.Attributes.OfType<ParameterAttribute>().Any(attr => attr.Mandatory);
 
             // Make non-mandatory value types nullable
@@ -595,7 +629,9 @@ public class PowerShellAssemblyGenerator
         var methodParameterTypes = new List<Type>();
         foreach (var param in parameters)
         {
-            var paramType = param.Value.ParameterType;
+            // Match the type substitution used when building the generated method signature
+            // above so the IL boxing instructions agree with the actual argument CLR type.
+            var paramType = PowerShellParameterUtils.EffectiveParameterType(commandInfo, param.Value);
             var isMandatory = param.Value.Attributes.OfType<ParameterAttribute>().Any(attr => attr.Mandatory);
 
             // Make non-mandatory value types nullable

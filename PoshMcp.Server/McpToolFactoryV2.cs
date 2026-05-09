@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Management.Automation;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -868,7 +870,18 @@ public class McpToolFactoryV2
     }
 
     /// <summary>
-    /// Gets the appropriate delegate type for a generated method
+    /// Gets the appropriate delegate type for a generated method.
+    ///
+    /// For up to 16 parameters we reuse the BCL <c>Func&lt;...&gt;</c> family
+    /// (zero allocation, fast). For methods with more parameters than the
+    /// largest available <c>Func</c> arity (currently <c>Func`17</c>), we
+    /// emit a custom delegate type at runtime via
+    /// <see cref="System.Reflection.Emit"/>. The emitted delegate's
+    /// <c>Invoke</c> method preserves the original parameter names and
+    /// types, so <c>McpServerTool.Create</c> sees the same metadata it
+    /// would for a <c>Func&lt;&gt;</c> delegate and generates an identical
+    /// JSON Schema. Custom delegate types are cached by signature so each
+    /// distinct shape is emitted at most once per process.
     /// </summary>
     private Type GetDelegateTypeForMethod(MethodInfo method)
     {
@@ -913,10 +926,102 @@ public class McpToolFactoryV2
                     return funcType.MakeGenericType(allTypes);
                 }
             }
+
+            // >16 parameters: emit a custom delegate type. The BCL only
+            // ships Func`1 ... Func`17, so anything beyond that requires
+            // a runtime-emitted delegate. We preserve original parameter
+            // names so the MCP schema matches what Func<> would produce.
+            return GetOrCreateDynamicDelegateType(parameters, returnType);
         }
 
-        // Fallback: create a generic delegate
-        throw new NotSupportedException($"Cannot create delegate type for method with {parameterTypes.Length} parameters and return type {returnType.Name}");
+        // Fallback for non-Task-returning methods: same dynamic delegate path.
+        return GetOrCreateDynamicDelegateType(parameters, returnType);
+    }
+
+    // Cache of (parameterTypes + names, returnType) -> emitted delegate Type, so each
+    // unique signature is emitted at most once per process.
+    //
+    // We wrap the value in Lazy<T> with ExecutionAndPublication so that
+    // ConcurrentDictionary.GetOrAdd never runs the (expensive, side-effecting)
+    // EmitDelegateType factory more than once per key, even under concurrent
+    // misses for the same signature. Without Lazy<T>, GetOrAdd may invoke its
+    // factory multiple times concurrently and discard all but one result;
+    // because the discarded Types live in a non-collectible
+    // AssemblyBuilderAccess.Run module, that would be a permanent leak.
+    // (Tool registration is single-threaded today, but the helper is process-
+    // static and we do not want to depend on call-site ordering.)
+    private static readonly ConcurrentDictionary<string, Lazy<Type>> _dynamicDelegateCache = new();
+    private static int _dynamicDelegateCounter;
+
+    // Same Lazy<T> guarantee for the underlying ModuleBuilder: defined exactly
+    // once per process, with publication safety on weak memory models (ARM64).
+    private static readonly Lazy<ModuleBuilder> _dynamicDelegateModule =
+        new(CreateDynamicModule, LazyThreadSafetyMode.ExecutionAndPublication);
+
+    private static Type GetOrCreateDynamicDelegateType(ParameterInfo[] parameters, Type returnType)
+    {
+        var key = BuildDelegateCacheKey(parameters, returnType);
+        return _dynamicDelegateCache.GetOrAdd(
+            key,
+            _ => new Lazy<Type>(
+                () => EmitDelegateType(parameters, returnType),
+                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+    }
+
+    private static string BuildDelegateCacheKey(ParameterInfo[] parameters, Type returnType)
+    {
+        // Include parameter names so two methods with the same shape but
+        // different names get distinct delegates (preserves MCP schema names).
+        var sb = new System.Text.StringBuilder(returnType.AssemblyQualifiedName);
+        foreach (var p in parameters)
+        {
+            sb.Append('|').Append(p.ParameterType.AssemblyQualifiedName)
+              .Append(':').Append(p.Name);
+        }
+        return sb.ToString();
+    }
+
+    private static Type EmitDelegateType(ParameterInfo[] parameters, Type returnType)
+    {
+        var module = _dynamicDelegateModule.Value;
+        var typeName = $"PoshMcp.Dynamic.GeneratedDelegate_{Interlocked.Increment(ref _dynamicDelegateCounter)}";
+
+        // Standard MulticastDelegate-derived type with sealed Invoke + Begin/EndInvoke.
+        var typeBuilder = module.DefineType(
+            typeName,
+            TypeAttributes.Class | TypeAttributes.Public | TypeAttributes.Sealed | TypeAttributes.AnsiClass | TypeAttributes.AutoClass,
+            typeof(MulticastDelegate));
+
+        // Constructor: .ctor(object target, IntPtr method)
+        var ctor = typeBuilder.DefineConstructor(
+            MethodAttributes.RTSpecialName | MethodAttributes.HideBySig | MethodAttributes.Public,
+            CallingConventions.Standard,
+            new[] { typeof(object), typeof(IntPtr) });
+        ctor.SetImplementationFlags(MethodImplAttributes.Runtime | MethodImplAttributes.Managed);
+
+        // Invoke method matching the original signature, preserving parameter names.
+        var paramTypes = parameters.Select(p => p.ParameterType).ToArray();
+        var invoke = typeBuilder.DefineMethod(
+            "Invoke",
+            MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.NewSlot | MethodAttributes.Virtual,
+            returnType,
+            paramTypes);
+        invoke.SetImplementationFlags(MethodImplAttributes.Runtime | MethodImplAttributes.Managed);
+
+        for (int i = 0; i < parameters.Length; i++)
+        {
+            // ParameterInfo positions are 0-based; DefineParameter is 1-based (0 == return value).
+            invoke.DefineParameter(i + 1, ParameterAttributes.None, parameters[i].Name);
+        }
+
+        return typeBuilder.CreateType()!;
+    }
+
+    private static ModuleBuilder CreateDynamicModule()
+    {
+        var asmName = new AssemblyName("PoshMcp.DynamicDelegates");
+        var asm = AssemblyBuilder.DefineDynamicAssembly(asmName, AssemblyBuilderAccess.Run);
+        return asm.DefineDynamicModule("PoshMcp.DynamicDelegates");
     }
 
     /// <summary>
