@@ -150,7 +150,7 @@ internal static class DoctorService
                 OopModulePaths = oopModulePaths,
             },
             OutOfProcess = BuildOutOfProcessSection(config, settings.FinalConfigPath, loggerFactory),
-            ConfigurationErrors = [..report.ConfigurationErrors, ..configurationErrors],
+            ConfigurationErrors = [.. report.ConfigurationErrors, .. configurationErrors],
         };
 
         report = report with
