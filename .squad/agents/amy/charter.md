@@ -54,6 +54,10 @@ Observability, monitoring, operational tooling, and Azure cloud specialist for P
 - Create self-service diagnostic tools
 - Focus on actionable insights
 
+## Release Process
+
+**Release notes gate:** Before `git push` and before creating the tag, verify that `docs/release-notes/{version}.md` exists and has been committed. If it hasn't been committed yet, stage and commit it as part of the release commit (or as a preceding commit). Never push a tag without release notes in the branch.
+
 ## Collaboration
 
 - Works with **Bender** on instrumenting backend code

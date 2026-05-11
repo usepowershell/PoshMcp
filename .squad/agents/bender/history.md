@@ -4,6 +4,22 @@
 **Status:** 37.6 KB (checked 2026-05-03: within 90-day retention, no archival required)
 ## Recent Work (2026-05-01 — CURRENT SESSION)
 
+### Diagnosis: AggregateError — Failed to Fetch Authorization Server Metadata
+**Date:** 2026-05-01  
+**Status:** Diagnosis complete — fix NOT yet applied  
+**Report:** `.squad/decisions/inbox/bender-authserver-metadata-diagnosis.md`
+
+- **Task**: Diagnose why VS Code reports `AggregateError: Failed to fetch authorization server metadata from all attempted URLs` after the v0.9.4 fix for `WWW-Authenticate`
+- **Findings**:
+  - Root cause: `authorization_servers` in the PRM contains `https://login.microsoftonline.com/{tenant}` (missing `/v2.0`). VS Code fetches the discovery doc at `{url}/.well-known/openid-configuration`, gets back a v1.0 document with `issuer: https://sts.windows.net/{tenant}/`. Per RFC 8414 §3, issuer MUST match the URL used to discover it — `sts.windows.net` ≠ `login.microsoftonline.com` → VS Code rejects the document → AggregateError.
+  - Secondary: PRM response contains duplicated entries (2× `authorization_servers`, 2× `scopes_supported`, 3× `bearer_methods_supported`). Consistent with config being applied twice; the count of 3 for BearerMethods (which has a model-level default of `["header"]`) vs 2 for others (empty default) confirms this.
+  - The config file (`appsettings.json`) already has the correct `/v2.0` form in `ValidIssuers` — just missing it in `AuthorizationServers`.
+- **Fix required**:
+  1. Change `AuthorizationServers` in the AdvocacyBami `appsettings.json` from `login.microsoftonline.com/{tenant}` to `login.microsoftonline.com/{tenant}/v2.0`
+  2. Investigate why configuration arrays are being accumulated (duplicated) — likely double-registration of the config JSON file in the provider pipeline
+
+---
+
 ### Diagnosis: VS Code Auth Redirect to PoshMcp `/authorize`
 **Date:** 2026-05-01  
 **Status:** Diagnosis complete — awaiting fix approval  
@@ -26,6 +42,8 @@
 - **VS Code fallback `client_id` behavior** — When VS Code can't resolve the real auth server, it extracts the GUID from the PRM's `resource` field (e.g., `api://80939099-...`) and uses it as the OAuth `client_id` in the fallback authorization request. This GUID is the App Registration's Application ID, NOT VS Code's own client_id (`aebc6443-996d-45c2-90f0-388ff96faa56`).
 - **ApiKey scheme ≠ JwtBearer scheme for challenge handling** — Adding `WWW-Authenticate` logic to `ApiKeyAuthenticationHandler` does NOT cover the JwtBearer scheme. Each scheme must independently configure its challenge response.
 - **`context.HandleResponse()` is required when overriding JwtBearer challenge** — Calling `context.HandleResponse()` in `OnChallenge` suppresses the default JwtBearer challenge pipeline so you can set your own `StatusCode` and `WWW-Authenticate` header. Without it, ASP.NET Core writes a second `WWW-Authenticate: Bearer` header after your custom one, producing a malformed multi-value header.
+- **Entra ID `authorization_servers` must include `/v2.0`** — The PRM `authorization_servers` value must be `https://login.microsoftonline.com/{tenant}/v2.0`, NOT the bare tenant URL. Without `/v2.0`, VS Code discovers the v1.0 OIDC endpoint, which returns `issuer: https://sts.windows.net/{tenant}/`. That issuer does not match the authorization_server URL, so VS Code rejects the discovery document per RFC 8414 §3 → AggregateError. With `/v2.0`, the issuer is `https://login.microsoftonline.com/{tenant}/v2.0` which matches exactly.
+- **ASP.NET Core config array duplication** — If the same JSON config file is registered as a configuration provider more than once (e.g., once by the default `WebApplication.CreateBuilder()` pipeline and again by a custom config loader), array values are accumulated (not replaced). Properties with C# model-level defaults (e.g., `new() { "header" }`) accumulate one extra copy. Check for double `AddJsonFile(path)` calls in the configuration pipeline when PRM arrays contain unexpected duplicates.
 
 ---
 
