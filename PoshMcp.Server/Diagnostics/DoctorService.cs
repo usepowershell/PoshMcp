@@ -10,6 +10,8 @@ using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using PoshMcp.Server.Authentication;
+using PoshMcp.Server.McpPrompts;
+using PoshMcp.Server.McpResources;
 using PoshMcp.Server.PowerShell;
 using PoshMcp.Server.PowerShell.OutOfProcess;
 
@@ -28,21 +30,77 @@ internal static class DoctorService
         string format,
         Func<PowerShellConfiguration, ILoggerFactory, ILogger, string, Task<List<McpServerTool>>> discoverToolsFunc)
     {
+        var report = await BuildDoctorReportForCliAsync(settings, discoverToolsFunc);
+
+        if (format == "json")
+        {
+            Console.WriteLine(BuildDoctorJson(report));
+            return;
+        }
+
+        Console.WriteLine(DoctorTextRenderer.Render(report));
+    }
+
+    /// <summary>
+    /// Builds the doctor report used by the CLI command without throwing on
+    /// configuration load or tool discovery failures.
+    /// </summary>
+    internal static async Task<DoctorReport> BuildDoctorReportForCliAsync(
+        ResolvedCommandSettings settings,
+        Func<PowerShellConfiguration, ILoggerFactory, ILogger, string, Task<List<McpServerTool>>> discoverToolsFunc)
+    {
         var parsedLogLevel = SettingsResolver.ParseLogLevel(settings.LogLevel.Value);
         using var loggerFactory = LoggingHelpers.CreateLoggerFactory(parsedLogLevel);
         var logger = loggerFactory.CreateLogger("Doctor");
 
-        var config = ConfigurationLoader.LoadPowerShellConfiguration(settings.FinalConfigPath, logger, settings.RuntimeMode.Value);
-        var authRootConfig = ConfigurationLoader.BuildRootConfiguration(settings.FinalConfigPath, reloadOnChange: false);
-        var authConfig = authRootConfig.GetSection("Authentication").Get<AuthenticationConfiguration>();
+        var configurationErrors = new List<string>();
+
+        PowerShellConfiguration config;
+        var configurationLoaded = true;
+        try
+        {
+            config = ConfigurationLoader.LoadPowerShellConfiguration(settings.FinalConfigPath, logger, settings.RuntimeMode.Value);
+        }
+        catch (Exception ex)
+        {
+            configurationLoaded = false;
+            configurationErrors.Add($"Failed to load PowerShell configuration: {ex.Message}");
+            config = new PowerShellConfiguration();
+        }
+
+        AuthenticationConfiguration? authConfig = null;
+        if (configurationLoaded)
+        {
+            try
+            {
+                var authRootConfig = ConfigurationLoader.BuildRootConfiguration(settings.FinalConfigPath, reloadOnChange: false);
+                authConfig = authRootConfig.GetSection("Authentication").Get<AuthenticationConfiguration>();
+            }
+            catch (Exception ex)
+            {
+                configurationErrors.Add($"Failed to load authentication configuration: {ex.Message}");
+            }
+        }
+
         var environmentVariables = CollectEnvironmentVariables();
-        var tools = await discoverToolsFunc(config, loggerFactory, logger, settings.FinalConfigPath);
+
+        List<McpServerTool> tools;
+        try
+        {
+            tools = await discoverToolsFunc(config, loggerFactory, logger, settings.FinalConfigPath);
+        }
+        catch (Exception ex)
+        {
+            configurationErrors.Add($"Tool discovery failed: {ex.Message}");
+            tools = [];
+        }
+
         var discoveredToolNames = ConfigurationHelpers.GetDiscoveredToolNames(tools);
         var configuredFunctionStatus = BuildConfiguredFunctionStatus(config.GetEffectiveCommandNames(), discoveredToolNames);
         var toolNames = discoveredToolNames.Count > 0
             ? discoveredToolNames
             : ConfigurationHelpers.GetExpectedToolNames(configuredFunctionStatus, s => s.MatchedToolNames, config.EnableDynamicReloadTools);
-        var diagnostics = CollectPowerShellDiagnostics();
+        var diagnostics = TryCollectPowerShellDiagnostics(configurationErrors);
         var oopModulePaths = ResolveConfiguredModulePathsForOop(config, settings.FinalConfigPath);
 
         var missingFunctions = configuredFunctionStatus.Where(f => !f.Found).Select(f => f.FunctionName).ToList();
@@ -54,15 +112,12 @@ internal static class DoctorService
                 .ToList();
         }
 
-        var (warnings, configurationErrors) = BuildConfigurationWarnings(config, settings.FinalConfigPath);
-        var (resourcesDiag, promptsDiag) = ConfigurationLoader.TryValidateResourcesAndPrompts(settings.FinalConfigPath);
-
-        var report = DoctorReport.Build(
-            configurationPath: ConfigurationHelpers.DescribeConfigurationPath(settings.FinalConfigPath),
+        var report = BuildDoctorReportFromConfig(
+            configurationPath: settings.FinalConfigPath,
             configurationPathSource: settings.ConfigPath.Source,
             effectiveLogLevel: settings.LogLevel.Value,
             effectiveLogLevelSource: settings.LogLevel.Source,
-            effectiveTransport: settings.Transport.Value,
+            effectiveTransport: settings.Transport.Value ?? string.Empty,
             effectiveTransportSource: settings.Transport.Source,
             effectiveSessionMode: settings.SessionMode.Value,
             effectiveSessionModeSource: settings.SessionMode.Source,
@@ -70,31 +125,46 @@ internal static class DoctorService
             effectiveRuntimeModeSource: settings.RuntimeMode.Source,
             effectiveMcpPath: settings.McpPath.Value,
             effectiveMcpPathSource: settings.McpPath.Source,
-            configuredFunctionStatus: configuredFunctionStatus,
-            toolNames: toolNames,
-            powerShellVersion: diagnostics.PowerShellVersion,
-            modulePathEntries: diagnostics.ModulePathEntries,
-            modulePaths: diagnostics.ModulePaths,
-            oopModulePaths: oopModulePaths,
-            resourcesDiagnostics: resourcesDiag,
-            promptsDiagnostics: promptsDiag,
-            warnings: warnings,
-            configurationErrors: configurationErrors,
-            environmentVariables: environmentVariables,
-            authConfig: authConfig);
+            config: config,
+            tools: tools,
+            authConfig: authConfig,
+            allowConfigurationFileAccess: configurationLoaded);
 
         report = report with
         {
+            FunctionsTools = report.FunctionsTools with
+            {
+                ConfiguredFunctionStatus = configuredFunctionStatus,
+                ToolNames = toolNames,
+                ToolCount = toolNames.Count,
+                ConfiguredFunctionCount = configuredFunctionStatus.Count,
+                ConfiguredFunctionsFound = configuredFunctionStatus.Count(f => f.Found),
+                ConfiguredFunctionsMissing = configuredFunctionStatus.Count(f => !f.Found),
+            },
+            PowerShell = report.PowerShell with
+            {
+                Version = diagnostics.PowerShellVersion,
+                ModulePathEntries = diagnostics.ModulePathEntries,
+                ModulePaths = diagnostics.ModulePaths,
+                OopModulePathEntries = oopModulePaths.Length,
+                OopModulePaths = oopModulePaths,
+            },
             OutOfProcess = BuildOutOfProcessSection(config, settings.FinalConfigPath, loggerFactory),
+            ConfigurationErrors = [..report.ConfigurationErrors, ..configurationErrors],
         };
 
-        if (format == "json")
+        report = report with
         {
-            Console.WriteLine(BuildDoctorJson(report));
-            return;
-        }
+            Summary = report.Summary with
+            {
+                Status = DoctorReport.ComputeStatus(report with
+                {
+                    ConfigurationErrors = report.ConfigurationErrors.Concat(configurationErrors).ToList()
+                })
+            }
+        };
 
-        Console.WriteLine(DoctorTextRenderer.Render(report));
+        return report;
     }
 
     /// <summary>
@@ -116,7 +186,8 @@ internal static class DoctorService
         PowerShellConfiguration config,
         List<McpServerTool> tools,
         AuthenticationConfiguration? authConfig = null,
-        System.Security.Claims.ClaimsPrincipal? currentIdentity = null)
+        System.Security.Claims.ClaimsPrincipal? currentIdentity = null,
+        bool allowConfigurationFileAccess = true)
     {
         var discoveredToolNames = ConfigurationHelpers.GetDiscoveredToolNames(tools);
         var configuredFunctionStatus = BuildConfiguredFunctionStatus(config.GetEffectiveCommandNames(), discoveredToolNames);
@@ -132,16 +203,33 @@ internal static class DoctorService
                 .ToList();
         }
 
-        var diagnostics = CollectPowerShellDiagnostics();
+        var diagnostics = TryCollectPowerShellDiagnostics(null);
         var oopModulePaths = ResolveConfiguredModulePathsForOop(config, configurationPath);
-        var (warnings, configurationErrors) = BuildConfigurationWarnings(config, configurationPath);
-        var (resourcesDiag, promptsDiag) = ConfigurationLoader.TryValidateResourcesAndPrompts(configurationPath);
+        var warnings = new List<string>();
+        var configurationErrors = new List<string>();
+        McpResourcesDiagnostics resourcesDiag = new(0, 0, [], []);
+        McpPromptsDiagnostics promptsDiag = new(0, 0, [], []);
+
+        if (allowConfigurationFileAccess)
+        {
+            var (warningItems, configurationErrorItems) = BuildConfigurationWarnings(config, configurationPath);
+            warnings.AddRange(warningItems);
+            configurationErrors.AddRange(configurationErrorItems);
+            (resourcesDiag, promptsDiag) = ConfigurationLoader.TryValidateResourcesAndPrompts(configurationPath);
+        }
         var environmentVariables = CollectEnvironmentVariables();
 
         if (authConfig is null)
         {
-            var rootConfig = ConfigurationLoader.BuildRootConfiguration(configurationPath, reloadOnChange: false);
-            authConfig = rootConfig.GetSection("Authentication").Get<AuthenticationConfiguration>();
+            try
+            {
+                var rootConfig = ConfigurationLoader.BuildRootConfiguration(configurationPath, reloadOnChange: false);
+                authConfig = rootConfig.GetSection("Authentication").Get<AuthenticationConfiguration>();
+            }
+            catch
+            {
+                authConfig = null;
+            }
         }
 
         return DoctorReport.Build(
@@ -317,7 +405,17 @@ internal static class DoctorService
         }
 
         // Validate ApplicationInsights configuration (FR-313, FR-314, FR-315 — no network calls)
-        var configuration = ConfigurationLoader.BuildRootConfiguration(configPath, reloadOnChange: false);
+        IConfigurationRoot? configuration = null;
+        try
+        {
+            configuration = ConfigurationLoader.BuildRootConfiguration(configPath, reloadOnChange: false);
+        }
+        catch (Exception ex)
+        {
+            errors.Add($"Unable to read configuration for diagnostics: {ex.Message}");
+            return (warnings, errors);
+        }
+
         var appInsightsOptions = configuration.GetSection(PoshMcp.Server.ApplicationInsightsOptions.SectionName).Get<PoshMcp.Server.ApplicationInsightsOptions>()
                                  ?? new PoshMcp.Server.ApplicationInsightsOptions();
 
@@ -410,6 +508,19 @@ internal static class DoctorService
         });
 
         return result;
+    }
+
+    private static (string PowerShellVersion, int ModulePathEntries, string[] ModulePaths) TryCollectPowerShellDiagnostics(List<string>? configurationErrors)
+    {
+        try
+        {
+            return CollectPowerShellDiagnostics();
+        }
+        catch (Exception ex)
+        {
+            configurationErrors?.Add($"PowerShell diagnostics unavailable: {ex.Message}");
+            return ("unavailable", 0, Array.Empty<string>());
+        }
     }
 
     private static string[] ResolveConfiguredModulePathsForOop(PowerShellConfiguration config, string? configurationPath)

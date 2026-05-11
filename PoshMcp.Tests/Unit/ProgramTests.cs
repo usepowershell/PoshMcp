@@ -260,6 +260,41 @@ public class ProgramTests : PowerShellTestBase
     }
 
     [Fact]
+    public async Task BuildDoctorReportForCliAsync_WhenStartupAndDiscoveryFail_StillReturnsReportWithErrors()
+    {
+        var tempConfig = Path.Combine(Path.GetTempPath(), $"poshmcp-doctor-failure-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(tempConfig, "{ not valid json ");
+
+        try
+        {
+            var settings = new ResolvedCommandSettings(
+                new ResolvedSetting(tempConfig, "test"),
+                tempConfig,
+                new ResolvedSetting("Information", "test"),
+                new ResolvedSetting("stdio", "test"),
+                new ResolvedSetting(null, "test"),
+                new ResolvedSetting("InProcess", "test"),
+                new ResolvedSetting(null, "test"));
+
+            var report = await DoctorService.BuildDoctorReportForCliAsync(
+                settings,
+                static (_, _, _, _) => throw new InvalidOperationException("discovery exploded"));
+
+            Assert.NotNull(report);
+            Assert.Equal("errors", report.Summary.Status);
+            Assert.Contains(report.ConfigurationErrors, error => error.Contains("Failed to load PowerShell configuration", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(report.ConfigurationErrors, error => error.Contains("Tool discovery failed", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            if (File.Exists(tempConfig))
+            {
+                File.Delete(tempConfig);
+            }
+        }
+    }
+
+    [Fact]
     public void LoadPowerShellConfiguration_WithValidConfigPath_ReturnsConfiguration()
     {
         // Arrange

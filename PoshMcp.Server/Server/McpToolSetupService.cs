@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -371,10 +372,30 @@ internal static class McpToolSetupService
         {
             try
             {
-                logger.LogInformation("Processing configuration troubleshooting request");
+                var configurationErrors = new List<string>();
+                PowerShellConfiguration config;
 
-                var config = ConfigurationLoader.LoadPowerShellConfiguration(configurationPath, logger, effectiveRuntimeMode);
-                var tools = registeredToolsProvider();
+                try
+                {
+                    config = ConfigurationLoader.LoadPowerShellConfiguration(configurationPath, logger, effectiveRuntimeMode);
+                }
+                catch (Exception ex)
+                {
+                    configurationErrors.Add($"Failed to load PowerShell configuration: {ex.Message}");
+                    config = new PowerShellConfiguration();
+                }
+
+                var tools = new List<McpServerTool>();
+                try
+                {
+                    logger.LogInformation("Processing configuration troubleshooting request");
+                    tools = registeredToolsProvider();
+                }
+                catch (Exception ex)
+                {
+                    configurationErrors.Add($"Tool discovery failed: {ex.Message}");
+                }
+
                 var report = DoctorService.BuildDoctorReportFromConfig(
                     configurationPath: configurationPath,
                     configurationPathSource: "runtime",
@@ -391,7 +412,21 @@ internal static class McpToolSetupService
                     config: config,
                     tools: tools,
                     authConfig: authConfig,
-                    currentIdentity: identityProvider?.Invoke());
+                    currentIdentity: identityProvider?.Invoke(),
+                    allowConfigurationFileAccess: false);
+
+                if (configurationErrors.Count > 0)
+                {
+                    var mergedErrors = report.ConfigurationErrors.Concat(configurationErrors).ToList();
+                    report = report with
+                    {
+                        ConfigurationErrors = mergedErrors,
+                        Summary = report.Summary with
+                        {
+                            Status = DoctorReport.ComputeStatus(report with { ConfigurationErrors = mergedErrors })
+                        }
+                    };
+                }
 
                 return Task.FromResult(DoctorService.BuildDoctorJson(report));
             }
@@ -538,6 +573,14 @@ internal static class McpToolSetupService
     }
 
     /// <summary>
+    /// Creates the "set-result-caching" MCP tool if runtime caching is enabled.
+    /// </summary>
+    private static void AddSetResultCachingToolToList(List<McpServerTool> tools, RuntimeCachingState runtimeCachingState)
+    {
+        tools.Add(CreateSetResultCachingToolInstance(runtimeCachingState));
+    }
+
+    /// <summary>
     /// Parses the "enabled" parameter for result caching tool.
     /// Supports "true", "false", "reset", or null.
     /// </summary>
@@ -582,13 +625,13 @@ internal static class McpToolSetupService
     private static void PrintToolDiscoveryResults(List<McpServerTool> tools)
     {
         Console.Error.WriteLine();
-        Console.Error.WriteLine($"=== Tool Discovery Results ===");
+        Console.Error.WriteLine("=== Tool Discovery Results ===");
         Console.Error.WriteLine($"Total tools discovered: {tools.Count}");
         Console.Error.WriteLine();
     }
 
     /// <summary>
-    /// Prints success message when tools are discovered.
+    /// Writes a success message for tool discovery.
     /// </summary>
     private static void PrintSuccessMessage()
     {
@@ -599,8 +642,7 @@ internal static class McpToolSetupService
     }
 
     /// <summary>
-    /// Prints message when no tools are discovered.
-    /// Provides diagnostic hints for troubleshooting.
+    /// Writes a message explaining that no tools were discovered.
     /// </summary>
     private static void PrintNoToolsFoundMessage()
     {
