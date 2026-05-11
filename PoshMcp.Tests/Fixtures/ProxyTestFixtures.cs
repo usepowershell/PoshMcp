@@ -250,7 +250,7 @@ Get-Command -Module '{module.Name}' -Name '{commandName}'
     private static void SetPropertyOrField(object target, string name, object value)
     {
         var t = target.GetType();
-        
+
         // Try public/private property with setter
         var prop = t.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
         if (prop != null && prop.CanWrite)
