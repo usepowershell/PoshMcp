@@ -1,8 +1,54 @@
 # Bender Work History
 
-**Status:** 37.6 KB (checked 2026-05-03: within 90-day retention, no archival required)
+**Status:** 42.8 KB (checked 2026-05-11: within 90-day retention, no archival required)
 
-## Recent Work (2026-05-06 — CURRENT SESSION)
+## Recent Work (2026-05-11 — CURRENT SESSION)
+
+### PR #211: Test Fixtures for Proxy & High-Parameter Method Schema Validation
+**Date:** 2026-05-11
+**Status:** Complete (committed, awaiting Fry for integration test implementation)
+**Branch:** `fix/winpscompat-proxy-parameters`
+
+- Created new `PoshMcp.Tests/Fixtures/` folder with three files:
+  - `ProxyTestFixtures.cs` — Static factory methods for synthetic commands:
+    - `CreateProxyStyledCommand()` → CommandInfo with ImplicitRemoting marker, object params
+    - `CreateHighParameterCommand()` → CommandInfo with 17 params (triggers cached delegate path in McpToolFactoryV2)
+    - `CreateObjectParameterCommand()` → CommandInfo with [object] params on proxy module
+  - `Pr211IntegrationFixtureSetup.cs` — Test infrastructure class:
+    - `GetFixtureCommands()` → Creates and caches all three fixture commands
+    - `ValidateFixtureSchemas()` → Helper to validate generated MCP tool schemas
+    - Collection fixture definition for Xunit shared setup
+  - `README.md` — Documentation of fixture usage for Fry (test specialist)
+
+- Fixtures address Farnsworth's finding: unit tests validated helper behavior, but NOT end-to-end schema generation.
+  - Fixtures are ready to pass directly to McpToolFactoryV2 for schema generation
+  - No mocking/stubbing — real CommandInfo objects created via PowerShell
+  - Designed for integration test to validate schema parameter types are correct (object→string for proxies, etc.)
+
+- Build validation:
+  - Fixtures compile clean (0 errors, 0 warnings in fixture code)
+  - Committed: `test(#211): Add fixtures for proxy & >16-param method-generation tests`
+
+**Files added:**
+- `PoshMcp.Tests/Fixtures/ProxyTestFixtures.cs` (289 lines)
+- `PoshMcp.Tests/Fixtures/Pr211IntegrationFixtureSetup.cs` (167 lines)
+- `PoshMcp.Tests/Fixtures/README.md` (125 lines)
+
+## Learnings (2026-05-11)
+
+- **PowerShell fixture creation pattern**: Use `New-Module -ScriptBlock { ... } | Export-ModuleMember` to create synthetic PSModuleInfo objects. The `Invoke()` result wraps output in PSObjects — use `.BaseObject` to unwrap and `OfType<T>()` to filter by actual type (not PSObject).
+- **Proxy module structure**: Export-PSSession creates modules with:
+  - `PrivateData["ImplicitRemoting"] = true` (primary signal)
+  - `Description` starting with "Implicit remoting for ..."
+  - `RootModule` matching pattern `remoteIpMoProxy_*_*.psm1`
+  - All parameters typed as `[object]` with no Mandatory flag
+- **Read-only PSModuleInfo properties**: Properties like `RootModule` and `ModuleType` are not publicly settable. Access backing fields via reflection (`_propertyName` or `_lowercaseFirstLetter` pattern) to mutate in test fixtures.
+- **Test infrastructure layering**: Separate static factories (`ProxyTestFixtures`) from test runner infrastructure (`Pr211IntegrationFixtureSetup`). Factories create objects, runner handles caching, validation, and Xunit collection fixture protocol.
+- **End-to-end validation path**: Unit tests verify individual helper behavior; integration tests validate that helpers compose correctly through the full MCP tool schema generation pipeline. Fixtures bridge the gap by providing realistic CommandInfo inputs that exercise both code paths (proxy detection + high-parameter delegate emit).
+- **File structure**: New test fixtures go in `PoshMcp.Tests/Fixtures/` (parallel to `Unit/`, `Integration/`, `Functional/`). Include README documenting usage for teammates who will consume the fixtures.
+- **Xunit analyzer**: Prefer `Assert.Contains(item, collection)` or `Assert.NotEmpty(collection)` with LINQ filters rather than `Assert.True(collection.Any(...))` — the analyzer catches verbose assertion patterns and suggests idiomatic xUnit.
+
+---
 
 ### Fix: CWE-117 log forging — `LogSanitizer` + call-site scrubbing
 **Date:** 2026-05-06
