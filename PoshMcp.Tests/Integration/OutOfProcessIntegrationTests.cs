@@ -430,7 +430,7 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
     }
 
     [PwshAvailableFact]
-    public async Task SubprocessCrash_SubsequentOperationsFailCleanly()
+    public async Task SubprocessCrash_NextInvokeAutoRecovers()
     {
         using var factory = LoggerFactory.Create(b =>
         {
@@ -446,28 +446,127 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
         try
         {
             // Verify it works first with a fast, single-result command
-            var result = await executor.InvokeAsync(
+            var firstResult = await executor.InvokeAsync(
                 "Get-Date",
                 new Dictionary<string, object?>());
-            Assert.NotNull(result);
+            Assert.NotNull(firstResult);
 
-            // Kill the subprocess via reflection to get the exact process instance
-            var oopProcess = GetSubprocess(executor);
-            Assert.NotNull(oopProcess);
+            var firstProcess = GetSubprocess(executor);
+            Assert.NotNull(firstProcess);
+            var firstPid = firstProcess!.Id;
 
-            _output.WriteLine($"Killing OOP subprocess PID {oopProcess.Id}");
-            oopProcess.Kill(entireProcessTree: true);
+            _output.WriteLine($"Killing OOP subprocess PID {firstPid}");
+            firstProcess.Kill(entireProcessTree: true);
 
             // Wait for the process exit event to propagate
             await Task.Delay(2000);
 
-            // Subsequent operations should fail cleanly (not hang)
+            // The next invoke should auto-restart the subprocess and succeed,
+            // not throw "OOP subprocess is not running".
+            var afterRestart = await executor.InvokeAsync(
+                "Get-Date",
+                new Dictionary<string, object?>());
+            Assert.NotNull(afterRestart);
+
+            var newProcess = GetSubprocess(executor);
+            Assert.NotNull(newProcess);
+            Assert.NotEqual(firstPid, newProcess!.Id);
+        }
+        finally
+        {
+            await executor.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// Regression for the crash reported in issue #TBD: when a user command
+    /// terminates the pwsh subprocess (e.g. via [Environment]::Exit, an
+    /// AccessViolation in native code, etc.), subsequent tool invocations
+    /// must auto-recover rather than throwing "OOP subprocess is not running"
+    /// indefinitely.
+    ///
+    /// This test uses a wrapper script that calls [Environment]::Exit to
+    /// guarantee the host process dies during the invoke. The next invoke
+    /// must succeed against a freshly-restarted subprocess.
+    /// </summary>
+    [PwshAvailableFact]
+    public async Task UserCommandKillsHost_NextInvokeAutoRecovers()
+    {
+        using var factory = LoggerFactory.Create(b =>
+        {
+            b.AddProvider(new TestOutputLoggerProvider(_output));
+            b.SetMinimumLevel(LogLevel.Debug);
+        });
+
+        // Generate a temporary module whose function kills the host process
+        // when called (simulates a misbehaving cmdlet).
+        var moduleDir = Path.Combine(_testTempDir, "KillHostModule");
+        Directory.CreateDirectory(moduleDir);
+        var psm1 = Path.Combine(moduleDir, "KillHostModule.psm1");
+        File.WriteAllText(psm1, @"
+function Invoke-KillHost {
+    [CmdletBinding()]
+    param()
+    [System.Environment]::Exit(1)
+}
+Export-ModuleMember -Function Invoke-KillHost
+");
+        var psd1 = Path.Combine(moduleDir, "KillHostModule.psd1");
+        File.WriteAllText(psd1, $@"
+@{{
+    ModuleVersion = '1.0.0'
+    RootModule = 'KillHostModule.psm1'
+    FunctionsToExport = @('Invoke-KillHost')
+    GUID = '{Guid.NewGuid()}'
+}}
+");
+
+        var executor = new OutOfProcessCommandExecutor(
+            factory.CreateLogger<OutOfProcessCommandExecutor>(),
+            requestTimeout: TimeSpan.FromSeconds(15));
+        await executor.StartAsync();
+
+        try
+        {
+            // Replay-on-restart depends on SetupAsync having been called.
+            // Configure the module path + import so the restarted host can
+            // resolve Invoke-KillHost and Get-Date both runs.
+            var envConfig = new EnvironmentConfiguration
+            {
+                ModulePaths = new List<string> { _testTempDir },
+                ImportModules = new List<string> { "KillHostModule" },
+                TrustPSGallery = false,
+                InstallModules = new List<PoshMcp.Server.PowerShell.ModuleInstallation>(),
+            };
+            await executor.SetupAsync(envConfig);
+
+            var firstProcess = GetSubprocess(executor);
+            Assert.NotNull(firstProcess);
+            var firstPid = firstProcess!.Id;
+
+            // This call kills the host mid-invoke. Recovery should kick in
+            // and convert the failure into a one-shot retry. The retry runs
+            // the same command (which will die again) — so we expect this
+            // call to ultimately throw, but with the underlying host now
+            // restarted and the cached environment replayed.
             await Assert.ThrowsAnyAsync<Exception>(async () =>
             {
                 await executor.InvokeAsync(
-                    "Get-Process",
+                    "Invoke-KillHost",
                     new Dictionary<string, object?>());
             });
+
+            // The next invoke against a benign command must succeed against
+            // the freshly-restarted subprocess.
+            var afterRecovery = await executor.InvokeAsync(
+                "Get-Date",
+                new Dictionary<string, object?>());
+            Assert.NotNull(afterRecovery);
+
+            var newProcess = GetSubprocess(executor);
+            Assert.NotNull(newProcess);
+            Assert.NotEqual(firstPid, newProcess!.Id);
+            _output.WriteLine($"Recovered: old PID {firstPid} -> new PID {newProcess.Id}");
         }
         finally
         {

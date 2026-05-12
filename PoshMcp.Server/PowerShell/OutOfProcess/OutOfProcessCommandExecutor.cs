@@ -37,6 +37,15 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
     private bool _disposed;
     private IReadOnlyList<RemoteToolSchema>? _cachedSchemas;
 
+    // Cached setup parameters captured on first SetupAsync call so the
+    // executor can replay environment configuration after an automatic
+    // restart (see EnsureHostAliveAsync). Null until SetupAsync runs.
+    private EnvironmentConfiguration? _lastSetupConfig;
+    private string? _lastSetupConfigFilePath;
+    private TimeSpan? _lastSetupTimeout;
+    private string[]? _lastDiscoveryModules;
+    private readonly SemaphoreSlim _restartLock = new(1, 1);
+
     /// <summary>
     /// Creates a new <see cref="OutOfProcessCommandExecutor"/>.
     /// </summary>
@@ -168,6 +177,24 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
         ObjectDisposedException.ThrowIf(_disposed, this);
         var host = RequireHost();
 
+        // Cache so we can replay the environment after an automatic restart.
+        _lastSetupConfig = config;
+        _lastSetupConfigFilePath = configFilePath;
+        _lastSetupTimeout = setupRequestTimeout;
+        _lastDiscoveryModules = discoveryModules?.ToArray();
+
+        await SendSetupAsync(host, config, configFilePath, setupRequestTimeout, discoveryModules, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task SendSetupAsync(
+        OutOfProcessHost host,
+        EnvironmentConfiguration config,
+        string? configFilePath,
+        TimeSpan? setupRequestTimeout,
+        IEnumerable<string>? discoveryModules,
+        CancellationToken cancellationToken)
+    {
         var baseDir = !string.IsNullOrEmpty(configFilePath)
             ? Path.GetDirectoryName(Path.GetFullPath(configFilePath))!
             : Directory.GetCurrentDirectory();
@@ -263,8 +290,26 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
 
         _logger.LogInformation("Invoking command '{CommandName}' via OOP subprocess.", commandName);
 
-        var result = await host.SendRequestAsync<JsonElement>("invoke", invokeParams, cancellationToken)
-            .ConfigureAwait(false);
+        JsonElement result;
+        try
+        {
+            result = await host.SendRequestAsync<JsonElement>("invoke", invokeParams, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (InvalidOperationException ex) when (!_disposed && IsSubprocessDead(host, ex))
+        {
+            // The pwsh subprocess died (e.g. a user command terminated the host).
+            // Restart it, replay the cached environment setup, and retry the
+            // invoke exactly once so the caller sees a normal failure path
+            // rather than a permanent "OOP subprocess is not running" error.
+            _logger.LogWarning(ex,
+                "OOP subprocess died while invoking '{CommandName}'. Restarting and retrying once.",
+                commandName);
+
+            var restartedHost = await RestartHostAsync(cancellationToken).ConfigureAwait(false);
+            result = await restartedHost.SendRequestAsync<JsonElement>("invoke", invokeParams, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         var output = string.Empty;
         if (result.TryGetProperty("output", out var outputElement))
@@ -280,6 +325,97 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
         return output;
     }
 
+    /// <summary>
+    /// Returns true when <paramref name="ex"/> indicates that the supplied
+    /// <paramref name="host"/>'s subprocess has died (either before the send
+    /// or while the request was in flight). Used to gate the
+    /// restart-and-retry path in <see cref="InvokeAsync"/>.
+    /// </summary>
+    private static bool IsSubprocessDead(OutOfProcessHost host, InvalidOperationException ex)
+    {
+        if (!host.IsRunning) return true;
+
+        // SendRequestAsync throws this exact message when the process has
+        // exited before the call; match defensively so we still recover even
+        // if IsRunning briefly disagrees with HasExited.
+        return ex.Message.Contains("OOP subprocess is not running", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Disposes the current <see cref="OutOfProcessHost"/>, starts a new one,
+    /// and replays the cached environment setup (if any). Serialized so
+    /// concurrent failed invokes only trigger a single restart.
+    /// </summary>
+    private async Task<OutOfProcessHost> RestartHostAsync(CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        await _restartLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            // Another waiter may have already restarted while we were queued.
+            if (_host is { IsRunning: true })
+            {
+                return _host;
+            }
+
+            if (_host is not null)
+            {
+                try
+                {
+                    await _host.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Disposing dead OOP host before restart raised an exception.");
+                }
+                _host = null;
+            }
+
+            var scriptPath = await ResolveHostScriptPathAsync().ConfigureAwait(false);
+            var pwshPath = ResolvePwshPath();
+            var hostLogger = _loggerFactory.CreateLogger<OutOfProcessHost>();
+
+            var newHost = new OutOfProcessHost(pwshPath, scriptPath, hostLogger, _requestTimeout);
+            try
+            {
+                await newHost.StartAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                await newHost.DisposeAsync().ConfigureAwait(false);
+                throw;
+            }
+            _host = newHost;
+
+            if (_lastSetupConfig is not null)
+            {
+                _logger.LogInformation("Replaying cached environment setup on restarted OOP subprocess.");
+                try
+                {
+                    await SendSetupAsync(
+                        newHost,
+                        _lastSetupConfig,
+                        _lastSetupConfigFilePath,
+                        _lastSetupTimeout,
+                        _lastDiscoveryModules,
+                        cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Replaying environment setup on restarted OOP subprocess failed.");
+                    throw;
+                }
+            }
+
+            return newHost;
+        }
+        finally
+        {
+            try { _restartLock.Release(); } catch (ObjectDisposedException) { /* shutting down */ }
+        }
+    }
+
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
@@ -293,6 +429,8 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
             await _host.DisposeAsync().ConfigureAwait(false);
             _host = null;
         }
+
+        _restartLock.Dispose();
     }
 
     private OutOfProcessHost RequireHost()
