@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Serilog;
@@ -139,6 +140,11 @@ internal static class StdioServerHost
     {
         // Register and configure OpenTelemetry metrics
         builder.Services.AddSingleton<McpMetrics>();
+
+        // Spec 010 seam: shared MCP tool/parameter description sourcing. The default impl
+        // preserves pre-spec-010 behavior; #226 / #227 replace this registration with an
+        // implementation that consults Get-Help.
+        builder.Services.TryAddSingleton<IToolMetadataSource, DefaultToolMetadataSource>();
 
         builder.Services.AddOpenTelemetry()
             .WithTracing(tracingBuilder =>
