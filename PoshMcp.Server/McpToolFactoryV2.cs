@@ -557,7 +557,15 @@ public class McpToolFactoryV2
             OpenWorld = true,
             ReadOnly = metadata.IsReadOnly,
             Title = metadata.CommandName,
-            UseStructuredContent = true
+            UseStructuredContent = true,
+            // Carries SwitchParameterJsonConverter so JSON like {"isPresent": true}
+            // (or a plain bool, if the schema permits it) actually round-trips back
+            // to a real SwitchParameter(true) at invocation time. Without this, every
+            // PowerShell switch parameter silently arrived as IsPresent=false.
+            SerializerOptions = SwitchParameterMcpSupport.SerializerOptions,
+            // Rewrites the SwitchParameter schema node into an anyOf that accepts
+            // plain boolean, the legacy {isPresent} envelope, and null.
+            SchemaCreateOptions = SwitchParameterMcpSupport.SchemaOptions,
         };
     }
 
