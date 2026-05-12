@@ -5,6 +5,107 @@
 
 ## Learnings
 
+### 2026-05-12 (round 3): OOP cross-invoke — production v0.12.2 evidence; defensive scope landed without local repro
+
+**Requested by:** Steven Murawski (Brady). Brady returned with hard
+production evidence: two sequential MCP calls against the deployed
+poshmcp-web server returned byte-for-byte identical payloads even though
+the tools were unrelated (`get_tenant_context` then
+`assert_tenant_role_member`, both responses showing tenant-context
+JSON). Brady's directive: re-read the pool host with fresh eyes, run an
+aggressive repro that actually mirrors production (runspacePoolSize=10,
+DIFFERENT scripts in each step, 50+ iterations), and apply
+defense-in-depth even if I still can't reproduce locally.
+
+**Production config gap I missed in round 2:** my round-2 repro ran at
+pool=2 / 6 iterations / SAME script with different params. The deployed
+server runs at pool=10 / process pool=4 / AdvocacyBami workload. The
+"same script with different params" gap is the one that mattered — the
+production scenario invokes structurally different tools back-to-back
+on the same leased runspace.
+
+**What I did:**
+
+1. **Production-shape repro test.**
+   `PoolHost_AlternatingDifferentScripts_LargePool_NoCrossInvokeLeak`
+   in `OutOfProcessPoolHostIntegrationTests.cs` runs `Write-Output`
+   (returns structured per-iteration sentinel) alternating with
+   `Write-Verbose` (returns nothing) for 50 iterations at
+   runspacePoolSize=10. After A: response must contain the current
+   sentinel and NO prior sentinel. After B: response must equal "null"
+   and contain NO prior sentinel.
+2. **Result:** test PASSES on current main HEAD without any production
+   code change. Cross-invoke `$r`-leak hypothesis is not what the user
+   is observing.
+3. **Defensive change applied anyway.** Both `oop-host.ps1` and
+   `oop-host-pool.ps1` now call `AddScript($userScript, $true)`. With
+   `useLocalScope=$true` the script body runs in a child scope of the
+   runspace's default scope, so the per-invoke working variable `$r` is
+   discarded on return instead of living at runspace scope where the
+   next invoke on the same leased runspace could (in some future-edit
+   exception path) observe it.
+
+**First defensive attempt I had to back out:** wrapping the call site in
+an inner `& { ... }` scriptblock as well broke
+`HadErrorsDoesNotLeakAcrossInvokes`. With the inner scriptblock, a
+`Get-ChildItem -Path missing -ErrorAction SilentlyContinue` no longer
+surfaced `HadErrors=true` on the parent pipeline (`Streams.Error`
+populated, boolean flipped). The single-layer `useLocalScope=$true`
+change has none of that side effect.
+
+**Honest disposition for the production symptom:** v0.12.2 lacks commit
+6908917 ("fix(oop): clear per-invoke state so errors don't return prior
+output"). That fix converts `hadErrors=true` into a thrown
+`InvalidOperationException` that MCP marks `IsError=true` instead of
+returning the partial pipeline output as a deceptive success. The
+mechanism in production for the user-visible "same tenant payload from
+a role-member tool" is the same partial-pipeline-output-before-error
+pattern documented in round 1: `Assert-BamiTenantRoleMember` emits
+tenant-shaped output internally (via its embedded `Assert-BamiTenantUser`
+/ `Get-BamiTenantContext` call chain) before writing the role
+non-terminating error; v0.12.2 returns that pipeline output as success.
+**The user-facing fix is the existing 6908917 commit; deploying a
+0.12.3 (or later) build that includes it is what resolves the report.**
+The defensive scope change landed in this round is the structural
+belt-and-suspenders against the adjacent `$r`-leak class.
+
+**What this change does NOT fix:**
+
+- User-authored modules setting their own cross-invoke state via
+  `$global:` or `$script:` in their own module scope. The OOP framework
+  cannot contain that from outside.
+- The deployed v0.12.2 server's behavior. That requires a deployment of
+  current main.
+
+**Files changed (this round):**
+
+- `PoshMcp.Server/PowerShell/OutOfProcess/oop-host.ps1` —
+  `AddScript($userScript, $true)`; comment block.
+- `PoshMcp.Server/PowerShell/OutOfProcess/oop-host-pool.ps1` — same.
+- `PoshMcp.Tests/Integration/OutOfProcessPoolHostIntegrationTests.cs` —
+  new test `PoolHost_AlternatingDifferentScripts_LargePool_NoCrossInvokeLeak`.
+
+**Test status:** Category=OutOfProcess: 47 passed, 0 failed, 0 skipped.
+
+**Commit:** `e1c923e fix(oop): defensive per-invoke scope for user
+script`. Pushed to main.
+
+**Don't regress:**
+
+- Do NOT also wrap the user script body in an inner `& { ... }`
+  scriptblock. That breaks non-terminating-error propagation to the
+  parent pipeline's `HadErrors` flag. The single
+  `useLocalScope=$true` is the right shape.
+- Do NOT use `Get-Variable -Name r -ErrorAction Ignore` as a peek
+  primitive in tests. `Get-Variable` on a missing name still flips
+  `HadErrors=true` and (post-6908917) the C# layer surfaces that as an
+  exception. The 2026-05-12 round-2 history already captured this trap;
+  I hit it again in round 3 while writing a variable-peek test and
+  removed that test in favor of the alternating-scripts production-
+  shape repro.
+
+---
+
 ### 2026-05-12 (revisit): OOP cross-invoke leak — could NOT reproduce; prior diagnosis acknowledged as incomplete
 
 **Requested by:** Steven Murawski. User explicitly rejected the prior diagnosis below
