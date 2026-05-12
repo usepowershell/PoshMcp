@@ -261,3 +261,6 @@ Detailed prior history (2026-03-27 through 2026-04-07) archived to `history-arch
 - API key authentication with metadata validation
 - All regression tests passing
 - Coordination: Worked with Bender (fix implementation details), Leela (test docs scenarios)
+
+## Learnings
+- 2026-05-12: Collaborated on specs/009-test-suite-consistency/spec.md. Confirmed Unit/OutOfProcess/* and Unit/ProgramCli* are misclassified (spawn subprocesses). Functional/StdioLoggingTests also subprocess-heavy. Categorization plan: Unit, Integration, OutOfProcess, Http, Azure, Functional — only Unit gets the no-subprocess/no-port guarantee. Hygiene checklist: dynamic port 0, GUID temp dirs, explicit Process.Kill(entireProcessTree) + handle-release wait on Windows.
