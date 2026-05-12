@@ -408,12 +408,21 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
             if (result.TryGetProperty("output", out var outputElement))
                 output = outputElement.GetString() ?? string.Empty;
 
-            if (result.TryGetProperty("hadErrors", out var hadErrorsElement)
-                && hadErrorsElement.GetBoolean())
+            var hadErrors = result.TryGetProperty("hadErrors", out var hadErrorsElement)
+                && hadErrorsElement.GetBoolean();
+            var cancelled = result.TryGetProperty("cancelled", out var cancelledElement)
+                && cancelledElement.GetBoolean();
+
+            if (hadErrors && !cancelled)
             {
+                // Surface non-terminating errors as a thrown exception so MCP
+                // marks the tool result IsError=true. See the matching block
+                // in OutOfProcessCommandExecutor.InvokeAsync for rationale.
+                var errorMessage = ExtractInvokeErrorMessage(result, commandName, output);
                 _logger.LogWarning(
-                    "Command '{CommandName}' on slot {Index} reported errors.",
-                    commandName, slotIndex);
+                    "Command '{CommandName}' on slot {Index} reported errors. {Errors}",
+                    commandName, slotIndex, errorMessage);
+                throw new InvalidOperationException($"OOP error: {errorMessage}");
             }
 
             return output;
@@ -438,6 +447,36 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
             lease.MarkBroken();
             throw;
         }
+    }
+
+    /// <summary>
+    /// Builds a human-readable message from the invoke response's structured
+    /// <c>errors</c> array. Mirrors the helper in
+    /// <see cref="OutOfProcessCommandExecutor"/> so single-host and pool-host
+    /// callers produce consistent failure messages.
+    /// </summary>
+    private static string ExtractInvokeErrorMessage(JsonElement result, string commandName, string output)
+    {
+        var errors = new List<string>();
+        if (result.TryGetProperty("errors", out var errorsProp) && errorsProp.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var err in errorsProp.EnumerateArray())
+            {
+                var msg = err.GetString();
+                if (!string.IsNullOrWhiteSpace(msg))
+                    errors.Add(msg);
+            }
+        }
+
+        if (errors.Count > 0)
+        {
+            return $"command '{commandName}' reported {errors.Count} error(s): {string.Join("; ", errors)}";
+        }
+
+        var suffix = string.IsNullOrEmpty(output)
+            ? string.Empty
+            : $" (discarded {output.Length}-char output)";
+        return $"command '{commandName}' reported errors{suffix}.";
     }
 
     /// <inheritdoc />

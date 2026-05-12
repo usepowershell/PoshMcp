@@ -2,6 +2,64 @@
 
 **Status:** 42.8 KB (checked 2026-05-11: within 90-day retention, no archival required)
 **Status:** 37.6 KB (checked 2026-05-03: within 90-day retention, no archival required)
+
+## Learnings
+
+### 2026-05-12: OOP invoke — hadErrors was logged but not propagated to MCP
+
+**Bug**: A user invoked `assert_tenant_role_member` with a bad role and got back what looked
+like the *prior* `assert_tenant_user` payload, with MCP `IsError=false`. Server log showed
+`warn: ... reported errors. Output: {prior-looking JSON}` and `IsError = False`.
+
+**Root cause** (NOT actual cross-invoke leak):
+- Each invoke uses a fresh `[powershell]` instance, so streams are not shared across invokes
+  and `$Error.Clear()` already runs at the top of the user script (#189 was a prior fix).
+- The real bug was in `OutOfProcessCommandExecutor.InvokeAsync` (and the pool mirror in
+  `OutOfProcessSubprocessPool.InvokeAsync`): when the response carried `hadErrors=true`,
+  the executor **logged a warning and returned the partial output anyway**. The MCP
+  framework can only mark a tool call `IsError=true` if the generated method throws —
+  returning a normal string is always treated as success.
+- The "prior payload" the user saw was actually the *current* command's partial pipeline
+  output before its own non-terminating error. AdvocacyBami's `Assert-BamiTenantRoleMember`
+  internally calls `Assert-BamiTenantUser` (which emits the user object) and then writes
+  a non-terminating error for the bad role. With `$r = & $Name @Splat`, `$r` ends up
+  holding the user assertion object, which then got JSON-serialized as "success".
+
+**Fix location**:
+- `PoshMcp.Server/PowerShell/OutOfProcess/OutOfProcessCommandExecutor.cs` — `InvokeAsync`
+  now throws `InvalidOperationException` with message `OOP error: command '{X}' reported
+  {N} error(s): {joined errors}` whenever `hadErrors=true && cancelled=false`. Added
+  private helper `ExtractErrorMessage`.
+- `PoshMcp.Server/PowerShell/OutOfProcess/OutOfProcessSubprocessPool.cs` — same change
+  in the pool's `InvokeAsync`, with helper `ExtractInvokeErrorMessage`. Pool mode and
+  single mode now behave identically on hadErrors.
+- `cancelled=true` is intentionally excluded so cooperative cancellation does not get
+  reclassified as a tool failure.
+
+**Message format preserves the existing "OOP error:" prefix** used by `OutOfProcessHost`
+for terminating errors. That means existing test catches like
+`ex.Message.Contains("OOP error")` (e.g. the `Get-AzContext` path in
+`OutOfProcessModuleTests`) keep working without modification.
+
+**Regression test**:
+`PoshMcp.Tests/Integration/OutOfProcessIntegrationTests.cs::Invoke_WithErrorAfterSuccess_DoesNotReturnPreviousOutput`
+runs a successful `Get-Item` against a marker directory, then a failing `Get-Item`
+against a non-existent path with `ErrorAction=Continue`, and asserts the second invoke:
+(1) throws `InvalidOperationException`, (2) message contains `"OOP error"` and the
+failing command name, (3) message does NOT contain the unique marker token from the
+prior successful output.
+
+**Test status**: 18/18 in `OutOfProcessIntegrationTests`, 40/40 with `Category=OutOfProcess`.
+
+**Don't regress**:
+- A command can legitimately write to `$Error` non-terminally and still produce output
+  the user might care about. Post-fix, that case becomes `IsError=true`. This is the
+  intended contract: MCP clients must see error state instead of silently-success
+  output. If a future caller wants a tolerant variant, add a separate API rather than
+  weakening this gate.
+- Do NOT throw when `cancelled=true`. Cancellation already has its own surface and
+  reclassifying it as an error would break the cancel-in-flight path.
+
 ## Recent Work (2026-05-01 — CURRENT SESSION)
 
 ### Diagnosis: AggregateError — Failed to Fetch Authorization Server Metadata

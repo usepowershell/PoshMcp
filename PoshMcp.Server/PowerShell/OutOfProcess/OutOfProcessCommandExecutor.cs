@@ -317,12 +317,57 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
             output = outputElement.GetString() ?? string.Empty;
         }
 
-        if (result.TryGetProperty("hadErrors", out var hadErrorsElement) && hadErrorsElement.GetBoolean())
+        var hadErrors = result.TryGetProperty("hadErrors", out var hadErrorsElement)
+            && hadErrorsElement.GetBoolean();
+        var cancelled = result.TryGetProperty("cancelled", out var cancelledElement)
+            && cancelledElement.GetBoolean();
+
+        if (hadErrors && !cancelled)
         {
-            _logger.LogWarning("Command '{CommandName}' reported errors. Output: {Output}", commandName, output);
+            // Surface non-terminating errors as a thrown exception so the MCP
+            // framework can mark the tool call as IsError=true. Without this,
+            // commands that write to the error stream (e.g. parameter
+            // validation that uses Write-Error rather than throw, or commands
+            // that emit partial output before reporting an error) would
+            // silently return that partial output as a successful tool result.
+            var errorMessage = ExtractErrorMessage(result, commandName, output);
+            _logger.LogWarning("Command '{CommandName}' reported errors. {Errors}", commandName, errorMessage);
+            throw new InvalidOperationException($"OOP error: {errorMessage}");
         }
 
         return output;
+    }
+
+    /// <summary>
+    /// Builds a human-readable error message from the invoke response's
+    /// <c>errors</c> array. Falls back to a generic description when the
+    /// response lacks structured error entries.
+    /// </summary>
+    private static string ExtractErrorMessage(JsonElement result, string commandName, string output)
+    {
+        var errors = new List<string>();
+        if (result.TryGetProperty("errors", out var errorsProp) && errorsProp.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var err in errorsProp.EnumerateArray())
+            {
+                var msg = err.GetString();
+                if (!string.IsNullOrWhiteSpace(msg))
+                    errors.Add(msg);
+            }
+        }
+
+        if (errors.Count > 0)
+        {
+            return $"command '{commandName}' reported {errors.Count} error(s): {string.Join("; ", errors)}";
+        }
+
+        // hadErrors was true but no structured error messages came back —
+        // include a hint that prior output (if any) is being discarded so
+        // it cannot be mistaken for a successful result.
+        var suffix = string.IsNullOrEmpty(output)
+            ? string.Empty
+            : $" (discarded {output.Length}-char output)";
+        return $"command '{commandName}' reported errors{suffix}.";
     }
 
     /// <summary>

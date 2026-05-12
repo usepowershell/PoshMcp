@@ -656,6 +656,79 @@ Export-ModuleMember -Function Invoke-KillHost
         Assert.False(secondHadErrors.GetBoolean(),
             "Second (clean) invoke must report hadErrors=false. Errors from the prior invoke must not leak into this one (#189).");
     }
+
+    /// <summary>
+    /// Regression: when an invoke reports hadErrors=true, InvokeAsync must surface
+    /// that as a thrown exception (which the MCP framework turns into IsError=true)
+    /// rather than silently returning the partial output as a successful tool result.
+    ///
+    /// User-reported symptom: invoking a command that fails parameter validation
+    /// (or otherwise writes to the error stream non-terminally) caused MCP tool
+    /// results to come back with IsError=false carrying output that looked like it
+    /// came from a prior successful invoke. The actual mechanism is that
+    /// commands which emit partial pipeline output before writing a non-terminating
+    /// error were returning that partial output as a "success" — InvokeAsync logged
+    /// the error stream but did not propagate it.
+    ///
+    /// This test:
+    ///   1. Successfully invokes a command and captures a unique output marker.
+    ///   2. Invokes Get-Item with a non-existent path under ErrorAction=Continue,
+    ///      which writes a non-terminating error to the stream.
+    ///   3. Asserts the second invoke throws and the thrown message does NOT
+    ///      contain any text from the first invoke's output.
+    /// </summary>
+    [PwshAvailableFact]
+    public async Task Invoke_WithErrorAfterSuccess_DoesNotReturnPreviousOutput()
+    {
+        Assert.NotNull(_executor);
+
+        // 1. Successful invoke against a known-existing path so the JSON output
+        //    contains the path string verbatim — that gives us a unique marker
+        //    we can search for in the second invoke's failure message.
+        var uniqueMarker = "poshmcp-bug-marker-" + Guid.NewGuid().ToString("N");
+        var markerDir = Path.Combine(_testTempDir, uniqueMarker);
+        Directory.CreateDirectory(markerDir);
+
+        var firstResult = await _executor!.InvokeAsync(
+            "Get-Item",
+            new Dictionary<string, object?> { ["Path"] = markerDir });
+
+        Assert.False(string.IsNullOrWhiteSpace(firstResult));
+        Assert.Contains(uniqueMarker, firstResult, StringComparison.Ordinal);
+        _logger.LogInformation("First invoke produced {Length} chars of output containing the marker", firstResult.Length);
+
+        // 2. Failing invoke — Get-Item against a path that does not exist writes
+        //    to the error stream non-terminally. With ErrorAction=Continue (the
+        //    default behaviour for non-terminating errors), the pipeline output
+        //    is null but the response's hadErrors flag is set.
+        var missingPath = Path.Combine(_testTempDir, "definitely-not-exist-" + Guid.NewGuid().ToString("N"));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await _executor!.InvokeAsync(
+                "Get-Item",
+                new Dictionary<string, object?>
+                {
+                    ["Path"] = missingPath,
+                    ["ErrorAction"] = "Continue"
+                });
+        });
+
+        _logger.LogInformation("Second invoke threw as expected: {Message}", ex.Message);
+
+        // 3a. The error must announce itself as an OOP error (consistent with the
+        //     terminating-error path) so callers can pattern-match the failure.
+        Assert.Contains("OOP error", ex.Message, StringComparison.OrdinalIgnoreCase);
+
+        // 3b. The error message must NOT contain any chunk from the prior
+        //     successful invoke's output. This is the user-visible regression
+        //     guarantee: a failing invoke never surfaces the previous invoke's
+        //     payload as if it were the result.
+        Assert.DoesNotContain(uniqueMarker, ex.Message, StringComparison.Ordinal);
+
+        // 3c. The error message should mention the command that actually failed
+        //     so callers can tell which tool errored.
+        Assert.Contains("Get-Item", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
 }
 
 /// <summary>
