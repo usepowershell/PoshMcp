@@ -3,57 +3,6 @@
 ## Recent Decisions
 > Older entries archived to `decisions-archive.md` (entries >7d removed when file >= 50KB).
 
-### 2026-05-02T06:39:00-05:00: User directive — progress reporting
-**By:** Steven Murawski (via Copilot)
-**What:** Report progress at each step of tasks: when starting something, if something significant occurs, and when ending. Applies to all agents and to the Coordinator's task narration.
-**Why:** User request — captured for team memory. Improves visibility into multi-step work.
-
-### 2026-05-02: User directive
-**By:** stmuraws (via Copilot)
-**What:** Never use `git pull`; always run `git fetch` and then `git rebase` from the fetched branch.
-**Why:** User request — captured for team memory
-
-# Architect Review: PR #184 — Program.cs Refactoring
-
-**Reviewer:** Farnsworth (Lead Architect)
-**Date:** 2026-05-02
-**PR:** https://github.com/usepowershell/PoshMcp/pull/184
-**Branch:** `squad/program-cs-refactor`
-
----
-
-## Summary
-
-PR reduces Program.cs from 2,290 → 733 lines by extracting 6 focused classes. The structural intent is correct and the individual classes are well-organized. However, the extraction approach has a critical flaw: **methods were copied into new classes but not removed from Program.cs**, creating active code duplication across 5+ files.
-
----
-
-## ✅ What's Good
-
-1. **Namespace consistency** — All 6 new classes use `namespace PoshMcp;`, matching the existing pattern from `SettingsResolver`, `ConfigurationLoader`, etc.
-
-2. **Single entry point per class** — Each service has a clean primary method: `RunMcpServerAsync`, `RunHttpTransportServerAsync`, `RunDoctorAsync`, `SetupMcpToolsAsync`. Not a grab-bag of unrelated utilities.
-
-3. **CliDefinition.Build() pattern** — Clean separation between CLI tree declaration and handler wiring. `SetHandler` lambdas in `Main()` are more readable with `CliDefinition` properties than inline `Option<T>` construction.
-
-4. **Delegate injection in DoctorService** — Passing `McpToolSetupService.DiscoverToolsForCliAsync` as a `Func<>` to `DoctorService.RunDoctorAsync` avoids hard static coupling from Diagnostics layer to Server layer. Good layering instinct.
-
-5. **Session memory discipline** — Spec was kept up to date and the worktree boundary was respected throughout.
-
----
-
-## ⚠️ Concerns
-
-1. **`CliDefinition` nullable static properties are null until `Build()` is called** — All 70+ options/commands are `Option<T>?` initialized to `null`. Callers must use `!` (null-forgiving operator) at every `SetHandler` call site. If `Build()` is ever called more than once (e.g., in tests), the mutable static state is silently replaced. Consider returning a value object from `Build()` rather than side-effecting static fields.
-
-2. **`CliDefinition` and `CommandHandlers` are `public`** — `DoctorService`, `McpToolSetupService`, `StdioServerHost`, `HttpServerHost` are all `internal`. `CliDefinition` and `CommandHandlers` have no documented reason to be `public`. If tests need to call these, that should be via `InternalsVisibleTo`, not by widening their access to the entire assembly surface.
-
-3. **`RegisterCleanupServices` duplication not addressed** — Noted as out of scope but worth tracking: `StdioServerHost` and `HttpServerHost` both have near-identical service registration logic. This should be extracted before the duplication compounds further.
-
----
-
-## 🔴 Must Fix (blocking)
-
 ### 1. `DescribeConfigurationPath` duplicated across 5 files
 
 This private utility method (`string DescribeConfigurationPath(string?)`) now exists independently in:
@@ -747,39 +696,6 @@ Both findings are documented in `docs/entra-id-oauth-implementation-guide.md`:
 - VS Code client gotcha — in the new "VS Code MCP Client Configuration Gotchas" section
 - Validation Checklist updated with `MapInboundClaims` check
 - Summary updated with lessons 5 and 6
-### 2026-05-03: Release v0.9.20 — Authentication Fixes
-**By:** Amy (DevOps / Platform / Azure Engineer)
-**Status:** Completed
-**What:** Cut patch release v0.9.20 (commit b87ca27) capturing three auth fixes and a diagnostics consistency improvement: (1) HasRequiredRoles uses .Any() (OR semantics) for Entra app roles; (2) MapInboundClaims=false on JWT bearer to preserve short claim names; (3) RequiredScopes now uses short scope name (user_impersonation) matching JWT scp claim; (4) DoctorReport.cs uses FindAll(`"roles"`) consistent with MapInboundClaims=false. Bumped PoshMcp.csproj 0.9.19→0.9.20, prepended CHANGELOG, committed with Copilot co-author trailer, lightweight tag v0.9.20.
-**Why:** Production Entra OAuth flows were failing due to claim-mapping and role-semantics mismatches. CI/CD auto-publishes to NuGet + GHCR on tag push.
-
-### 2026-05-03: RequiredRoles Uses OR Semantics
-**By:** Bender (Backend Developer)
-**Status:** Accepted
-**What:** Changed AuthorizationHelpers.HasRequiredRoles from .All() (AND) to .Any() (OR). User satisfies the check if they hold any one of the listed roles. ToolAuthorizationFilter and ToolListAuthorizationFilter inherit the corrected semantics automatically.
-**Why:** Aligns with (1) Entra app roles being granted one-at-a-time, (2) ASP.NET Core's policy.RequireRole(string[]) which uses OR, (3) explicit product intent. AND semantics is no longer achievable via RequiredRoles — would need nested policies or custom claims.
-
-### 2026-05-03: Fix DoctorReportTests role claim type for MapInboundClaims=false
-**By:** Fry (Tester)
-**Status:** Accepted
-**Commit:** e64b800
-**What:** In DoctorReportTests.Build_WithAuthenticatedIdentity_PopulatesIdentitySection, changed `new Claim(ClaimTypes.Role, "admin")` to `new Claim("roles", "admin")`. Single occurrence; no other tests affected.
-**Why:** DoctorReport.cs (commit 8c8e4ad) switched to FindAll(`"roles"`) to match MapInboundClaims=false behavior. Test fixtures must mirror the production claim-name form. Result: failing test now passes; full unit suite 582 passed / 1 skipped / 0 failed.
-**Rule Going Forward:** Future tests building role claims for DoctorReport validation must use `"roles"` as the claim type, not ClaimTypes.Role.
-
-### 2026-05-03: Release v0.9.21 — Test Fix for DoctorReport Role Claim
-**By:** Amy (DevOps)
-**Status:** Released
-**What:** Patch release v0.9.21 capturing the DoctorReportTests fix from commit e64b800. Verified PoshMcp.csproj already at 0.9.21, CHANGELOG entry present, commit 2ad3739 with Copilot co-author trailer, tag v0.9.21 pushed to origin/main. Pre-release quality gates (dotnet format --verify-no-changes, dotnet test --filter "Category!=Integration" --no-build) both PASS.
-**Why:** Ship the DoctorReportTests claim-name fix that was broken by v0.9.20's MapInboundClaims=false change. CI/CD auto-publishes NuGet + GHCR on tag push.
-
-### 2026-05-03: Release-Process Skill — Mandatory Quality Gates
-**By:** Leela (Developer Advocate)
-**Status:** Approved
-**What:** Updated .squad/skills/release-process/SKILL.md to make `dotnet format --verify-no-changes` and `dotnet test` MANDATORY pre-commit steps. Inserted as Step 4 between "Update changelog" and "Leela owns release notes." Renumbered subsequent steps (old 4–9 → new 5–10). Updated YAML description, added anti-pattern `"❌ Pushing a release without running dotnet test first"`, added recovery instructions ("If either command fails, fix the issue first and restart from step 2.").
-**Why:** v0.9.20 was pushed and tagged without running dotnet test locally; a failing test was discovered post-release, forcing a v0.9.21 hotfix. Local quality gates shift-left testing, catch failures faster than CI, and become part of the human-executable checklist instead of being buried in CI docs.
-**Rule Going Forward:** Release process must run format+test gates locally before commit/tag/push. No exceptions.
-
 ### 2026-05-05: Systemic future-dated entries across squad artifacts
 **By:** Cubert (Fact Checker)
 **Requested by:** Steven Murawski
@@ -1250,168 +1166,6 @@ No production path silently still on Single. Constructor-default Single is docum
 
 Both PRs are ready to merge. Wave 1 infrastructure for spec 008 is complete.
 
-### 2026-05-01T15:30:29: Release process gate added
-**By:** Amy (DevOps)
-**What:** Release process now requires docs/release-notes/{version}.md to exist and be committed before pushing or tagging a release.
-**Why:** v0.9.3 release notes were written by Leela but not committed before Amy pushed and tagged. Gate prevents recurrence.
-
-
-# Amy: v0.9.4 Release Decision Log
-
-**Date:** 2026-05-01T16:16:11.622-05:00  
-**Task:** Execute v0.9.4 release — gate is clear  
-**Status:** ✅ COMPLETE
-
-## Release Summary
-
-| Field | Value |
-|-------|-------|
-| **Version Bumped** | 0.9.3 → 0.9.4 |
-| **Commit SHA** | 0cadd42 |
-| **Tag** | v0.9.4 (pushed) |
-| **CI Result** | ✅ GREEN (1m36s) |
-| **Gate Status** | ✅ PASSED (`docs/release-notes/0.9.4.md` verified) |
-
-## Files Committed
-
-**7 files included in release commit:**
-
-1. `PoshMcp.Server/PoshMcp.csproj` — Version bump 0.9.3 → 0.9.4
-2. `CHANGELOG.md` — New v0.9.4 entry (OAuth discovery + ApiKey metadata URL fixes)
-3. `PoshMcp.Server/Authentication/AuthenticationServiceExtensions.cs` — Bender's RFC 9728 fix
-4. `PoshMcp.Server/Authentication/ApiKeyAuthenticationHandler.cs` — Bender's ApiKey metadata URL fix
-5. `docs/release-notes/0.9.4.md` — Leela's detailed release notes (new, untracked)
-6. `docs/entra-id-auth-guide.md` — Leela's Entra ID auth guide update
-7. `docs/toc.yml` — Leela's table of contents update
-
-**Staging Approach:** Used explicit file paths (`git add <path1> <path2> ...`) instead of wildcard to ensure only intended files were staged. This prevented accidental staging of `.squad/` history files or other working changes.
-
-## CI Workflow Execution
-
-**Workflow Runs Triggered:**
-- Run ID `25233890105` — "CI" (primary build/test workflow)
-- Run ID `25233890078` — "Preview Packages" (package preview build)
-
-**CI Results (25233890105):**
-- ✅ Build: 1m36s
-- ✅ Checkout: PASS
-- ✅ Setup .NET: PASS
-- ✅ Restore dependencies: PASS
-- ✅ Verify formatting: PASS
-- ✅ Build: PASS (5 pre-existing nullable reference warnings — non-blocking)
-- ✅ Test (Unit): PASS
-- ✅ Test (Functional): PASS
-- ✅ Upload Test Results: PASS
-- Deprecation Notice: GitHub Actions Node.js 20 EOL (2026-06-02) — no action for this release
-
-**CI Gate Decision:** ✅ PASSED — Release approved for tagging.
-
-## Tag Creation and Push
-
-```
-git tag v0.9.4
-git push origin v0.9.4
-```
-
-**Result:** Tag successfully created and pushed to origin.
-- Remote confirmation: `* [new tag] v0.9.4 -> v0.9.4`
-- No conflicts or rejections
-
-## Key Decisions
-
-1. **Release Gate:** Enforced by verifying `docs/release-notes/0.9.4.md` existence before proceeding. Leela had already committed this file, so gate was clear from the start.
-
-2. **File Staging Strategy:** Used explicit file paths instead of `git add .` to avoid staging unrelated working changes (e.g., `.squad/` history updates, which were made after the release files were committed).
-
-3. **CI Blocking:** Applied `gh run watch --exit-status` to block on CI completion. This ensures tests pass before tagging, preventing bad releases.
-
-4. **Co-Author Trailer:** Commit message includes `Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>` per project standards.
-
-## Verification Checklist
-
-- [x] Gate file exists and has content
-- [x] Version bumped in .csproj
-- [x] CHANGELOG.md entry added
-- [x] All modified files staged (git status clean after staging)
-- [x] Commit created with proper message and co-author trailer
-- [x] Pushed to origin/main without conflicts
-- [x] CI workflows triggered and completed
-- [x] All CI jobs passed (tests, build, formatting)
-- [x] Tag created and pushed
-
-## Recommendations for Future Releases
-
-1. **Automate version bumping:** Consider adding a script that bumps version + updates CHANGELOG in a single operation to reduce manual steps.
-
-2. **Pre-flight validation:** Before `git push`, validate that all required release files are staged (using `git diff --cached --name-only` and a checklist).
-
-3. **CI dashboard monitoring:** Set up alerts for CI failures to enable faster feedback loops on future releases.
-
-4. **Release notes in PR:** Require release notes to be included in the feature/fix PR itself (not added in a separate step) to ensure documentation stays in sync with code changes.
-
-## Notes
-
-- Repository URL redirect (usepowershell/poshmcp → usepowershell/PoshMcp) was noted during git push; no action needed. Consider updating local remote URL when convenient.
-- No manual package publish needed; GitHub Actions workflows handle NuGet/GitHub Packages publishing automatically on tag push.
-
-
-# Auth Bypass Diagnosis: Unauthenticated Requests Still Served Despite v0.9.2 Fix
-
-**Date:** 2026-05-01  
-**Author:** Bender  
-**Server:** https://poshmcp.calmstone-9cfc4790.eastus.azurecontainerapps.io  
-**Image version confirmed running:** 0.9.2.0
-
----
-
-## 1. Is the New Image Actually Running?
-
-**Yes.** The `initialize` response includes:
-```json
-"serverInfo": {"name":"PoshMcp","version":"0.9.2.0"}
-```
-Version 0.9.2.0 is confirmed deployed.
-
----
-
-## 2. Does the `appsettings.json` Look Correct?
-
-**Yes.** The user's config at `C:\Users\stmuraws\source\emu\gim-home\AdvocacyBami\appsettings.json` (deployed to `PoshMcp/appsettings.json` in the container) has correct auth settings:
-```json
-"Authentication": {
-    "Enabled": true,
-    "DefaultScheme": "Bearer",
-    "DefaultPolicy": {
-        "RequireAuthentication": true,
-        "RequiredScopes": ["api://80939099-d811-4488-8333-83eb0409ed53/access_as_server"]
-    },
-    "Schemes": {
-        "Bearer": {
-            "Type": "JwtBearer",
-            "Authority": "https://login.microsoftonline.com/...",
-            "Audience": "api://80939099-d811-4488-8333-83eb0409ed53"
-        }
-    },
-    "ProtectedResource": { ... }
-}
-```
-
----
-
-## 3. What the Running Server's Troubleshooter Says
-
-The `get-configuration-troubleshooting` tool returned `authentication.enabled: true`. **BUT THIS IS MISLEADING.** The troubleshooting and guidance tools read config directly from the file via `ConfigurationLoader.BuildRootConfiguration(configPath)` — NOT from the DI `IOptions<AuthenticationConfiguration>`. The file correctly has `Enabled: true`, so the tools report `true`. The DI runtime sees something different.
-
-**Key evidence that auth IS actually disabled in the runtime DI:**
-1. `/.well-known/oauth-protected-resource` returns **404** — `MapProtectedResourceMetadata` has an early return guard `if (!config.Enabled || config.ProtectedResource is null)`. 404 confirms `IOptions<AuthenticationConfiguration>.Value.Enabled` is `false` at runtime.
-2. No `WWW-Authenticate` header on any request — auth challenge never fires.
-3. `tools/list` returns ALL 7 tools to unauthenticated callers — `ToolListAuthorizationFilter` short-circuits when `authConfig.Enabled = false`.
-4. `tools/call get-configuration-troubleshooting` succeeds without a token.
-
----
-
-## 4. Root Cause: Configuration Precedence Issue in `RunHttpTransportServerAsync`
-
 ### The Problem
 
 `WebApplicationBuilder` starts with a `ConfigurationManager` that already contains the **baked-in `appsettings.json`** from the container image at `/app/server/appsettings.json`. This file has:
@@ -1878,60 +1632,6 @@ Once VS Code can properly discover Entra ID via the PRM, it should use its own p
 - **VS Code actual client_id in redirect:** `80939099-d811-4488-8333-83eb0409ed53` ← fallback mode
 
 
-### 2026-05-01T15:30:29: User directive
-**By:** Steven Murawski (via Copilot)
-**What:** Amy must wait for Leela's release notes to be committed before cutting a release (version bump commit, push, CI, tag).
-**Why:** Release notes were not committed in time for v0.9.3 push — captured for team memory.
-
-
-# Auth Regression Tests — IOptions Registration Fix
-
-**From:** Fry (QA)
-**Date:** 2026-05-01
-**Related:** `AddPoshMcpAuthentication()` IOptions registration bug fix
-
-## Summary
-
-Added `PoshMcp.Tests/Unit/AuthenticationServiceExtensionsTests.cs` with 3 regression tests that directly prove `services.Configure<AuthenticationConfiguration>()` is called inside `AddPoshMcpAuthentication()`, so `IOptions<AuthenticationConfiguration>` always resolves to the configured values rather than the default.
-
-## Tests Added
-
-| Test | Scenario | Key Assertion |
-|---|---|---|
-| `WhenAuthEnabled_IOptionsAuthenticationConfiguration_ReflectsConfig` | Auth enabled with 2 schemes | `Enabled == true`, `DefaultScheme == "Bearer"`, `Schemes.Count == 2` |
-| `WhenAuthDisabled_IOptionsAuthenticationConfiguration_IsRegisteredWithEnabledFalse` | Auth disabled | `Enabled == false`, `DefaultScheme` reflects config value |
-| `WhenNoAuthSection_IOptionsAuthenticationConfiguration_DoesNotThrow` | No `Authentication` section in config | No exception, `Enabled == false` |
-
-## Test Pattern
-
-```csharp
-var config = new ConfigurationBuilder()
-    .AddInMemoryCollection(new Dictionary<string, string?> { ... })
-    .Build();
-var services = new ServiceCollection();
-services.AddPoshMcpAuthentication(config);
-var sp = services.BuildServiceProvider();
-var options = sp.GetRequiredService<IOptions<AuthenticationConfiguration>>();
-Assert.True(options.Value.Enabled);
-```
-
-## Status
-
-3/3 passing ✅ — no regressions in full suite.
-
-
-# Decision Memo: Entra ID Authentication Documentation Consolidation
-
-**Date:** 2026-05-01
-**Author:** Leela (Developer Advocate)
-**Status:** ✓ Implemented
-
-## Summary
-
-Consolidated two separate Entra ID authentication documents (`entra-id-mcp-auth.md` and `entra-id-auth-guide.md`) into a single comprehensive guide at `docs/entra-id-auth-guide.md`. The new file has been deleted after its content was folded in.
-
-## Inconsistencies Found & Resolved
-
 ### 1. Scope Naming Convention
 - **New file** (`entra-id-mcp-auth.md`): Used `user_impersonation` as scope name example
 - **Existing file** (`entra-id-auth-guide.md`): Used `access_as_server` as scope name example
@@ -2089,4 +1789,60 @@ No special naming convention is required.
 
 **Next Steps:** None — document this finding in Leela's learnings and archive the decision.
 
+### 2026-05-12: Bender — AuthServer metadata diagnosis (AggregateError fix)
 
+**By:** Bender (Backend Developer)
+
+**Problem:** VS Code reports `AggregateError: Failed to fetch authorization server metadata` when discovering the deployed PoshMcp instance.
+
+**Root cause (primary):** `ProtectedResource.AuthorizationServers` in the deployed appsettings.json was missing the `/v2.0` suffix. Without it, Entra ID returns a v1.0 OIDC discovery document whose `issuer` is `https://sts.windows.net/{tenant}/` — which does not match the authorization_server URL (`login.microsoftonline.com`). VS Code rejects the document per RFC 8414 §3 (issuer validation).
+
+**Root cause (secondary):** The deployed PRM response contains duplicated entries in `authorization_servers` (2x), `scopes_supported` (2x), and `bearer_methods_supported` (3x). The 2/2/3 pattern matches the constructor default of `BearerMethodsSupported = new() { ""header"" }` plus the config being bound twice. Likely caused by the custom appsettings.json being registered with the configuration pipeline more than once.
+
+**Fix (required):** Append `/v2.0` to entries in `ProtectedResource.AuthorizationServers`.
+
+**Fix (recommended):** Investigate the duplicate-binding cause and default `BearerMethodsSupported` to `new()` (empty) so config replacement works cleanly.
+
+**Status:** Diagnosis only — fix not yet applied. Full diagnosis archived to the orchestration log.
+
+**File**: `.squad/decisions/inbox/bender-authserver-metadata-diagnosis.md` (now merged)
+
+---
+
+### 2026-05-12: Bender — PR #211 test fixture architecture
+
+**By:** Bender (Backend Developer)
+
+**Decision:** For end-to-end validation of PR #211 (proxy detection + high-parameter delegate emit), use **reusable test fixtures that build real CommandInfo objects via PowerShell** (no mocking). Place them under `PoshMcp.Tests/Fixtures/` so Fry can consume them from integration tests.
+
+**Components:**
+- `ProxyTestFixtures.cs` — static factories: `CreateProxyStyledCommand()` (proxy path) and `CreateHighParameterCommand()` (17 parameters → triggers cached delegate emit, since BCL `Func<>` only goes to `Func17`).
+- `Pr211IntegrationFixtureSetup.cs` — xUnit collection-fixture infrastructure with caching so fixtures are built once per collection.
+- `README.md` — usage docs for teammates.
+
+**Why real commands:** Mocked `CommandInfo` would not faithfully exercise the proxy detection (`IsImplicitRemotingProxy`) or the > 16-param delegate emit path. Tests already require a PowerShell runtime, so the cost of real fixtures is acceptable.
+
+**Status:** Fixtures committed; Fry consumes them in the new integration tests for PR #211.
+
+**File**: `.squad/decisions/inbox/bender-pr211-fixture-architecture.md` (now merged)
+
+---
+
+### 2026-05-12: Recommend trait-based phasing + resource hygiene audit for test suite consistency (spec 009)
+
+**By:** Farnsworth (Lead/Architect), with Fry (Tester)
+**For:** Steven Murawski (Brady)
+
+**Decision:** For spec 009 (test suite consistency), recommend **Option 1 (trait-based phasing via `[Trait(""Category"", ...)]`)** as the first step, combined **in parallel** with **Option 3 (per-test resource hygiene audit — dynamic ports, GUID temp dirs, deterministic subprocess teardown)**. Defer Option 2 (separate test projects) until trait-based phasing has run in CI for two weeks. Hold Option 4 (drain fixtures) as a targeted follow-up only if specific categories remain flaky after Option 3 lands.
+
+**Why:**
+- The hard user requirement — *""all unit tests should always be able to be run and run quickly""* — is unblocked fastest by traits + a documented `dotnet test --filter` command. Days, not weeks.
+- Traits alone only isolate flakes; they don't fix them. The hygiene audit addresses the actual root cause (port reuse races, pwsh handle leaks, temp-dir collisions across a 6-minute serial run).
+- A project split is the likely correct end state but the wrong first step. Run with traits first, learn which boundaries actually matter, then split along validated lines.
+- Drain fixtures are a sharpened tool for a specific shape of failure — predict less, measure more.
+
+**Non-goals reaffirmed:** No test rewrites, no skipping tests, no framework change, no re-enabling parallelism, no benchmark changes.
+
+**File**: `specs/009-test-suite-consistency/spec.md` (spec authored)
+
+---
