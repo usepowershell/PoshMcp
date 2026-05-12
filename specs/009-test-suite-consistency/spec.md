@@ -3,7 +3,7 @@
 **Spec Number**: 009
 **Feature Branch**: `009-test-suite-consistency`
 **Created**: 2026-05-12
-**Status**: Proposed
+**Status**: Accepted (2026-05-12)
 **Input**: Make the xUnit test suite deterministic and split out a fast, independently runnable unit tier (well under a minute) so contributors can validate changes pre-commit without paying the ~6-minute integration cost.
 
 ---
@@ -102,6 +102,10 @@ The current `Unit/` folder also contains tests (notably `OutOfProcess/*`, `Progr
 - **FR-413**: The `Azure` category MUST be skipped by default when Azure credentials are not present (existing pattern; document it explicitly).
 - **FR-414**: Test reclassification MUST NOT delete, rewrite, or skip existing tests — only their `Category` trait or project location changes.
 - **FR-415**: The chosen approach MUST be reversible — if categorization proves wrong for a given test, moving it between categories MUST be a metadata change (or a file move), not a logic rewrite.
+- **FR-416**: A test classified as `Functional` MUST exercise multiple areas of code without touching external resources. If a test touches external resources (disk, network, files, subprocesses, ports), it MUST be classified as `Integration` (or a more specific resource-bound category such as `OutOfProcess` or `Http`), not `Functional`. This rule is applied during reclassification, not case-by-case.
+- **FR-417**: A test with no `Category` trait MUST fall back to a default bucket (permissive). The default bucket MUST be documented and MUST NOT be `Unit`. No build-time analyzer is required to enforce trait presence at this stage.
+- **FR-418**: CI MUST include a dedicated flake-rate measurement step (job or scheduled run) that executes the full phased suite N times (initial N = 5) and reports a single flake-rate summary artifact identifying which tests failed in any of the N runs and how often.
+- **FR-419**: The reference machine for the `< 60s` unit-tier target (FR-404) is the maintainer's primary development machine. The spec's performance targets are calibrated to that machine; individual contributor machines may vary, and a contributor run that exceeds 60s is not on its own a spec violation.
 
 ---
 
@@ -208,18 +212,30 @@ Introduce a `ResourceHeavyTestCollection` collection definition (xUnit `[Collect
 - **Solving CI infrastructure choice.** This spec is about test behavior, not which CI provider or runner image is used.
 - **Coverage thresholds or coverage tooling.** Out of scope.
 - **Performance benchmarks.** `PoshMcp.Benchmarks` is unaffected.
+- **Azure category execution in CI.** Running the `Azure` category against real Azure resources in CI (a credentialed CI job or scheduled nightly run) is **deferred**. Skip-when-no-credentials behavior locally and in CI stays in scope; provisioning CI-side credentials and a credentialed phase is a future task.
+- **Cooldown / drain fixture (Option 4).** Adding a `ResourceHeavyTestCollection` drain fixture is **deferred** pending results from Option 3 (resource hygiene audit). The cooldown duration is therefore also deferred — moot until Option 4 itself is revisited.
+- **EditorConfig / analyzer rule requiring `[Trait("Category", ...)]`.** Adding a build-time analyzer or EditorConfig rule that fails the build for untagged tests is **out of scope** for this spec. The default-bucket fallback (FR-417) covers the permissive case; a strict analyzer can be revisited later if untagged tests become a recurring problem.
 
 ---
 
-## Open Questions
+## Resolved Questions
 
-1. **OQ-1 — Reference machine for the < 60s target.** What is "the maintainer's reference machine" for FR-404? (Suggested: the same machine that produced the 31s / 8-test isolation baseline on 2026-05-12.)
-2. **OQ-2 — Default category for untagged tests.** When CI encounters a test with no `Category` trait, should the run fail (strict) or fall back to a default bucket (permissive)? Strict is recommended but requires an analyzer or pre-merge check.
-3. **OQ-3 — Where do `Functional/*` tests land?** Some (`StdioLoggingTests`) clearly spawn processes and are flaky. Are they renamed `Integration`/`Http`, kept as `Functional` with hygiene fixes, or split case-by-case? Recommended: case-by-case during the audit.
-4. **OQ-4 — Azure credentials in CI.** The `Azure` category is skipped without credentials locally. Should CI run it in a dedicated, credentialed job, or only on a nightly schedule? (Existing pattern likely already answers this — confirm.)
-5. **OQ-5 — Should we add an EditorConfig/analyzer rule to require `[Trait("Category", ...)]` on every `[Fact]`/`[Theory]`?** Strongly recommended but adds tooling work.
-6. **OQ-6 — Cooldown duration if Option 4 is needed.** If a drain fixture is added later, what's the upper-bound wait before declaring drain failed? (Suggested initial value: 5 seconds, then tune.)
-7. **OQ-7 — Reporting flake rate.** How is "0 flakes across 5 runs" measured and recorded? Manual log inspection, a `--blame-hang` style summary, or a dedicated CI step?
+> All open questions raised during drafting were resolved on 2026-05-12. Question text retained for traceability; each entry includes the resolution and where it landed in the spec.
+
+1. **OQ-1 — Reference machine for the < 60s target.** What is "the maintainer's reference machine" for FR-404?
+   - **Resolved (2026-05-12):** The maintainer's primary development machine is the reference. Performance targets are calibrated to that machine; individual contributor machines may vary. → **FR-419**.
+2. **OQ-2 — Default category for untagged tests.** When CI encounters a test with no `Category` trait, should the run fail (strict) or fall back to a default bucket (permissive)?
+   - **Resolved (2026-05-12):** Permissive — untagged tests fall back to a default bucket. No strict analyzer required at this stage. → **FR-417**.
+3. **OQ-3 — Where do `Functional/*` tests land?**
+   - **Resolved (2026-05-12):** Apply a rule, not case-by-case judgment. Functional tests exercise multiple areas of code; any test that touches external resources (disk, network, files, subprocesses, ports) is an Integration test (or a more specific resource-bound category) and must be reclassified accordingly. → **FR-416**.
+4. **OQ-4 — Azure credentials in CI.** Should CI run the `Azure` category in a dedicated credentialed job?
+   - **Resolved (2026-05-12):** Deferred. Skip-when-no-credentials locally remains in scope; CI-side Azure execution is a future task. → **Non-Goal**.
+5. **OQ-5 — EditorConfig/analyzer rule to require `[Trait("Category", ...)]`.**
+   - **Resolved (2026-05-12):** Not now. Dropped from scope. → **Non-Goal**.
+6. **OQ-6 — Cooldown duration if Option 4 is needed.**
+   - **Resolved (2026-05-12):** Blocked on OQ-4. Option 4 itself is deferred until Option 3 results are in; the duration is moot until then. → **Non-Goal**.
+7. **OQ-7 — Reporting flake rate.**
+   - **Resolved (2026-05-12):** A dedicated CI step measures flake rate by re-running the full phased suite N times (initial N = 5) and reporting a single flake-rate summary artifact. → **FR-418**.
 
 ---
 
