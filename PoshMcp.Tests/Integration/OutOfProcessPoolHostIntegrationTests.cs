@@ -176,4 +176,169 @@ public class OutOfProcessPoolHostIntegrationTests
             new Dictionary<string, object?>());
         Assert.False(string.IsNullOrWhiteSpace(followup));
     }
+
+    /// <summary>
+    /// Faithful repro for the user-reported "previous tool's response came back"
+    /// scenario, pool variant. Two DIFFERENT commands invoked back-to-back on
+    /// the same pool executor: A returns a marker; B returns something else.
+    /// Asserts B's payload contains no trace of A's marker.
+    /// </summary>
+    [PwshAvailableFact]
+    public async Task PoolHost_TwoDifferentSuccessfulCommands_SecondDoesNotReturnFirstOutput()
+    {
+        using var factory = CreateLoggerFactory();
+        await using var executor = new OutOfProcessCommandExecutor(
+            factory.CreateLogger<OutOfProcessCommandExecutor>(),
+            requestTimeout: TimeSpan.FromSeconds(30),
+            hostMode: SubprocessHostMode.Pool,
+            runspacePoolSize: 2);
+
+        await executor.StartAsync();
+
+        var tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+            "poshmcp-pool-stale-" + Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(tempDir);
+        try
+        {
+            var markerA = "poshmcp-pool-a-" + Guid.NewGuid().ToString("N");
+            var markerDir = System.IO.Path.Combine(tempDir, markerA);
+            System.IO.Directory.CreateDirectory(markerDir);
+
+            var first = await executor.InvokeAsync(
+                "Get-Item",
+                new Dictionary<string, object?> { ["Path"] = markerDir });
+            Assert.Contains(markerA, first, StringComparison.Ordinal);
+
+            // Run B many times on the pool so we hit every runspace at least once.
+            // Pool size 2 + 6 invokes guarantees coverage of both runspaces and
+            // exercises the runspace reuse path that would expose stale state.
+            for (var i = 0; i < 6; i++)
+            {
+                var next = await executor.InvokeAsync(
+                    "Get-Date",
+                    new Dictionary<string, object?>());
+
+                Assert.False(string.IsNullOrWhiteSpace(next),
+                    $"Pool invoke #{i} must produce output.");
+                Assert.DoesNotContain(markerA, next, StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            try { System.IO.Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+
+    /// <summary>
+    /// Pool variant of the error-after-success scenario. A succeeds with a marker,
+    /// then a DIFFERENT command (Get-ChildItem on a missing path) triggers a
+    /// non-terminating error. The thrown InvalidOperationException must not
+    /// carry A's marker in its message.
+    /// </summary>
+    [PwshAvailableFact]
+    public async Task PoolHost_ErrorInDifferentCommandAfterSuccess_DoesNotReturnFirstOutput()
+    {
+        using var factory = CreateLoggerFactory();
+        await using var executor = new OutOfProcessCommandExecutor(
+            factory.CreateLogger<OutOfProcessCommandExecutor>(),
+            requestTimeout: TimeSpan.FromSeconds(30),
+            hostMode: SubprocessHostMode.Pool,
+            runspacePoolSize: 2);
+
+        await executor.StartAsync();
+
+        var tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+            "poshmcp-pool-err-" + Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(tempDir);
+        try
+        {
+            var markerA = "poshmcp-pool-x-" + Guid.NewGuid().ToString("N");
+            var markerDir = System.IO.Path.Combine(tempDir, markerA);
+            System.IO.Directory.CreateDirectory(markerDir);
+
+            var first = await executor.InvokeAsync(
+                "Get-Item",
+                new Dictionary<string, object?> { ["Path"] = markerDir });
+            Assert.Contains(markerA, first, StringComparison.Ordinal);
+
+            var missingPath = System.IO.Path.Combine(tempDir,
+                "missing-b-" + Guid.NewGuid().ToString("N"));
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            {
+                await executor.InvokeAsync(
+                    "Get-ChildItem",
+                    new Dictionary<string, object?>
+                    {
+                        ["Path"] = missingPath,
+                        ["ErrorAction"] = "Continue"
+                    });
+            });
+
+            Assert.DoesNotContain(markerA, ex.Message, StringComparison.Ordinal);
+            Assert.Contains("Get-ChildItem", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            try { System.IO.Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+
+    /// <summary>
+    /// Exact reproduction of the user-reported cross-invocation state leak,
+    /// pool variant: an empty-returning command run first, then a sentinel-
+    /// producing command, then the empty command RE-RUN. The rerun must not
+    /// contain the sentinel from the intermediate invoke.
+    /// </summary>
+    [PwshAvailableFact]
+    public async Task PoolHost_EmptyCommand_AfterPriorOutput_DoesNotReturnPriorOutput()
+    {
+        using var factory = CreateLoggerFactory();
+        await using var executor = new OutOfProcessCommandExecutor(
+            factory.CreateLogger<OutOfProcessCommandExecutor>(),
+            requestTimeout: TimeSpan.FromSeconds(30),
+            hostMode: SubprocessHostMode.Pool,
+            runspacePoolSize: 2);
+
+        await executor.StartAsync();
+
+        var tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+            "poshmcp-pool-empty-" + Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(tempDir);
+        try
+        {
+            var emptyParams = new Dictionary<string, object?>
+            {
+                ["Message"] = "poshmcp-test-verbose-message"
+            };
+
+            var resultA = await executor.InvokeAsync("Write-Verbose", emptyParams);
+
+            var sentinel = "POOL-SENTINEL-" + Guid.NewGuid().ToString("N");
+            var sentinelDir = System.IO.Path.Combine(tempDir, sentinel);
+            System.IO.Directory.CreateDirectory(sentinelDir);
+
+            // Run the sentinel-producing command MANY times to hit every
+            // runspace in the pool at least once.
+            for (var i = 0; i < 6; i++)
+            {
+                var resultB = await executor.InvokeAsync(
+                    "Get-Item",
+                    new Dictionary<string, object?> { ["Path"] = sentinelDir });
+                Assert.Contains(sentinel, resultB, StringComparison.Ordinal);
+            }
+
+            // Rerun the empty command multiple times to maximize the chance
+            // it lands on a runspace that previously ran the sentinel command.
+            for (var i = 0; i < 6; i++)
+            {
+                var resultC = await executor.InvokeAsync("Write-Verbose", emptyParams);
+                Assert.DoesNotContain(sentinel, resultC ?? string.Empty, StringComparison.Ordinal);
+                Assert.Equal(resultA ?? string.Empty, resultC ?? string.Empty);
+            }
+        }
+        finally
+        {
+            try { System.IO.Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
 }

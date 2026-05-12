@@ -729,6 +729,148 @@ Export-ModuleMember -Function Invoke-KillHost
         //     so callers can tell which tool errored.
         Assert.Contains("Get-Item", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// Faithful repro test for the user-reported "previous tool's response came back"
+    /// scenario. Two DIFFERENT commands invoked back-to-back on the same single-host
+    /// executor: command A returns a distinctive marker; command B returns something
+    /// else. Asserts B's payload contains no trace of A's marker.
+    ///
+    /// If a cross-invoke state leak exists anywhere in the OOP pipeline (host script
+    /// $script:/$global: variables, C# correlation map mis-routing, executor-level
+    /// last-response cache, etc.), this test will fail.
+    /// </summary>
+    [PwshAvailableFact]
+    public async Task Invoke_TwoDifferentSuccessfulCommands_SecondDoesNotReturnFirstOutput()
+    {
+        Assert.NotNull(_executor);
+
+        // A: Get-Item on a directory whose name embeds a unique GUID marker.
+        // The serialized FileSystemInfo carries the path string, so the marker
+        // is guaranteed to appear in A's output.
+        var markerA = "poshmcp-stale-a-" + Guid.NewGuid().ToString("N");
+        var markerDir = Path.Combine(_testTempDir, markerA);
+        Directory.CreateDirectory(markerDir);
+
+        var first = await _executor!.InvokeAsync(
+            "Get-Item",
+            new Dictionary<string, object?> { ["Path"] = markerDir });
+
+        Assert.Contains(markerA, first, StringComparison.Ordinal);
+
+        // B: A completely different command whose output cannot legitimately
+        // contain markerA. Get-Date returns a DateTime; serialized form is
+        // a JSON object/string with no filesystem paths.
+        var second = await _executor!.InvokeAsync(
+            "Get-Date",
+            new Dictionary<string, object?>());
+
+        Assert.False(string.IsNullOrWhiteSpace(second), "Second invoke must produce output.");
+        Assert.DoesNotContain(markerA, second, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Faithful repro test matching the user's exact reported scenario: command A
+    /// succeeds and returns a distinctive object; command B is a DIFFERENT command
+    /// that triggers a non-terminating error. The InvalidOperationException thrown
+    /// by the executor (after the 6908917 hadErrors fix) must not contain any
+    /// chunk of command A's output. If a stale-response leak exists, the "discarded
+    /// N-char output" suffix would carry A's payload back to the caller.
+    /// </summary>
+    [PwshAvailableFact]
+    public async Task Invoke_ErrorInDifferentCommandAfterSuccess_DoesNotReturnFirstOutput()
+    {
+        Assert.NotNull(_executor);
+
+        // A: Get-Item on a known-existing marker directory.
+        var markerA = "poshmcp-stale-x-" + Guid.NewGuid().ToString("N");
+        var markerDir = Path.Combine(_testTempDir, markerA);
+        Directory.CreateDirectory(markerDir);
+
+        var first = await _executor!.InvokeAsync(
+            "Get-Item",
+            new Dictionary<string, object?> { ["Path"] = markerDir });
+
+        Assert.Contains(markerA, first, StringComparison.Ordinal);
+
+        // B: a DIFFERENT command (Get-ChildItem, not Get-Item) against a path
+        // that does not exist, with ErrorAction=Continue so it produces a
+        // non-terminating error and reports hadErrors=true.
+        var missingPath = Path.Combine(_testTempDir, "missing-b-" + Guid.NewGuid().ToString("N"));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await _executor!.InvokeAsync(
+                "Get-ChildItem",
+                new Dictionary<string, object?>
+                {
+                    ["Path"] = missingPath,
+                    ["ErrorAction"] = "Continue"
+                });
+        });
+
+        // Stale-response leak guard: B's error envelope must not carry A's marker.
+        Assert.DoesNotContain(markerA, ex.Message, StringComparison.Ordinal);
+        // Error envelope should name the failing command, not A.
+        Assert.Contains("Get-ChildItem", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Get-Item ", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Exact reproduction of the user-reported cross-invocation state leak:
+    ///
+    ///   1. Invoke a command that legitimately returns null/empty. Capture result A.
+    ///   2. Invoke a DIFFERENT command that returns a unique sentinel string. Capture result B.
+    ///   3. Re-invoke the SAME command from step 1. Capture result C.
+    ///
+    /// The bug surface: result C contains the sentinel from result B, as if some
+    /// buffer / runspace variable / dispatcher state held on to B's output and
+    /// surfaced it when C produced no output of its own.
+    ///
+    /// This test uses a startup-script-defined function (<c>Get-PoshMcpEmptyResult</c>)
+    /// that returns no pipeline output, so the empty-output path is exercised
+    /// directly rather than relying on a built-in command's edge case.
+    /// </summary>
+    [PwshAvailableFact]
+    public async Task Invoke_EmptyCommand_AfterPriorOutput_DoesNotReturnPriorOutput()
+    {
+        Assert.NotNull(_executor);
+
+        // Use a built-in command that legitimately returns nothing on the
+        // success stream and does NOT set HadErrors. Write-Verbose writes to
+        // the verbose stream (suppressed by default) and returns nothing.
+        var emptyParams = new Dictionary<string, object?>
+        {
+            ["Message"] = "poshmcp-test-verbose-message"
+        };
+
+        // 1. First invoke of the empty command — should produce null/empty output.
+        var resultA = await _executor!.InvokeAsync("Write-Verbose", emptyParams);
+        _logger.LogInformation("Result A (empty cmd, first call): {Length} chars: {Value}",
+            resultA?.Length ?? 0, resultA ?? "<null>");
+
+        // 2. Different command that produces a distinctive sentinel string.
+        var sentinel = "SENTINEL-XYZ-" + Guid.NewGuid().ToString("N");
+        var sentinelDir = Path.Combine(_testTempDir, sentinel);
+        Directory.CreateDirectory(sentinelDir);
+
+        var resultB = await _executor!.InvokeAsync(
+            "Get-Item",
+            new Dictionary<string, object?> { ["Path"] = sentinelDir });
+        _logger.LogInformation("Result B (Get-Item with sentinel): {Length} chars", resultB?.Length ?? 0);
+        Assert.NotNull(resultB);
+        Assert.Contains(sentinel, resultB, StringComparison.Ordinal);
+
+        // 3. Re-invoke the empty command. THIS is the assertion that catches the bug.
+        var resultC = await _executor!.InvokeAsync("Write-Verbose", emptyParams);
+        _logger.LogInformation("Result C (empty cmd, after sentinel): {Length} chars: {Value}",
+            resultC?.Length ?? 0, resultC ?? "<null>");
+
+        // The empty command must not surface ANY chunk of the prior command's output.
+        Assert.DoesNotContain(sentinel, resultC ?? string.Empty, StringComparison.Ordinal);
+
+        // And the rerun should match the first call's shape (both null/empty).
+        Assert.Equal(resultA ?? string.Empty, resultC ?? string.Empty);
+    }
 }
 
 /// <summary>

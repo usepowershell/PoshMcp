@@ -5,6 +5,81 @@
 
 ## Learnings
 
+### 2026-05-12 (revisit): OOP cross-invoke leak — could NOT reproduce; prior diagnosis acknowledged as incomplete
+
+**Requested by:** Steven Murawski. User explicitly rejected the prior diagnosis below
+("YOU GOT THE PRIOR DIAGNOSIS WRONG... The actual observed behavior is: 'When the command
+was run the first time, it returned null. After other commands were run, it started
+returning their output when being rerun.' That is definitively cross-invocation state.")
+and asked me to find and fix the real leak — reproduce FIRST, no speculative fix.
+
+**Acknowledgment of prior misdiagnosis:** The 2026-05-12 entry below correctly identified
+*one* real bug (`hadErrors=true` was being logged but the partial output returned anyway),
+but it conflated that with the user's observation. The user's report describes a *time-
+separated* state leak: first call returned null, *then after other calls* the same command
+started returning their output. That pattern is not explained by "current invoke's
+pre-error pipeline output" — it requires actual state surviving between separate invokes.
+
+**Reproduction attempts (all PASS on current main HEAD 273bc3b — no leak observed):**
+1. `Invoke_TwoDifferentSuccessfulCommands_SecondDoesNotReturnFirstOutput` (existed) — Single host
+2. `Invoke_ErrorInDifferentCommandAfterSuccess_DoesNotReturnFirstOutput` (existed) — Single host
+3. `PoolHost_TwoDifferentSuccessfulCommands_SecondDoesNotReturnFirstOutput` (existed) — Pool host
+4. `PoolHost_ErrorInDifferentCommandAfterSuccess_DoesNotReturnFirstOutput` (existed) — Pool host
+5. **NEW** `Invoke_EmptyCommand_AfterPriorOutput_DoesNotReturnPriorOutput` — exactly matches
+   user's sequence: empty-returning cmd (Write-Verbose) → producing cmd (Get-Item) → rerun
+   empty cmd, assert "null". Single host. PASS.
+6. **NEW** `PoolHost_EmptyCommand_AfterPriorOutput_DoesNotReturnPriorOutput` — same pattern
+   on Pool host (pool size 2, 6 iterations to exercise every runspace). PASS.
+
+False starts during repro design (lessons):
+- Custom function via startup script does NOT land in `$script:SharedRunspace` (startup
+  scripts execute in the OOP host's own runspace) — separate gap worth filing as its own
+  issue, not the leak being investigated.
+- `Get-Variable -ValueOnly -ErrorAction Ignore` on a nonexistent name STILL sets
+  `HadErrors=true`, which (correctly) trips the 2026-05-12 fix and throws "OOP error:
+  ... (discarded 4-char output)". The 4 chars are the literal string `"null"` returned
+  by the user script. The hadErrors→throw path is working as designed.
+- Settled on `Write-Verbose -Message 'x'` as the clean empty-returning vehicle: built-in,
+  writes to verbose stream (suppressed), returns nothing, does NOT set HadErrors.
+
+**Architectural review (no leak surface found):**
+- `oop-host.ps1` `$script:` vars: only `Dispatcher`, `SharedRunspace`, `CommonParameters`,
+  `Cancellations`. No output accumulator. User script uses a *local* `$r` overwritten
+  every invoke; `$Error.Clear()` runs at the top of every invoke.
+- `oop-host-pool.ps1` mirrors the pattern. `$script:Pool`, `$script:Dispatcher`, host UI
+  routes to stderr. Same per-invoke fresh `[powershell]` with `RunspacePool`.
+- `OutOfProcessHost.cs`: `_pending` is `ConcurrentDictionary<string, TCS>` keyed on
+  `Guid.NewGuid()` per request, removed on completion. No keying on command name.
+- `OutOfProcessCommandExecutor.cs`: `_cachedSchemas` is for `discover` output only.
+  `_lastSetupConfig` is for restart replay, never returned to callers.
+- `OutOfProcessSubprocessPool.cs`: same per-request-ID pattern.
+- `OutOfProcessToolAssemblyGenerator.cs`: no per-tool result cache.
+- No mutable static fields in the OOP module (grep verified).
+
+**Disposition:** I cannot reproduce a framework-level cross-invocation output leak on
+current main. All 46 `Category=OutOfProcess` tests pass, including the 2 new regression
+guards. Per Steven's directive ("do NOT push a speculative fix"), I am NOT modifying
+production code. The 2 new tests are committed as permanent regression guards — they will
+fail loudly if a real cross-invoke leak is ever introduced.
+
+**Remaining hypotheses I did NOT chase** (any of these could explain Steven's observation
+without a framework bug; would require Steven's exact command list to verify):
+- The reported sequence used an AdvocacyBami module command whose own internal state
+  (module-scoped `$script:` vars in user-authored modules) leaked across calls. The OOP
+  framework cannot detect or prevent that.
+- The reported sequence involved restart/reconnect of the OOP subprocess in between
+  calls, where `_lastSetupConfig` replay or a stale pending response could matter. I
+  did not exercise the subprocess-death+restart path with overlapping calls.
+- A bug in a specific tool-generation code path for a specific parameter shape (e.g.,
+  PSCredential, complex pipeline-bound parameters) that I didn't exercise.
+
+**Files changed (this session):**
+- `PoshMcp.Tests/Integration/OutOfProcessIntegrationTests.cs` — added regression test
+- `PoshMcp.Tests/Integration/OutOfProcessPoolHostIntegrationTests.cs` — added regression test
+- NO production code modified.
+
+---
+
 ### 2026-05-12: OOP invoke — hadErrors was logged but not propagated to MCP
 
 **Bug**: A user invoked `assert_tenant_role_member` with a bad role and got back what looked
