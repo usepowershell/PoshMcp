@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented here.
 
+## [0.12.3] - 2026-05-12
+
+### Fixed
+- **OOP executor: stale-looking output returned on non-terminating errors.** When a PowerShell command emitted pipeline output and then wrote a non-terminating error (`Write-Error`, parameter validation failure on a nested call, etc.), the OOP executor logged `hadErrors=true` but still returned the partial pipeline output as a successful tool result. MCP clients saw what looked like cached or stale output from a prior tool invocation. The executor now throws `InvalidOperationException` (prefixed `"OOP error:"`) when `hadErrors && !cancelled`, so MCP surfaces a proper tool error to the client. Cancellation path is unchanged. Applies to both the single-host executor and the subprocess pool.
+- **OOP host script: defensive per-invoke variable scope.** `oop-host.ps1` and `oop-host-pool.ps1` now pass `useLocalScope=$true` to `PowerShell.AddScript`, so the per-invoke working variable lives in a child scope discarded at pipeline return rather than the runspace's default scope. Defense in depth against any future regression where a pooled runspace's state could be observed across invokes.
+
+### Behavior notes
+- This is a behavior change for callers that previously consumed partial output from a tool which also wrote a non-terminating error: those calls now return a tool error instead of a misleading success payload. If your client depends on partial output, switch the tool to suppress errors (`-ErrorAction SilentlyContinue`) or return a structured result.
+
+### Tests
+- New regression tests covering cross-invoke output isolation for both single-host and pool-host paths, including a production-shape pool configuration (`runspacePoolSize=10`, alternating different scripts across 50 iterations). All 47 `Category=OutOfProcess` tests pass.
+
 ## [0.12.2] - 2026-05-12
 
 ### Fixed
