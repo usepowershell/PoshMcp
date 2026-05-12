@@ -341,4 +341,81 @@ public class OutOfProcessPoolHostIntegrationTests
             try { System.IO.Directory.Delete(tempDir, recursive: true); } catch { }
         }
     }
+
+    /// <summary>
+    /// Production-shape stress test for the cross-invoke state-leak class of
+    /// bugs. Mirrors the deployed poshmcp-web configuration that exposed the
+    /// 2026-05-12 user report: runspace pool size 10, two structurally
+    /// different commands alternated for 50 iterations each.
+    /// <para>
+    /// Command A returns a structured PSCustomObject carrying a per-iteration
+    /// sentinel; command B (<c>Write-Verbose</c>) returns nothing. After every
+    /// A invoke the response MUST contain that iteration's sentinel and NO
+    /// other iteration's sentinel. After every B invoke the response MUST
+    /// equal the canonical "null" payload and contain NO previous A sentinel.
+    /// </para>
+    /// <para>
+    /// This is the test Bender's first repro round did not run: prior tests
+    /// used the same script body with different inputs; this one alternates
+    /// truly different scripts, which is what the production scenario does
+    /// when an MCP client invokes one tool then a different tool against a
+    /// shared pool.
+    /// </para>
+    /// </summary>
+    [PwshAvailableFact]
+    public async Task PoolHost_AlternatingDifferentScripts_LargePool_NoCrossInvokeLeak()
+    {
+        using var factory = CreateLoggerFactory();
+        await using var executor = new OutOfProcessCommandExecutor(
+            factory.CreateLogger<OutOfProcessCommandExecutor>(),
+            requestTimeout: TimeSpan.FromSeconds(60),
+            hostMode: SubprocessHostMode.Pool,
+            runspacePoolSize: 10);
+
+        await executor.StartAsync();
+
+        const int iterations = 50;
+        var sentinels = new string[iterations];
+
+        for (var i = 0; i < iterations; i++)
+        {
+            sentinels[i] = "ALT-SENTINEL-" + i.ToString("D3") + "-" + Guid.NewGuid().ToString("N");
+
+            // Command A: PSCustomObject returning a structured payload that
+            // includes this iteration's sentinel. Different shape and command
+            // from the empty-returning B below so we exercise the runspace-
+            // reuse path with genuinely different scripts.
+            var aResult = await executor.InvokeAsync(
+                "Write-Output",
+                new Dictionary<string, object?>
+                {
+                    ["InputObject"] = sentinels[i]
+                });
+
+            Assert.False(string.IsNullOrWhiteSpace(aResult),
+                $"Iteration {i}: A invoke must produce output.");
+            Assert.Contains(sentinels[i], aResult!, StringComparison.Ordinal);
+
+            // No prior sentinel may appear in the current response.
+            for (var j = 0; j < i; j++)
+            {
+                Assert.DoesNotContain(sentinels[j], aResult!, StringComparison.Ordinal);
+            }
+
+            // Command B: returns nothing. Pool framework canonicalizes to "null".
+            // Must not contain ANY prior sentinel.
+            var bResult = await executor.InvokeAsync(
+                "Write-Verbose",
+                new Dictionary<string, object?>
+                {
+                    ["Message"] = "stress-iter-" + i
+                });
+
+            Assert.Equal("null", bResult ?? string.Empty);
+            for (var j = 0; j <= i; j++)
+            {
+                Assert.DoesNotContain(sentinels[j], bResult ?? string.Empty, StringComparison.Ordinal);
+            }
+        }
+    }
 }

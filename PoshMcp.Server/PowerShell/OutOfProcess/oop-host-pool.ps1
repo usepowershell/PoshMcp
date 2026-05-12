@@ -945,6 +945,15 @@ function Invoke-InvokeHandler {
     # fallback to tolerate objects whose CLR type shadows a base-class
     # member of the same name (e.g. BasicHtmlWebResponseObject's 'Content'
     # shadows WebResponseObject.Content). See issue #203.
+    #
+    # DEFENSE IN DEPTH (2026-05-12): AddScript is invoked with
+    # useLocalScope=$true so the script body runs in a child scope of the
+    # pooled runspace. The per-invoke working variable $r therefore lives
+    # in a scope that's discarded when the pipeline returns, instead of
+    # the runspace's default scope where it would be observable by the
+    # NEXT invoke on the same runspace. Prevents the cross-invoke state-
+    # leak class even if a future edit accidentally skips the $r
+    # assignment on an exception path.
     $userScript = {
         param($Name, $Splat)
         $Error.Clear()
@@ -962,7 +971,7 @@ function Invoke-InvokeHandler {
             }
         }
     }
-    [void]$ps.AddScript($userScript)
+    [void]$ps.AddScript($userScript, $true)
     [void]$ps.AddArgument($commandName)
     [void]$ps.AddArgument($splatParams)
 

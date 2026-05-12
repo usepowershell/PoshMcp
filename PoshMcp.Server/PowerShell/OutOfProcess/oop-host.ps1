@@ -870,6 +870,15 @@ function Invoke-InvokeHandler {
     # The pipeline pre-serializes the result to JSON so the worker thread can
     # embed it without a second round-trip into PowerShell. ConvertTo-Json is
     # wrapped to tolerate shadowed-property objects (see #203).
+    #
+    # DEFENSE IN DEPTH (2026-05-12): AddScript is invoked with
+    # useLocalScope=$true so the script body runs in a child scope. The
+    # per-invoke working variable $r therefore lives in a scope that's
+    # discarded when the pipeline returns, instead of the shared
+    # runspace's default scope where it would be observable by the NEXT
+    # invoke on the same runspace. Prevents the cross-invoke state-leak
+    # class even if a future edit accidentally skips the $r assignment
+    # on an exception path.
     $userScript = {
         param($Name, $Splat)
         $Error.Clear()
@@ -895,7 +904,7 @@ function Invoke-InvokeHandler {
 
     $ps = [powershell]::Create()
     $ps.Runspace = $script:SharedRunspace
-    [void]$ps.AddScript($userScript)
+    [void]$ps.AddScript($userScript, $true)
     [void]$ps.AddArgument($commandName)
     [void]$ps.AddArgument($splatParams)
 
