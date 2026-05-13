@@ -41,6 +41,7 @@ public class McpToolFactoryV2
     private readonly OutOfProcessToolAssemblyGenerator? _outOfProcessAssemblyGenerator;
     private readonly ICommandExecutor? _commandExecutor;
     private readonly IToolMetadataSource _toolMetadataSource;
+    private readonly IToolDescriptionSourceTracker? _descriptionSourceTracker;
     private readonly PowerShellHelpResolver _helpResolver = new();
     private static McpMetrics? _metrics;
 
@@ -57,7 +58,7 @@ public class McpToolFactoryV2
     /// Initializes a new instance of McpToolFactoryV2 with default runspace
     /// </summary>
     public McpToolFactoryV2()
-        : this(metadataSource: null)
+        : this(metadataSource: null, descriptionSourceTracker: null)
     {
     }
 
@@ -69,9 +70,25 @@ public class McpToolFactoryV2
     /// per spec 010. <c>null</c> selects <see cref="DefaultToolMetadataSource"/> which
     /// preserves pre-spec-010 behavior.</param>
     public McpToolFactoryV2(IToolMetadataSource? metadataSource)
+        : this(metadataSource, descriptionSourceTracker: null)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance with default runspace, an explicit metadata source,
+    /// and an optional <see cref="IToolDescriptionSourceTracker"/> that records the
+    /// resolved precedence step per command and per parameter for spec 010 FR-582 /
+    /// FR-583 doctor reporting.
+    /// </summary>
+    /// <param name="metadataSource">Spec 010 description resolver. <c>null</c> selects
+    /// <see cref="DefaultToolMetadataSource"/>.</param>
+    /// <param name="descriptionSourceTracker">Optional tracker populated alongside
+    /// description resolution. <c>null</c> disables tracking.</param>
+    public McpToolFactoryV2(IToolMetadataSource? metadataSource, IToolDescriptionSourceTracker? descriptionSourceTracker)
     {
         _assemblyGenerator = new PowerShellAssemblyGenerator(new SingletonPowerShellRunspace());
         _toolMetadataSource = metadataSource ?? new DefaultToolMetadataSource();
+        _descriptionSourceTracker = descriptionSourceTracker;
     }
 
     /// <summary>
@@ -79,7 +96,7 @@ public class McpToolFactoryV2
     /// </summary>
     /// <param name="runspace">PowerShell runspace to use</param>
     public McpToolFactoryV2(IPowerShellRunspace runspace)
-        : this(runspace, metadataSource: null)
+        : this(runspace, metadataSource: null, descriptionSourceTracker: null)
     {
     }
 
@@ -92,13 +109,23 @@ public class McpToolFactoryV2
     /// per spec 010. <c>null</c> selects <see cref="DefaultToolMetadataSource"/> which
     /// preserves pre-spec-010 behavior.</param>
     public McpToolFactoryV2(IPowerShellRunspace runspace, IToolMetadataSource? metadataSource)
+        : this(runspace, metadataSource, descriptionSourceTracker: null)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance with a specified runspace, an explicit metadata
+    /// source, and an optional <see cref="IToolDescriptionSourceTracker"/>.
+    /// </summary>
+    public McpToolFactoryV2(IPowerShellRunspace runspace, IToolMetadataSource? metadataSource, IToolDescriptionSourceTracker? descriptionSourceTracker)
     {
         _assemblyGenerator = new PowerShellAssemblyGenerator(runspace);
         _toolMetadataSource = metadataSource ?? new DefaultToolMetadataSource();
+        _descriptionSourceTracker = descriptionSourceTracker;
     }
 
     public McpToolFactoryV2(ICommandExecutor commandExecutor)
-        : this(commandExecutor, metadataSource: null)
+        : this(commandExecutor, metadataSource: null, descriptionSourceTracker: null)
     {
     }
 
@@ -111,10 +138,20 @@ public class McpToolFactoryV2
     /// per spec 010. <c>null</c> selects <see cref="DefaultToolMetadataSource"/> which
     /// preserves pre-spec-010 behavior.</param>
     public McpToolFactoryV2(ICommandExecutor commandExecutor, IToolMetadataSource? metadataSource)
+        : this(commandExecutor, metadataSource, descriptionSourceTracker: null)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new OOP-backed instance with an explicit metadata source and an
+    /// optional <see cref="IToolDescriptionSourceTracker"/>.
+    /// </summary>
+    public McpToolFactoryV2(ICommandExecutor commandExecutor, IToolMetadataSource? metadataSource, IToolDescriptionSourceTracker? descriptionSourceTracker)
     {
         _commandExecutor = commandExecutor ?? throw new ArgumentNullException(nameof(commandExecutor));
         _outOfProcessAssemblyGenerator = new OutOfProcessToolAssemblyGenerator(commandExecutor);
         _toolMetadataSource = metadataSource ?? new DefaultToolMetadataSource();
+        _descriptionSourceTracker = descriptionSourceTracker;
     }
 
     /// <summary>
@@ -139,7 +176,7 @@ public class McpToolFactoryV2
         var metadata = CreateDefaultCommandMetadata(commandInfo);
         try
         {
-            SetParameterSetDescription(metadata, commandInfo, parameterSet, _toolMetadataSource, help, logger);
+            SetParameterSetDescription(metadata, commandInfo, parameterSet, _toolMetadataSource, _descriptionSourceTracker, help, logger);
             AnalyzeCommandVerbSafety(metadata, commandInfo, powerShell, logger);
         }
         catch (Exception ex)
@@ -163,7 +200,7 @@ public class McpToolFactoryV2
         };
     }
 
-    private static void SetParameterSetDescription(PowerShellCommandMetadata metadata, CommandInfo commandInfo, CommandParameterSetInfo parameterSet, IToolMetadataSource metadataSource, CommandHelpInfo help, ILogger logger)
+    private static void SetParameterSetDescription(PowerShellCommandMetadata metadata, CommandInfo commandInfo, CommandParameterSetInfo parameterSet, IToolMetadataSource metadataSource, IToolDescriptionSourceTracker? descriptionSourceTracker, CommandHelpInfo help, ILogger logger)
     {
         try
         {
@@ -176,6 +213,7 @@ public class McpToolFactoryV2
                 ParameterSetSyntax: parameterSetSyntax);
             var result = metadataSource.ResolveToolDescription(in request);
             metadata.Description = result.Description;
+            descriptionSourceTracker?.RecordToolSource(commandInfo.Name, result.Source);
             logger.LogDebug($"Resolved description for {commandInfo.Name} ({parameterSet.Name}) via {result.Source}: {metadata.Description}");
         }
         catch (Exception ex)
@@ -396,11 +434,11 @@ public class McpToolFactoryV2
             return new List<McpServerTool>();
         }
 
-        var remoteParameterDescriptions = BuildRemoteParameterDescriptionMap(schemas, _toolMetadataSource);
+        var remoteParameterDescriptions = BuildRemoteParameterDescriptionMap(schemas, _toolMetadataSource, _descriptionSourceTracker);
         _outOfProcessAssemblyGenerator.GenerateAssembly(schemas, remoteParameterDescriptions, logger);
         var generatedInstance = _outOfProcessAssemblyGenerator.GetGeneratedInstance(logger);
         var generatedMethods = _outOfProcessAssemblyGenerator.GetGeneratedMethods();
-        var methodToCommandMap = CreateRemoteCommandMetadataMapping(schemas, _toolMetadataSource);
+        var methodToCommandMap = CreateRemoteCommandMetadataMapping(schemas, _toolMetadataSource, _descriptionSourceTracker);
         var tools = CreateMcpToolsFromMethods(generatedMethods, generatedInstance, methodToCommandMap, logger);
         LogToolGenerationResults(tools, logger);
         return tools;
@@ -531,6 +569,7 @@ public class McpToolFactoryV2
                     ValidateSetAppliesToArrayElement: appliesToArrayElement);
 
                 var resolved = _toolMetadataSource.ResolveParameterDescription(in request);
+                _descriptionSourceTracker?.RecordParameterSource(command.Name, paramName, resolved.Source);
                 if (resolved.Source != ParameterDescriptionSource.TypeFallback
                     && !string.IsNullOrWhiteSpace(resolved.Description))
                 {
@@ -561,7 +600,7 @@ public class McpToolFactoryV2
         return methodToCommandMap;
     }
 
-    private static Dictionary<string, PowerShellCommandMetadata> CreateRemoteCommandMetadataMapping(IReadOnlyList<RemoteToolSchema> schemas, IToolMetadataSource metadataSource)
+    private static Dictionary<string, PowerShellCommandMetadata> CreateRemoteCommandMetadataMapping(IReadOnlyList<RemoteToolSchema> schemas, IToolMetadataSource metadataSource, IToolDescriptionSourceTracker? descriptionSourceTracker)
     {
         var methodToCommandMap = new Dictionary<string, PowerShellCommandMetadata>(StringComparer.OrdinalIgnoreCase);
 
@@ -575,6 +614,7 @@ public class McpToolFactoryV2
                 LongDescription: string.IsNullOrWhiteSpace(schema.FullDescription) ? null : schema.FullDescription,
                 ParameterSetSyntax: BuildRemoteParameterSetSyntax(schema));
             var result = metadataSource.ResolveToolDescription(in request);
+            descriptionSourceTracker?.RecordToolSource(schema.Name, result.Source);
             var metadata = new PowerShellCommandMetadata
             {
                 CommandName = schema.Name,
@@ -616,7 +656,8 @@ public class McpToolFactoryV2
     /// </summary>
     private static IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> BuildRemoteParameterDescriptionMap(
         IReadOnlyList<RemoteToolSchema> schemas,
-        IToolMetadataSource metadataSource)
+        IToolMetadataSource metadataSource,
+        IToolDescriptionSourceTracker? descriptionSourceTracker)
     {
         var result = new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
 
@@ -651,6 +692,7 @@ public class McpToolFactoryV2
                     ValidateSetAppliesToArrayElement: appliesToArrayElement);
 
                 var resolved = metadataSource.ResolveParameterDescription(in request);
+                descriptionSourceTracker?.RecordParameterSource(schema.Name, param.Name, resolved.Source);
                 if (resolved.Source != ParameterDescriptionSource.TypeFallback
                     && !string.IsNullOrWhiteSpace(resolved.Description))
                 {

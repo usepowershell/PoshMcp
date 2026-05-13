@@ -116,11 +116,13 @@ internal static class McpToolSetupService
         PowerShellConfiguration config,
         ILoggerFactory loggerFactory,
         ILogger logger,
-        string configurationPath)
+        string configurationPath,
+        IToolMetadataSource? toolMetadataSource = null,
+        IToolDescriptionSourceTracker? descriptionSourceTracker = null)
     {
         logger.LogInformation("Discovering PowerShell tools...");
         await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger, configurationPath);
-        var toolFactory = CreateToolFactory(config, executorLease?.Executor);
+        var toolFactory = CreateToolFactory(config, executorLease?.Executor, runspace: null, toolMetadataSource, descriptionSourceTracker);
         var tools = await toolFactory.GetToolsListAsync(config, logger);
         AddConfigurationGuidanceToolToList(tools, config, configurationPath, "stdio", config.RuntimeMode.ToString(), null, loggerFactory);
         AddConfigurationTroubleshootingToolToList(tools, config, configurationPath, "stdio", null, config.RuntimeMode.ToString(), null, logger);
@@ -142,18 +144,19 @@ internal static class McpToolSetupService
         PowerShellConfiguration config,
         ICommandExecutor? commandExecutor,
         IPowerShellRunspace? runspace = null,
-        IToolMetadataSource? toolMetadataSource = null)
+        IToolMetadataSource? toolMetadataSource = null,
+        IToolDescriptionSourceTracker? descriptionSourceTracker = null)
     {
         if (config.RuntimeMode == RuntimeMode.OutOfProcess)
         {
             return commandExecutor is null
                 ? throw new InvalidOperationException("Out-of-process runtime mode requires a started command executor.")
-                : new McpToolFactoryV2(commandExecutor, toolMetadataSource);
+                : new McpToolFactoryV2(commandExecutor, toolMetadataSource, descriptionSourceTracker);
         }
 
         return runspace is null
-            ? new McpToolFactoryV2(toolMetadataSource)
-            : new McpToolFactoryV2(runspace, toolMetadataSource);
+            ? new McpToolFactoryV2(toolMetadataSource, descriptionSourceTracker)
+            : new McpToolFactoryV2(runspace, toolMetadataSource, descriptionSourceTracker);
     }
 
     /// <summary>
@@ -686,5 +689,24 @@ internal static class McpToolSetupService
         string configurationPath)
     {
         return await DiscoverToolsAsync(config, loggerFactory, logger, configurationPath);
+    }
+
+    /// <summary>
+    /// Spec 010 FR-582 / FR-583 / SC-207: discovery overload that accepts a metadata
+    /// source and a description-source tracker so doctor reporting captures the
+    /// resolved precedence step per command and per parameter. The CLI doctor wires
+    /// <see cref="HelpAwareToolMetadataSource"/> here so the reported sources match
+    /// what the production server (which uses the same metadata source via DI) will
+    /// surface to MCP clients.
+    /// </summary>
+    internal static async Task<List<McpServerTool>> DiscoverToolsForCliAsync(
+        PowerShellConfiguration config,
+        ILoggerFactory loggerFactory,
+        ILogger logger,
+        string configurationPath,
+        IToolMetadataSource? toolMetadataSource,
+        IToolDescriptionSourceTracker? descriptionSourceTracker)
+    {
+        return await DiscoverToolsAsync(config, loggerFactory, logger, configurationPath, toolMetadataSource, descriptionSourceTracker);
     }
 }

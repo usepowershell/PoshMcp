@@ -28,7 +28,7 @@ internal static class DoctorService
     internal static async Task RunDoctorAsync(
         ResolvedCommandSettings settings,
         string format,
-        Func<PowerShellConfiguration, ILoggerFactory, ILogger, string, Task<List<McpServerTool>>> discoverToolsFunc)
+        Func<PowerShellConfiguration, ILoggerFactory, ILogger, string, IToolMetadataSource?, IToolDescriptionSourceTracker?, Task<List<McpServerTool>>> discoverToolsFunc)
     {
         var report = await BuildDoctorReportForCliAsync(settings, discoverToolsFunc);
 
@@ -47,7 +47,7 @@ internal static class DoctorService
     /// </summary>
     internal static async Task<DoctorReport> BuildDoctorReportForCliAsync(
         ResolvedCommandSettings settings,
-        Func<PowerShellConfiguration, ILoggerFactory, ILogger, string, Task<List<McpServerTool>>> discoverToolsFunc)
+        Func<PowerShellConfiguration, ILoggerFactory, ILogger, string, IToolMetadataSource?, IToolDescriptionSourceTracker?, Task<List<McpServerTool>>> discoverToolsFunc)
     {
         var parsedLogLevel = SettingsResolver.ParseLogLevel(settings.LogLevel.Value);
         using var loggerFactory = LoggingHelpers.CreateLoggerFactory(parsedLogLevel);
@@ -85,9 +85,15 @@ internal static class DoctorService
         var environmentVariables = CollectEnvironmentVariables();
 
         List<McpServerTool> tools;
+        // Spec 010 FR-582 / FR-583 / SC-207: capture the resolved description-source
+        // step per command and per parameter using the production HelpAware resolver
+        // (the same one the live server wires via DI), so the doctor report shows
+        // exactly what an MCP client will see.
+        var descriptionSourceTracker = new ToolDescriptionSourceTracker();
+        var helpAwareSource = new HelpAwareToolMetadataSource();
         try
         {
-            tools = await discoverToolsFunc(config, loggerFactory, logger, settings.FinalConfigPath);
+            tools = await discoverToolsFunc(config, loggerFactory, logger, settings.FinalConfigPath, helpAwareSource, descriptionSourceTracker);
         }
         catch (Exception ex)
         {
@@ -140,6 +146,7 @@ internal static class DoctorService
                 ConfiguredFunctionCount = configuredFunctionStatus.Count,
                 ConfiguredFunctionsFound = configuredFunctionStatus.Count(f => f.Found),
                 ConfiguredFunctionsMissing = configuredFunctionStatus.Count(f => !f.Found),
+                Tools = BuildToolDescriptionEntries(tools, descriptionSourceTracker),
             },
             PowerShell = report.PowerShell with
             {
@@ -468,6 +475,76 @@ internal static class DoctorService
         }
 
         return (warnings, errors);
+    }
+
+    /// <summary>
+    /// Spec 010 FR-582 / FR-583 / SC-207: builds per-tool description-source entries
+    /// for the doctor JSON from the captured tracker. One entry per resolved command
+    /// (FR-501: tool description text is per-command, not per-parameter-set), with a
+    /// nested entry per parameter (FR-511: same parameter resolves to one source
+    /// across parameter sets). Returns an empty list when the tracker is null or
+    /// holds no recorded sources.
+    /// </summary>
+    internal static List<ToolDescriptionDoctorEntry> BuildToolDescriptionEntries(
+        IReadOnlyList<McpServerTool> tools,
+        IToolDescriptionSourceTracker? tracker)
+    {
+        if (tracker is null)
+        {
+            return [];
+        }
+
+        var toolSources = tracker.ToolSources;
+        var parameterSources = tracker.ParameterSources;
+        if (toolSources.Count == 0 && parameterSources.Count == 0)
+        {
+            return [];
+        }
+
+        // Union of command names that appear in either map so we never drop a recorded
+        // command that has parameters but no tool source (or vice versa).
+        var commandNames = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var key in toolSources.Keys)
+        {
+            commandNames.Add(key);
+        }
+        foreach (var key in parameterSources.Keys)
+        {
+            commandNames.Add(key);
+        }
+
+        var entries = new List<ToolDescriptionDoctorEntry>(commandNames.Count);
+        foreach (var commandName in commandNames)
+        {
+            ToolDescriptionSource? toolSource = null;
+            if (toolSources.TryGetValue(commandName, out var ts))
+            {
+                toolSource = ts;
+            }
+
+            var paramEntries = new List<ParameterDescriptionDoctorEntry>();
+            if (parameterSources.TryGetValue(commandName, out var perParam))
+            {
+                foreach (var kvp in perParam.OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase))
+                {
+                    paramEntries.Add(new ParameterDescriptionDoctorEntry
+                    {
+                        Name = kvp.Key,
+                        DescriptionSource = kvp.Value,
+                    });
+                }
+            }
+
+            entries.Add(new ToolDescriptionDoctorEntry
+            {
+                Name = commandName,
+                CommandName = commandName,
+                DescriptionSource = toolSource,
+                Parameters = paramEntries,
+            });
+        }
+
+        return entries;
     }
 
     private static Dictionary<string, string?> CollectEnvironmentVariables()
