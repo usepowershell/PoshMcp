@@ -47,7 +47,7 @@ PoshMcp automatically:
 - **Zero Boilerplate**: Existing scripts work without modification
 - **State Preservation**: Variables and custom functions persist between calls
 - **Pattern-Based Filtering**: Include/exclude commands via configuration
-- **Rich Metadata**: Automatic extraction from `Get-Help` and `Get-Command`
+- **Rich Metadata**: Automatic extraction from `Get-Help` and `Get-Command` ([description precedence](docs/articles/exposing-tools.md#description-precedence))
 - **MCP Resources**: Expose files and live system state as readable resources
 - **MCP Prompts**: Define reusable prompt templates with dynamic arguments
 
