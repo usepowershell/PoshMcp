@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -278,6 +279,11 @@ internal static class HttpServerHost
     private static void ConfigureOpenTelemetryForHttp(WebApplicationBuilder builder)
     {
         builder.Services.AddSingleton<McpMetrics>();
+
+        // Spec 010 seam: shared MCP tool/parameter description sourcing. The default impl
+        // preserves pre-spec-010 behavior; #226 / #227 replace this registration with an
+        // implementation that consults Get-Help.
+        builder.Services.TryAddSingleton<IToolMetadataSource, DefaultToolMetadataSource>();
 
         builder.Services.AddOpenTelemetry()
             .WithTracing(tracingBuilder =>

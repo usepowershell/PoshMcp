@@ -30,7 +30,8 @@ internal static class McpToolSetupService
         ILogger logger,
         string finalConfigPath,
         string configurationPathSource,
-        ICommandExecutor? commandExecutor)
+        ICommandExecutor? commandExecutor,
+        IToolMetadataSource? toolMetadataSource = null)
     {
         // Create RuntimeCachingState singleton and wire into assembly generator static state
         var runtimeCachingState = new RuntimeCachingState();
@@ -38,7 +39,7 @@ internal static class McpToolSetupService
         PowerShellAssemblyGenerator.SetConfiguration(config);
         logger.LogInformation("RuntimeCachingState initialized and wired into PowerShellAssemblyGenerator");
 
-        var toolFactory = CreateToolFactory(config, commandExecutor);
+        var toolFactory = CreateToolFactory(config, commandExecutor, runspace: null, toolMetadataSource);
         var tools = await toolFactory.GetToolsListAsync(config, logger);
 
         if (config.EnableDynamicReloadTools)
@@ -75,14 +76,15 @@ internal static class McpToolSetupService
         string configurationPathSource,
         IPowerShellRunspace sessionAwareRunspace,
         ICommandExecutor? commandExecutor,
-        IHttpContextAccessor? httpContextAccessor = null)
+        IHttpContextAccessor? httpContextAccessor = null,
+        IToolMetadataSource? toolMetadataSource = null)
     {
         var runtimeCachingState = new RuntimeCachingState();
         PowerShellAssemblyGenerator.SetRuntimeCachingState(runtimeCachingState);
         PowerShellAssemblyGenerator.SetConfiguration(config);
         logger.LogInformation("RuntimeCachingState initialized and wired into PowerShellAssemblyGenerator");
 
-        var toolFactory = CreateToolFactory(config, commandExecutor, sessionAwareRunspace);
+        var toolFactory = CreateToolFactory(config, commandExecutor, sessionAwareRunspace, toolMetadataSource);
         var tools = await toolFactory.GetToolsListAsync(config, logger);
 
         if (config.EnableDynamicReloadTools)
@@ -129,19 +131,29 @@ internal static class McpToolSetupService
     /// Creates an appropriate tool factory based on configuration and runtime mode.
     /// Handles both in-process and out-of-process execution modes.
     /// </summary>
+    /// <param name="config">Runtime configuration.</param>
+    /// <param name="commandExecutor">Out-of-process command executor; required when
+    /// <see cref="RuntimeMode"/> is <see cref="RuntimeMode.OutOfProcess"/>.</param>
+    /// <param name="runspace">Optional in-process runspace override (HTTP session-aware path).</param>
+    /// <param name="toolMetadataSource">Optional spec-010 description source.
+    /// When <c>null</c>, <see cref="DefaultToolMetadataSource"/> is selected, which
+    /// preserves pre-spec-010 behavior.</param>
     private static McpToolFactoryV2 CreateToolFactory(
         PowerShellConfiguration config,
         ICommandExecutor? commandExecutor,
-        IPowerShellRunspace? runspace = null)
+        IPowerShellRunspace? runspace = null,
+        IToolMetadataSource? toolMetadataSource = null)
     {
         if (config.RuntimeMode == RuntimeMode.OutOfProcess)
         {
             return commandExecutor is null
                 ? throw new InvalidOperationException("Out-of-process runtime mode requires a started command executor.")
-                : new McpToolFactoryV2(commandExecutor);
+                : new McpToolFactoryV2(commandExecutor, toolMetadataSource);
         }
 
-        return runspace is null ? new McpToolFactoryV2() : new McpToolFactoryV2(runspace);
+        return runspace is null
+            ? new McpToolFactoryV2(toolMetadataSource)
+            : new McpToolFactoryV2(runspace, toolMetadataSource);
     }
 
     /// <summary>

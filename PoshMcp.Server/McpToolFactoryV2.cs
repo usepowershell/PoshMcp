@@ -40,6 +40,7 @@ public class McpToolFactoryV2
     private readonly PowerShellAssemblyGenerator? _assemblyGenerator;
     private readonly OutOfProcessToolAssemblyGenerator? _outOfProcessAssemblyGenerator;
     private readonly ICommandExecutor? _commandExecutor;
+    private readonly IToolMetadataSource _toolMetadataSource;
     private static McpMetrics? _metrics;
 
     /// <summary>
@@ -55,8 +56,21 @@ public class McpToolFactoryV2
     /// Initializes a new instance of McpToolFactoryV2 with default runspace
     /// </summary>
     public McpToolFactoryV2()
+        : this(metadataSource: null)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of McpToolFactoryV2 with default runspace and an
+    /// explicit tool-metadata source.
+    /// </summary>
+    /// <param name="metadataSource">Source that resolves MCP tool/parameter descriptions
+    /// per spec 010. <c>null</c> selects <see cref="DefaultToolMetadataSource"/> which
+    /// preserves pre-spec-010 behavior.</param>
+    public McpToolFactoryV2(IToolMetadataSource? metadataSource)
     {
         _assemblyGenerator = new PowerShellAssemblyGenerator(new SingletonPowerShellRunspace());
+        _toolMetadataSource = metadataSource ?? new DefaultToolMetadataSource();
     }
 
     /// <summary>
@@ -64,14 +78,42 @@ public class McpToolFactoryV2
     /// </summary>
     /// <param name="runspace">PowerShell runspace to use</param>
     public McpToolFactoryV2(IPowerShellRunspace runspace)
+        : this(runspace, metadataSource: null)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of McpToolFactoryV2 with a specified runspace and an
+    /// explicit tool-metadata source.
+    /// </summary>
+    /// <param name="runspace">PowerShell runspace to use.</param>
+    /// <param name="metadataSource">Source that resolves MCP tool/parameter descriptions
+    /// per spec 010. <c>null</c> selects <see cref="DefaultToolMetadataSource"/> which
+    /// preserves pre-spec-010 behavior.</param>
+    public McpToolFactoryV2(IPowerShellRunspace runspace, IToolMetadataSource? metadataSource)
     {
         _assemblyGenerator = new PowerShellAssemblyGenerator(runspace);
+        _toolMetadataSource = metadataSource ?? new DefaultToolMetadataSource();
     }
 
     public McpToolFactoryV2(ICommandExecutor commandExecutor)
+        : this(commandExecutor, metadataSource: null)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of McpToolFactoryV2 backed by an out-of-process command
+    /// executor and an explicit tool-metadata source.
+    /// </summary>
+    /// <param name="commandExecutor">Out-of-process command executor.</param>
+    /// <param name="metadataSource">Source that resolves MCP tool/parameter descriptions
+    /// per spec 010. <c>null</c> selects <see cref="DefaultToolMetadataSource"/> which
+    /// preserves pre-spec-010 behavior.</param>
+    public McpToolFactoryV2(ICommandExecutor commandExecutor, IToolMetadataSource? metadataSource)
     {
         _commandExecutor = commandExecutor ?? throw new ArgumentNullException(nameof(commandExecutor));
         _outOfProcessAssemblyGenerator = new OutOfProcessToolAssemblyGenerator(commandExecutor);
+        _toolMetadataSource = metadataSource ?? new DefaultToolMetadataSource();
     }
 
     /// <summary>
@@ -96,7 +138,7 @@ public class McpToolFactoryV2
         var metadata = CreateDefaultCommandMetadata(commandInfo);
         try
         {
-            SetParameterSetDescription(metadata, commandInfo, parameterSet, logger);
+            SetParameterSetDescription(metadata, commandInfo, parameterSet, _toolMetadataSource, logger);
             AnalyzeCommandVerbSafety(metadata, commandInfo, powerShell, logger);
         }
         catch (Exception ex)
@@ -120,25 +162,24 @@ public class McpToolFactoryV2
         };
     }
 
-    private static void SetParameterSetDescription(PowerShellCommandMetadata metadata, CommandInfo commandInfo, CommandParameterSetInfo parameterSet, ILogger logger)
+    private static void SetParameterSetDescription(PowerShellCommandMetadata metadata, CommandInfo commandInfo, CommandParameterSetInfo parameterSet, IToolMetadataSource metadataSource, ILogger logger)
     {
         try
         {
             var parameterSetSyntax = parameterSet.ToString();
-            if (!string.IsNullOrWhiteSpace(parameterSetSyntax))
-            {
-                metadata.Description = $"{commandInfo.Name} {parameterSetSyntax}";
-                logger.LogDebug($"Generated parameter-set-specific description for {commandInfo.Name} ({parameterSet.Name}): {metadata.Description}");
-            }
-            else
-            {
-                metadata.Description = commandInfo.Name;
-                logger.LogDebug($"No parameter set syntax available for {commandInfo.Name} ({parameterSet.Name}), using command name as fallback");
-            }
+            var request = new ToolDescriptionRequest(
+                CommandName: commandInfo.Name,
+                ParameterSetName: parameterSet.Name,
+                Synopsis: null,
+                LongDescription: null,
+                ParameterSetSyntax: parameterSetSyntax);
+            var result = metadataSource.ResolveToolDescription(in request);
+            metadata.Description = result.Description;
+            logger.LogDebug($"Resolved description for {commandInfo.Name} ({parameterSet.Name}) via {result.Source}: {metadata.Description}");
         }
         catch (Exception ex)
         {
-            logger.LogWarning($"Could not generate parameter-set syntax for command {commandInfo.Name} ({parameterSet.Name}): {ex.Message}");
+            logger.LogWarning($"Could not resolve tool description for command {commandInfo.Name} ({parameterSet.Name}): {ex.Message}");
             metadata.Description = commandInfo.Name;
         }
     }
@@ -351,7 +392,7 @@ public class McpToolFactoryV2
         _outOfProcessAssemblyGenerator.GenerateAssembly(schemas, logger);
         var generatedInstance = _outOfProcessAssemblyGenerator.GetGeneratedInstance(logger);
         var generatedMethods = _outOfProcessAssemblyGenerator.GetGeneratedMethods();
-        var methodToCommandMap = CreateRemoteCommandMetadataMapping(schemas);
+        var methodToCommandMap = CreateRemoteCommandMetadataMapping(schemas, _toolMetadataSource);
         var tools = CreateMcpToolsFromMethods(generatedMethods, generatedInstance, methodToCommandMap, logger);
         LogToolGenerationResults(tools, logger);
         return tools;
@@ -429,17 +470,24 @@ public class McpToolFactoryV2
         return methodToCommandMap;
     }
 
-    private static Dictionary<string, PowerShellCommandMetadata> CreateRemoteCommandMetadataMapping(IReadOnlyList<RemoteToolSchema> schemas)
+    private static Dictionary<string, PowerShellCommandMetadata> CreateRemoteCommandMetadataMapping(IReadOnlyList<RemoteToolSchema> schemas, IToolMetadataSource metadataSource)
     {
         var methodToCommandMap = new Dictionary<string, PowerShellCommandMetadata>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var schema in schemas)
         {
             var methodName = PowerShellAssemblyGenerator.SanitizeMethodName(schema.Name, schema.ParameterSetName);
+            var request = new ToolDescriptionRequest(
+                CommandName: schema.Name,
+                ParameterSetName: schema.ParameterSetName,
+                Synopsis: string.IsNullOrWhiteSpace(schema.Description) ? null : schema.Description,
+                LongDescription: null,
+                ParameterSetSyntax: null);
+            var result = metadataSource.ResolveToolDescription(in request);
             var metadata = new PowerShellCommandMetadata
             {
                 CommandName = schema.Name,
-                Description = string.IsNullOrWhiteSpace(schema.Description) ? schema.Name : schema.Description,
+                Description = result.Description,
                 IsDestructive = false,
                 IsReadOnly = false,
                 IsIdempotent = false
