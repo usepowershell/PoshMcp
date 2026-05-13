@@ -141,10 +141,11 @@ internal static class StdioServerHost
         // Register and configure OpenTelemetry metrics
         builder.Services.AddSingleton<McpMetrics>();
 
-        // Spec 010 seam: shared MCP tool/parameter description sourcing. The default impl
-        // preserves pre-spec-010 behavior; #226 / #227 replace this registration with an
-        // implementation that consults Get-Help.
-        builder.Services.TryAddSingleton<IToolMetadataSource, DefaultToolMetadataSource>();
+        // Spec 010 seam: shared MCP tool/parameter description sourcing. The Help-aware
+        // implementation applies the FR-500/FR-510 precedence chain (Get-Help synopsis →
+        // long description → syntax → name for tools; Get-Help parameter → HelpMessage →
+        // ValidateSet phrasing → typed fallback for parameters) and the FR-540 sanitizer.
+        builder.Services.TryAddSingleton<IToolMetadataSource, HelpAwareToolMetadataSource>();
 
         builder.Services.AddOpenTelemetry()
             .WithTracing(tracingBuilder =>

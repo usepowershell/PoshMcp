@@ -41,6 +41,7 @@ public class McpToolFactoryV2
     private readonly OutOfProcessToolAssemblyGenerator? _outOfProcessAssemblyGenerator;
     private readonly ICommandExecutor? _commandExecutor;
     private readonly IToolMetadataSource _toolMetadataSource;
+    private readonly PowerShellHelpResolver _helpResolver = new();
     private static McpMetrics? _metrics;
 
     /// <summary>
@@ -133,12 +134,12 @@ public class McpToolFactoryV2
     /// <param name="powerShell">PowerShell instance for executing queries</param>
     /// <param name="logger">Logger instance</param>
     /// <returns>Command metadata with parameter-set-specific syntax, verb info, and safety characteristics</returns>
-    private PowerShellCommandMetadata GetCommandMetadata(CommandInfo commandInfo, CommandParameterSetInfo parameterSet, PSPowerShell powerShell, ILogger logger)
+    private PowerShellCommandMetadata GetCommandMetadata(CommandInfo commandInfo, CommandParameterSetInfo parameterSet, PSPowerShell powerShell, CommandHelpInfo help, ILogger logger)
     {
         var metadata = CreateDefaultCommandMetadata(commandInfo);
         try
         {
-            SetParameterSetDescription(metadata, commandInfo, parameterSet, _toolMetadataSource, logger);
+            SetParameterSetDescription(metadata, commandInfo, parameterSet, _toolMetadataSource, help, logger);
             AnalyzeCommandVerbSafety(metadata, commandInfo, powerShell, logger);
         }
         catch (Exception ex)
@@ -162,7 +163,7 @@ public class McpToolFactoryV2
         };
     }
 
-    private static void SetParameterSetDescription(PowerShellCommandMetadata metadata, CommandInfo commandInfo, CommandParameterSetInfo parameterSet, IToolMetadataSource metadataSource, ILogger logger)
+    private static void SetParameterSetDescription(PowerShellCommandMetadata metadata, CommandInfo commandInfo, CommandParameterSetInfo parameterSet, IToolMetadataSource metadataSource, CommandHelpInfo help, ILogger logger)
     {
         try
         {
@@ -170,8 +171,8 @@ public class McpToolFactoryV2
             var request = new ToolDescriptionRequest(
                 CommandName: commandInfo.Name,
                 ParameterSetName: parameterSet.Name,
-                Synopsis: null,
-                LongDescription: null,
+                Synopsis: help.Synopsis,
+                LongDescription: help.LongDescription,
                 ParameterSetSyntax: parameterSetSyntax);
             var result = metadataSource.ResolveToolDescription(in request);
             metadata.Description = result.Description;
@@ -362,8 +363,14 @@ public class McpToolFactoryV2
                 var commands = ValidateAndGetCommands(config, logger);
                 if (!commands.Any()) return new List<McpServerTool>();
 
-                var (generatedAssembly, generatedInstance, generatedMethods) = GenerateAssemblyAndMethods(commands, logger);
-                var methodToCommandMap = CreateCommandMetadataMapping(commands, logger);
+                // Resolve Get-Help once per command (FR-570) so both the command-level
+                // metadata mapping and the parameter-level [Description] emission below
+                // share a single, cached lookup. Empty / missing help is tolerated.
+                var helpMap = ResolveHelpForCommands(commands, logger);
+                var parameterDescriptions = BuildParameterDescriptionMap(commands, helpMap);
+
+                var (generatedAssembly, generatedInstance, generatedMethods) = GenerateAssemblyAndMethods(commands, parameterDescriptions, logger);
+                var methodToCommandMap = CreateCommandMetadataMapping(commands, helpMap, logger);
                 var tools = CreateMcpToolsFromMethods(generatedMethods, generatedInstance, methodToCommandMap, logger);
                 LogToolGenerationResults(tools, logger);
                 return tools;
@@ -425,13 +432,13 @@ public class McpToolFactoryV2
         logger.LogDebug("  - Review include/exclude patterns");
     }
 
-    private (Assembly assembly, object instance, Dictionary<string, MethodInfo> methods) GenerateAssemblyAndMethods(List<CommandInfo> commands, ILogger logger)
+    private (Assembly assembly, object instance, Dictionary<string, MethodInfo> methods) GenerateAssemblyAndMethods(List<CommandInfo> commands, IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> parameterDescriptions, ILogger logger)
     {
         logger.LogInformation($"Found {commands.Count} PowerShell commands");
         logger.LogTrace($"Commands to process: [{string.Join(", ", commands.Select(c => c.Name))}]");
 
         logger.LogDebug("Generating dynamic assembly for PowerShell commands...");
-        var generatedAssembly = _assemblyGenerator.GenerateAssembly(commands, logger);
+        var generatedAssembly = _assemblyGenerator.GenerateAssembly(commands, parameterDescriptions, logger);
         var generatedInstance = _assemblyGenerator.GetGeneratedInstance(logger);
         var generatedMethods = _assemblyGenerator.GetGeneratedMethods();
 
@@ -457,7 +464,89 @@ public class McpToolFactoryV2
         }
     }
 
-    private Dictionary<string, PowerShellCommandMetadata> CreateCommandMetadataMapping(List<CommandInfo> commands, ILogger logger)
+    private Dictionary<string, CommandHelpInfo> ResolveHelpForCommands(List<CommandInfo> commands, ILogger logger)
+    {
+        var map = new Dictionary<string, CommandHelpInfo>(StringComparer.OrdinalIgnoreCase);
+        if (_assemblyGenerator == null)
+        {
+            return map;
+        }
+
+        var powerShell = _assemblyGenerator.PowerShellRunspace.Instance;
+        foreach (var command in commands)
+        {
+            if (map.ContainsKey(command.Name))
+            {
+                continue;
+            }
+            map[command.Name] = _helpResolver.Resolve(command.Name, powerShell, logger);
+        }
+        return map;
+    }
+
+    private IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> BuildParameterDescriptionMap(List<CommandInfo> commands, IReadOnlyDictionary<string, CommandHelpInfo> helpMap)
+    {
+        var result = new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var command in commands)
+        {
+            if (result.ContainsKey(command.Name))
+            {
+                continue;
+            }
+
+            var help = helpMap.TryGetValue(command.Name, out var info) ? info : CommandHelpInfo.Empty;
+            var perParameter = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var paramKvp in command.Parameters)
+            {
+                if (PowerShellParameterUtils.IsCommonParameter(paramKvp.Key))
+                {
+                    continue;
+                }
+
+                var paramName = paramKvp.Key;
+                var paramMetadata = paramKvp.Value;
+
+                help.ParameterDescriptions.TryGetValue(paramName, out var helpParamText);
+                var helpMessage = paramMetadata.Attributes.OfType<ParameterAttribute>()
+                    .Select(attr => attr.HelpMessage)
+                    .FirstOrDefault(msg => !string.IsNullOrWhiteSpace(msg));
+
+                var validateSetAttr = paramMetadata.Attributes.OfType<ValidateSetAttribute>().FirstOrDefault();
+                IReadOnlyList<string>? validateValues = validateSetAttr?.ValidValues != null
+                    ? validateSetAttr.ValidValues.ToArray()
+                    : null;
+                var appliesToArrayElement = validateValues != null && paramMetadata.ParameterType.IsArray;
+
+                var typeName = paramMetadata.ParameterType.Name;
+                var request = new ParameterDescriptionRequest(
+                    CommandName: command.Name,
+                    ParameterName: paramName,
+                    ParameterTypeName: typeName,
+                    HelpParameterDescription: helpParamText,
+                    HelpMessage: helpMessage,
+                    ValidateSetValues: validateValues,
+                    ValidateSetAppliesToArrayElement: appliesToArrayElement);
+
+                var resolved = _toolMetadataSource.ResolveParameterDescription(in request);
+                if (resolved.Source != ParameterDescriptionSource.TypeFallback
+                    && !string.IsNullOrWhiteSpace(resolved.Description))
+                {
+                    perParameter[paramName] = resolved.Description;
+                }
+            }
+
+            if (perParameter.Count > 0)
+            {
+                result[command.Name] = perParameter;
+            }
+        }
+
+        return result;
+    }
+
+    private Dictionary<string, PowerShellCommandMetadata> CreateCommandMetadataMapping(List<CommandInfo> commands, IReadOnlyDictionary<string, CommandHelpInfo> helpMap, ILogger logger)
     {
         var methodToCommandMap = new Dictionary<string, PowerShellCommandMetadata>();
         // Use the injected runspace instance instead of the singleton to support session-aware runspaces
@@ -465,7 +554,8 @@ public class McpToolFactoryV2
 
         foreach (var command in commands)
         {
-            MapParameterSetsToMetadata(command, powerShell, methodToCommandMap, logger);
+            var help = helpMap.TryGetValue(command.Name, out var info) ? info : CommandHelpInfo.Empty;
+            MapParameterSetsToMetadata(command, powerShell, help, methodToCommandMap, logger);
         }
         return methodToCommandMap;
     }
@@ -514,12 +604,12 @@ public class McpToolFactoryV2
         return methodToCommandMap;
     }
 
-    private void MapParameterSetsToMetadata(CommandInfo command, PSPowerShell powerShell, Dictionary<string, PowerShellCommandMetadata> methodToCommandMap, ILogger logger)
+    private void MapParameterSetsToMetadata(CommandInfo command, PSPowerShell powerShell, CommandHelpInfo help, Dictionary<string, PowerShellCommandMetadata> methodToCommandMap, ILogger logger)
     {
         foreach (var parameterSet in command.ParameterSets)
         {
             var methodName = PowerShellAssemblyGenerator.SanitizeMethodName(command.Name, parameterSet.Name);
-            var metadata = GetCommandMetadata(command, parameterSet, powerShell, logger);
+            var metadata = GetCommandMetadata(command, parameterSet, powerShell, help, logger);
             methodToCommandMap[methodName] = metadata;
             logger.LogDebug($"Created parameter-set-specific metadata for method '{methodName}' from command '{command.Name}' parameter set '{parameterSet.Name}'");
         }
