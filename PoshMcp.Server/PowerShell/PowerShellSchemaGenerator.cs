@@ -13,8 +13,9 @@ namespace PoshMcp.Server.PowerShell;
 /// <see cref="IToolMetadataSource"/> so they apply the same FR-510 precedence chain
 /// (Get-Help parameter → ParameterAttribute.HelpMessage → ValidateSet phrasing → typed
 /// fallback) used by the in-process and out-of-process tool factory paths. Callers that
-/// don't supply a source receive the type-fallback string for every parameter (preserves
-/// pre-spec-010 output).
+/// don't supply a source get a default <see cref="HelpAwareToolMetadataSource"/> so the
+/// precedence chain still applies on cold doc-emission paths; without pre-resolved
+/// Get-Help text the chain degrades naturally to HelpMessage / ValidateSet / typed fallback.
 /// </remarks>
 public static class PowerShellSchemaGenerator
 {
@@ -23,14 +24,17 @@ public static class PowerShellSchemaGenerator
     /// </summary>
     /// <param name="commandInfo">The PowerShell command information.</param>
     /// <param name="metadataSource">Optional metadata source used to resolve per-parameter
-    /// descriptions per spec 010 FR-510. Defaults to <see cref="DefaultToolMetadataSource"/>
-    /// when omitted, which preserves pre-spec-010 output.</param>
+    /// descriptions per spec 010 FR-510. Defaults to <see cref="HelpAwareToolMetadataSource"/>
+    /// when omitted so the FR-510 precedence chain (Get-Help → HelpMessage → ValidateSet →
+    /// typed fallback) is applied even on cold doc-emission paths. Get-Help inputs are not
+    /// available at this layer, so the chain naturally degrades to HelpMessage / ValidateSet /
+    /// typed fallback unless the caller supplies a pre-resolved source.</param>
     /// <returns>A schema object representing the command parameters.</returns>
     public static object GenerateParameterSchema(CommandInfo commandInfo, IToolMetadataSource? metadataSource = null)
     {
         var properties = new Dictionary<string, object>();
         var required = new List<string>();
-        var source = metadataSource ?? new DefaultToolMetadataSource();
+        var source = metadataSource ?? new HelpAwareToolMetadataSource();
 
         foreach (var parameterKvp in commandInfo.Parameters)
         {
@@ -127,7 +131,7 @@ public static class PowerShellSchemaGenerator
         // Resolve description through the spec 010 precedence chain. Pull the same inputs
         // the in-process call site collects (Get-Help text isn't available here, so the
         // chain naturally degrades to HelpMessage / ValidateSet / typed fallback).
-        var source = metadataSource ?? new DefaultToolMetadataSource();
+        var source = metadataSource ?? new HelpAwareToolMetadataSource();
         var helpMessage = parameterMetadata.Attributes.OfType<ParameterAttribute>()
             .Select(a => a.HelpMessage)
             .FirstOrDefault(m => !string.IsNullOrWhiteSpace(m));
