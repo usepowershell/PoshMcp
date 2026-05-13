@@ -46,6 +46,12 @@ public class McpMetrics
     public Counter<long> AgentInvocationTotal { get; }
     public Histogram<double> AgentToolDiversity { get; }
 
+    // Spec 010 FR-590 — description-source resolution counters. Tag values are
+    // emitted via DescriptionSourceVocabulary.ToWireValue so the strings stay
+    // byte-identical to the doctor report's FR-583 vocabulary.
+    public Counter<long> ToolDescriptionSourceCount { get; }
+    public Counter<long> ParameterDescriptionSourceCount { get; }
+
     public McpMetrics()
     {
         _meter = new Meter(MeterName, MeterVersion);
@@ -128,6 +134,18 @@ public class McpMetrics
         AgentToolDiversity = _meter.CreateHistogram<double>(
             "mcp_agent_tool_diversity",
             description: "Number of unique tools used per agent over time");
+
+        // Spec 010 FR-590 — emitted on every tool/parameter description
+        // resolution (in-process and out-of-process paths). Tag `step` carries
+        // the FR-583 wire value (synopsis|description|syntax|name for tools;
+        // helpParameter|helpMessage|validateSet|typeFallback for parameters).
+        ToolDescriptionSourceCount = _meter.CreateCounter<long>(
+            "poshmcp.tool_description.source",
+            description: "Count of tool description resolutions, tagged by precedence step that supplied the description");
+
+        ParameterDescriptionSourceCount = _meter.CreateCounter<long>(
+            "poshmcp.parameter_description.source",
+            description: "Count of parameter description resolutions, tagged by precedence step that supplied the description");
     }
 
     public void Dispose()
