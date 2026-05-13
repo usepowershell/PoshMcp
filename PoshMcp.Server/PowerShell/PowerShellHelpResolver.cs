@@ -151,10 +151,20 @@ public sealed class PowerShellHelpResolver
 
     private static IEnumerable<object?>? ResolveParameterArray(object value)
     {
-        var unwrapped = value is PSObject pso ? pso.BaseObject ?? pso : value;
-        var holder = unwrapped as PSObject ?? new PSObject(unwrapped);
-
+        // Get-Help returns .parameters as a PSObject wrapping a PSCustomObject. The
+        // synthesized .parameter[] member lives on the PSObject wrapper — calling
+        // .BaseObject would dereference to the PSCustomObject marker type, which has
+        // no public members, dropping the parameter array on the floor (issue #242).
+        // Access Properties directly on the wrapper, only falling back to BaseObject
+        // unwrapping if the wrapper does not expose .parameter.
+        var holder = value as PSObject ?? new PSObject(value);
         var parameterMember = holder.Properties["parameter"]?.Value;
+        if (parameterMember == null && value is PSObject pso && pso.BaseObject is { } baseObj && !ReferenceEquals(baseObj, pso))
+        {
+            var baseHolder = baseObj as PSObject ?? new PSObject(baseObj);
+            parameterMember = baseHolder.Properties["parameter"]?.Value;
+        }
+
         if (parameterMember == null)
         {
             // Some shapes pass the parameter array directly.

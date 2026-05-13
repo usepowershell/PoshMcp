@@ -139,7 +139,7 @@ public class McpToolFactoryV2
     public McpToolFactoryV2(IToolMetadataSource? metadataSource, IToolDescriptionSourceTracker? descriptionSourceTracker)
     {
         _assemblyGenerator = new PowerShellAssemblyGenerator(new SingletonPowerShellRunspace());
-        _toolMetadataSource = metadataSource ?? new DefaultToolMetadataSource();
+        _toolMetadataSource = metadataSource ?? new HelpAwareToolMetadataSource();
         _descriptionSourceTracker = descriptionSourceTracker;
     }
 
@@ -172,7 +172,7 @@ public class McpToolFactoryV2
     public McpToolFactoryV2(IPowerShellRunspace runspace, IToolMetadataSource? metadataSource, IToolDescriptionSourceTracker? descriptionSourceTracker)
     {
         _assemblyGenerator = new PowerShellAssemblyGenerator(runspace);
-        _toolMetadataSource = metadataSource ?? new DefaultToolMetadataSource();
+        _toolMetadataSource = metadataSource ?? new HelpAwareToolMetadataSource();
         _descriptionSourceTracker = descriptionSourceTracker;
     }
 
@@ -202,7 +202,7 @@ public class McpToolFactoryV2
     {
         _commandExecutor = commandExecutor ?? throw new ArgumentNullException(nameof(commandExecutor));
         _outOfProcessAssemblyGenerator = new OutOfProcessToolAssemblyGenerator(commandExecutor);
-        _toolMetadataSource = metadataSource ?? new DefaultToolMetadataSource();
+        _toolMetadataSource = metadataSource ?? new HelpAwareToolMetadataSource();
         _descriptionSourceTracker = descriptionSourceTracker;
     }
 

@@ -705,3 +705,23 @@ should update to their own path (removed the repo-internal `examples/appsettings
 **#242 observation (FR-510 parameter descriptions not reaching MCP `inputSchema`):** Looked but did not deeply audit. The PR will note this is a separate concern. Hypothesis: `BuildParameterDescriptionMap` does record into the description map, but the description map may not be flowing into the JSON Schema property definition emitted to MCP. Worth its own investigation — different code path from doctor output (which now reads the tracker, not the schema).
 
 **Test coverage (12 unit tests):** all 4 tool sources + all 4 parameter sources via real `HelpAwareToolMetadataSource` resolution + tracker first-wins semantics + JSON round-trip + vocabulary mapping (both enums) + `BuildToolDescriptionEntries` empty/populated paths. 521 unit tests now passing.
+
+## Learnings — 2026-05-13 (Issue #242)
+
+**PowerShell SDK: PSObject wrapper vs BaseObject for Get-Help.parameters**
+
+Get-Help returns .parameters as a PSObject whose BaseObject is a marker PSCustomObject with no public members. The synthesized .parameter[] collection only exists on the **wrapper**, NOT on BaseObject. Calling .BaseObject first dereferences to the marker and silently drops the array.
+
+Rule: when working with PowerShell adapted/synthesized members (especially Get-Help output, format data, custom property sets), access `Properties["name"]` on the PSObject wrapper directly. Only fall back to BaseObject when the wrapper does not expose the member you need. Never reflexively unwrap.
+
+This bug shipped silently because the resolver returned the right strings for parameters it could find, but the array itself was empty — so callers got "no parameters in help" rather than an exception.
+
+## Learnings — 2026-05-13 (Issue #242)
+
+**PowerShell SDK: PSObject wrapper vs BaseObject for Get-Help.parameters**
+
+Get-Help returns .parameters as a PSObject whose BaseObject is a marker PSCustomObject with no public members. The synthesized .parameter[] collection only exists on the **wrapper**, NOT on BaseObject. Calling .BaseObject first dereferences to the marker and silently drops the array.
+
+Rule: when working with PowerShell adapted/synthesized members (especially Get-Help output, format data, custom property sets), access `Properties["name"]` on the PSObject wrapper directly. Only fall back to BaseObject when the wrapper does not expose the member you need. Never reflexively unwrap.
+
+This bug shipped silently because the resolver returned the right strings for parameters it could find, but the array itself was empty — so callers got "no parameters in help" rather than an exception.

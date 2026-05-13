@@ -210,7 +210,7 @@ public sealed class ToolDescriptionParityTests : PowerShellTestBase, IAsyncLifet
     /// <item>Get-FixtureValidateSetArray.Directions → FR-510 step 3 (array).</item>
     /// </list>
     /// </remarks>
-    [Theory(Skip = "Tracking issue #242 — FR-510 wiring gap: inputSchema parameter descriptions are empty in both modes. Resolver returns the right strings but they don't reach inputSchema.properties.<name>.description. Un-skip when #242 is fixed.")]
+    [Theory]
     [InlineData("Get-FixtureFullHelp", "Message")]
     [InlineData("Get-FixtureFullHelp", "Count")]
     [InlineData("Get-FixtureHelpMessageOnly", "UserId")]
@@ -255,7 +255,7 @@ public sealed class ToolDescriptionParityTests : PowerShellTestBase, IAsyncLifet
     /// OutOfProcess path so the gap is surfaced in BOTH runtimes when present.
     /// Skipped when pwsh is not on PATH.
     /// </summary>
-    [Theory(Skip = "Tracking issue #242 — FR-510 wiring gap: inputSchema parameter descriptions are empty in both modes. Resolver returns the right strings but they don't reach inputSchema.properties.<name>.description. Un-skip when #242 is fixed.")]
+    [PwshAvailableTheory]
     [InlineData("Get-FixtureFullHelp", "Message")]
     [InlineData("Get-FixtureFullHelp", "Count")]
     [InlineData("Get-FixtureHelpMessageOnly", "UserId")]
