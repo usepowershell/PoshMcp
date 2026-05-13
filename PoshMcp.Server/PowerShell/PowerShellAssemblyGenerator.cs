@@ -26,6 +26,21 @@ public class PowerShellAssemblyGenerator
     private const string MaxResultsParameterName = "_MaxResults";
     private const string RequestedPropertiesParameterName = "_RequestedProperties";
 
+    private static readonly ConstructorInfo s_descriptionAttributeCtor =
+        typeof(System.ComponentModel.DescriptionAttribute).GetConstructor(new[] { typeof(string) })
+        ?? throw new InvalidOperationException("System.ComponentModel.DescriptionAttribute(string) constructor not found.");
+
+    private static IReadOnlyDictionary<string, string>? ResolveParameterDescriptions(
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? parameterDescriptions,
+        string commandName)
+    {
+        if (parameterDescriptions == null)
+        {
+            return null;
+        }
+        return parameterDescriptions.TryGetValue(commandName, out var perParameter) ? perParameter : null;
+    }
+
     public Assembly? GeneratedAssembly => _generatedAssembly;
 
     /// <summary>
@@ -158,12 +173,35 @@ public class PowerShellAssemblyGenerator
     }
 
     /// <summary>
-    /// Generates or retrieves the cached in-memory assembly containing PowerShell command methods
+    /// Generates or retrieves the cached in-memory assembly containing PowerShell command methods.
     /// </summary>
     /// <param name="commands">List of PowerShell commands to generate methods for</param>
     /// <param name="logger">Logger instance</param>
     /// <returns>The generated assembly</returns>
+    /// <remarks>
+    /// Convenience overload for callers that have not pre-computed parameter descriptions
+    /// (notably the in-tree functional tests). Spec 010 in-process callers MUST use the
+    /// overload that accepts a parameter-description map so the generated method parameters
+    /// receive <see cref="System.ComponentModel.DescriptionAttribute"/> instances and the
+    /// MCP SDK auto-schema surfaces them as <c>inputSchema.properties.&lt;name&gt;.description</c>.
+    /// </remarks>
     public Assembly GenerateAssembly(IEnumerable<CommandInfo> commands, ILogger logger)
+        => GenerateAssembly(commands, parameterDescriptions: null, logger);
+
+    /// <summary>
+    /// Generates or retrieves the cached in-memory assembly containing PowerShell command methods,
+    /// applying per-parameter descriptions resolved by spec 010's <see cref="HelpAwareToolMetadataSource"/>.
+    /// </summary>
+    /// <param name="commands">List of PowerShell commands to generate methods for.</param>
+    /// <param name="parameterDescriptions">Map keyed by command name; each value is a map from
+    /// parameter name to the resolved description text. May be <c>null</c> or empty (legacy
+    /// behavior preserved). When supplied, each generated method parameter receives a
+    /// <see cref="System.ComponentModel.DescriptionAttribute"/>.</param>
+    /// <param name="logger">Logger instance.</param>
+    public Assembly GenerateAssembly(
+        IEnumerable<CommandInfo> commands,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? parameterDescriptions,
+        ILogger logger)
     {
         lock (_lock)
         {
@@ -215,7 +253,7 @@ public class PowerShellAssemblyGenerator
                     {
                         try
                         {
-                            var generated = GenerateMethodForCommand(typeBuilder, command, loggerField, runspaceField, logger, parameterSet);
+                            var generated = GenerateMethodForCommand(typeBuilder, command, loggerField, runspaceField, logger, parameterSet, ResolveParameterDescriptions(parameterDescriptions, command.Name));
                             if (generated)
                                 anyParameterSetGenerated = true;
                         }
@@ -355,7 +393,7 @@ public class PowerShellAssemblyGenerator
     /// <c>true</c> if the method was generated; <c>false</c> if the parameter set was skipped
     /// because one or more mandatory parameters have unserializable types.
     /// </returns>
-    private static bool GenerateMethodForCommand(TypeBuilder typeBuilder, CommandInfo commandInfo, FieldBuilder loggerField, FieldBuilder runspaceField, ILogger logger, CommandParameterSetInfo parameterSet)
+    private static bool GenerateMethodForCommand(TypeBuilder typeBuilder, CommandInfo commandInfo, FieldBuilder loggerField, FieldBuilder runspaceField, ILogger logger, CommandParameterSetInfo parameterSet, IReadOnlyDictionary<string, string>? parameterDescriptions)
     {
         // Get command parameters for this specific parameter set (excluding common parameters) and order by position.
         //
@@ -570,6 +608,24 @@ public class PowerShellAssemblyGenerator
             {
                 // Mandatory parameter
                 paramBuilder = methodBuilder.DefineParameter(i + 1, ParameterAttributes.None, parameterNames[i]);
+            }
+
+            // Spec 010 FR-510: attach [Description] to PowerShell-derived parameters so the
+            // MCP SDK auto-schema surfaces them as inputSchema.properties.<name>.description.
+            // Framework parameters (_AllProperties, _MaxResults, _RequestedProperties) and
+            // CancellationToken are skipped — they have framework-level documentation that
+            // lives elsewhere.
+            if (parameterDescriptions != null && i < parameters.Count)
+            {
+                var originalName = parameters[i].Key;
+                if (parameterDescriptions.TryGetValue(originalName, out var description)
+                    && !string.IsNullOrWhiteSpace(description))
+                {
+                    var attrBuilder = new CustomAttributeBuilder(
+                        s_descriptionAttributeCtor,
+                        new object[] { description });
+                    paramBuilder.SetCustomAttribute(attrBuilder);
+                }
             }
         }
 
