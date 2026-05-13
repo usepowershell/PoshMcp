@@ -55,6 +55,58 @@ public class McpToolFactoryV2
     }
 
     /// <summary>
+    /// Spec 010 FR-590 — emit a counter sample for a resolved tool description
+    /// source. Reuses <see cref="DescriptionSourceVocabulary.ToWireValue(ToolDescriptionSource)"/>
+    /// so the OTel tag stays byte-identical to the doctor report's FR-583 value.
+    /// Failure-isolated: per the metrics charter, instrumentation must never
+    /// crash the application, so any exception is swallowed.
+    /// </summary>
+    private static void RecordToolDescriptionSourceMetric(ToolDescriptionSource source)
+    {
+        var metrics = _metrics;
+        if (metrics is null)
+        {
+            return;
+        }
+
+        try
+        {
+            metrics.ToolDescriptionSourceCount.Add(
+                1,
+                new KeyValuePair<string, object?>("step", DescriptionSourceVocabulary.ToWireValue(source)));
+        }
+        catch
+        {
+            // Charter: metrics must never crash the application.
+        }
+    }
+
+    /// <summary>
+    /// Spec 010 FR-590 — emit a counter sample for a resolved parameter
+    /// description source. See <see cref="RecordToolDescriptionSourceMetric"/>
+    /// for the failure-isolation rationale.
+    /// </summary>
+    private static void RecordParameterDescriptionSourceMetric(ParameterDescriptionSource source)
+    {
+        var metrics = _metrics;
+        if (metrics is null)
+        {
+            return;
+        }
+
+        try
+        {
+            metrics.ParameterDescriptionSourceCount.Add(
+                1,
+                new KeyValuePair<string, object?>("step", DescriptionSourceVocabulary.ToWireValue(source)));
+        }
+        catch
+        {
+            // Charter: metrics must never crash the application.
+        }
+    }
+
+    /// <summary>
     /// Initializes a new instance of McpToolFactoryV2 with default runspace
     /// </summary>
     public McpToolFactoryV2()
@@ -214,6 +266,7 @@ public class McpToolFactoryV2
             var result = metadataSource.ResolveToolDescription(in request);
             metadata.Description = result.Description;
             descriptionSourceTracker?.RecordToolSource(commandInfo.Name, result.Source);
+            RecordToolDescriptionSourceMetric(result.Source);
             logger.LogDebug($"Resolved description for {commandInfo.Name} ({parameterSet.Name}) via {result.Source}: {metadata.Description}");
         }
         catch (Exception ex)
@@ -570,6 +623,7 @@ public class McpToolFactoryV2
 
                 var resolved = _toolMetadataSource.ResolveParameterDescription(in request);
                 _descriptionSourceTracker?.RecordParameterSource(command.Name, paramName, resolved.Source);
+                RecordParameterDescriptionSourceMetric(resolved.Source);
                 if (resolved.Source != ParameterDescriptionSource.TypeFallback
                     && !string.IsNullOrWhiteSpace(resolved.Description))
                 {
@@ -615,6 +669,7 @@ public class McpToolFactoryV2
                 ParameterSetSyntax: BuildRemoteParameterSetSyntax(schema));
             var result = metadataSource.ResolveToolDescription(in request);
             descriptionSourceTracker?.RecordToolSource(schema.Name, result.Source);
+            RecordToolDescriptionSourceMetric(result.Source);
             var metadata = new PowerShellCommandMetadata
             {
                 CommandName = schema.Name,
@@ -693,6 +748,7 @@ public class McpToolFactoryV2
 
                 var resolved = metadataSource.ResolveParameterDescription(in request);
                 descriptionSourceTracker?.RecordParameterSource(schema.Name, param.Name, resolved.Source);
+                RecordParameterDescriptionSourceMetric(resolved.Source);
                 if (resolved.Source != ParameterDescriptionSource.TypeFallback
                     && !string.IsNullOrWhiteSpace(resolved.Description))
                 {
