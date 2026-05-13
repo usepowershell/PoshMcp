@@ -299,6 +299,14 @@ public static class PowerShellParameterUtils
     /// (boxed string); the proxy function happily accepts it and forwards it
     /// over the implicit-remoting channel where the real underlying cmdlet
     /// performs its normal type coercion (string → Uri / enum / int / etc.).
+    /// <para>
+    /// PowerShell <see cref="SwitchParameter"/> is handled separately by
+    /// <see cref="SwitchParameterJsonConverter"/> + the
+    /// <c>SwitchParameterMcpSupport.SchemaOptions</c> schema-node transform,
+    /// which together accept boolean / <c>{isPresent}</c> / null on the wire and
+    /// advertise a permissive <c>anyOf</c> schema; no CLR type substitution is
+    /// needed for switches.
+    /// </para>
     /// </remarks>
     public static Type EffectiveParameterType(CommandInfo commandInfo, ParameterMetadata parameterMetadata)
     {
