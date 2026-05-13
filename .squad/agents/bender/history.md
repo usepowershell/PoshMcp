@@ -683,3 +683,25 @@ should update to their own path (removed the repo-internal `examples/appsettings
 
 ---
 
+
+## Learnings (2026-05-13) — issue #230 doctor descriptionSource
+
+**What landed:** Spec 010 sequencing step 8 — added descriptionSource to doctor JSON output identifying the resolved precedence step per command (FR-500 chain) and per parameter (FR-510 chain). FR-582 + FR-583 + SC-207 all addressed in one PR.
+
+**Vocabulary location is single source of truth.** DescriptionSourceVocabulary.ToWireValue(...) (in PoshMcp.Server.PowerShell) is the only place that maps the ToolDescriptionSource/ParameterDescriptionSource enums to wire literals (`synopsis|description|syntax|name` and `helpParameter|helpMessage|validateSet|typeFallback`). Issue #231 (OTel counters by description source) MUST reuse this — already documented in the decisions inbox for Amy's review.
+
+**Tracker design — parallel, not extension.** Did NOT extend `IToolMetadataSource` (which would have rippled into every implementer and broken the OOP seam landed in #228). Instead introduced `IToolDescriptionSourceTracker` as a separate optional dependency the factory accepts via constructor overloads. All existing constructors chain through with `descriptionSourceTracker: null` so no caller breaks. The tracker is recorded at the existing `Resolve*` call sites in `McpToolFactoryV2` (in-proc) AND in `CreateRemoteCommandMetadataMapping` / `BuildRemoteParameterDescriptionMap` (out-of-process — full OOP coverage).
+
+**Aggregation rule (from FR-501/FR-511):** `ToolDescriptionSourceTracker` uses first-recorded-wins per (command) and (command, parameter) pair. This matches the spec invariant that one command produces one tool description across all parameter sets, and a given parameter resolves to one source regardless of which set it appears in.
+
+**Doctor entry shape — by command, not by tool.** Initially built `BuildToolDescriptionEntries` to iterate `McpServerTool` and reverse-map sanitized names back to PowerShell command names. Aborted: `SanitizeMethodName` (in `PowerShellAssemblyGenerator`) does `CamelCaseToSnakeCase` + dash-to-underscore + lowercase + parameter-set suffix — lossy and impossible to reliably reverse (e.g., `Get-AzContext` → `get_az_context`). Switched to iterating the tracker directly and emitting one entry per recorded command. Same data, cleaner semantics, matches FR-501 (per-command granularity).
+
+**`HelpAwareToolMetadataSource` for CLI doctor.** Production wires HelpAware via DI in StdioServerHost/HttpServerHost. CLI doctor was previously using `DefaultToolMetadataSource` (the pre-spec fallback) — would have under-reported precedence steps. `BuildDoctorReportForCliAsync` now explicitly instantiates `new HelpAwareToolMetadataSource()` so reported sources match production behavior.
+
+**Func signature change rippled cleanly.** `BuildDoctorReportForCliAsync` Func type changed from 4-arg to 6-arg (added `IToolMetadataSource?, IToolDescriptionSourceTracker?`). Only one external caller in tests (`ProgramTests.BuildDoctorReportForCliAsync_WhenStartupAndDiscoveryFail_StillReturnsReportWithErrors`) — updated the lambda discards. Method group conversion in Program.cs picked up the new overload automatically.
+
+**Coordinate with spec 006:** doctor restructure (#239) put `functionsTools` in its own section with `toolNames`, `namedToolCount`, etc. Added `tools` field as a sibling — not nested under any existing field — so future spec additions to `functionsTools` stay independent.
+
+**#242 observation (FR-510 parameter descriptions not reaching MCP `inputSchema`):** Looked but did not deeply audit. The PR will note this is a separate concern. Hypothesis: `BuildParameterDescriptionMap` does record into the description map, but the description map may not be flowing into the JSON Schema property definition emitted to MCP. Worth its own investigation — different code path from doctor output (which now reads the tracker, not the schema).
+
+**Test coverage (12 unit tests):** all 4 tool sources + all 4 parameter sources via real `HelpAwareToolMetadataSource` resolution + tracker first-wins semantics + JSON round-trip + vocabulary mapping (both enums) + `BuildToolDescriptionEntries` empty/populated paths. 521 unit tests now passing.

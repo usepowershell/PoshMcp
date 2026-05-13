@@ -7,6 +7,7 @@ using System.Text.Json.Serialization;
 using PoshMcp.Server.Authentication;
 using PoshMcp.Server.McpPrompts;
 using PoshMcp.Server.McpResources;
+using PoshMcp.Server.PowerShell;
 
 namespace PoshMcp;
 
@@ -378,6 +379,18 @@ public sealed record FunctionsToolsSection
     /// <summary>Per-function resolution status details.</summary>
     [JsonPropertyName("configuredFunctionStatus")]
     public List<ConfiguredFunctionStatus> ConfiguredFunctionStatus { get; init; } = [];
+
+    /// <summary>
+    /// Per-tool description-source diagnostics. Spec 010 FR-582 / FR-583 / SC-207:
+    /// each entry reports the resolved precedence step that produced the MCP tool
+    /// description and each parameter description, using the wire vocabulary
+    /// <c>synopsis | description | syntax | name</c> for tools and
+    /// <c>helpParameter | helpMessage | validateSet | typeFallback</c> for parameters.
+    /// Empty when no <see cref="IToolDescriptionSourceTracker"/> was wired into
+    /// discovery (e.g., legacy callers).
+    /// </summary>
+    [JsonPropertyName("tools")]
+    public List<ToolDescriptionDoctorEntry> Tools { get; init; } = [];
 }
 
 /// <summary>MCP resource and prompt definition diagnostics.</summary>
