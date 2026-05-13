@@ -14,7 +14,12 @@ public class RemoteToolSchema
     public string Name { get; set; } = string.Empty;
 
     /// <summary>
-    /// Human-readable description (from Get-Help or parameter set syntax).
+    /// Human-readable description for the command. Populated by the OOP host
+    /// from <c>Get-Help</c>'s <c>.Synopsis</c> field (trimmed, and only when
+    /// it differs from the command name); otherwise the empty string. The
+    /// long <c>Description</c> body and parameter set syntax are NOT read.
+    /// When empty, downstream tool schema generation falls back to the bare
+    /// command name.
     /// </summary>
     public string Description { get; set; } = string.Empty;
 
