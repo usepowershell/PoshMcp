@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented here.
 
+## [0.13.0] - 2026-05-13
+
+Spec 010 — Tool self-documentation. PoshMcp now resolves a documented description for every command and parameter exposed over MCP, following a defined precedence chain (PowerShell `[Description]` attribute → comment-based help → `Get-Help` synopsis → fallback), and reports the resolved source through doctor and OpenTelemetry. Two adjacent correctness fixes ship in the same release: parameter descriptions now actually reach `inputSchema` on the wire, and `SwitchParameter` arguments round-trip correctly through MCP JSON.
+
+### Added
+- **Tool description precedence chain (FR-500/FR-510)** — In-process and out-of-process metadata sources now resolve command and parameter descriptions through a documented precedence chain, with FR-540 sanitization applied uniformly. (#225 #226 #227 #228 #238 #239 #240 #241)
+- **Doctor: per-command and per-parameter `descriptionSource`** — `poshmcp doctor` and the `get-configuration-troubleshooting` MCP tool now report which source each tool description was resolved from (Description attribute / comment-based help / Get-Help synopsis / fallback), per command and per parameter. (#230 #244)
+- **OpenTelemetry counters for description-source resolution** — Emits counters tagged by command and source so operators can see at a glance which surfaces are documented and which are falling through to the default. (#231 #245)
+- **Documentation: FR-500/FR-510 precedence chain** — `docs/articles/exposing-tools` now documents the description precedence chain end-to-end, including how to author `[Description]` attributes, comment-based help, and `Get-Help` synopses for tools exposed via PoshMcp. (#234 #247)
+
+### Fixed
+- **Parameter descriptions now reach MCP `inputSchema` (#242)** — `PowerShellSchemaGenerator` was bypassing the metadata source for parameter-level descriptions, so even when descriptions were resolved correctly server-side they did not appear in the schema delivered to clients. The cold-path generator now wires `HelpAwareToolMetadataSource` as its default `IToolMetadataSource`, so `tools/list` returns parameter descriptions consistent with what doctor reports. (#248 #250)
+- **`SwitchParameter` round-trips through MCP JSON (#222)** — Boolean MCP arguments targeting PowerShell `SwitchParameter` parameters now bind correctly to a switch (present/absent), instead of failing parameter binding or being dropped silently.
+
+### Changed
+- **Tool descriptions on the wire** — Tool and parameter descriptions exposed to MCP clients (`tools/list`) now reflect the FR-500/FR-510 precedence chain. Clients that rely on the previous (often empty or fallback) descriptions will see richer, sanitized text. This is intended and is the headline behavior change of the release.
+
+### Tests
+- **Description parity, regression, and parameter-set consistency tests (#229 #243)** — New cross-cutting tests assert that in-process and out-of-process metadata sources agree on resolved descriptions, that previously-snapshotted `tools/list` output stays stable for unchanged surfaces, and that parameter-set variants resolve consistently.
+- **`ParameterDescription_IsNonEmpty` regression gate** — Cubert's acceptance suite for the `inputSchema` wiring fix passes 10/10.
+- **Pre/post-spec010 `tools/list` snapshots (#224 #236)** — Snapshot baseline captured before spec 010 work and re-validated after, locking down the user-visible shape of the description rollout.
+- All 532/532 unit tests green.
+
+### Performance
+- **Cold-start regression well under the FR-572 50% gate.** Pre-spec010 baseline captured under `bench-runs/run-5-pre-spec010/` (#223 #237); post-spec010 measurement under `bench-runs/run-6-post-spec010/` (#232 #246). Run-6 vs run-5 cold-start delta: +10–12%, comfortably below the configured regression gate.
+
+### Behavior notes
+- MCP clients will see different (richer, sanitized) tool and parameter descriptions in `tools/list` results compared to v0.12.x. This is the intended outcome of spec 010 and the #242 wire-path fix. If a downstream client pinned strings from prior descriptions, expect to update those expectations.
+- `descriptionSource` and the new OTel counters are additive — no existing field changed shape.
+
+### Merged PRs since v0.12.3
+- Spec 010 wave 1: #235 #236 #237 #238 #239 #240 #241
+- Spec 010 wave 2: #243 #244 #245 #246 #247
+- Adjacent fixes: #222 (SwitchParameter), #248 (FR-510 wiring for #242), #250 (cold-path schema generator wiring for #249)
+
 ## [0.12.3] - 2026-05-12
 
 ### Fixed
