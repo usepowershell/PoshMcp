@@ -820,29 +820,118 @@ function Invoke-DiscoverHandler {
         }
 
         $schemas = [System.Collections.ArrayList]::new()
-        foreach ($cmd in $unique) {
-            $description = ''
+
+        # Helper: project a Get-Help record into raw RemoteToolSchema fields.
+        # Sanitization, length capping, and FR-500/FR-510 precedence resolution
+        # happen on the .NET consumer side. The host emits source data only.
+        function Get-HelpMeta {
+            param($Cmd, $HelpInfo)
+            $synopsis = ''
+            $fullDescription = $null
+            $paramHelpMap = @{}
+            if ($null -ne $HelpInfo) {
+                if ($null -ne $HelpInfo.Synopsis) {
+                    $s = "$($HelpInfo.Synopsis)".Trim()
+                    if ($s -and $s -ne $Cmd.Name) { $synopsis = $s }
+                }
+                try {
+                    $descArray = $HelpInfo.Description
+                    if ($null -ne $descArray) {
+                        $paragraphs = @()
+                        foreach ($p in @($descArray)) {
+                            $t = $null
+                            if ($p -is [string]) { $t = $p }
+                            elseif ($null -ne $p -and $null -ne $p.Text) { $t = "$($p.Text)" }
+                            if ($null -ne $t) { $paragraphs += $t }
+                        }
+                        if ($paragraphs.Count -gt 0) {
+                            $joined = ($paragraphs -join "`n`n")
+                            if (-not [string]::IsNullOrWhiteSpace($joined)) { $fullDescription = $joined }
+                        }
+                    }
+                } catch { }
+                try {
+                    $helpParams = $HelpInfo.Parameters
+                    if ($null -ne $helpParams -and $null -ne $helpParams.parameter) {
+                        foreach ($hp in @($helpParams.parameter)) {
+                            if ($null -eq $hp) { continue }
+                            $pn = "$($hp.name)"
+                            if ([string]::IsNullOrWhiteSpace($pn)) { continue }
+                            $paragraphs = @()
+                            foreach ($d in @($hp.description)) {
+                                $t = $null
+                                if ($d -is [string]) { $t = $d }
+                                elseif ($null -ne $d -and $null -ne $d.Text) { $t = "$($d.Text)" }
+                                if ($null -ne $t) { $paragraphs += $t }
+                            }
+                            if ($paragraphs.Count -gt 0) {
+                                $joined = ($paragraphs -join "`n`n")
+                                if (-not [string]::IsNullOrWhiteSpace($joined)) { $paramHelpMap[$pn] = $joined }
+                            }
+                        }
+                    }
+                } catch { }
+            }
+            return [pscustomobject]@{ Synopsis = $synopsis; FullDescription = $fullDescription; ParamHelp = $paramHelpMap }
+        }
+
+        # Helper: walk CommandInfo.Parameters[name].Attributes for HelpMessage and ValidateSet values.
+        function Get-ParamAttrMeta {
+            param($Cmd, [string]$ParameterName)
+            $helpMessage = $null
+            $validateSet = $null
             try {
-                $helpInfo = Get-Help -Name $cmd.Name -ErrorAction SilentlyContinue
-                if ($null -ne $helpInfo -and $null -ne $helpInfo.Synopsis) {
-                    $synopsis = "$($helpInfo.Synopsis)".Trim()
-                    if ($synopsis -and $synopsis -ne $cmd.Name) { $description = $synopsis }
+                $pmeta = $null
+                if ($null -ne $Cmd.Parameters) { $pmeta = $Cmd.Parameters[$ParameterName] }
+                if ($null -ne $pmeta -and $null -ne $pmeta.Attributes) {
+                    foreach ($attr in $pmeta.Attributes) {
+                        if ($null -eq $attr) { continue }
+                        $tn = $attr.GetType().FullName
+                        if ($tn -eq 'System.Management.Automation.ParameterAttribute') {
+                            if ($null -eq $helpMessage) {
+                                $hm = $attr.HelpMessage
+                                if ($null -ne $hm -and -not [string]::IsNullOrWhiteSpace("$hm")) { $helpMessage = "$hm" }
+                            }
+                        }
+                        elseif ($tn -eq 'System.Management.Automation.ValidateSetAttribute') {
+                            if ($null -eq $validateSet -and $null -ne $attr.ValidValues) {
+                                $vals = @()
+                                foreach ($v in $attr.ValidValues) { $vals += "$v" }
+                                if ($vals.Count -gt 0) { $validateSet = $vals }
+                            }
+                        }
+                    }
                 }
             } catch { }
+            return [pscustomobject]@{ HelpMessage = $helpMessage; ValidateSetValues = $validateSet }
+        }
+
+        foreach ($cmd in $unique) {
+            $helpInfo = $null
+            try { $helpInfo = Get-Help -Name $cmd.Name -ErrorAction SilentlyContinue } catch { $helpInfo = $null }
+            $helpMeta = Get-HelpMeta -Cmd $cmd -HelpInfo $helpInfo
+
             foreach ($paramSet in $cmd.ParameterSets) {
                 $parameters = [System.Collections.ArrayList]::new()
                 foreach ($param in $paramSet.Parameters) {
                     if ($commonParameters -contains $param.Name) { continue }
+                    $paramAttrMeta = Get-ParamAttrMeta -Cmd $cmd -ParameterName $param.Name
+                    $paramHelpDesc = $null
+                    if ($helpMeta.ParamHelp.ContainsKey($param.Name)) { $paramHelpDesc = $helpMeta.ParamHelp[$param.Name] }
                     $null = $parameters.Add([ordered]@{
-                        Name        = $param.Name
-                        TypeName    = $param.ParameterType.FullName
-                        IsMandatory = [bool]$param.IsMandatory
-                        Position    = $param.Position
+                        Name              = $param.Name
+                        TypeName          = $param.ParameterType.FullName
+                        IsMandatory       = [bool]$param.IsMandatory
+                        Position          = $param.Position
+                        HelpDescription   = $paramHelpDesc
+                        HelpMessage       = $paramAttrMeta.HelpMessage
+                        ValidateSetValues = $paramAttrMeta.ValidateSetValues
                     })
                 }
                 $null = $schemas.Add([ordered]@{
                     Name             = $cmd.Name
-                    Description      = $description
+                    Description      = $helpMeta.Synopsis
+                    FullDescription  = $helpMeta.FullDescription
                     ParameterSetName = $paramSet.Name
                     Parameters       = @($parameters)
                 })
