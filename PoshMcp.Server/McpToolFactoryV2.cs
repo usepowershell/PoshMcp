@@ -396,7 +396,8 @@ public class McpToolFactoryV2
             return new List<McpServerTool>();
         }
 
-        _outOfProcessAssemblyGenerator.GenerateAssembly(schemas, logger);
+        var remoteParameterDescriptions = BuildRemoteParameterDescriptionMap(schemas, _toolMetadataSource);
+        _outOfProcessAssemblyGenerator.GenerateAssembly(schemas, remoteParameterDescriptions, logger);
         var generatedInstance = _outOfProcessAssemblyGenerator.GetGeneratedInstance(logger);
         var generatedMethods = _outOfProcessAssemblyGenerator.GetGeneratedMethods();
         var methodToCommandMap = CreateRemoteCommandMetadataMapping(schemas, _toolMetadataSource);
@@ -571,8 +572,8 @@ public class McpToolFactoryV2
                 CommandName: schema.Name,
                 ParameterSetName: schema.ParameterSetName,
                 Synopsis: string.IsNullOrWhiteSpace(schema.Description) ? null : schema.Description,
-                LongDescription: null,
-                ParameterSetSyntax: null);
+                LongDescription: string.IsNullOrWhiteSpace(schema.FullDescription) ? null : schema.FullDescription,
+                ParameterSetSyntax: BuildRemoteParameterSetSyntax(schema));
             var result = metadataSource.ResolveToolDescription(in request);
             var metadata = new PowerShellCommandMetadata
             {
@@ -602,6 +603,123 @@ public class McpToolFactoryV2
         }
 
         return methodToCommandMap;
+    }
+
+    /// <summary>
+    /// Spec 010 FR-510 / FR-520: builds the per-parameter description map for the OOP path
+    /// by feeding each <see cref="RemoteParameterSchema"/>'s help-derived fields through the
+    /// shared <see cref="IToolMetadataSource"/> seam. This is the OOP analogue of
+    /// <see cref="BuildParameterDescriptionMap"/>; the result feeds
+    /// <see cref="OutOfProcessToolAssemblyGenerator.GenerateAssembly(IReadOnlyList{RemoteToolSchema}, IReadOnlyDictionary{string, IReadOnlyDictionary{string, string}}?, ILogger)"/>
+    /// so OOP-emitted parameters carry the same <c>[Description]</c> attributes that the
+    /// in-process path emits.
+    /// </summary>
+    private static IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> BuildRemoteParameterDescriptionMap(
+        IReadOnlyList<RemoteToolSchema> schemas,
+        IToolMetadataSource metadataSource)
+    {
+        var result = new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var schema in schemas)
+        {
+            if (result.ContainsKey(schema.Name))
+            {
+                continue;
+            }
+
+            var perParameter = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var param in schema.Parameters)
+            {
+                if (PowerShellParameterUtils.IsCommonParameter(param.Name))
+                {
+                    continue;
+                }
+
+                IReadOnlyList<string>? validateValues = param.ValidateSetValues != null && param.ValidateSetValues.Length > 0
+                    ? param.ValidateSetValues
+                    : null;
+                var appliesToArrayElement = validateValues != null && IsArrayLikeTypeName(param.TypeName);
+
+                var request = new ParameterDescriptionRequest(
+                    CommandName: schema.Name,
+                    ParameterName: param.Name,
+                    ParameterTypeName: param.TypeName,
+                    HelpParameterDescription: param.HelpDescription,
+                    HelpMessage: param.HelpMessage,
+                    ValidateSetValues: validateValues,
+                    ValidateSetAppliesToArrayElement: appliesToArrayElement);
+
+                var resolved = metadataSource.ResolveParameterDescription(in request);
+                if (resolved.Source != ParameterDescriptionSource.TypeFallback
+                    && !string.IsNullOrWhiteSpace(resolved.Description))
+                {
+                    perParameter[param.Name] = resolved.Description;
+                }
+            }
+
+            if (perParameter.Count > 0)
+            {
+                result[schema.Name] = perParameter;
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Synthesizes a parameter-set-syntax string for the OOP tool-description fallback
+    /// (FR-500 step 3). The OOP host script does not carry <c>CommandParameterSetInfo.ToString()</c>
+    /// across the wire; this best-effort renderer mirrors its conventional shape:
+    /// <c>[-Param &lt;Type&gt;]</c> for optional, <c>-Param &lt;Type&gt;</c> for mandatory.
+    /// Returns <c>null</c> when the schema has no parameters so the resolver falls through
+    /// to the bare command name.
+    /// </summary>
+    private static string? BuildRemoteParameterSetSyntax(RemoteToolSchema schema)
+    {
+        if (schema.Parameters == null || schema.Parameters.Count == 0)
+        {
+            return null;
+        }
+
+        var parts = new List<string>(schema.Parameters.Count);
+        foreach (var param in schema.Parameters)
+        {
+            if (PowerShellParameterUtils.IsCommonParameter(param.Name))
+            {
+                continue;
+            }
+
+            var typeDisplay = ShortTypeName(param.TypeName);
+            var fragment = string.Equals(param.TypeName, "System.Management.Automation.SwitchParameter", StringComparison.Ordinal)
+                ? $"-{param.Name}"
+                : $"-{param.Name} <{typeDisplay}>";
+
+            parts.Add(param.IsMandatory ? fragment : $"[{fragment}]");
+        }
+
+        return parts.Count == 0 ? null : string.Join(" ", parts);
+    }
+
+    private static bool IsArrayLikeTypeName(string? typeName)
+    {
+        if (string.IsNullOrEmpty(typeName))
+        {
+            return false;
+        }
+        return typeName.EndsWith("[]", StringComparison.Ordinal);
+    }
+
+    private static string ShortTypeName(string? typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName))
+        {
+            return "Object";
+        }
+        var lastDot = typeName!.LastIndexOf('.');
+        return lastDot >= 0 && lastDot < typeName.Length - 1
+            ? typeName.Substring(lastDot + 1)
+            : typeName;
     }
 
     private void MapParameterSetsToMetadata(CommandInfo command, PSPowerShell powerShell, CommandHelpInfo help, Dictionary<string, PowerShellCommandMetadata> methodToCommandMap, ILogger logger)

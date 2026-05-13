@@ -20,6 +20,10 @@ public class OutOfProcessToolAssemblyGenerator
 {
     private const int FrameworkParameterCount = 3;
 
+    private static readonly ConstructorInfo s_descriptionAttributeCtor =
+        typeof(System.ComponentModel.DescriptionAttribute).GetConstructor(new[] { typeof(string) })
+        ?? throw new InvalidOperationException("System.ComponentModel.DescriptionAttribute(string) constructor not found.");
+
     private readonly ICommandExecutor _commandExecutor;
     private readonly object _lock = new object();
     private Type? _generatedType;
@@ -45,6 +49,27 @@ public class OutOfProcessToolAssemblyGenerator
     }
 
     public void GenerateAssembly(IReadOnlyList<RemoteToolSchema> schemas, ILogger logger)
+        => GenerateAssembly(schemas, parameterDescriptions: null, logger);
+
+    /// <summary>
+    /// Generates the OOP-backed dynamic assembly, optionally attaching
+    /// <see cref="System.ComponentModel.DescriptionAttribute"/> to each emitted
+    /// parameter so the MCP SDK auto-schema surfaces them as
+    /// <c>inputSchema.properties.&lt;name&gt;.description</c>. Spec 010 FR-520:
+    /// the supplied description map is the OOP path's equivalent of the in-process
+    /// map produced by <c>McpToolFactoryV2.BuildParameterDescriptionMap</c>, both
+    /// resolved through the same <see cref="IToolMetadataSource"/> seam.
+    /// </summary>
+    /// <param name="schemas">Discovered remote command schemas.</param>
+    /// <param name="parameterDescriptions">Map keyed by command name; each value is
+    /// a map from PowerShell parameter name to the resolved, sanitized description
+    /// text. <c>null</c> or empty preserves legacy behavior (no per-parameter
+    /// descriptions emitted).</param>
+    /// <param name="logger">Logger instance.</param>
+    public void GenerateAssembly(
+        IReadOnlyList<RemoteToolSchema> schemas,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? parameterDescriptions,
+        ILogger logger)
     {
         lock (_lock)
         {
@@ -80,7 +105,11 @@ public class OutOfProcessToolAssemblyGenerator
             {
                 try
                 {
-                    GenerateMethodForSchema(typeBuilder, schema, executorField);
+                    var perParameter = parameterDescriptions != null
+                        && parameterDescriptions.TryGetValue(schema.Name, out var map)
+                            ? map
+                            : null;
+                    GenerateMethodForSchema(typeBuilder, schema, executorField, perParameter);
                 }
                 catch (Exception ex)
                 {
@@ -246,7 +275,8 @@ public class OutOfProcessToolAssemblyGenerator
     private static void GenerateMethodForSchema(
         TypeBuilder typeBuilder,
         RemoteToolSchema schema,
-        FieldBuilder executorField)
+        FieldBuilder executorField,
+        IReadOnlyDictionary<string, string>? parameterDescriptions = null)
     {
         var methodName = PowerShellAssemblyGenerator.SanitizeMethodName(schema.Name, schema.ParameterSetName);
 
@@ -298,10 +328,11 @@ public class OutOfProcessToolAssemblyGenerator
         // Set parameter names and default values
         for (int i = 0; i < paramCSharpNames.Count; i++)
         {
+            ParameterBuilder paramBuilder;
             if (!paramIsMandatory[i])
             {
                 var paramAttributes = ParameterAttributes.Optional | ParameterAttributes.HasDefault;
-                var paramBuilder = methodBuilder.DefineParameter(i + 1, paramAttributes, paramCSharpNames[i]);
+                paramBuilder = methodBuilder.DefineParameter(i + 1, paramAttributes, paramCSharpNames[i]);
 
                 try
                 {
@@ -342,7 +373,26 @@ public class OutOfProcessToolAssemblyGenerator
             }
             else
             {
-                methodBuilder.DefineParameter(i + 1, ParameterAttributes.None, paramCSharpNames[i]);
+                paramBuilder = methodBuilder.DefineParameter(i + 1, ParameterAttributes.None, paramCSharpNames[i]);
+            }
+
+            // Spec 010 FR-510 / FR-520: attach [Description] to PowerShell-derived
+            // parameters so the MCP SDK auto-schema surfaces them as
+            // inputSchema.properties.<name>.description. Framework parameters
+            // (_AllProperties, _MaxResults, _RequestedProperties) and
+            // CancellationToken are skipped — they have framework-level
+            // documentation that lives elsewhere.
+            if (parameterDescriptions != null && i < commandParamCount)
+            {
+                var originalName = paramOriginalNames[i];
+                if (parameterDescriptions.TryGetValue(originalName, out var description)
+                    && !string.IsNullOrWhiteSpace(description))
+                {
+                    var attrBuilder = new CustomAttributeBuilder(
+                        s_descriptionAttributeCtor,
+                        new object[] { description });
+                    paramBuilder.SetCustomAttribute(attrBuilder);
+                }
             }
         }
 
