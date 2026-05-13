@@ -29,6 +29,142 @@ function Write-Diag {
     [Console]::Error.WriteLine("[oop-host] $Message")
 }
 
+function Get-RemoteCommandHelpMetadata {
+    <#
+    .SYNOPSIS
+        Project a Get-Help record into the raw fields RemoteToolSchema needs.
+        Emits source data only — no sanitization, no precedence resolution
+        (those happen on the .NET consumer per FR-500/FR-510/FR-540).
+    .OUTPUTS
+        PSCustomObject with: Synopsis (string, may be empty),
+                             FullDescription (string or $null),
+                             ParamHelp (hashtable: paramName -> description string).
+    #>
+    param(
+        [Parameter(Mandatory)] $Command,
+        $HelpInfo
+    )
+
+    $synopsis = ''
+    $fullDescription = $null
+    $paramHelpMap = @{}
+
+    if ($null -ne $HelpInfo) {
+        if ($null -ne $HelpInfo.Synopsis) {
+            $s = "$($HelpInfo.Synopsis)".Trim()
+            if ($s -and $s -ne $Command.Name) {
+                $synopsis = $s
+            }
+        }
+
+        try {
+            $descArray = $HelpInfo.Description
+            if ($null -ne $descArray) {
+                $paragraphs = @()
+                foreach ($p in @($descArray)) {
+                    $t = $null
+                    if ($p -is [string]) { $t = $p }
+                    elseif ($null -ne $p -and $null -ne $p.Text) { $t = "$($p.Text)" }
+                    if ($null -ne $t) { $paragraphs += $t }
+                }
+                if ($paragraphs.Count -gt 0) {
+                    $joined = ($paragraphs -join "`n`n")
+                    if (-not [string]::IsNullOrWhiteSpace($joined)) {
+                        $fullDescription = $joined
+                    }
+                }
+            }
+        }
+        catch { }
+
+        try {
+            $helpParams = $HelpInfo.Parameters
+            if ($null -ne $helpParams -and $null -ne $helpParams.parameter) {
+                foreach ($hp in @($helpParams.parameter)) {
+                    if ($null -eq $hp) { continue }
+                    $pn = "$($hp.name)"
+                    if ([string]::IsNullOrWhiteSpace($pn)) { continue }
+                    $paragraphs = @()
+                    foreach ($d in @($hp.description)) {
+                        $t = $null
+                        if ($d -is [string]) { $t = $d }
+                        elseif ($null -ne $d -and $null -ne $d.Text) { $t = "$($d.Text)" }
+                        if ($null -ne $t) { $paragraphs += $t }
+                    }
+                    if ($paragraphs.Count -gt 0) {
+                        $joined = ($paragraphs -join "`n`n")
+                        if (-not [string]::IsNullOrWhiteSpace($joined)) {
+                            $paramHelpMap[$pn] = $joined
+                        }
+                    }
+                }
+            }
+        }
+        catch { }
+    }
+
+    return [pscustomobject]@{
+        Synopsis        = $synopsis
+        FullDescription = $fullDescription
+        ParamHelp       = $paramHelpMap
+    }
+}
+
+function Get-RemoteParameterAttributeMetadata {
+    <#
+    .SYNOPSIS
+        Walk CommandInfo.Parameters[name].Attributes to extract HelpMessage
+        (from ParameterAttribute) and ValidValues (from ValidateSetAttribute).
+        Defensive — any missing piece returns $null in that slot.
+    .OUTPUTS
+        PSCustomObject with: HelpMessage (string or $null),
+                             ValidateSetValues (string[] or $null).
+    #>
+    param(
+        [Parameter(Mandatory)] $Command,
+        [Parameter(Mandatory)] [string] $ParameterName
+    )
+
+    $helpMessage = $null
+    $validateSet = $null
+
+    try {
+        $pmeta = $null
+        if ($null -ne $Command.Parameters) {
+            $pmeta = $Command.Parameters[$ParameterName]
+        }
+        if ($null -ne $pmeta -and $null -ne $pmeta.Attributes) {
+            foreach ($attr in $pmeta.Attributes) {
+                if ($null -eq $attr) { continue }
+                $tn = $attr.GetType().FullName
+                if ($tn -eq 'System.Management.Automation.ParameterAttribute') {
+                    if ($null -eq $helpMessage) {
+                        $hm = $attr.HelpMessage
+                        if ($null -ne $hm -and -not [string]::IsNullOrWhiteSpace("$hm")) {
+                            $helpMessage = "$hm"
+                        }
+                    }
+                }
+                elseif ($tn -eq 'System.Management.Automation.ValidateSetAttribute') {
+                    if ($null -eq $validateSet -and $null -ne $attr.ValidValues) {
+                        $vals = @()
+                        foreach ($v in $attr.ValidValues) { $vals += "$v" }
+                        if ($vals.Count -gt 0) {
+                            $validateSet = $vals
+                        }
+                    }
+                }
+            }
+        }
+    }
+    catch { }
+
+    return [pscustomobject]@{
+        HelpMessage       = $helpMessage
+        ValidateSetValues = $validateSet
+    }
+}
+
 # --- C# single-host dispatcher (for cancellation propagation, issue #188) ---
 # Compiled once per process. Owns a single worker thread that processes
 # invokes serially against a shared runspace; tracks active items by request
@@ -759,19 +895,19 @@ function Invoke-DiscoverHandler {
     $schemas = [System.Collections.ArrayList]::new()
 
     foreach ($cmd in $uniqueCommands) {
-        $description = ''
+        # Read Get-Help once per command (FR-570) and project the raw fields
+        # the .NET consumer needs to apply the FR-500 / FR-510 precedence
+        # chains. This host emits raw source data only — no sanitization,
+        # no length capping, no precedence resolution.
+        $helpInfo = $null
         try {
             $helpInfo = Get-Help -Name $cmd.Name -ErrorAction SilentlyContinue
-            if ($null -ne $helpInfo -and $null -ne $helpInfo.Synopsis) {
-                $synopsis = "$($helpInfo.Synopsis)".Trim()
-                if ($synopsis -and $synopsis -ne $cmd.Name) {
-                    $description = $synopsis
-                }
-            }
         }
         catch {
-            # Best effort — description stays empty
+            $helpInfo = $null
         }
+
+        $helpMeta = Get-RemoteCommandHelpMetadata -Command $cmd -HelpInfo $helpInfo
 
         foreach ($paramSet in $cmd.ParameterSets) {
             $parameters = [System.Collections.ArrayList]::new()
@@ -782,17 +918,27 @@ function Invoke-DiscoverHandler {
                     continue
                 }
 
+                $paramAttrMeta = Get-RemoteParameterAttributeMetadata -Command $cmd -ParameterName $param.Name
+                $paramHelpDesc = $null
+                if ($helpMeta.ParamHelp.ContainsKey($param.Name)) {
+                    $paramHelpDesc = $helpMeta.ParamHelp[$param.Name]
+                }
+
                 $null = $parameters.Add([ordered]@{
-                    Name        = $param.Name
-                    TypeName    = $param.ParameterType.FullName
-                    IsMandatory = [bool]$param.IsMandatory
-                    Position    = $param.Position
+                    Name              = $param.Name
+                    TypeName          = $param.ParameterType.FullName
+                    IsMandatory       = [bool]$param.IsMandatory
+                    Position          = $param.Position
+                    HelpDescription   = $paramHelpDesc
+                    HelpMessage       = $paramAttrMeta.HelpMessage
+                    ValidateSetValues = $paramAttrMeta.ValidateSetValues
                 })
             }
 
             $null = $schemas.Add([ordered]@{
                 Name             = $cmd.Name
-                Description      = $description
+                Description      = $helpMeta.Synopsis
+                FullDescription  = $helpMeta.FullDescription
                 ParameterSetName = $paramSet.Name
                 Parameters       = @($parameters)
             })
