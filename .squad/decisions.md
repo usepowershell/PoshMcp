@@ -1058,3 +1058,265 @@ will not push a speculative fix.
 
 `e1c923e fix(oop): defensive per-invoke scope for user script`,
 pushed to `main`.
+
+### 2026-05-12: Farnsworth — Spec 010 drafted
+
+**By:** Farnsworth (Lead / Architect)
+**Requested by:** Steven Murawski
+
+**What:** Authored `specs/010-tool-self-documentation/spec.md` — "Improve MCP Tool Self-Documentation from PowerShell Help/Metadata." Status: Draft, awaiting Brady's review (Cubert pre-review per the 2026-05-05 directive applies).
+
+**Co-authored with Hermes** — his 2026-05-12 research entry in `.squad/agents/hermes/history.md` established the technical baseline (two-path divergence: in-process never calls Get-Help, OOP reads only Synopsis; both paths use literal `"Parameter of type X"` for every parameter description; misleading XML doc on `RemoteToolSchema.Description`).
+
+**Scope (per Brady's clarification):** What `Get-Help`/`Get-Command`/`CommandInfo`/`ParameterMetadata` already expose, since the platform has normalized whatever help mechanism the author chose. NOT about comment-based vs MAML vs XML authoring conventions.
+
+**Headline recommendation:** Option A — implement a shared sourcing function that reads `Get-Help` in both paths, with documented precedence chains for tool descriptions (Synopsis → Description body → syntax line → command name) and parameter descriptions (Get-Help param description → `ParameterAttribute.HelpMessage` → `ValidateSet` hint → `"Parameter of type X"` fallback). Mandates byte-identical output across in-process and OOP modes (FR-520) verified by automated test (FR-521). Includes alias exposure (FR-530/531), sanitization + length caps (FR-540..542), FR-571 caching keyed by the same setup-hash already used for OOP discovery, and FR-572 cold-start regression gate via `PoshMcp.Benchmarks`. Option D (`[PoshMcp.ToolDescription]` attribute) explicitly deferred as an opt-in follow-up.
+
+**Open Questions** left for Brady to resolve before Accepted: alias placement, length cap defaults, MamlParaText join style, cache invalidation across runspace recycling (coordinates with spec 004), doctor field shape (coordinates with spec 006), ValidateSet description phrasing, fallback-frequency telemetry.
+
+**Why:** Authors write PowerShell help and reasonably expect MCP clients to see it. Today's two-path divergence means the same command exposes structurally different descriptions depending on a flag (`RuntimeMode`) the author cannot see. The headline gap is real and the platform-normalized data sources to close it already exist.
+
+
+
+### 2026-05-12: Cubert pre-review of spec 010 — APPROVE WITH CHANGES
+**By:** Cubert (Fact Checker)
+**Requested by:** Steven Murawski (Brady)
+**Artifact:** specs/010-tool-self-documentation/spec.md (Status: Draft)
+**Author:** Farnsworth (locked out from self-revision per strict-lockout rule)
+
+**Verdict:** APPROVE WITH CHANGES. Five required changes; spec cannot promote to Accepted until they land. Recommended revision agent: Hermes (technical co-author with the original grounding research, not the original drafter).
+
+**Verification report:**
+
+Citations all check out (✅):
+- `PoshMcp.Server/McpToolFactoryV2.cs#L123-L145` — `SetParameterSetDescription` body matches spec quote verbatim. Get-Help is never called.
+- `PoshMcp.Server/McpToolFactoryV2.cs#L442` — `Description = string.IsNullOrWhiteSpace(schema.Description) ? schema.Name : schema.Description` confirmed.
+- `PoshMcp.Server/PowerShell/PowerShellSchemaGenerator.cs#L98` — `schema["description"] = $"Parameter of type {parameterType.Name}";` confirmed.
+- `PoshMcp.Server/PowerShell/OutOfProcess/oop-host.ps1#L763-L771` — Synopsis-only read with `-ne $cmd.Name` guard confirmed.
+- `PoshMcp.Server/PowerShell/OutOfProcess/oop-host-pool.ps1#L824-L832` — same logic, inline form, confirmed.
+- `PoshMcp.Server/PowerShell/OutOfProcess/RemoteToolSchema.cs#L17` — XML doc text matches spec quote ("from Get-Help or parameter set syntax") and is genuinely misleading (long Description never used; OOP fallback is empty string, not syntax).
+
+Scope discipline (✅): No FR drifts into authoring formats. Non-Goals explicitly disclaims comment-based vs MAML vs XML, matches Brady's scoping directive.
+
+Format conformance (✅): Layout matches spec 009 exactly — Title block, Background, User Scenarios with P1/P2/P3, Edge Cases, Functional Requirements (grouped sub-sections), Approach Options, Recommendation, Open Questions, Non-Goals, Success Criteria.
+
+**Required changes (must fix before Accepted):**
+
+1. **FR-521 (parity test) is hand-wavy.** "Verified by an automated test that runs the same configured command through both paths and asserts equality of the resulting MCP `tools/list` responses for description fields." Doesn't say which test project (PoshMcp.Tests, presumably), doesn't name the test class or pattern, doesn't say what the equality primitive is (string-equal per field? full JSON tree? scoped to `description` only?), doesn't say what command(s) constitute the parity corpus, doesn't say how flaky-test risk is bounded if Get-Help cold-loads MAML mid-test. A reviewer can't tell if the test is implementable in 50 lines or 500. Specify: test project, naming pattern, equality scope, fixture command set (suggested: a small in-tree test module with deterministic help), and whether the test runs in both InProcess and OOP modes within a single test session.
+
+2. **FR-550 (no description regression) has no measurement strategy.** "No tool currently producing a useful description MUST regress to a less useful one" — but "useful" is undefined and "regression" has no detection mechanism. Snapshot test against a reference module? Manual operator opt-in? Diff against baseline captured pre-change? Without a mechanism this FR cannot be verified, and "no regression" claims at release time will be unsupported. Either: (a) add a snapshot test that captures pre-change descriptions for a fixed module set and asserts post-change descriptions are equal-or-longer for non-empty originals, OR (b) tighten the FR to a verifiable property (e.g., "every command whose pre-change description is a non-empty Synopsis MUST surface that exact synopsis or a strict superset post-change"). Status quo is unfalsifiable.
+
+3. **FR-530 punts on field placement and labels it "implementation decision".** Functional requirements must be testable. As written, FR-530 says "command aliases MUST be exposed in the MCP tool metadata" then immediately disclaims where. A test cannot assert on "exposed somewhere"; it must assert on a concrete shape. This is identical content to OQ-1 — the FR should either resolve OQ-1 inline (pick one or both options and commit) or be downgraded to a sub-bullet of OQ-1 until OQ-1 is resolved. Same critique applies to FR-531 by reference. Recommendation: resolve OQ-1 to "dedicated `aliases` array on the tool/parameter object, AND tail-of-description for clients that ignore custom fields" (covers both machine and human consumers) and rewrite FR-530/531 to cite the chosen shape. See Open Question recommendations below.
+
+4. **FR-572 (performance gating) is concrete on threshold but vague on baseline capture.** "Regression of more than 50% on cold start triggers a redesign" — threshold is concrete ✅ and the benchmark is named (`PoshMcp.Benchmarks` cold-start scenario) ✅. But "re-run pre/post change" doesn't say where the baseline lives. Run-4 of the benchmark runs (per Hermes's findings) is the natural pre-change baseline; the FR should name the baseline artifact (e.g., `bench-runs/run-4-artifacts/` or a new captured `bench-runs/run-5-pre-spec010/`) and require the post-change run to be committed alongside as `run-N-post-spec010/` so the regression delta is reproducible from the repo, not from a developer laptop.
+
+5. **SC-205 / SC-206 byte-identical claim needs a carve-out.** "Byte-identical between in-process and OOP modes, given identical PowerShell source loaded identically." Two paths read help in different process contexts; `Get-Help` output can include culture-dependent formatting (paragraph wrapping varies by `$Host.UI.RawUI.BufferSize`) and the OOP host runs in a fresh subprocess with potentially different `$PSDefaultParameterValues` or culture. Either: (a) add an explicit precondition "given identical culture, identical loaded modules, and identical `$PSDefaultParameterValues`" to SC-205/SC-206, OR (b) acknowledge in FR-540 (sanitization) that normalization MUST be aggressive enough to absorb host-specific formatting differences (e.g., collapse all runs of whitespace to single space, not just `\r\n`). Without one of these, the parity test in FR-521 will be flaky on Windows-vs-Linux CI agents and the spec is making an undeliverable promise.
+
+**Suggested improvements (non-blocking, nice-to-have):**
+
+- **Background "What authors expect" table** is excellent — concrete side-by-side of in-process vs OOP for `Get-AzContext`. Consider adding a third column showing what the spec delivers post-change so the win is unambiguous.
+- **Edge case "parameter present in multiple parameter sets"** correctly mandates per-parameter (not per-set) descriptions in FR-511. Worth adding an SC for this case so the property is testable and not just declarative.
+- **Sequencing step 9** says "Update `docs/articles/exposing-tools.md` (or a new `authoring-tools.md`)". Pick one — leaving the choice in the sequencing list creates a follow-up question at implementation time. Suggest committing to `docs/articles/exposing-tools.md` as the existing surface most authors will look at first.
+- **Recommendation section** is strong on rationale. The "Sequencing" sub-list reads like a tasks.md preview; consider moving it to `tasks.md` when this spec promotes, leaving Recommendation focused on the architectural choice.
+
+**Open Question recommendations (where Cubert has an opinion):**
+
+- **OQ-1 (alias placement):** Resolve to **both** — dedicated `aliases` array on the tool/parameter object AND a `(aliases: x, y)` tail on the description. Machine readers get structure; human-only readers (clients that render only `description`) still see them. Closes FR-530/531 testability gap (Required Change 3).
+- **OQ-3 (Description body assembly):** Join `MamlParaText[]` with single space, not `"\n\n"`. FR-540 already mandates collapsing embedded newlines; preserving paragraph breaks just to strip them again two FRs later is a contradiction. Single space, then sanitize, then truncate.
+- **OQ-6 (ValidateSet phrasing):** Use `"One of: A, B, C"` for ≤5 values, `"One of N values: A, B, C, ..."` for >5. Including the parameter type alongside is redundant — the schema already advertises the type. Don't repeat it in description.
+- **OQ-2 (length caps configurability):** Don't make configurable in v1. 1024/512 are sane defaults; configurability adds a config surface to test for marginal value. Defer until an operator asks.
+- **OQ-4 (cache invalidation across runspace recycling):** Cache lives in the executor layer (above the runspace), keyed by setup-hash. Recycling a slot does NOT invalidate — the setup-hash is stable across recycles. This matches the existing OOP discovery cache pattern (per #200 review).
+- **OQ-5 (doctor field naming):** Coordinate with spec 006 as the spec already says. No opinion until spec 006's doctor schema lands.
+- **OQ-7 (telemetry):** Defer to a follow-up spec. Adding a metric layer is a separate concern from making the data correct in the first place.
+
+**Per Reviewer Rejection Protocol (strict lockout):** Farnsworth drafted this spec and is locked out from revising it. Recommended revision agent: **Hermes** (provided the technical baseline research per his 2026-05-12 history entry; has independent grounding in the same code paths Farnsworth cited). Alternate: any squad member other than Farnsworth.
+
+**Cubert.**
+
+
+
+### 2026-05-12: Spec 010 revised — ready for re-review or promotion to Accepted
+**By:** Hermes (PowerShell Expert)
+**Requested by:** Brady
+**Artifact:** specs/010-tool-self-documentation/spec.md (Status remains Draft — Brady promotes)
+**Original author:** Farnsworth (locked out from self-revision per Reviewer Rejection Protocol strict-lockout rule)
+**Reviewer:** Cubert (pre-review verdict: APPROVE WITH CHANGES, 5 required)
+
+**What:** Revised spec 010 to address Cubert's 5 required changes and bake in all 7 of Brady's Open Question resolutions. Status stays Draft per task instructions; Brady makes the final promotion call.
+
+**Cubert's 5 required changes — addressed:**
+1. **FR-521 parity test** is now concrete: test class `PoshMcp.Tests/Integration/ToolDescriptionParityTests.cs`, fixture corpus at `PoshMcp.Tests/Fixtures/Modules/HelpParityFixture/HelpParityFixture.psm1` (5 named functions covering each precedence step), equality scope narrowed to MCP `description` + `inputSchema.properties.<name>.description`, both modes run within a single test session, pre-warm Get-Help to bound MAML lazy-load flake.
+2. **FR-550 regression** rewritten as a verifiable property + snapshot mechanism. Baseline lives at `specs/010-tool-self-documentation/baseline/{mode}-tools-list.json`. Post-change assertion: any non-empty Synopsis-sourced description must equal-or-prefix-then-`\n\n` post-change.
+3. **FR-530/FR-531 removed** entirely per Brady's OQ-1 directive (skip aliases). Added Non-Goal entry. Pruned alias references from Edge Cases, SC list (SC-208/209/210 removed), Approach Options, Recommendation rationale #5, and the Sequencing list.
+4. **FR-572 baseline artifact** named explicitly: `bench-runs/run-N-pre-spec010/` captured before implementation, `bench-runs/run-N-post-spec010/` committed with the implementation PR. Regression delta computed against the pre-spec010 baseline specifically.
+5. **SC-205/206 byte-identical claim** carve-out resolved via Cubert's option (b) — strengthened FR-540 sanitization to collapse all whitespace runs within paragraphs to a single space while preserving `\n\n` separators, plus stripping non-printable control chars. Spec states explicitly that this normalization is what makes the byte-identical guarantee deliverable across the in-process console host and the OOP subprocess with redirected stdin/stdout.
+
+**Brady's 7 OQ resolutions baked in (now in "Resolved Questions" section):**
+- **OQ-1 aliases:** out of scope (FR-530/531 removed, Non-Goal added)
+- **OQ-2 length caps:** 1024 tools / 512 params, not configurable in v1 (left a clarifying note in Resolved Questions in case Brady meant 512 for both)
+- **OQ-3 description body assembly:** join `MamlParaText[]` with `\n\n`, FR-540 preserves separators
+- **OQ-4 cache invalidation:** per-path resolution in FR-571 — in-process cache lives for the runspace lifetime; OOP in-subprocess cache lives until process recycle; optional .NET-side cache invalidates on setup-hash change
+- **OQ-5 doctor field:** Hermes-proposed name `descriptionSource` with 4+4 string literals (FR-583)
+- **OQ-6 ValidateSet phrasing:** singleton `"One of: A, B, C"` / array `"Each item is one of: A, B, C"` (FR-510 step 3)
+- **OQ-7 telemetry:** FR-590 added — two OpenTelemetry counters (`poshmcp.tool_description.source`, `poshmcp.parameter_description.source`) with `step` tag matching the FR-583 vocabulary exactly
+
+**Non-blocking suggestions also applied:**
+- "What authors expect" table now has a third row showing what both paths deliver post-spec 010
+- Added Scenario 3 (P3) + SC-208 covering FR-511 multi-parameter-set consistency
+- Sequencing step 11 commits to `docs/articles/exposing-tools.md` (no "or new file" choice)
+- Sequencing list re-headed to note detailed step-by-step belongs in `tasks.md` when promoted; numbered 1-11 with pre-change baseline captures (FR-572 bench + FR-550 snapshots) explicitly first
+
+**Status / next:**
+- Spec is Draft. Brady makes the call to promote to Accepted.
+- Re-review by Cubert is optional but recommended (the 5 required changes were substantive and the structural changes — new Scenario 3, FR-583, FR-590, Resolved Questions section — warrant a second look).
+- Per strict-lockout, if a re-review surfaces further required changes, Hermes is now also locked out from any subsequent revision; a third squad member would own the next pass.
+
+**One open question for Brady (non-blocking, recorded inline in Resolved Questions OQ-2):** Brady's note "512 is reasonable" was interpreted as the parameter cap (512) with tool description cap kept at the draft's proposed 1024. If Brady intended 512 for both, flag and I'll re-revise FR-541 + Resolved Questions OQ-2.
+
+**Hermes.**
+
+
+
+### 2026-05-12: Bender — IToolMetadataSource seam shape (PR #238, spec 010 step 3)
+# Decision: IToolMetadataSource seam shape
+
+**Date:** 2026-05-12
+**By:** Bender (#225)
+**Status:** Implemented in seam; precedence implementations land in #226, #227
+
+## Decision
+
+Spec 010 Option A's shared sourcing seam is `IToolMetadataSource` with two
+methods: `ResolveToolDescription(in ToolDescriptionRequest)` and
+`ResolveParameterDescription(in ParameterDescriptionRequest)`. Both return a
+result record carrying the resolved string + an enum identifying which
+precedence step produced it.
+
+## Contract
+
+```
+IToolMetadataSource
+├── ToolDescriptionResult ResolveToolDescription(in ToolDescriptionRequest)
+└── ParameterDescriptionResult ResolveParameterDescription(in ParameterDescriptionRequest)
+
+ToolDescriptionRequest        ToolDescriptionResult       ToolDescriptionSource
+  CommandName : string          Description : string        Synopsis
+  ParameterSetName : string?    Source : enum               Description
+  Synopsis : string?                                        Syntax
+  LongDescription : string?                                 Name
+  ParameterSetSyntax : string?
+
+ParameterDescriptionRequest             ParameterDescriptionSource
+  CommandName : string                    HelpParameter
+  ParameterName : string                  HelpMessage
+  ParameterTypeName : string              ValidateSet
+  HelpParameterDescription : string?      TypeFallback
+  HelpMessage : string?
+  ValidateSetValues : IReadOnlyList<string>?
+  ValidateSetAppliesToArrayElement : bool
+```
+
+Enum values map 1:1 to the FR-583 `descriptionSource` string literals so
+doctor output (#228) and metrics tags (FR-590) can serialize the enum
+directly (camelCase JSON convention).
+
+## Rationale
+
+- **Pre-resolved fields, not callbacks.** The seam never calls `Get-Help`
+  itself. Each caller (in-process #226, OOP #227) populates the help fields
+  from its own source and passes them in. This keeps the seam thread-safe and
+  side-effect-free; both call sites can be unit-tested without a PowerShell
+  runspace.
+- **Request records are `readonly record struct`.** No allocation per call,
+  pattern-match-friendly, immutable.
+- **`in` parameters.** Avoid struct copies at call sites.
+- **Two interface methods, not one.** Tool-level and parameter-level
+  precedence are independent chains with different inputs (parameter has no
+  syntax line, tool has no `ValidateSet`). Splitting them is clearer than a
+  union request type with mode discriminators.
+- **Default implementation preserves pre-spec-010 behavior byte-for-byte.**
+  In-process falls through Synopsis (null) → Syntax → identical to old
+  `"{name} {parameterSet.ToString()}"`. OOP path's Synopsis-when-non-empty
+  rule is reproduced exactly.
+
+## DI Wiring
+
+`StdioServerHost` and `HttpServerHost` register
+`TryAddSingleton<IToolMetadataSource, DefaultToolMetadataSource>()`. The
+`TryAddSingleton` choice lets #226/#227 register their replacement
+implementation earlier (or via a layered registration) without conflict.
+
+`McpToolFactoryV2` ctors accept an optional `IToolMetadataSource?` parameter
+that defaults to a fresh `DefaultToolMetadataSource` instance. This keeps the
+factory usable in test contexts that don't construct a `HostApplicationBuilder`.
+
+## Reviewer-open question
+
+`ToolDescriptionRequest.LongDescription` is part of the contract but the
+default impl ignores it. The spec assigns Get-Help long-description
+*sourcing* to the caller side in #226, not the seam's behavior selection
+ladder. If Farnsworth/Cubert prefer the seam itself to consume
+`LongDescription` (i.e., precedence step 2 logic centralized in the seam
+rather than each caller deciding what to populate), the change is a
+~3-line edit to `DefaultToolMetadataSource.ResolveToolDescription`. Posed
+in PR #238 body for explicit reviewer call.
+
+
+
+### 2026-05-12: Farnsworth — Spec 010 IToolMetadataSource seam architecture verdict (PR #238)
+# Farnsworth — Spec 010 IToolMetadataSource seam architecture verdict (PR #238)
+
+**By:** Farnsworth (Lead/Architect)
+**Requested by:** Steven Murawski
+**Date:** 2026-05-12
+**Status:** Approve (formal approval owned by Steven)
+
+## What
+
+Approved the architectural shape of `IToolMetadataSource` introduced in PR #238 (Bender, branch `squad/225-tool-metadata-source`, closes #225, spec 010 step 3, Option A). This is the foundational seam that wave 3 (#226 in-process Get-Help precedence, #227 OOP `RemoteToolSchema` extension) and wave 4 (#228 OOP wire-through + doctor + FR-590 metrics) plug into.
+
+## Architectural decisions ratified
+
+1. **Caller-side data acquisition.** Get-Help is invoked by `McpToolFactoryV2`/`PowerShellSchemaGenerator` — NOT inside the seam. The seam owns precedence rules; callers own data acquisition. This separation keeps the OOP wire-format independent: the subprocess can resolve and ship pre-resolved fields over ndjson without the seam needing to know about runspaces or processes.
+
+2. **Two-method interface, request/result records.** `ResolveToolDescription` and `ResolveParameterDescription`, each keyed off `readonly record struct` request types. Result types carry both the resolved string and a `Source` enum.
+
+3. **Source enums map 1:1 with FR-583 literals.** `ToolDescriptionSource` {Synopsis, Description, Syntax, Name} and `ParameterDescriptionSource` {HelpParameter, HelpMessage, ValidateSet, TypeFallback}. Enum-to-literal conversion is deferred to #228 (doctor) — correct placement.
+
+4. **DI registration is `TryAddSingleton` in both hosts.** Stdio and HTTP host configurations both register `DefaultToolMetadataSource` via `TryAddSingleton`. `TryAdd` is the right choice — lets #226/#227 register a replacement before host configuration without conflict. Singleton lifetime is correct (default impl is stateless and thread-safe by documentation).
+
+## Verdict
+
+**Approve.** Both call sites (`SetParameterSetDescription` for in-process, `CreateRemoteCommandMetadataMapping` for OOP) are wired through the seam. Behavior is preserved byte-for-byte for realistic inputs in both paths. The interface is shaped so #226/#227/#228 plug in without touching it.
+
+## Forward-compat notes for the wave 3/4 implementers
+
+- **#226 (in-process Get-Help):** populate `Synopsis`, `LongDescription`, `HelpParameterDescription` on the request records. Resolve Get-Help once per command per discovery (FR-570). Switch `McpToolSetupService.CreateToolFactory` to constructor-injected metadata source so the `null` branch can't accidentally bypass a registered replacement.
+- **#227 (OOP `RemoteToolSchema` extension):** extend the schema additively with per-parameter help fields. The OOP caller (`CreateRemoteCommandMetadataMapping`) passes them through the same request shape as in-process — no seam change needed.
+- **#228 (doctor + metrics):** read `result.Source`, format as the FR-583 literal, emit on the `descriptionSource` field and as a tag on the `poshmcp.tool_description.source` / `poshmcp.parameter_description.source` counters.
+
+## Non-blocking observations (filed for follow-up, not blocking PR #238)
+
+- `McpToolFactoryV2` now has six constructors (3 × {with, without metadata source}). Acceptable for backward-compat during transition. Collapse in a follow-up once all callers route through DI.
+- `DefaultToolMetadataSource` calls `Synopsis.Trim()`. PowerShell's Get-Help output is already trimmed for realistic inputs, and FR-540 step 1 will mandate trim anyway. Strictly closer to the spec target than the pre-change OOP behavior.
+
+## Cubert's role
+
+Per the 2026-05-05 user directive, Cubert pre-reviews Farnsworth plans/proposals before they reach the user. This was a PR review (not a plan/proposal), so the directive did not gate this work — Cubert fact-checked in parallel.
+
+
+
+### 2026-05-12: Spec 010 baseline capture mechanics
+
+**By:** Fry (issue #224, requested by Steven)
+
+**What:**
+- Pre-spec-010 `tools/list` snapshots live under `specs/010-tool-self-documentation/baseline/`. The full JSON-RPC envelope is persisted (pretty 2-space, LF), not just `result.tools`.
+- The fixture module `HelpParityFixture` (FR-521) was authored as part of this baseline (PR #236) because the snapshot is meaningless without it. It exports six deterministic functions, one per FR-500/FR-510 precedence-chain rung.
+- `capture-snapshots.ps1` is the canonical regen mechanism. Do NOT regenerate after spec 010 lands — the snapshots must remain pre-change to anchor the FR-550 regression test.
+
+**Why (pre-change parity artifacts surfaced during capture; documented in baseline/README.md):**
+- In-process tool count (133) ≠ OOP tool count (144) for the same configured module set. Out of scope for spec 010 (FR-551 keeps tool names stable).
+- The in-process discovery path does not auto-load modules from `PSModulePath` via `Get-Command -Module`; explicit `CommandNames` are required to trigger auto-load.
+- `PowerShellConfiguration.Environment` (ImportModules / ModulePaths) is wired only for the OOP path; the `PowerShellEnvironmentSetup` class exists but is not instantiated for in-process. Captured but worth a separate bug if not intentional.
+- `IncludePatterns = ["*"]` is required for OOP discovery to enumerate commands from imported modules; in-process treats it as the no-filter default. Same setting in both modes produces semantically equivalent discovery.

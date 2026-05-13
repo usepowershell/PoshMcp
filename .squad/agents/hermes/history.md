@@ -1,4 +1,5 @@
 # Hermes Work History
+- **20260512T210000Z**: ✓ Research — PowerShell help → MCP tool description mapping. Two distinct paths: (1) In-process (McpToolFactoryV2 + PowerShellSchemaGenerator) NEVER calls Get-Help; tool description = `"{commandName} {parameterSetSyntax}"` from `CommandParameterSetInfo.ToString()` (McpToolFactoryV2.cs L123-145); parameter description = literal `"Parameter of type {Type.Name}"` (PowerShellSchemaGenerator.cs L98). (2) Out-of-process host (oop-host.ps1 L760-771, oop-host-pool.ps1 L824-832) calls `Get-Help` and uses ONLY `.Synopsis`, falling back to empty string if synopsis equals command name; remote schema (RemoteToolSchema.cs) carries NO per-parameter description and OutOfProcessToolAssemblyGenerator.cs L304 emits parameters with name only. NOT used anywhere: `.DESCRIPTION` long body, `.EXAMPLE`, `.NOTES`, `.LINK`, `.PARAMETER <name>`, `[Parameter(HelpMessage=...)]`, parameter aliases (no AliasAttribute usage). Surprise: in-process and OOP paths produce visibly different MCP descriptions for the same command — OOP gives the SYNOPSIS sentence, in-process gives raw parameter-set syntax. Authors targeting in-process get no value from comment-based help; authors targeting OOP get value only from `.SYNOPSIS`.
 - **20260403T135630Z**: ✓ Docker fixes & scripts reviews compiled and merged into decision ledger.
 - **20260408T000000Z**: ✓ Reviewed/recorded deploy.ps1 hardening for transient ACR OAuth EOF failures: bounded retry loops, transient error classification, and improved failure diagnostics.
 - **20260418T000000Z**: ✓ Rebased feature/002-tests onto main; resolved 5 add/add conflicts (McpResources + McpPrompts config classes, kept main implementation); removed Skip attrs from 16 integration tests (8 McpResources + 8 McpPrompts); all 16 passed; force-pushed.
@@ -139,3 +140,59 @@ The Unicode escape sequence is not valid. A valid sequence is `u{ followed by on
 
 ### 2026-05-07: v0.11.0 release shipped (cross-agent note from Scribe)
 Your work landed in v0.11.0 (csproj 0.10.0 → 0.11.0, CHANGELOG entry, release notes at docs/release-notes/0.11.0.md). The release narrative credits the OOP maturity wave: Pool default flip (#196/#208), cancellation propagation across all modes (#207), benchmarks harness + findings (#193/#194/#195/#205), OOP host extraction (#190/#198), bug fixes (#203/#189), CWE-117 log-injection hardening, minimum workflow permissions, and SECURITY.md. Tag/push deferred to Steven.
+
+### 2026-05-12: Spec 010 revision (Reviewer Rejection Protocol — Hermes as designated revision author)
+**Requested by:** Brady
+**Artifact:** specs/010-tool-self-documentation/spec.md (Status: Draft, awaiting Brady's promotion to Accepted)
+**Original author:** Farnsworth (locked out from self-revision per strict-lockout rule)
+**Reviewer:** Cubert (APPROVE WITH CHANGES — 5 required changes)
+
+**Cubert's 5 required changes — all addressed:**
+1. FR-521 parity test specified concretely: PoshMcp.Tests/Integration/ToolDescriptionParityTests.cs, fixture corpus at PoshMcp.Tests/Fixtures/Modules/HelpParityFixture/HelpParityFixture.psm1 with 5 named functions covering each precedence step, equality scope narrowed to `description` + `inputSchema.properties.<name>.description`, both modes within single test session, pre-warm Get-Help to bound flake.
+2. FR-550 made testable: snapshot mechanism — pre-change baseline at specs/010-tool-self-documentation/baseline/{mode}-tools-list.json, post-change assertion is equal-or-superset for non-empty originals sourced from .Synopsis.
+3. FR-530/FR-531 REMOVED entirely (Brady's OQ-1 directive: skip aliases). Added Non-Goal entry. Pruned alias references from Edge Cases, SC list (SC-208/209/210 removed), Approach Options A pros/cons, Approach Option B pros, Recommendation rationale #5, Sequencing step 5.
+4. FR-572 baseline artifact named: bench-runs/run-N-pre-spec010/ (capture before implementation), bench-runs/run-N-post-spec010/ (commit alongside impl PR). Threshold computed against pre-spec010 baseline specifically.
+5. SC-205/206 culture/host carve-out resolved via FR-540 strengthening (Cubert's option b): collapse all whitespace runs within paragraphs to single space, preserve \n\n separators, strip control chars. Spec now states explicitly this is what makes byte-identical comparison robust across in-process console host vs OOP subprocess with redirected I/O.
+
+**Brady's 7 OQ resolutions baked in:**
+- OQ-1 aliases: out of scope, FR-530/531 removed, Non-Goal added
+- OQ-2 length caps: 1024 tools / 512 params, not configurable in v1 (left a clarifying note in Resolved Questions in case Brady meant 512 for both)
+- OQ-3 description body: join MamlParaText[] with \n\n, sanitization preserves separators
+- OQ-4 cache invalidation: per-path resolution in FR-571 (in-process: runspace lifetime; OOP: subprocess recycle, optional .NET-side setup-hash cache)
+- OQ-5 doctor field: FR-583 added, field name `descriptionSource` with 4+4 string literals (synopsis|description|syntax|name for tools, helpParameter|helpMessage|validateSet|typeFallback for params)
+- OQ-6 ValidateSet phrasing: singleton "One of: A, B, C" / array "Each item is one of: A, B, C"
+- OQ-7 telemetry: FR-590 added, two OTel counters (poshmcp.tool_description.source, poshmcp.parameter_description.source) with `step` tag matching FR-583 vocabulary
+
+**Cubert's non-blocking suggestions also applied:**
+- Background "What authors expect" table: added third row "Both paths (post-spec 010)" with what spec 010 delivers
+- Added Scenario 3 (P3) and SC-208 covering FR-511 multi-parameter-set consistency
+- Sequencing step 11 commits to docs/articles/exposing-tools.md (no "or new file" choice)
+- Sequencing list re-headed to note detailed step-by-step belongs in tasks.md when promoted; numbered 1-11 with pre-change baseline captures (FR-572 bench, FR-550 snapshots) explicitly first
+
+**Open Questions section replaced with "Resolved Questions"** (matches spec 009 pattern). All 7 OQs listed with their resolutions and the FRs that bake them in.
+
+**Section structural changes:**
+- Status stays Draft (Brady promotes)
+- Added "Revised: 2026-05-12 (Hermes)" line under Created
+- Renumbered SCs: removed SC-208/209/210 (aliases), reused SC-208 for the new multi-parameter-set consistency check
+- FR-530/FR-531 numbers gapped (removed; not renumbered to keep all back-references stable)
+- Added FR-583 (doctor field naming) and FR-590 (telemetry counters); kept all other FR numbers unchanged
+- Updated SC-207 to reference FR-583 literals directly instead of the informal "description-body / syntax-fallback / command-name-fallback" placeholders the draft used
+
+**Patterns worth keeping for future specs:**
+- When an FR contains "implementation decision" or "implementation choice", it's punting and not testable. Cubert's catch on FR-530 is the canonical example.
+- Cross-mode byte-identical claims need either a culture/host precondition OR aggressive normalization. We chose normalization (FR-540) because it's enforced by the implementation, not by the test environment, so it survives CI environment drift.
+- Doctor JSON field names should be coordinated with the metric tag vocabulary at spec time, not at impl time. FR-583 + FR-590 use the exact same string literals (synopsis|description|syntax|name and helpParameter|helpMessage|validateSet|typeFallback) so doctor output, OTel metrics, and the parity test all speak the same language.
+- Snapshot tests for "no regression" claims need a concrete fixture path AND a clearly stated comparison rule (equal-or-superset, not just equal). Without both, the FR is unfalsifiable.
+- Per-path cache lifetimes (in-process vs OOP) should be spelled out FR-by-FR even when the high-level rule is the same — the underlying lifecycle objects differ enough that "for the lifetime of the runspace/process" hides important nuance.
+
+
+### 2026-05-12 — OOP IToolMetadataSource wiring (#228 / PR #241)
+- The seam from #225 was already wired to OOP via McpToolFactoryV2.CreateRemoteCommandMetadataMapping, but only the Synopsis (schema.Description) was being passed through the ToolDescriptionRequest. The new RemoteToolSchema fields from #239 (FullDescription, HelpDescription, HelpMessage, ValidateSetValues) sat unused on the .NET side.
+- Did NOT need a separate `IToolMetadataSource` impl for OOP: `HelpAwareToolMetadataSource` is already a pure, side-effect-free resolver — it does not call Get-Help itself. Both modes share the same impl; the per-mode adapter is in McpToolFactoryV2 (in-process: `BuildParameterDescriptionMap` + `SetParameterSetDescription`; OOP: new `BuildRemoteParameterDescriptionMap` + enriched `CreateRemoteCommandMetadataMapping`). Matches Bender's pattern in #226.
+- Mirrored Bender's IL pattern in `OutOfProcessToolAssemblyGenerator`: added `s_descriptionAttributeCtor` + `[Description]` emission on parameters, gated by `i < commandParamCount` to skip framework params (`_AllProperties` etc) and `CancellationToken`.
+- For FR-500 step 3 (parameter-set syntax fallback), the OOP host does NOT emit `CommandParameterSetInfo.ToString()` over the wire; synthesized it on the C# side from `RemoteParameterSchema` entries (`[-Param <ShortType>]` / `-Param <ShortType>` / bare `-Param` for switches). Best effort; not byte-identical to in-process syntax for complex cases.
+- Snapshot verification: tool descriptions for HelpParityFixture commands match in-process (Synopsis-derived for fixtures with proper `.SYNOPSIS`; syntax-fallback for those without — both modes converge on the same string). Parameter descriptions show empty in BOTH modes for the fixtures — suggests Get-Help isn't returning param description text for the fixture, OR the MCP SDK isn't reflecting `[Description]` on the auto-schema. Either way, the OOP path now produces the same output as in-process — wiring parity achieved. Param-text resolution gaps are #229's territory.
+- `oop-host.ps1` left untouched: it already emits the raw fields from #239, and the C# consumer no longer depends on `Description` being non-empty since the precedence chain handles fall-through.
+- Hygiene win: kept all temp output in `\C:\Users\stmuraws\AppData\Local\Temp\hermes-228-*` — no stray `.txt` files in the worktree.
+

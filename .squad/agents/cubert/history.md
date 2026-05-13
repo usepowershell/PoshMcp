@@ -133,3 +133,128 @@ Replace `"PowerShell"` with `"PowerShellConfiguration"` as the top-level key in 
 **Per Reviewer Rejection Protocol:** Leela cannot self-revise. Route the fix to Amy (release-notes co-owner per charter) or any other agent.
 
 **Cubert.**
+
+### 2026-05-12: Pre-review of spec 010 (tool self-documentation) — APPROVE WITH CHANGES
+**Requested by:** Steven Murawski (Brady)
+**Artifact:** specs/010-tool-self-documentation/spec.md (Draft, Farnsworth author, Hermes co-author on grounding research)
+
+**Method:** Verified all six cited file:line ranges against current source on disk. Cross-checked format conformance against spec 009. Cross-checked scope discipline against Brady's directive ("don't worry about comment-based vs MAML vs XML — platform normalizes them").
+
+**Verdict:** APPROVE WITH CHANGES — five required changes before promotion to Accepted.
+
+**Citations check (✅ all verified):**
+- McpToolFactoryV2.cs#L123-L145, #L442 — match
+- PowerShellSchemaGenerator.cs#L98 — match
+- oop-host.ps1#L763-L771, oop-host-pool.ps1#L824-L832 — match
+- RemoteToolSchema.cs#L17 XML doc — match (and confirmed misleading)
+
+**Required changes (drop file at .squad/decisions/inbox/cubert-spec-010-review.md):**
+1. FR-521 parity test strategy is hand-wavy — needs project, naming, equality scope, fixture corpus.
+2. FR-550 "no description regression" has no measurement mechanism — unfalsifiable as written.
+3. FR-530/531 punt on alias field placement and label it "implementation decision" — not testable; resolve OQ-1 inline.
+4. FR-572 baseline capture vague — name the bench-runs/ artifact, require post-change run committed alongside.
+5. SC-205/SC-206 byte-identical claim needs culture/host carve-out OR more aggressive normalization in FR-540 — otherwise FR-521 will be flaky on cross-platform CI.
+
+**Recommended revision agent:** Hermes (per strict-lockout rule; Farnsworth is locked out from self-revising his own draft. Hermes has independent grounding in the same code paths from his 2026-05-12 research).
+
+**Top 2 issues (highest blocking weight):**
+- (3) Punted FR-530 alias placement — this is the most subtle defect because it reads like a complete FR but isn't testable. Easy to miss on a fast read.
+- (5) Cross-mode byte-identical claim without culture/normalization carve-out — will bite at FR-521 implementation time, when the parity test is flaky on Linux CI agents and someone has to retroactively rewrite the SC.
+
+**Patterns worth remembering:**
+- When an FR contains the phrase "implementation decision" or "implementation choice", that's a tell — the FR is punting and shouldn't ship as-is. Either resolve the choice in the FR or demote it to an Open Question.
+- Byte-identical parity claims across two execution contexts (in-process vs subprocess) almost always need a culture/host-normalization precondition. PowerShell's Get-Help formatting depends on `$Host.UI.RawUI.BufferSize`, which differs between an attached console and a redirected stdin/stdout subprocess. If a spec doesn't disclose that, expect the parity test to flake on the first cross-platform CI run.
+- Co-authored specs (Farnsworth-as-author, Hermes-as-grounding) are easy to fact-check on the technical claims because the co-author's history.md is itself a contemporaneous record of the verified evidence. Cross-referencing the two cuts verification time roughly in half.
+- Strict-lockout rule means the obvious revision agent is the co-author who provided the technical baseline (Hermes here), not the original drafter. This keeps the lockout meaningful while preserving the research investment.
+
+
+
+### 2026-05-12: Wave 1 spec-010 PR fact-check — three PRs verified
+
+**Requested by:** Steven
+
+**PR #235 (Bender — RemoteToolSchema XML doc fix):** VERIFIED. XML doc on `RemoteToolSchema.Description` matches both `oop-host.ps1` L763-771 and `oop-host-pool.ps1` L824-832 exactly: `Get-Help .Synopsis`, trimmed, only when != command name; otherwise empty. Long Description body and parameter-set syntax NOT read. Downstream fallback to bare command name confirmed at `McpToolFactoryV2.cs:442`. Doc correctly scopes itself to "Populated by the OOP host" so the in-process path (different code path) is not contradicted.
+
+**PR #236 (Fry — pre-spec010 tools/list snapshots):** VERIFIED. Counted 133 in-process / 144 OOP tools via `ConvertFrom-Json | .result.tools.Count` — exact match. Six fixture tools in each snapshot (snake_case-normalized: `get_fixture_bare`, `get_fixture_full_help`, `get_fixture_help_message_only`, `get_fixture_synopsis_only`, `get_fixture_validate_set_array`, `get_fixture_validate_set_scalar`). Source `HelpParityFixture.psm1` exports exactly six matching `Get-Fixture*` functions. README SHA `16878b84` confirmed as parent of bench commit `6420feb`. Capture script does proper `initialize -> notifications/initialized -> tools/list` handshake with temp appsettings (no live config mutation). Not end-to-end re-executed.
+
+**PR #237 (Amy — cold-start baseline):** VERIFIED with one minor. Mean numbers (Single 5.790s, Pool 5.784s, ProcessPool 6.996s) match across PR body, README table, BDN GitHub markdown, and CSV — all four sources agree on Mean/P95/P99. `ColdStartBenchmark` class exists at `PoshMcp.Benchmarks/Scenarios/ColdStartBenchmark.cs` with `[Params(Single, Pool, ProcessPool)]` and `[InvocationCount(1)]`. SHA `16878b84` confirmed as parent of bench commit `77d535a`. **Minor non-blocker:** README "Artifacts in this folder" lists a `.log` file and `stdout.log` that are NOT in the PR diff — README either over-promises or those files should be added. Cosmetic cleanup, not a factual-accuracy blocker.
+
+**Patterns worth remembering:**
+- When fact-checking a doc claim about OOP behavior, the FACT is in the host script, not the C# DTO. Always re-read both `oop-host.ps1` AND `oop-host-pool.ps1` — they have parallel discovery logic in different files; a claim might be true in one and not the other.
+- MCP tool name normalization is snake_case. PowerShell function names use PascalCase-with-dashes. When verifying "tool X exists in the snapshot", search BOTH forms (`Get-Fixture*` AND `get_fixture_*`). A negative result on the PowerShell name alone is misleading.
+- BDN cold-start benches with `[InvocationCount(1)] + [UnrollFactor(1)] + await using` per iteration correctly report per-iteration cost in the Mean column — the README's interpretation is sound. Worth remembering when reviewing other bench claims that don't have those attributes (those would amortize and the Mean would NOT be per-cold-start).
+- When README lists "Artifacts in this folder" and the file list doesn't match the PR diff, it's almost always honest — author intended to ship the .log but `.gitignore` or the diff scope excluded them. Worth flagging non-blocker.
+
+
+
+### 2026-05-12: Wave 1 spec-010 PR fact-check — three PRs verified
+
+**Requested by:** Steven
+
+**PR #235 (Bender — RemoteToolSchema XML doc fix):** VERIFIED. XML doc on `RemoteToolSchema.Description` matches both `oop-host.ps1` L763-771 and `oop-host-pool.ps1` L824-832 exactly: `Get-Help .Synopsis`, trimmed, only when != command name; otherwise empty. Long Description body and parameter-set syntax NOT read. Downstream fallback to bare command name confirmed at `McpToolFactoryV2.cs:442`. Doc correctly scopes itself to "Populated by the OOP host" so the in-process path (different code path) is not contradicted.
+
+**PR #236 (Fry — pre-spec010 tools/list snapshots):** VERIFIED. Counted 133 in-process / 144 OOP tools via `ConvertFrom-Json | .result.tools.Count` — exact match. Six fixture tools in each snapshot (snake_case-normalized: `get_fixture_bare`, `get_fixture_full_help`, `get_fixture_help_message_only`, `get_fixture_synopsis_only`, `get_fixture_validate_set_array`, `get_fixture_validate_set_scalar`). Source `HelpParityFixture.psm1` exports exactly six matching `Get-Fixture*` functions. README SHA `16878b84` confirmed as parent of bench commit `6420feb`. Capture script does proper `initialize -> notifications/initialized -> tools/list` handshake with temp appsettings (no live config mutation). Not end-to-end re-executed.
+
+**PR #237 (Amy — cold-start baseline):** VERIFIED with one minor. Mean numbers (Single 5.790s, Pool 5.784s, ProcessPool 6.996s) match across PR body, README table, BDN GitHub markdown, and CSV — all four sources agree on Mean/P95/P99. `ColdStartBenchmark` class exists at `PoshMcp.Benchmarks/Scenarios/ColdStartBenchmark.cs` with `[Params(Single, Pool, ProcessPool)]` and `[InvocationCount(1)]`. SHA `16878b84` confirmed as parent of bench commit `77d535a`. **Minor non-blocker:** README "Artifacts in this folder" lists a `.log` file and `stdout.log` that are NOT in the PR diff — README either over-promises or those files should be added. Cosmetic cleanup, not a factual-accuracy blocker.
+
+**Patterns worth remembering:**
+- When fact-checking a doc claim about OOP behavior, the FACT is in the host script, not the C# DTO. Always re-read both `oop-host.ps1` AND `oop-host-pool.ps1` — they have parallel discovery logic in different files; a claim might be true in one and not the other.
+- MCP tool name normalization is snake_case. PowerShell function names use PascalCase-with-dashes. When verifying "tool X exists in the snapshot", search BOTH forms (`Get-Fixture*` AND `get_fixture_*`). A negative result on the PowerShell name alone is misleading.
+- BDN cold-start benches with `[InvocationCount(1)] + [UnrollFactor(1)] + await using` per iteration correctly report per-iteration cost in the Mean column — the README's interpretation is sound. Worth remembering when reviewing other bench claims that don't have those attributes (those would amortize and the Mean would NOT be per-cold-start).
+- When README lists "Artifacts in this folder" and the file list doesn't match the PR diff, it's almost always honest — author intended to ship the .log but `.gitignore` or the diff scope excluded them. Worth flagging non-blocker.
+
+
+### 2026-05-12: PR #238 verification (Bender — IToolMetadataSource seam, issue #225)
+**Verdict:** VERIFIED.
+- Re-ran capture-snapshots.ps1 against PR HEAD e94349f from worktree poshmcp-225. Both snapshots byte-identical to committed wave-1 baselines (InProcess 133 tools / 386829 bytes; OOP 144 tools / 287869 bytes). git status --short clean after capture — empirical proof of byte-for-byte preservation.
+- DI confirmed in BOTH transport hosts: StdioServerHost.cs L141 and HttpServerHost.cs L280, both use TryAddSingleton<IToolMetadataSource, DefaultToolMetadataSource>(). TryAddSingleton is the right choice — lets #226/#227 swap implementations.
+- Build clean: dotnet build PoshMcp.sln -c Release reports 0 errors / 20 warnings, all pre-existing (CS8602 in McpToolFactoryV2.cs/PowerShellAssemblyGenerator.cs, CS8604 in CommandHandlers.cs, NU1510 transitive). None inside the new files.
+- Test count 661 not locally re-run (worktree cd was stripped by terminal simplification; main-checkout test would not exercise PR code). gh pr checks 238 reports 7/7 green including CI/build and Squad CI/test.
+- Spec consistency: Option A explicitly named in spec.md; ToolDescriptionSource enum {Synopsis, Description, Syntax, Name} maps 1:1 to FR-583 tool literals; ParameterDescriptionSource enum maps 1:1 to FR-583 parameter literals. LongDescription field on the request record is present-but-unused per the deferred-to-#226 note.
+- Subtle: DefaultToolMetadataSource adds .Trim() and synopsis-equals-CommandName guard on the OOP path. Pre-spec-010 code at L442 was a literal pass-through. The OOP host already trims and applies the equals guard at oop-host.ps1 L763-771 / oop-host-pool.ps1 L824-832 BEFORE populating schema.Description, so the seam's added guard is idempotent on every shipping host. Snapshot equality empirically confirms no drift on Microsoft.PowerShell.Management + HelpParityFixture corpus. Worth noting because a non-shipping host that sent an untrimmed Description would now produce different output.
+- Posted neutral, evidence-first verdict via gh pr comment (formal review submission still self-blocks).
+
+**Patterns worth remembering:**
+- For a refactor PR that claims byte-for-byte preservation, the strongest possible verification is to RE-RUN the capture script that produced the baseline against the new code path and binary-diff the output files. -eq on Get-Content -Raw + identical lengths is the simplest sufficient check; git status clean after capture is independent confirmation. This took ~9s vs. trying to mentally trace 300+ lines of diff.
+- When a worktree-bound dotnet test command can't be launched (terminal cwd simplification strips the cd in this VSCode terminal), CI green status is acceptable corroboration for a test-count claim, BUT the byte-for-byte snapshot is the higher-signal check — it verifies BEHAVIOR, not just compilation/test-pass. For a seam PR, snapshot identity > test count.
+- When a refactor adds normalization (.Trim() here) at a new layer, always check whether the SOURCE layer already does the same normalization. If it does, the new layer is idempotent and snapshot identity is expected. If it doesn't, you have a real behavior change and need test coverage for the malformed-input case.
+
+
+### 2026-05-12 — Wave 3 review of PRs #240 and #239 (spec 010, requested by Steven)
+
+**PR #240 (squad/226-inprocess-precedence) — APPROVE.** Built worktree, ran DescriptionSanitizerTests (23/23 in 161 ms), and re-captured the in-process tools/list snapshot. **124 of 133 tools** got upgraded from syntax lines to real Get-Help synopses. The 9 unchanged tools are exactly the ones the FR-500 chain says should fall through to syntax (no synopsis, no description body) — including the bare/HelpMessage-only/ValidateSet fixtures (HelpMessage and ValidateSet are parameter-level signals, not tool-level). DI confirmed in both `HttpServerHost.cs:287` and `StdioServerHost.cs:148`. Posted via `gh pr comment` (EMU self-review block — does NOT count as formal approval).
+
+**Non-blocking observation on #240:** `BuildParameterDescriptionMap` correctly resolves per-parameter help text and the assembly generator emits `[System.ComponentModel.DescriptionAttribute]` (`PowerShellAssemblyGenerator.cs:613-626`), but the captured `inputSchema.properties.<name>.description` field is still empty for fixture parameters with known help. The data IS reaching the map (probed PowerShell directly: Get-Help returns text). The remaining gap is between `[Description]` on dynamically-emitted method parameters and the MCP SDK's auto-schema serializer. Worth a follow-up issue but does not block #240's stated FR-500 scope.
+
+**PR #239 (squad/227-oop-remoteschema) — APPROVE.** Schema is purely additive: `RemoteToolSchema.Description` unchanged, all new fields nullable with null defaults. Both PS hosts (`oop-host.ps1` top-level helpers, `oop-host-pool.ps1` inline helpers) emit identical PascalCase keys matching C# DTO properties. `OutOfProcessCommandExecutor.cs:124` uses `PropertyNameCaseInsensitive=true`. **Empirical proof:** re-ran the OOP capture and diffed — **0 description diffs across all 144 tools**, byte-identical Description fields. Both PRs CI green, mergeable.
+
+**Patterns worth remembering:**
+- For PR self-review blocked by EMU on usepowershell/* — always use `gh pr comment` with a `Posting via gh pr comment instead of gh pr review --approve` disclaimer; never claim formal approval.
+- The capture-snapshots.ps1 script overwrites both baseline files. To validate without disturbing main: copy baselines to `C:\Users\stmuraws\AppData\Local\Temp` first, run capture, diff in PowerShell, then `Copy-Item -Force` back and `git checkout --` the others.
+- `PowerShellSchemaGenerator.CreateParameterSchema` exists but is **not called from McpToolFactoryV2** in the in-process path — the actual inputSchema comes from the MCP SDK reflecting on the dynamically-generated assembly. So passing `HelpParameterDescription: null` in the schema generator's request is fine because that code path isn't on the hot path; the real wiring is the `[Description]` attribute emission in the assembly generator.
+- For OOP additive DTO changes, `System.Text.Json` with `PropertyNameCaseInsensitive=true` makes both directions safe (extra fields ignored on old client, missing fields default to null on new client).
+
+
+### 2026-05-12: PR #241 fact-check (Hermes — wire OOP through IToolMetadataSource seam, #228) — VERIFIED
+
+**Verdict:** ✅ VERIFIED. Comment: https://github.com/usepowershell/PoshMcp/pull/241#issuecomment-4436357123
+
+**Method:** Captured both `tools/list` snapshots from worktree `poshmcp-228` @ `7c19106` (backed up committed baselines to `C:\Users\stmuraws\AppData\Local\Temp`, restored after capture — committed corpus unchanged). Ran `dotnet build PoshMcp.sln -c Release` and `dotnet test ... --filter "Category!=Integration" --no-build`. Traced the new OOP entry points (`CreateRemoteCommandMetadataMapping` + `BuildRemoteParameterDescriptionMap`) through `_toolMetadataSource` → `HelpAwareToolMetadataSource` (DI-registered in `HttpServerHost.cs:287` and `StdioServerHost.cs:148`) → `DescriptionSanitizer.Normalize` to confirm FR-540 parity.
+
+**Findings:**
+- Build: 3 warnings, all pre-existing (2× NU1510, 1× CS8604 in `WinPsCompatProxyMethodGenerationTests.cs` which is not in PR diff). Zero new warnings — claim verified.
+- Tests: `Failed: 0, Passed: 684, Skipped: 7` — exact match to PR body.
+- Mode parity for all 6 HelpParityFixture commands: tool-level descriptions byte-identical across in-process and OOP. Parameter-level descriptions also byte-identical (both empty for fixtures — see observations).
+- Sanitizer: every new OOP description path routes through `HelpAwareToolMetadataSource.ResolveToolDescription` and `ResolveParameterDescription`, both of which call `DescriptionSanitizer.Normalize` before `TruncateAtWordBoundary`. Same sanitizer pipeline as in-process.
+- Backward compat: all new `RemoteToolSchema` fields nullable; PR diff guards every consumer with `IsNullOrWhiteSpace` or explicit null/length checks; legacy `GenerateAssembly(schemas, logger)` overload preserved; IL emit only when `parameterDescriptions != null && TryGetValue` succeeds.
+
+**Non-blocking observations posted on PR:**
+- OOP snapshot vs pre-spec010 OOP baseline: 0/144 tool-description diffs. Fixture parity with in-process was coincidentally already present before this PR (because the in-process precedence chain post-#240 happens to land on the same syntax strings the pre-spec010 OOP host emitted). The PR's "now match in-process output" framing is technically true post-PR but no visible snapshot delta is produced by this commit alone. The architectural value (uniform seam-based precedence so future changes affect both modes) is real — worth one line in PR body so reviewers don't expect a visible delta.
+- Parameter-level `inputSchema.properties.<name>.description` is empty for every parameter of every tool in both modes (in-process and OOP). FR-520 parity is satisfied (both modes byte-identical empty). Whether FR-510 precedence is actually emitting parameter descriptions for non-fixture commands is a question outside this PR's scope.
+
+**Patterns worth remembering:**
+- When a PR's claim is "X now matches Y," verify both (a) X and Y match post-PR and (b) the pre-PR state. If pre-PR already matched, the PR is wiring/architectural rather than behavior-changing — both can be legitimate but should be framed correctly to set reviewer expectations.
+- Backward-compat checks on extended DTOs reduce to three things: nullable type signatures, defensive guards on every read site, and a preserved overload signature for any method whose surface changed. The PR diff did all three. Worth keeping as a checklist for future DTO-extension PRs.
+- The `IToolMetadataSource` seam is the single best place to gate sanitization in this codebase — if a new code path routes through `ResolveToolDescription` / `ResolveParameterDescription`, `DescriptionSanitizer.Normalize` is guaranteed via `HelpAwareToolMetadataSource`. Verifying sanitizer coverage reduces to "does the path call the seam?" which is one `grep` per entry point.
+- `capture-snapshots.ps1` overwrites the committed baseline files in-place. ALWAYS back them up to `\C:\Users\stmuraws\AppData\Local\Temp` before running and restore after. This makes the script safe to run for verification without polluting the working tree.
+

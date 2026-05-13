@@ -514,3 +514,28 @@ Release notes for v0.8.9–0.8.11: PSModule docs in Dockerfile, --appsettings bu
 - Updated docs/toc.yml: registered new release notes file
 - Previously: consolidated Entra ID auth docs (entra-id-mcp-auth.md merged into canonical entra-id-auth-guide.md)
 - Coordination: Released Amy's gated v0.9.4, provided QA docs to Fry for regression test scenarios
+
+### 2026-05-12: Authoring MCP-friendly PowerShell — Docs Gap Identified
+
+**Task:** Complementary research alongside Hermes — author-facing guidance for getting good MCP tool metadata out of existing PowerShell.
+
+**Docs audit findings:**
+- `docs/articles/exposing-tools.md` covers **discovery/filtering only** (whitelist, include/exclude, modules). No authorship guidance.
+- `README.md` mentions "Automatic extraction from Get-Help and Get-Command" once, no follow-through.
+- `DESIGN.md` lists "synopsis" as an extracted field but never tells authors what to write.
+- **No existing "Authoring MCP-friendly PowerShell" article.** Confirmed docs gap.
+
+**Author-facing recommendations distilled (the ones that matter):**
+1. `.SYNOPSIS` is the tool description — treat one sentence as the AI's first impression. Action-led, no marketing prose.
+2. Prefer `[Parameter(HelpMessage="...")]` over `.PARAMETER` comment-based help for per-param description (structurally attached, survives module boundaries). Comment-based help is the fallback for richer prose.
+3. Verb choice drives safety classification — PoshMcp runs `Get-Verb` and sets `IsReadOnly` / `IsDestructive` / `IsIdempotent` from the verb group (`Common`/`Data`/`Lifecycle`/`Security`/`Diagnostic`). Wrong verb = wrong gating policy.
+4. Typed parameters (`[string]`, `[int]`, `[ValidateSet]`, `[Parameter(Mandatory)]`) become the JSON schema. Untyped `[object]` parameters produce unusable schemas.
+5. Each parameter set becomes a separate tool — name them clearly or collapse them.
+
+**Current extraction behavior (from McpToolFactoryV2.cs lines ~111–145):**
+- Default `metadata.Description = commandInfo.Name`.
+- Replaced by `"{commandName} {parameterSet.ToString()}"` — i.e., syntax string, NOT SYNOPSIS/DESCRIPTION from comment-based help, in the path I traced. Hermes' report has the authoritative answer on whether `Get-Help` SYNOPSIS feeds into the description elsewhere; if it doesn't, that itself may be a product gap worth raising separately.
+
+**Recommendation to Brady:** File a GitHub issue for new article `docs/articles/authoring-tools.md`, cross-linked from `exposing-tools.md` and the README "Rich Metadata" bullet. Draft body provided in response, NOT filed pending approval.
+
+**Why this complements Hermes:** Hermes answers "what PoshMcp extracts from a function." This entry answers "what should a module author *write* so PoshMcp has something good to extract." Both halves needed.

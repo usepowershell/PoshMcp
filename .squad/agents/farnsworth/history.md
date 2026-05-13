@@ -20,6 +20,267 @@ ew TypeName).
 - Surfacing hardcoded values (e.g. 30s timeout) in doctor reports — even before they're config knobs — signposts the eventual configuration surface.
 - Spot-check 2-3 headline numbers in docs+data PRs against source tables (catches arithmetic + rounding inversions).
 
+## Pre-2026-05-02 Summary (archived to history-archive.md on 2026-05-06)
+- 2026-04-17: Restructured loose specs (003 prompts, 004 OOP, 005 large-result) into speckit format; FR-035..FR-064, SC-016..SC-030.
+- 2026-04-18: Approved PR #130 (MimeType nullable fix) — pattern: model nullable + handler-applied default preserves validator signal.
+- 2026-04-20: Filed Spec 006 (Doctor Output Restructure) milestone #3 with 27 issues T001-T027 (#140-#166) split Bender/Fry.
+- 2026-07-15: MCP Resources/Prompts spec (002) authored; 4 team skills extracted from PRs #92-#96.
+- 2026-07-18: Triaged Issue #131 (stdio logging to file) — Serilog file sink, ClearProviders unconditional in stdio mode, 3-tier resolution (CLI > env > config). Approved PRs #132 (stdio logging), #134 (docker buildx context fix).
+- 2026-07-28: Approved PR #167 (Spec 006 Doctor Output Restructure) — DoctorReport records + DoctorTextRenderer architecture.
+- See history-archive.md for full entries.
+
+### 2026-05-02: Reviewed PR #184 — Program.cs Refactoring (squad/program-cs-refactor)
+
+**Verdict:** CHANGES REQUESTED
+
+**PR:** https://github.com/usepowershell/PoshMcp/pull/184 — "refactor: extract Program.cs concerns into dedicated service classes (68% reduction)"
+
+**Branch pushed and PR created** from worktree `poshmcp-refactor`. 6 commits, 6 new files.
+
+**Key findings:**
+
+1. **BLOCKING — DescribeConfigurationPath duplicated 5x**: `Program.cs`, `DoctorService.cs`, `CommandHandlers.cs`, `StdioServerHost.cs`, `HttpServerHost.cs` all contain a private copy of the same utility method. Same for `ToToolName`, `GetDiscoveredToolNames`, `GetExpectedToolNames`. Needs a shared `ConfigurationHelpers` utility class.
+
+2. **BLOCKING — DoctorService extraction incomplete**: `BuildDoctorReportFromConfig` and `BuildDoctorJson` (plus all their private helpers) were COPIED into `DoctorService.cs` but NOT removed from `Program.cs`. Tests still call `Program.BuildDoctorReportFromConfig`. Fix: either delete duplicates from Program.cs + update tests, or have Program.cs forward to DoctorService.
+
+3. **CONCERN — CliDefinition nullable static properties**: 70+ options/commands are null until `Build()` is called; mutable static state reset on subsequent `Build()` calls. Suggest returning a value object instead.
+
+4. **CONCERN — CliDefinition/CommandHandlers are `public`**: Should be `internal` (matching DoctorService, McpToolSetupService, etc.).
+
+5. **GOOD — Delegate injection in DoctorService**: Passing `DiscoverToolsForCliAsync` as Func avoids coupling Diagnostics to Server layer.
+
+6. **GOOD — Namespace consistency**: All 6 new classes use `namespace PoshMcp;`.
+
+**Decisions file:** `.squad/decisions/inbox/farnsworth-pr-review.md`
+**Key decisions:**
+- `McpResources` and `McpPrompts` are top-level `appsettings.json` siblings to `PowerShellConfiguration` — MCP-layer concerns belong at MCP layer, not nested under execution config
+- Two source types for both: `"file"` (read at request time, relative to `appsettings.json` dir) and `"command"` (executed in shared runspace, no new runspace)
+- URI scheme `poshmcp://resources/{slug}` is recommended but not enforced; doctor warns, does not error
+- Prompt argument injection uses pre-assignment (`$argName = value`) before command string executes — not `-ArgumentList` (avoids requiring `param()` blocks)
+- File-backed prompt argument substitution deferred to v1+ — file returned verbatim, client does template rendering
+- No resource caching in server; operators build caching into PowerShell commands if needed
+- Resource subscriptions out of scope — four read-path SDK handlers are sufficient for v1
+- SDK registration via `WithListResourcesHandler`, `WithReadResourceHandler`, `WithListPromptsHandler`, `WithGetPromptHandler` in `Program.cs`
+- FR numbering starts at FR-018 (after FR-017 from spec 001); SC numbering starts at SC-009 (after SC-008)
+- Doctor validation contract fully specified including severity levels and JSON output shape
+
+
+
+
+### 2026-05-06: PR #187 review — Hermes runspace pool vs multi-process experiment plan
+
+**Verdict:** APPROVE (review saved to `$env:TEMP\farnsworth-pr187-review.md` — EMU policy blocks `gh pr review` AND `gh pr comment` from this account; surfaced to user for manual paste).
+
+**Plan strengths confirmed:**
+- `OutOfProcessHost` extraction is the correct shared seam — per-process state in current `OutOfProcessCommandExecutor` (process, streams, `_sendLock`, `_pending`, read/stderr loops, `Process.Exited`) factors cleanly out, leaving `ICommandExecutor` as the public surface. Single-host executor becomes a thin wrapper; process pool composes N hosts.
+- Protocol layer is genuinely parallel-ready (id-keyed `_pending` + async `ReadLoopAsync`). Only the host serializes today. Plan correctly notes this — minimizes C# churn.
+- Isolation as benchmark pass/fail gate (not vibes) is the right discipline. "Default to B if neither passes isolation" is the correct tiebreaker — preserves the original OOP motivation.
+- Phasing: 1 unblocks 2/3, 4 parallel, 5 fans in, 6 cleans up. `SubprocessHostMode` flag keeps a known-good baseline available for bisecting.
+- `SubprocessPoolSize: 1` collapses Option B to current behavior — clean fallback knob.
+
+**Architectural concerns to fold into prototype issues (non-blocking for plan):**
+- A1 — Stream pollution: `[Console]::Out` swap won't catch `Write-Host` (which goes through `$Host.UI` snapshotted at runspace open). Need a custom `PSHost` / `PSHostUserInterface` for the pool. The .NET-side `IsNonJsonPowerShellStreamLine` should be defense-in-depth, not load-bearing.
+- A2 — Setup race: pool close-rebuild-reopen needs an explicit drain barrier (stop accept → wait `_pending` empty → close → rebuild → reopen). Plan's "setup is rare and cannot race" is aspirational.
+- A3 — Per-runspace `$Error` is correctly identified; also reset `$LASTEXITCODE` and `$ErrorActionPreference`. Existing single-runspace host already leaks `$Error` across invokes (separate fix issue).
+- B1 — Channel-lease `finally` must check liveness before re-enqueue; dead host stays out of channel until replacement passes `ping` + `setup`. Otherwise pool slowly bleeds capacity.
+- B2 — Discovery cache assumption ("schemas identical") only holds while every subprocess runs the same setup. Cache discovery keyed by setup-payload hash; re-discover on hash mismatch.
+- 4 — Benchmark harness must use BDN `[GlobalSetup]` / `[IterationSetup]` to keep process spawn out of per-iteration measurements; otherwise B loses on Az.Accounts import time for the wrong reason.
+- 5 — Pass/fail "≥ 4× baseline at 10 concurrent" doesn't apply to CPU-bound (ceiling = ProcessorCount) or CPU-light (dispatch overhead floor). Recommend rewriting as scenario × metric × threshold table.
+- 6 — Cancellation scope-out: until cancellation lands, Option A's effective capacity under adversarial load is `N - stuck_invokes`. Don't flip default to A in issue #6 without it.
+- 7 — Memory metric: sample Win32 handle count alongside working set. Az workloads leak handles characteristically.
+
+**Answers to plan §6 open questions:**
+1. Default N = `Environment.ProcessorCount` for prototype. Don't pick a fixed number until network-shaped benchmark confirms scaling.
+2. Don't ship the loser. Two host scripts is real maintenance cost — issue #6 deletes the loser.
+3. Local `HttpListener` for harness; one manual real-Azure end-to-end for the findings doc; not in CI.
+4. Cancellation as separate issue, agreed; conditional on concern #6.
+
+**Pattern noted (logging):**
+- EMU blocks BOTH `gh pr review` and `gh pr comment` for usepowershell/PoshMcp from this account. Cubert recently logged the same finding. Future PR reviews must be saved to `$env:TEMP` and surfaced for manual paste — do not waste cycles attempting either gh subcommand.
+- Plan-only PRs that quote internals are high-signal fact-check targets — every cited line either resolves or doesn't. Cross-reference cmdlet usage at the call site, not by global grep (e.g., `ConvertTo-Json -Depth N` legitimately varies per call site).
+## Learnings (2026-05-06)
+- PR #187 review (runspace pool vs multi-process experiment plan, branch squad/65-runspace-pool-experiment-plan): verdict = comment / approve direction with revisions. Plan is sound; #1 (extract OutOfProcessHost) can start immediately.
+- Key architectural concerns raised:
+  - Option A: `[Console]::Out` cannot be redirected per-runspace (it's process-global) — plan's stream-pollution mitigation needs correction; use custom PSHost via CreateRunspacePool instead.
+  - Option A: setup-while-running quiesce protocol is underspecified — `OutOfProcessCommandExecutor.SendRequestAsync` does not gate setup against in-flight invokes today (only `_sendLock` for stdin writes).
+  - Option B: Channel<OutOfProcessHost> + Process.Exited race when host crashes mid-lease needs explicit reconciliation (don't end up with N+1 or N-1).
+  - Option B: fail-fast on all-N setup is a regression vs single-host; recommend fail-fast on first host then per-host retries.
+  - Benchmark: crash-recovery scenario as written measures process restart (same as baseline) — for Option A's real isolation gate, induce runspace-level corruption, not process exit.
+  - Benchmark: 4× throughput gate is wrong for CPU-bound; needs per-scenario thresholds.
+  - Phasing: split #4 (benchmark harness) into infrastructure (parallel) and wire-up (blocked on #2/#3).
+- Verified current OOP code matches plan's description: `OutOfProcessCommandExecutor.cs` (_sendLock at line 29, _pending dict, SendRequestAsync at line 362), `oop-host.ps1` (Write-NdjsonResponse flush, handler ordering).
+- Posting via gh failed (EMU policy on usepowershell/poshmcp blocks `gh pr review`). Review body left at C:\Users\stmuraws\AppData\Local\Temp\tmpsvtizs.md for manual posting.
+
+### 2026-05-06 — EMU blocks `gh issue create` too
+The `usepowershell/PoshMcp` repo's EMU policy not only blocks `gh pr review` / `gh pr comment` (already known) but also `gh issue create` with the same `Unauthorized: As an Enterprise Managed User` GraphQL error. When asked to file an issue, write the body to a temp file outside the repo and hand the path to the user to create the issue manually. Do not retry `gh issue create` under this account.
+
+### 2026-05-06 — Cancellation propagation gap (issue body drafted at C:\Users\stmuraws\AppData\Local\Temp\poshmcp-cancellation-issue.md)
+Confirmed: `CancellationToken` in `OutOfProcessCommandExecutor.SendRequestAsync` only governs the .NET-side wait (`_sendLock.WaitAsync`, `_stdin.WriteLineAsync`, the linked `timeoutCts` failing the local TCS). It is never forwarded to the OOP subprocess, and `oop-host.ps1` runs a single-threaded dispatcher loop (L630–L650) that cannot read a `cancel` while `Invoke-InvokeHandler` (L498) is blocked inside `& $cmdInfo @boundParams`. In-process is worse: `IsolatedPowerShellRunspace.ExecuteThreadSafeAsync` doesn't accept a CT at all; the only `_powerShell.Stop()` is inside Dispose() (PowerShellRunspaceImplementations.cs L146). Layered fix: (1) cooperative `Stop()/StopAsync()` registration on the in-process pipeline, (2) a `cancel` JSON-RPC method + concurrent-readable dispatcher for OOP, (3) bounded escalation cooperative → forced → process kill + recycle via `PowerShellCleanupService`.
+
+## 2026-05-06: New milestone-tagged issues assigned
+
+Milestone #5 (Spec 004 - Out-of-Process PowerShell Execution) was created. You have issues assigned via squad:* labels:
+- Bender: #190 (extract OutOfProcessHost), #192 (Option B - process pool prototype, blocked by #190)
+- Fry: #193 (benchmark harness infra), #194 (wire harness to executors, blocked by #191/#192/#193)
+- Farnsworth: #196 (adopt the winner, blocked by #195)
+
+Check the issue body for plan reference and dependency chain before starting.
+
+### 2026-05-06: Authored SECURITY.md
+- Added `SECURITY.md` at repo root.
+- Supported Versions tailored to pre-1.0 reality: only the latest 0.x minor (currently 0.10.x) receives security fixes; older minors unsupported.
+- Reporting channel: GitHub private vulnerability reporting (Security tab) — deliberately did NOT invent a security email address.
+- Documented SLA (ack 3 business days, triage 7), coordinated-disclosure timeline, and reporter credit via GHSA.
+- Pattern: when a project has no published security contact, prefer GitHub's built-in private vuln reporting over fabricating an email.
+
+### 2026-05-06: Reviewed PR #200 (Bender / Option B process pool) and PR #201 (Hermes / Option A runspace pool)
+
+**Verdict:** APPROVED both. Comments posted via `gh pr comment` (gh pr review still blocked on this account).
+- PR #200: https://github.com/usepowershell/PoshMcp/pull/200#issuecomment-4392376907
+- PR #201: https://github.com/usepowershell/PoshMcp/pull/201#issuecomment-4392377065
+
+**Verification highlights:**
+- PR #200 — `OutOfProcessSubprocessPool` correctly uses BOTH `Channel<HostSlot>` (lease queue) and `ConcurrentDictionary<int, HostSlot>` (source of truth). Slot 0 fail-fast via `StartSlotAsync(failFast:true)`; slots 1..N-1 retry with exp backoff via `StartSlotWithRetryAsync`; `MinHealthyForStartup` gate. Discovery fingerprint covers modulePaths, importModules ∪ discoveryModules, installModules (sorted, with name/version/min/max/repo/scope), startupScript path/content, trustPSGallery — XML-doc-explained. Timeout → `lease.MarkBroken()` → `MarkSlotDead` → reconciler. Integration tests parameterized over 1/2/4 with all required scenarios.
+- PR #201 — `oop-host-pool.ps1` builds ISS via `CreateDefault2()` + `ImportPSModule`; `CreateRunspacePool(1, N, $iss, $customHost)` with `MTA`. `NdjsonHost`/`NdjsonHostUI` route every `$Host.UI.*` write to stderr (correctly notes `[Console]::Out` is process-global). `PoolStdout.Lock` synchronizes ndjson frame writes. `PoolDispatcher.ProcessOne` reads `w.Ps.Streams.Error/Warning` per-pipeline; user script does `$Error.Clear()` first. Quiesce: `DrainEvent.Reset` → `WaitIdle(60s)` → `Close-Pool` → mutate → `Ensure-Pool` → `End-Drain`. Metrics on response frame: queueDepthOnArrival, leaseWaitMs, activeOnComplete, poolSize.
+
+**Cross-PR enum collision (key finding):** Both PRs add `SubprocessHostMode` — PR #200 as `static class` with string constants (property `string?`), PR #201 as `enum SubprocessHostMode { Single, Pool }`. NOT source-compatible. Bender deliberately reserved the `Pool` constant signaling coexistence intent.
+
+**Merge-order recommendation:** Land PR #201 first (smaller diff, idiomatic enum); have Bender rebase PR #200 to extend the enum with `ProcessPool` (~30 lines). Recorded in `.squad/decisions/inbox/farnsworth-spec004-prototypes-review.md`.
+
+**Non-blocking observations posted to each PR:** #200 — silent `MinHealthyForStartup` clamp, unbounded lease channel, stale-slot spin in `LeaseAsync`, discovery cache deliberately excludes filter params (worth doc note). #201 — drain timeout hardcoded 60s (not threaded from config), pool size cap of 8 is prototype guard, `Resolve-SwitchParameters` runs `Get-Command` on host process not in pool runspace (verify ISS modules are visible to host).
+
+**Pattern noted:** EMU policy continues to block `gh pr review`; `gh pr comment --body-file <tempfile-outside-repo>` remains the working channel. Comments do NOT count as formal GitHub approvals for branch protection — Steven (or another non-EMU reviewer) must convert these to formal Approve reviews if required for merge.
+
+### 2026-05-06: Security alerts triage
+
+**Sources checked:** GitHub Dependabot (open=0), code scanning (open=25), secret scanning (disabled at repo level), .github/workflows/*.yml permissions blocks, SECURITY.md, recent security commits.
+
+**Findings:**
+- 23 `cs/log-forging` (CWE-117, medium) in `PoshMcp.Server/PowerShell/PowerShellAssemblyGenerator.cs` lines 709–1030 — logger calls take `commandName`, `parameterValues`, `parameterSummary` from MCP `tools/call` payloads.
+- 1 `cs/log-forging` in `PoshMcp.Server/Observability/LoggerExtensions.cs` line 31 — `OperationName` from `OperationContext` flows into a logging scope.
+- 1 `cs/log-forging` in `PoshMcp.Server/Authentication/AuthenticationServiceExtensions.cs` line 111 — JWT path/header-derived values logged.
+- 1 `actions/missing-workflow-permissions` (medium) in `.github/workflows/ci.yml` — only workflow without an explicit `permissions` block (14 of 15 already correct).
+- Secret scanning disabled — should be enabled with push protection.
+
+**Real risk reading (not false positives):** project ships a Serilog file sink (per spec for issue #131 stdio logging to file), so embedded `\r\n` in tool names or parameter values produces forged log lines in plain-text logs. Exploitability low; impact = audit-trail confusion. Not RCE.
+
+**Triage decisions logged to** `.squad/decisions/inbox/farnsworth-security-review-2026-05-06.md`:
+- P1: Add explicit `permissions: { contents: read }` to `ci.yml` → **Amy**.
+- P2: Add `LogSanitizer.Scrub(string)` (strip CR/LF, length-cap) and apply at call sites in the three flagged files → **Bender**, with **Fry** for newline-scrub tests. Scrubbing must be at the call site, not via Serilog enricher — CodeQL taint analysis tracks call-site sinks and an enricher won't clear the alerts.
+- P3: Enable repo secret scanning + push protection → **Amy**.
+- P4 (defer): Consider a `LogSafe(string)` wrapper type or Serilog destructuring policy as a follow-up to make sanitization a build-time invariant.
+
+**Pattern noted:** when CodeQL flags `cs/log-forging`, check the sink type before treating it as noise. Structured logging providers that don't replay newlines (console, JSON sinks) are de-facto immune; plain-text file sinks are not. This repo has both, so the alerts are real.
+
+**Hygiene observation:** dependency posture is healthy — Dependabot 0 open, recent CVE bumps merged (`System.Security.Cryptography.Xml 10.0.6`), and v0.9.2 already shipped an auth bypass fix. No active security-relevant specs in flight.
+
+### 2026-05-06: Reviewed PR #204 (Bender) — fix(oop) SendRequestAsync 'Key: Content' under parallel invokes (#203)
+
+**Verdict:** APPROVED. Comment posted: https://github.com/usepowershell/PoshMcp/pull/204#issuecomment-4393068861
+
+**Root cause verified:** Not concurrency. `BasicHtmlWebResponseObject.Content` (string body) CLR-shadows `WebResponseObject.Content` (byte[]); `ConvertTo-Json` reflection enumerates both into `Dictionary<string,object>` → `ArgumentException` on duplicate key. Harness's parallel Invoke-WebRequest just made the failure deterministic. C# `_pending` correlation map was untouched — correctly identified as a red herring.
+
+**Fix shape:**
+- `oop-host.ps1`: extracted `ConvertTo-SafeJson` helper, applied at exactly the user-result serialization site in `Invoke-InvokeHandler` (~line 611). Other ConvertTo-Json sites (request envelopes, error frames) are not wrapped — correct, those serialize controlled C# payloads.
+- `oop-host-pool.ps1`: same fallback inlined into the runspace user-script scriptblock. Asymmetric with the host-process helper — correct, scriptblocks executed in pooled runspaces should not depend on host-process function availability.
+- Trigger is `catch [ArgumentException]` only; happy path unchanged. Fallback chain: ConvertTo-Json → Select-Object * | ConvertTo-Json → ($r | Out-String).Trim() | ConvertTo-Json.
+
+**Fallback semantics:**
+- `Select-Object *` materializes a flat PSObject; PowerShell's member resolver collapses shadowed CLR members and derived wins. For BasicHtmlWebResponseObject the string `Content` (body) wins over the byte[] shadow — exactly what callers want.
+- Out-String/Trim is bounded (only fires after Select-* itself throws). Realistic case: cyclic graphs. Returning a valid JSON string beats bleeding the exception to the C# client.
+
+**Regression test (`OutOfProcessHostConcurrencyTests`):** real `Invoke-WebRequest -UseBasicParsing` against loopback `HttpListener` produces a real BasicHtmlWebResponseObject. Concurrency=10 mirrors harness repro. Skip guards on pwsh and HttpListener.IsSupported. Companion test on `_pending` correlation is a sanity net for the original hypothesis. Test only exercises single-host path; pool-host inline fallback is covered end-to-end via `WarmInvokeThroughputBenchmark` smoke (Pool 306 ms / 10 calls).
+
+**Cross-PR sequencing:** This PR unblocks `WarmInvokeThroughputBenchmark` for Single and ProcessPool. Hermes's PR #195 (benchmarks + findings) captured runs 1+2 against pre-#203 main where Single/ProcessPool numbers are unreliable. After #204 merges, Hermes must rebase #195 onto post-#203 main and rerun the affected scenarios before publishing findings. Not blocking #204.
+
+**Pattern noted:** PowerShell `ConvertTo-Json` failures throwing `ArgumentException: ... Key: <name>` are CLR member-shadowing bugs, not concurrency. Parallel harnesses make them deterministic, which makes them look like races. Suspect shadowing on input type first.
+
+**EMU pattern (already known, reconfirmed):** `gh pr comment --body-file <tempfile-outside-repo>` works; `gh pr review` does not. Comment is not a formal GitHub approval — Steven or non-EMU reviewer must convert if branch protection requires it.
+
+
+### 2026-05-06 — Reviewed PR #205 (Hermes — bench(oop) canonical results + findings, #195)
+
+**Verdict:** APPROVE. Posted via gh pr comment (#issuecomment-4393870722) — gh pr review still EMU-blocked.
+
+**Methodology check:** results doc captured BDN 0.14.0, --job short (3×3×1), exact filter/CLI invocation, base commit e4cf7d9 (post-#204), runtime/OS/arch (Win11 Arm64 / .NET 10.0.6 / Concurrent Server GC), wall time, and explicit non-canonical status of runs 1+2. Reproducible.
+
+**Numbers traced:** Spot-checked WarmInvoke speedups against the source table — Pool 661.2/136.2 = 4.857 → 4.86×, P99 686.233/143.321 = 4.788 → 4.79×; ProcessPool 661.2/200.7 = 3.295 → 3.30×, P99 686.233/201.406 = 3.408 → 3.41×. ColdStart penalties 400 ms (ProcessPool) and 478 ms (Pool) → "400-500 ms". 1 MB allocations 13.79/16.34/17.36 MB → "~13.8/~16.3/~17.4". No rounding flips a conclusion.
+
+**Recommendation as Lead:** Pool as default is supportable from the data on the spec's stated workload model. Strongest counter-argument is single-host / single-shape / short-job — disclosed at correct strength in caveat §5, not strong enough to block. ProcessPool's tighter tail (StdDev 1.11 ms vs Pool 6.34 ms; P99 only 0.7 ms above mean) is the right opt-in answer for tail-sensitive / isolation-sensitive workloads.
+
+**Position on #196 default flip — HARD GATES (not 'should land before'):**
+1. Custom PSHost/PSHostUserInterface for runspace pool (partially landed in PR #201; #196 verifies completeness).
+2. Cancellation propagation (in-process Stop()/StopAsync() registration, OOP cancel JSON-RPC method, concurrent-readable dispatcher, bounded escalation cooperative → forced → process kill + recycle).
+Until both land, Pool may ship as documented opt-in only. #196 must NOT flip the default with either gate open. A --job long WarmInvoke rerun against post-cancellation main (captured as run-4) must reaffirm ≥ 4× I/O bar before the flip.
+
+**#196 scope sketch (delivered in review body):**
+- Config: HostMode default flip Single → Pool; Pool:Size default Environment.ProcessorCount with hard cap 32; Pool:DrainTimeoutMs threaded through config (currently hardcoded 60s per PR #201).
+- Doctor: validate pool sizing, surface active HostMode.
+- Docs: 'When to switch HostMode' section in DESIGN.md (three-case rubric: Pool default / ProcessPool tail+isolation / Single short-lived CLI). Sweep DESIGN.md, README.md, examples/appsettings.*.json, spec 004 quickstart if present.
+- Acceptance: run-4 --job long rerun captured.
+- Out of scope: per-request override, dynamic resizing, removing prototype paths (both Pool and ProcessPool ship).
+
+**Patterns:**
+- Docs+data PRs benefit from spot-checking 2-3 headline numbers against source tables — catches both arithmetic and rounding inversions in one pass.
+- When a recommendation rests on one workload shape, make the workload-shape disclosure a gate, not a footnote.
+- EMU policy continues to block gh pr review on usepowershell/PoshMcp from this account; gh pr comment with --body-file <tempfile-outside-repo> is the working channel and is NOT a formal GitHub approval.
+
+### 2026-05-06 - Reviewed PR #207 (Bender) - feat(oop) cancellation propagation (#188)
+
+**Verdict:** APPROVE. Posted via gh pr comment (#issuecomment-4394001550) - gh pr review still EMU-blocked.
+
+**Design conformance:** code matches specs/004-out-of-process-execution/cancellation-design.md §3 wire protocol verbatim (cancel- id prefix not in _pending, cancelled flag on invoke responses, ack frame shape). ProcessPool pool file untouched - kill-on-timeout backstop at line 421 preserved verbatim.
+
+**Single-mode strategic divergence (justified):** design §5.1 sketched BeginInvoke + ThreadPool.QueueUserWorkItem; PR ships C# SingleDispatcher (BlockingCollection + dedicated worker thread + ConcurrentDictionary registry) mirroring PoolDispatcher shape. Better choice - high code-share with Pool, uniform SingleStdout/PoolStdout.Lock pattern, avoids fighting PowerShell async ergonomics. Pattern lesson: when the reference design is already proven elsewhere in the codebase (PoolDispatcher), reusing the shape beats inventing a parallel async story even if the original design sketched the alternative.
+
+**Belt-and-suspenders cancel detection is correct:** worker catches PipelineStoppedException AND falls back to InvocationStateInfo.State == PSInvocationState.Stopped. BeginStop does not always raise PSE from synchronous Invoke() - sometimes Invoke returns normally with State=Stopped. Both paths set cancelled = wasStopped || w.Cancelled. Lesson: PowerShell.BeginStop() cancellation detection requires checking both paths; assuming PSE alone produces flaky cancel-completion logic.
+
+**SendRequestAsync orthogonality fix:** PR changes 	imeoutCts from CreateLinkedTokenSource(cancellationToken) to plain new CTS. Now caller-cancel and per-request-timeout are properly orthogonal - no double-fire of timeout when caller cancels. Both registrations dispose in finally; TrySendCancelFrameAsync uses independent 2s CTS so caller-token cancel cannot poison the cancel-frame send. The OperationCanceledException diagnostic catch from design §4.3 was deliberately skipped to keep the diff tight (Bender's history note); fine - OCE bubbles up unannotated, can be added if logs prove confusing in practice.
+
+**Cancel race with success:** if read loop sets result a tick before caller cancels, 	cs.TrySetCanceled no-ops and awaiter sees success - but TrySendCancelFrameAsync still fires (no completion gate). Host gets cancel for already-completed id, replies cancelled:false, suppressed at read loop. Noise-only; not worth gating.
+
+**Test discipline:** Start-Sleep -Seconds 60 against 15s ObservationTimeout proves cancel actually unblocks (a passing test cannot be the sleep finishing). Pool test uses 
+unspacePoolSize:4 to provably exercise > 1 runspace - without explicit sizing the pool defaults can produce a one-runspace pool that would head-of-line block, falsely failing the test. ProcessPool test asserts HealthyCount >= 1 after soft cancel proving slots stay healthy and kill backstop not invoked. 500-750ms warmup before cancel is realistic - less races the invoke send.
+
+**#196 hard gate status - BOTH SATISFIED:**
+1. Custom PSHost/PSHostUserInterface for runspace pool - PR #201.
+2. Cancellation propagation - this PR. Bounded soft-cancel across all 3 modes, no Pool head-of-line, hosts/slots stay healthy.
+
+**#196 remaining scope (now unblocked):**
+- Default-mode flip: SubprocessHostMode.Default → Pool. Keep Single + ProcessPool as opt-in (ProcessPool stays recommended for tail-sensitive / isolation-sensitive workloads per #195 P99 finding).
+- Config key naming review; confirm SubprocessHostMode enum-vs-string serialization; audit for residual #200/#201 enum collision.
+- Doctor validation hooks: surface resolved mode, pool size (with clamp applied - #201 cap of 8), host script path, per-request timeout. Warn (not error) if Pool configured but pwsh resolution failed.
+- Doc updates (README, DOCKER.md, spec 004 supersedence). Document cancellation contract: caller-token → bounded soft-cancel; per-request timeout as backstop; ProcessPool kill-on-timeout preserved.
+- Bench reaffirmation: Hermes --job long WarmInvokeThroughputBenchmark against post-#207 main (capture as run-4), confirm ≥ 4x I/O bar holds. Cancellation refactor adds per-invoke [powershell] allocation + dispatcher hop - expect no measurable warm-I/O regression but verify, don't assume.
+
+**Edge cases worth flagging non-blocking:** cancel before invoke begins (TryGetValue returns false, ack cancelled:false, awaiter still sees OCE - benign); cancel during host startup/shutdown (_disposed and _stdin is null guards + 2s CTS); wedged unmanaged-code pipeline (.NET awaiter still returns OCE promptly via TCS, ProcessPool gets next-invoke kill backstop, Single/Pool get per-request-timeout backstop); vestigial 	ry { ... } catch { throw } wrapper in Single user script is a semantic no-op (cosmetic, strip in follow-up).
+
+**Pattern noted:** the structural blocker for Single-mode cancellation was that the dispatcher loop could not even READ a cancel frame while blocked inside Invoke-InvokeHandler. The fix was structural (extract invoke to a worker thread), not protocol (a side-channel pipe/signal would not have helped because the read side was the bottleneck). Always check what is blocking the read loop before designing a side-channel.
+
+### 2026-05-07 — Reviewed PR #210 (Leela — OOP docs + samples audit, branch squad/oop-docs-samples-audit)
+
+**Verdict:** APPROVE with one non-blocking framing nit. Posted via gh pr comment (#issuecomment-4396923714) — gh pr comment now works after switching back to usepowershell account. Architectural angle only; Cubert handled fact-checking in parallel.
+
+**Mental-model assessment:** Two-entry-point split (brief in configuration.md, deep-dive in advanced.md) is the right structure — avoids duplication, lets operators land on either article and discover the other. Three-mode taxonomy table in advanced.md delivers explicit "when to use" + sizing + per-mode cancellation contract + doctor pointer in the right order. Decision narrative (Pool wins warm throughput ~4.86×, ProcessPool opt-in for trust/tail, Single legacy/bisect) matches spec 004 study and #208 default-flip rationale exactly.
+
+**Sample-pick judgment — both correct, both well-justified in examples/README.md:**
+- advanced.json → Pool with SubprocessRunspacePoolSize:0 (auto-tune): correct for heavy-Az + concurrent throughput case. Auto-tune is the right default for a copy-paste sample.
+- tenant.json → ProcessPool (size 4, min healthy 2): correct for trust-boundary case. README rationale names the tradeoff explicitly ("trust boundaries between callers matter more than peak throughput") — multi-tenant is exactly where peak throughput is the wrong optimization target. Getting this right in the SAMPLE (not just the docs) is what made #210 more than a documentation update.
+
+**Coherence with #208 — clean.** RuntimeMode correctly described as InProcess/OutOfProcess (the azure-integration.md "sync/async" description was a real bug; fixed). SubprocessHostMode is presented as a primary configuration concept rather than a tuning knob — correct framing for post-default-flip docs. Cancellation documented as a contract per mode, not a footnote — correct framing because cancellation is what made the flip safe.
+
+**Operator completeness:** poshmcp doctor surfaced in advanced.md ("reports the resolved host mode, effective pool sizes, host-script path, clamp warnings"). Adequate — answers the verify-my-config question without burying or over-emphasizing.
+
+**One framing gap (non-blocking):** advanced.md Cancellation section says of Single mode: *"the historical timeout-and-restart behavior applies."* This UNDERSELLS what Single does post-#207 — the SingleDispatcher worker-thread pattern (BlockingCollection + ConcurrentDictionary registry, mirroring PoolDispatcher shape) supports the same cooperative soft-cancel contract as Pool/ProcessPool with per-request timeout as backstop. As written, an operator could read this as "Single mode does not support cooperative cancellation," which would be inaccurate AND would undersell why the default flip became safe across all three modes simultaneously. Suggested follow-up phrasing: *"Single: cooperative cancellation via the dispatcher worker; the per-request timeout acts as the backstop and recycles the host on timeout."* One line, follow-up PR.
+
+**Pattern noted:** When a docs PR ships alongside an engineering decision PR, the per-mode contract narrative is where framing drift hides. Cancellation contract was the strongest place to look because it's the gate that made the default flip safe — any underselling there undersells the whole flip rationale. Sample-pick rationale was the second strongest, because the wrong tradeoff narrative in a sample propagates to operators who copy the sample without reading the docs.
+
+**EMU note:** gh pr comment from usepowershell account works (now properly switched). Coordinator's task setup pre-switched the account so no friction this time. Comments still do NOT count as formal GitHub approvals for branch protection.
+
+### 2026-05-07: v0.11.0 release shipped (cross-agent note from Scribe)
+Your work landed in v0.11.0 (csproj 0.10.0 → 0.11.0, CHANGELOG entry, release notes at docs/release-notes/0.11.0.md). The release narrative credits the OOP maturity wave: Pool default flip (#196/#208), cancellation propagation across all modes (#207), benchmarks harness + findings (#193/#194/#195/#205), OOP host extraction (#190/#198), bug fixes (#203/#189), CWE-117 log-injection hardening, minimum workflow permissions, and SECURITY.md. Tag/push deferred to Steven.
+
+## Learnings
 - 2026-05-12: Authored specs/009-test-suite-consistency/spec.md. Full suite flake (~668 tests, 6min) traced to OS-level resource contention (port reuse, pwsh handle leak, temp-dir collisions) — parallelization is already off. Recommended trait-based phasing (Option 1) + per-test resource hygiene audit (Option 3) as first step; deferred project split (Option 2) and drain fixtures (Option 4) until measured. Hard user requirement: unit tier must run in <60s, no subprocesses, no ports.
 
 ### 2026-05-12 — Spec 009 accepted, milestone + 10 issues filed
@@ -40,3 +301,178 @@ ew TypeName).
   10. Unit-tier acceptance gate <60s 5x clean (SC-100/101, FR-404/405) — blocked by #1, #2, #6, #7, #8.
 - Trade-offs accepted: permissive default bucket (no strict analyzer); hard Functional rule over case-by-case; Azure CI deferred; drain fixture deferred behind hygiene-audit results.
 - Pattern: EMU blocks all repo-modifying gh API calls (issues, milestones, PR reviews). For multi-resource setup, draft all bodies to a temp dir + create-all.ps1 script so user can fire them from a non-EMU shell in one shot.
+
+### 2026-05-12: Authored Spec 010 — Improve MCP tool self-documentation
+
+**Path:** specs/010-tool-self-documentation/spec.md (Status: Draft)
+**Co-author:** Hermes (technical baseline in his history.md, 2026-05-12 entry)
+**Scope per Brady:** Read more of what `Get-Help`/`Get-Command`/CommandInfo already expose. NOT about comment-based vs MAML vs XML — platform normalizes all of those.
+
+**Grounding facts verified before drafting:**
+- McpToolFactoryV2.cs#L123-145: in-process description = `"{name} {paramSetSyntax}"`, never calls Get-Help.
+- McpToolFactoryV2.cs#L442: OOP fallback = bare command name when remote schema description is empty.
+- PowerShellSchemaGenerator.cs#L98: parameter description literal `"Parameter of type {Name}"` for both paths.
+- oop-host.ps1#L763-771 and oop-host-pool.ps1#L824-832: only Synopsis read from Get-Help, fallback empty string.
+- RemoteToolSchema.cs#L17 XML doc claims "from Get-Help or parameter set syntax" — wrong on both counts (called out as FR-560).
+
+**Key spec elements:**
+- FR-500 / FR-510: precedence chains for tool desc (Synopsis → Description → syntax → name) and param desc (Get-Help param block → ParameterAttribute.HelpMessage → ValidateSet hint → "Parameter of type X").
+- FR-520 / FR-521: byte-identical descriptions across in-process and OOP modes, automated parity test.
+- FR-530 / FR-531: command and parameter aliases exposed.
+- FR-540..542: sanitization and length caps (suggested 1024/512).
+- FR-550 / FR-551: no description regression, no tool identifier rename.
+- FR-560: fix the misleading XML doc.
+- FR-570..572: one Get-Help call per command per discovery, cache by setup-hash, gate on <50% cold-start regression in PoshMcp.Benchmarks.
+- FR-580..582: silent fallback on Get-Help failures, doctor reports resolved precedence step.
+
+**Approach options:** A (Get-Help in both paths via shared sourcing function — RECOMMENDED), B (CommandInfo only, no Get-Help — rejected: misses Scenario 1 for most modules), C (hybrid — rejected: splits the precedence story), D (PoshMcp.ToolDescription attribute — escape hatch, deferred until A ships and need is observed).
+
+**Why Option A wins:** only option that delivers Scenario 1 across both paths; FR-520 parity falls out for free; cost concern addressed by FR-570/571 caching keyed by the same setup-hash already in use for OOP discovery.
+
+**Sequencing recommended:** extract IToolMetadataSource shared seam → in-process precedence first (no protocol change) → extend RemoteToolSchema additively → wire OOP through same source → parity test → doctor reporting → benchmark re-run → fix XML doc → docs update.
+
+**Open Questions left for Brady:** alias placement (description tail vs dedicated array), length cap defaults, MamlParaText join style, cache invalidation across runspace recycling, doctor field naming (coordinate w/ spec 006), ValidateSet phrasing, telemetry on fallback frequency.
+
+**Pattern for MCP-author-facing specs:** when the technical baseline comes from a co-author, restate the cited file/line evidence inside Background so readers can verify without leaving the document, and treat path-divergence (in-process vs OOP producing different descriptions for the same command) as a first-class bug, not a quirk.
+
+
+### 2026-05-12 — Spec 010 Wave 1 PR reviews (#235 / #236 / #237)
+
+**Verdicts (all DRAFT; posted as `gh pr comment`, would-approve on undraft):**
+
+- **PR #235 — Bender — RemoteToolSchema XML doc fix (FR-560):** APPROVE. https://github.com/usepowershell/PoshMcp/pull/235#issuecomment-4435719787
+- **PR #236 — Fry — pre-spec010 tools/list snapshots + HelpParityFixture (FR-550 step 1, FR-521 fixture):** APPROVE; KEEP fixture in this PR (not scope creep). https://github.com/usepowershell/PoshMcp/pull/236#issuecomment-4435719899
+- **PR #237 — Amy — pre-spec010 cold-start baseline (FR-572 step 1):** APPROVE. https://github.com/usepowershell/PoshMcp/pull/237#issuecomment-4435719995
+
+**Scope-creep call on #236:** KEEP HelpParityFixture in #236. FR-550 step 1 explicitly names the fixture as a required input to the baseline capture (`"at minimum Microsoft.PowerShell.Management and the HelpParityFixture module from FR-521"`). The fixture is a dependency of #224's stated work, not a separable concern. Splitting would force a 3-PR chain (fixture → snapshots → tests) and block snapshot reproducibility. #229 (parity test class ToolDescriptionParityTests.cs) consumes the fixture but does not own it.
+
+**Architectural notes recorded for spec 010 implementation work (non-blocking on Wave 1 but worth carrying forward):**
+
+1. **OOP host coverage gap.** Description-sourcing block exists in both `oop-host.ps1` (Single) and `oop-host-pool.ps1` (Pool). #236 baseline captures only Pool. Spec 010 implementation should consolidate the description-sourcing logic into a shared helper sourced by both host scripts (preferred), OR capture a third snapshot for `SubprocessHostMode = 'Single'`. Recommendation: consolidate during implementation PR.
+
+2. **In-process `Environment.ImportModules` is unwired.** #236 capture script works around this by setting `PSModulePath` on the spawned process. Worth a separate follow-up issue (in-process should honour `Environment.ImportModules` for parity with OOP) — orthogonal to spec 010 but the asymmetry is real and surfaces every time a spec adds a runtime-mode-parameterized test.
+
+3. **Bench gate granularity.** #237 `--job short` (3-10 iterations) is sufficient for the 50% threshold given current noise envelope (~±2% on Mean). If post-spec010 run lands near the threshold (say 30-40% regression), rerun with `--job medium` before final merge of the implementation PR. Compare per-mode Mean; do not gate on P99 with n=3 (degenerate).
+
+4. **XML doc precedence.** When spec 010 implementation lands, `RemoteToolSchema.Description` XML doc (just corrected in #235) will need a second update to describe the new sourced-from-Get-Help-precedence-chain rule. Bender's #235 doc text was accurate for pre-implementation behavior only. Flag for the implementation PR.
+
+**Cubert review:** Per the user directive (2026-05-05 decision), Cubert pre-reviews Farnsworth plans/proposals before they reach the user. These were PR reviews, not plans/proposals, so the directive did not gate this work — Cubert reviewed in parallel with me, focusing on claim-by-claim fact-checking while I focused on architecture and spec alignment.
+
+**EMU pattern (reconfirmed):** `gh pr comment` works only from the `usepowershell` account; `stmuraws_microsoft` is blocked. Switch-account-comment-switch-back remains the working channel. `gh pr review` remains blocked for all paths.
+
+## Learnings (2026-05-12)
+- When a baseline-capture PR depends on a fixture module that the spec explicitly names as a required input, the fixture is part of the baseline PR's scope. Do not split fixture-as-dependency from baseline-as-deliverable — it produces a serialized 3-PR chain with the fixture-only middle PR adding zero verifiable value on its own.
+- Reproducibility checklist for benchmark-baseline PRs (used to evaluate #237): folder naming follows spec numbering convention; exact CLI captured; BDN version + OS + .NET + JIT + machine specs recorded; gating rule stated in README; ApplicationInsights/telemetry isolation called out. All five are non-negotiable for FR-572-style gates.
+- Reproducibility checklist for snapshot-capture PRs (used to evaluate #236): temp config file (repo config not mutated); full JSON-RPC envelope captured (not just `result`); pretty-print + LF endings + UTF-8 no BOM for diff stability; deterministic-by-construction discovery config (`EnableDynamicReloadTools=false`, `EnableConfigurationTroubleshootingTool=false`); manual fallback documented in README; regeneration policy explicit. All six are non-negotiable for FR-550-style baselines.
+- Pre-implementation baseline PRs are inherently low-architectural-risk but high-process-risk. The architectural review surface is small (does the deliverable match what the spec gates against?); the process risk is that a sloppy baseline silently allows post-change regressions to slip the gate. The reviewer's job is mostly verifying that the gate is well-defined and reproducible, not critiquing the implementation.
+
+### 2026-05-12 — Reviewed PR #238 (Bender — IToolMetadataSource seam, #225, spec 010 step 3, Option A)
+
+**Verdict:** APPROVE (would-approve comment posted via `gh pr comment`; Steven owns formal approval). Backup at C:\Users\stmuraws\AppData\Local\Temp\farnsworth-pr238-review.md. Terminal output capture intermittent this session — could not visually confirm comment URL but `gh pr comment` returned non-error.
+
+**Seam contract (the architecture decision):**
+- `IToolMetadataSource` exposes two methods (`ResolveToolDescription`, `ResolveParameterDescription`) keyed off readonly record struct request types. Result types carry both the resolved string and a `Source` enum.
+- `ToolDescriptionSource` enum {Synopsis, Description, Syntax, Name} maps 1:1 with FR-583 string literals; `ParameterDescriptionSource` enum {HelpParameter, HelpMessage, ValidateSet, TypeFallback} same. Enum-to-literal conversion deferred to #228 (doctor) — correct placement.
+- `ParameterDescriptionRequest` carries every input the FR-510 chain needs (HelpParameterDescription, HelpMessage, ValidateSetValues, ValidateSetAppliesToArrayElement for the singleton vs array phrasing in step 3, ParameterTypeName for step 4).
+- **Caller-side resolution** is the design decision: Get-Help is invoked by `McpToolFactoryV2`/`PowerShellSchemaGenerator` and resolved fields are PASSED INTO the seam as request fields. The seam owns precedence rules; callers own data acquisition. Right separation — keeps OOP wire-format independent (subprocess can resolve and ship pre-resolved fields without the seam knowing about runspaces).
+
+**Verification:**
+1. **Both call sites wired:** in-process `SetParameterSetDescription` and OOP `CreateRemoteCommandMetadataMapping` both construct `ToolDescriptionRequest` and call `ResolveToolDescription`. `ResolveParameterDescription` exists but isn't invoked yet (deferred to #226 with `PowerShellSchemaGenerator` wiring) — coherent scope, not a gap.
+2. **Behavior preservation:** identical output bytes for realistic inputs in both paths. Two non-blocking subtleties: `DefaultToolMetadataSource` calls `Synopsis.Trim()` (PowerShell's Get-Help output is already trimmed; FR-540 step 1 will mandate trim anyway — strictly closer to spec target); Synopsis suppressed when equal to CommandName (FR-500 step 1 explicitly excludes that case; output bytes identical, only Source tag differs).
+3. **DI lifetime:** `TryAddSingleton<IToolMetadataSource, DefaultToolMetadataSource>()` in BOTH `StdioServerHost.ConfigureOpenTelemetry` and `HttpServerHost.ConfigureOpenTelemetryForHttp`. `TryAdd` is the right choice — lets #226/#227 register a replacement before host configuration without conflict. Singleton lifetime correct (impl is documented stateless/thread-safe).
+4. **Forward-compat for #226/#227/#228:** all plug in WITHOUT touching the interface. #226 populates Synopsis+LongDescription+HelpParameterDescription on the request records. #227 extends `RemoteToolSchema` with per-parameter help fields and the OOP caller passes them through the same request shape. #228 reads `result.Source` for doctor `descriptionSource` literal and FR-590 metric tag.
+
+**Non-blocking observations:** `McpToolSetupService.CreateToolFactory` accepts metadata source as optional parameter with `null` default — reasonable for seam-only scope, but #226 should switch to constructor-injected (resolved from DI) so the `null` branch can't accidentally bypass a registered replacement. `McpToolFactoryV2` now has six constructors (3 × {with, without metadata source}) — acceptable backward-compat during transition; collapse in follow-up once all callers route through DI.
+
+**Pattern noted (architecture):** When designing a seam intended to absorb a future precedence chain, putting data-acquisition responsibility on the CALLER (not inside the seam) produces a wire-format-independent contract. The seam is pure logic; call sites supply pre-resolved inputs from whatever source they have access to (in-process runspace, subprocess over ndjson, cached helpData). This makes OOP wire-through (#227) trivially additive — extend RemoteToolSchema fields, populate the request, no seam change.
+
+**Pattern noted (process):** Six-constructor proliferation is acceptable during a backward-compat transition. Don't block a seam-only PR over it; file a collapse-after-DI follow-up.
+
+**EMU caveat:** `gh pr review` remains blocked from this account; `gh pr comment` is the working channel. Comment is NOT a formal GitHub approval.
+
+
+### 2026-05-12 — Spec 010 Wave 3 PR reviews (#240 / #239)
+
+**Verdicts (both posted via gh pr comment; gh pr review remains EMU-blocked):**
+
+- **PR #240 — Bender — eat(metadata): in-process Help-aware precedence + sanitization (#226):** WOULD APPROVE. https://github.com/usepowershell/PoshMcp/pull/240#issuecomment-4436060222
+- **PR #239 — Hermes — eat(oop): extend RemoteToolSchema with full description + per-parameter metadata (#227):** WOULD APPROVE. https://github.com/usepowershell/PoshMcp/pull/239#issuecomment-4436060298
+
+**PR #240 architecture findings:**
+- DI registration is a clean swap (TryAddSingleton<IToolMetadataSource, HelpAwareToolMetadataSource>) in both StdioServerHost and HttpServerHost. Not a fallback chain.
+- Get-Help cost contained per FR-570/FR-571: PowerShellHelpResolver is a per-factory ConcurrentDictionary keyed case-insensitively on command name; Get-Help -Name <cmd> -Full invoked exactly once per unique command per discovery via GetOrAdd. No per-parameter Get-Help calls — parameter help read from the per-command result.
+- DescriptionSanitizer is pure-static, comprehensively unit-tested (17 tests covering nulls, control chars, paragraph preservation, word-boundary truncation, ellipsis edges).
+- Caller-side data acquisition matches the seam contract from #238: BuildParameterDescriptionMap collects every input the FR-510 chain needs (HelpParameter, HelpMessage first non-empty, ValidateSetValues, ValidateSetAppliesToArrayElement when array-typed).
+- FR-500 step 1 auto-generated synopsis filter (synopsis == commandName → null) implemented in BuildFromHelpObject, matches OOP host behavior.
+- Sanitize → check non-empty → cap order applied consistently in both ResolveToolDescription and ResolveParameterDescription. Caps match FR-541/FR-542 exactly.
+- [Description] attached only to PowerShell-derived parameters; framework params (_AllProperties, _MaxResults, _RequestedProperties) and CancellationToken correctly skipped.
+
+**PR #240 non-blocking observations:**
+- Scenario 1 demo deferred to #229 (FR-521 parity test + FR-550 regression test) — coherent with spec sequencing but flag for #229 review.
+- In-process baseline snapshot (inprocess-tools-list.json from #236) WILL diverge after this PR. FR-550 regression test in #229 must encode "starts-with baseline + paragraph separator OR equals baseline" rule, not naive equality.
+- PowerShellSchemaGenerator.CreateParameterSchema legacy two-arg overload allocates a DefaultToolMetadataSource per call when source not supplied — negligible; collapse after callers migrate.
+- OOP path correctly untouched in this PR; OOP wiring is #228.
+
+**PR #239 architecture findings:**
+- Strictly additive: Description field preserved verbatim (same name, type, default, semantics); FullDescription and three new per-parameter fields all string? / string[]?. Older payloads deserialize with nulls and consumers fall through precedence per FR-510 contract.
+- JSON ↔ C# DTO shape parity verified for both layers (tool: 5 fields; parameter: 7 fields). Both oop-host.ps1 (Single) and oop-host-pool.ps1 (Pool) emit identical shape — consumer needs no per-host-mode branching.
+- Defensive PowerShell at every layer: outer Get-Help wrapped in try/catch with -ErrorAction SilentlyContinue (FR-581 — discovery cannot fail because help is missing); Get-RemoteCommandHelpMetadata guards if ( -ne ); inner property reads in nested try/catch; MAML projection handles both string-array and MamlParaText[] shapes; Get-RemoteParameterAttributeMetadata checks every level for null; HelpMessage only set when non-whitespace; ValidateSetValues only emitted when non-empty.
+- Closes the spec-010-wave-1 OOP host coverage gap (Single host now updated alongside Pool host).
+- No precedence resolution in the host — emits raw source data only; FR-540 sanitization happens on the .NET consumer side per the seam contract from #238. Right separation.
+
+**PR #239 non-blocking observations:**
+- Description-sourcing logic duplicated across two host scripts (script-scope helpers in oop-host.ps1 vs nested local functions in oop-host-pool.ps1's Invoke-DiscoverHandler). Intentional and matches the established pool-host pattern from PR #204 / #207. Future consolidation into oop-host-shared.ps1 is a candidate refactor, not blocking.
+- oop-tools-list.json baseline (#236) was Pool-only — capturing a Single snapshot in #229 closes the OOP coverage gap I flagged on #236.
+- HelpMessage "first non-empty wins" across multiple parameter sets matches FR-511 intent (single value per parameter); XML doc flags the edge case explicitly.
+- ValidateSetValues ordering preserved per declaration order (FR-510 step 3 requirement).
+- Consumer wiring lands in #228 — confirmed CreateRemoteCommandMetadataMapping unchanged here. After both #240 and #239 land, #228 wires the OOP consumer through IToolMetadataSource and FR-520 byte-parity becomes verifiable.
+
+**XML doc precedence (FR-560) carryforward:** RemoteToolSchema.Description doc was corrected for pre-spec-010 in #235; updated in this PR to point at FullDescription. Will need a third update in #228 once consumers source descriptions through the precedence chain. Flag for #228.
+
+**Pattern noted (architecture):** When a multi-PR feature splits "wire format extension" from "consumer wiring", the wire-format PR's job is to be additive, defensive, and exhaustively null-safe at the source — and to NOT pre-resolve precedence on the producer side. PR #239 nailed this: every new field is nullable, every read is guarded, and the host emits raw data only. The consumer (#228) then owns the precedence chain via the seam from #238. This separation is what makes gh pr review of the wire-format PR boil down to "does the JSON shape match the DTO and is every read defensive" — both verifiable in isolation without staging the consumer.
+
+**Pattern noted (review process):** When reviewing two coordinated PRs against the same spec wave, sequence the architecture review around the seam contract: verify the implementation PR (#240) wires the seam into the path it owns, verify the wire-format PR (#239) doesn't violate the seam by pre-resolving on the wrong side, and explicitly call out the cross-PR coordination point (#228) so the implementation review of the consumer PR knows what to look for. Reduces the "I forgot why we did X this way" risk in wave 4.
+
+**EMU caveat (reconfirmed):** gh pr review blocked on usepowershell/PoshMcp; gh pr comment --body-file <tempfile-outside-repo> is the working channel. Comments do NOT count as formal GitHub Approves for branch protection — Steven owns formal approval.
+
+### 2026-05-13: PR #222 — SwitchParameter MCP round-trip review
+- Root cause: SwitchParameter is a struct with getter-only IsPresent; STJ reflection binds to `default(SwitchParameter)` (always `IsPresent=false`). Schema also exposed `{isPresent}` envelope, which most clients reject when the model emits a plain bool.
+- Fix shape: `JsonConverter<SwitchParameter>` + `AIJsonSchemaCreateOptions.TransformSchemaNode` rewrite to `anyOf [boolean | {isPresent} | null]`, registered via `McpServerToolCreateOptions.SerializerOptions` and `SchemaCreateOptions` in `CreateMcpToolOptions`.
+- Placement is correct: new file under `PoshMcp.Server/PowerShell/` next to `PowerShellParameterUtils.cs` (which already cross-references it). Single chokepoint — clean.
+- Watch-out: `SerializerOptions` is now applied to **every** tool, not only those with switch params. `DefaultIgnoreCondition = WhenWritingNull` will silently change response shapes for tools that emit explicit nulls. Cloning the SDK defaults + adding only the converter would be safer; current PR is acceptable but worth a follow-up audit.
+- Converter token-cursor caveat: object-valued `isPresent` (e.g. `{"isPresent": {"x":1}}`) hits the switch's `_ => present` default WITHOUT consuming the inner StartObject, so the outer `while (reader.Read())` then descends INTO the nested object. Practically unreachable, but a one-line `reader.Skip()` in the default branch would harden it.
+- Test coverage is genuinely strong: 12 converter inlines, schema transform applied to a real `Get-ChildItem -Recurse`, sanity check that `-Path` is untouched, and an e2e probe that defines a PS function with `[switch]` and asserts `.IsPresent` inside the runspace.
+- Pattern to remember: SDK reflection-binding gaps for opaque CLR types → small focused converter + `TransformSchemaNode` + register through `CreateMcpToolOptions`. Don't add per-parameter type substitution in `EffectiveParameterType` for these.
+
+
+## Learnings (2026-05-13)
+
+### PR #222 review — global JsonSerializerOptions blast radius
+
+Reviewed PR #222 at Steven's request. **Verdict: Approve with suggestions** (UI-only — not posted to GitHub).
+
+**Architectural lesson — globals on shared serializer options.** PR #222 set `JsonSerializerOptions.DefaultIgnoreCondition = WhenWritingNull` on what looks like a shared/default options instance. That mutation has the wrong blast radius: every unrelated serialization path that touches the same options object silently changes behavior, and the change isn't visible at the call sites that actually need it. Pattern to apply going forward:
+
+- If null-skip is needed for a specific contract, scope it to that contract's converter (`[JsonIgnore(Condition = ...)]` on the property or a custom converter).
+- If null-skip is needed for one call, build a per-call `JsonSerializerOptions` (or clone) instead of mutating a shared one.
+- Reserve mutation of shared options to startup-time configuration where the team has audited every consumer.
+
+**Minor items flagged:** two converter/schema cleanups + several nits (recorded in the chat review; not formalized as a decision because no team-level architectural commitment was made beyond the approve-with-suggestions verdict).
+
+**Process note:** Review was performed in chat; verdict was not posted to the PR. If Steven wants this on the PR record, that's a follow-up action — not done in this session.
+
+## Learnings (2026-05-13)
+
+### PR #222 review — global JsonSerializerOptions blast radius
+
+Reviewed PR #222 at Steven's request. **Verdict: Approve with suggestions** (UI-only — not posted to GitHub).
+
+**Architectural lesson — globals on shared serializer options.** PR #222 set `JsonSerializerOptions.DefaultIgnoreCondition = WhenWritingNull` on what looks like a shared/default options instance. That mutation has the wrong blast radius: every unrelated serialization path that touches the same options object silently changes behavior, and the change isn't visible at the call sites that actually need it. Pattern to apply going forward:
+
+- If null-skip is needed for a specific contract, scope it to that contract's converter (`[JsonIgnore(Condition = ...)]` on the property or a custom converter).
+- If null-skip is needed for one call, build a per-call `JsonSerializerOptions` (or clone) instead of mutating a shared one.
+- Reserve mutation of shared options to startup-time configuration where the team has audited every consumer.
+
+**Minor items flagged:** two converter/schema cleanups + several nits (recorded in the chat review; not formalized as a decision because no team-level architectural commitment was made beyond the approve-with-suggestions verdict).
+
+**Process note:** Review was performed in chat; verdict was not posted to the PR. If Steven wants this on the PR record, that's a follow-up action — not done in this session.

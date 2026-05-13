@@ -5,6 +5,111 @@
 
 ## Learnings
 
+### 2026-05-12: Issue #225 — IToolMetadataSource seam extraction (PR #238, draft)
+
+**Requested by:** Steven. Spec 010 sequencing step 3. Wave-2 foundational issue;
+wave-3 (#226 in-process Get-Help, #227 OOP Get-Help) and wave-4 (#228 doctor +
+metrics) all depend on this interface shape.
+
+**Contract chosen.** Single interface `IToolMetadataSource` with two methods:
+`ResolveToolDescription(in ToolDescriptionRequest)` and
+`ResolveParameterDescription(in ParameterDescriptionRequest)`. Both return a
+result record carrying the resolved string + the precedence-step enum that
+produced it (`ToolDescriptionSource` / `ParameterDescriptionSource`). Enum
+values map 1:1 to the FR-583 string literals (`synopsis|description|syntax|name`
+for tools; `helpParameter|helpMessage|validateSet|typeFallback` for parameters)
+so doctor output (#228) just `.ToString()`-es them with camelCase.
+
+**Request records carry pre-resolved help fields, not callbacks.** The
+in-process caller (#226) will populate `Synopsis` / `LongDescription` /
+`HelpParameterDescription` / `HelpMessage` / `ValidateSetValues` from its own
+`Get-Help` invocation; the OOP caller (#227) will populate them from extended
+`RemoteToolSchema` fields shipped over ndjson. The seam itself never calls
+`Get-Help` — it's pure precedence selection + sanitization (sanitization lands
+in #226/#227 with the FR-540 implementation).
+
+**Files touched:**
+- NEW `PoshMcp.Server/PowerShell/IToolMetadataSource.cs` — interface + records + enums.
+- NEW `PoshMcp.Server/PowerShell/DefaultToolMetadataSource.cs` — preserves pre-spec-010 output byte-for-byte.
+- `PoshMcp.Server/McpToolFactoryV2.cs` — new field `_toolMetadataSource`; new ctor overloads accepting `IToolMetadataSource?`; `SetParameterSetDescription` and `CreateRemoteCommandMetadataMapping` route through the seam.
+- `PoshMcp.Server/Server/StdioServerHost.cs` + `HttpServerHost.cs` — `TryAddSingleton<IToolMetadataSource, DefaultToolMetadataSource>()`.
+- `PoshMcp.Server/Server/McpToolSetupService.cs` — optional `IToolMetadataSource?` param threaded through `SetupMcpToolsAsync` / `SetupHttpMcpToolsAsync` / `CreateToolFactory`.
+
+**Default impl precedence (preserves today's behavior):**
+1. `Synopsis` non-empty AND != `CommandName` → Synopsis (preserves OOP).
+2. Else `ParameterSetSyntax` non-empty → `"{name} {syntax}"` (preserves in-process).
+3. Else bare command name.
+The default impl deliberately IGNORES `LongDescription` and all parameter-help
+fields — those land in #226/#227. Parameter resolver always returns the type
+fallback for now.
+
+**Verified equivalence:**
+- In-process path: never had Synopsis populated. Falls straight to Syntax →
+  identical to old `"{name} {parameterSet.ToString()}"`.
+- OOP path: `oop-host.ps1` only writes Synopsis when `≠ CommandName`, so the
+  `Synopsis != CommandName` guard in the default impl is effectively pre-checked
+  upstream — still wired safely. Empty schema.Description → fallthrough → Name.
+
+**Spec gap surfaced (PR body called this out for reviewers):**
+`ToolDescriptionRequest.LongDescription` is on the interface but the default
+impl ignores it. The spec assigns long-description sourcing to the caller-side
+Get-Help integration in #226, not the seam itself. If Farnsworth/Cubert prefer
+the seam to consume LongDescription as part of its precedence ladder, that's a
+trivial follow-up edit in `DefaultToolMetadataSource` and an enum entry already
+exists (`ToolDescriptionSource.Description`). Posed as a reviewer choice.
+
+**Validation:**
+- `dotnet build PoshMcp.sln -c Release`: 0 errors. 20 warnings — all pre-existing
+  (NU1510 + CS8602/CS8604 in `PowerShellAssemblyGenerator.cs`,
+  `Cli/CommandHandlers.cs`, untouched lines in `McpToolFactoryV2.cs`,
+  `WinPsCompatProxyMethodGenerationTests.cs`). No new warnings introduced.
+- `dotnet test --filter "Category!=Integration"`: 661 passed, 7 skipped, 0 failed.
+
+**Commit:** `df5b9bd feat(metadata): extract IToolMetadataSource seam (#225)`.
+**PR:** https://github.com/usepowershell/PoshMcp/pull/238 — draft, base main, head `squad/225-tool-metadata-source`.
+
+**Don't regress:**
+- `PowerShellSchemaGenerator.cs` still hard-codes `"Parameter of type X"`. That's
+  the parameter-description call site #226 will need to thread `IToolMetadataSource`
+  into. The interface method `ResolveParameterDescription` exists and the default
+  returns TypeFallback verbatim — wire it through, then implement Get-Help
+  parameter-block sourcing in the same PR.
+- The OOP cross-invoke defensive fix landed in v0.12.3 (`AddScript($s, $true)`).
+  Do NOT touch that when wiring #227's `RemoteToolSchema` extension — preserve
+  `useLocalScope=$true` and don't add an inner `& { ... }` wrapper (it breaks
+  `HadErrors` propagation; the round-3 history entry below records the trap).
+- `gh pr create` from `stmuraws_microsoft` account fails with EMU GraphQL
+  Unauthorized on the `usepowershell/PoshMcp` org. Switch with
+  `gh auth switch --user usepowershell` before creating PRs, then switch back.
+
+---
+
+### 2026-05-12: Issue #233 — RemoteToolSchema XML doc fix (PR #235, draft)
+
+**Requested by:** Steven. Spec 010 step 10 / FR-560. Doc-only, no runtime change.
+
+**Current behavior of `RemoteToolSchema.Description` (verified by reading source, not speculated):**
+- Populated exclusively in `oop-host-pool.ps1` ~L824-829 during `discover`. The in-process path does not use this type at all.
+- Source: `Get-Help -Name $cmd.Name -ErrorAction SilentlyContinue`; if `.Synopsis` is non-null, it is `Trim()`-ed and assigned only when it differs from `$cmd.Name`. Otherwise the field stays as the initial value `''` (empty string).
+- There is NO fallback to parameter set syntax. The prior XML doc claim ("from Get-Help or parameter set syntax") was wrong on both counts.
+- Downstream (tool schema generation) treats an empty description as "use the bare command name as the description" — matches the spec 010 scenario table.
+
+**No other stale property docs found in `RemoteToolSchema.cs`:**
+- `Name`: accurate.
+- `ParameterSetName`: accurate (mentions `__AllParameterSets` sentinel).
+- `Parameters`: accurate.
+- `RemoteParameterSchema.TypeName`: accurate, already explains the string-not-`Type` rationale.
+- `IsMandatory` / `Position`: no doc comments — absent, not stale. Out of scope for #233.
+
+**PR:** https://github.com/usepowershell/PoshMcp/pull/235 — draft, base `main`, head `squad/233-remotetoolschema-doc`.
+
+**Build:** `dotnet build PoshMcp.Server -c Release` succeeds. Only warning is the pre-existing NU1510 about `System.Security.Cryptography.Xml` package pruning — unrelated.
+
+**Don't regress:** When spec 010's parameter-description sourcing rule lands (FR-510 et al — parameter description from `Get-Help` `.Parameters.parameter.description`), the same XML doc will need updating again to describe the new precedence. The current corrected text matches today's behavior, not the post-spec-010 behavior.
+
+---
+
+
 ### 2026-05-12 (round 3): OOP cross-invoke — production v0.12.2 evidence; defensive scope landed without local repro
 
 **Requested by:** Steven Murawski (Brady). Brady returned with hard
@@ -553,3 +658,28 @@ should update to their own path (removed the repo-internal `examples/appsettings
 - Implemented Fix 2: ApiKeyAuthenticationHandler metadata URL configuration
 - All 574 tests passing (green build)
 - Coordination: Worked with Amy (release engineering), Leela (docs), Fry (regression tests)
+### 2026-05-12: Issue #233 — RemoteToolSchema XML doc fix (PR #235, draft)
+
+**Requested by:** Steven. Spec 010 step 10 / FR-560. Doc-only.
+
+**Current behavior of `RemoteToolSchema.Description` (verified, not speculated):**
+- Populated exclusively in `oop-host-pool.ps1` ~L824-829 (the in-process path does NOT use this type at all).
+- Source: `Get-Help -Name $cmd.Name -ErrorAction SilentlyContinue`; if `.Synopsis` is non-null, `Trim()` it; assign to `description` only if it differs from `cmd.Name`. Otherwise the field stays as initial value `''` (empty string).
+- There is NO fallback to parameter set syntax. The prior XML doc claim was wrong on both counts.
+- Downstream (`RemoteToolSchemaToMcpToolConverter` / `OutOfProcessToolAssemblyGenerator`) treats empty description as "use the bare command name as the description" — confirmed by the spec scenario table line "(Synopsis only) | ... | (raw syntax)".
+
+**No other stale property docs found in `RemoteToolSchema.cs`:**
+- `Name`: accurate ("full command name").
+- `ParameterSetName`: accurate ("__AllParameterSets" sentinel).
+- `Parameters`: accurate.
+- `RemoteParameterSchema.TypeName`: accurate (already explains string-not-Type rationale).
+- `IsMandatory` / `Position`: no doc comments, not stale (just absent — separate concern, not in scope of #233).
+
+**PR:** https://github.com/usepowershell/PoshMcp/pull/235 (draft, base `main`, head `squad/233-remotetoolschema-doc`).
+
+**Build:** `dotnet build PoshMcp.Server -c Release` succeeds; only warning is the pre-existing NU1510 about `System.Security.Cryptography.Xml` package pruning — unrelated to this change.
+
+**Don't regress:** When spec 010's sourcing rule lands (FR-510 et al, parameter description from `Get-Help` `.Parameters.parameter.description`), this XML doc will need an update *again* to describe the new precedence. The current text is correct for today's behavior, not the post-spec-010 behavior.
+
+---
+
