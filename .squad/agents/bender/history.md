@@ -5,6 +5,49 @@
 
 ## Learnings
 
+### 2026-05-13: Issue #249 — PowerShellSchemaGenerator default swap (PR #250, draft)
+
+**Requested by:** Steven. Cold-path twin of the #242/#248 wire fix. Same class of bug,
+different file.
+
+**The bug:** `PowerShellSchemaGenerator.cs` had `metadataSource ?? new DefaultToolMetadataSource()`
+in two spots (`GenerateParameterSchema` line ~33 and `CreateParameterSchema` overload line ~131).
+DefaultToolMetadataSource is the no-op resolver — always returns the typed-fallback string and
+bypasses the FR-510 precedence chain. Identical mistake to the three McpToolFactoryV2 ctor
+defaults that #248 just fixed.
+
+**The fix:** Swap both defaults to `new HelpAwareToolMetadataSource()`. That class is a
+**parameterless pure resolver** — no DI plumbing, no runspace, no help cache required. Without
+pre-resolved Get-Help text the chain degrades naturally to HelpMessage → ValidateSet → typed
+fallback, which matches what the cold path can actually supply. XML doc comments updated to
+describe the new default.
+
+**Caller analysis (key finding):** `grep_search PowerShellSchemaGenerator|GenerateParameterSchema|CreateParameterSchema`
+returns ONLY matches inside the file itself. Zero production callers, zero test callers. This
+class is currently dead code on the doc-emission path, so the user-visible blast radius is
+nil — but leaving the wrong default armed is exactly what bit us in #242 when a future caller
+finally landed on the live MCP wire. Fix it now while it's easy.
+
+**Validation:**
+- `dotnet build PoshMcp.Server\PoshMcp.csproj`: 0 errors, 19 pre-existing warnings.
+- `ParameterDescription_IsNonEmpty` gate: **10/10 passed** (5 in-process + 5 OOP).
+- Unit suite (`FullyQualifiedName~PoshMcp.Tests.Unit`): **532/532 passed**.
+
+**Commit:** `8807a73 fix(schema): wire HelpAwareToolMetadataSource as default in PowerShellSchemaGenerator (#249)`
+**PR:** https://github.com/usepowershell/PoshMcp/pull/250 — draft, base main, head `squad/249-schemagen-helpaware`.
+
+**Don't regress:**
+- The HelpAwareToolMetadataSource parameterless ctor is now load-bearing. If a future change
+  forces it to require dependencies (a runspace, a help resolver), the cold-path callers in
+  PowerShellSchemaGenerator will need a different fallback strategy. Don't switch back to
+  DefaultToolMetadataSource as the easy out — that's the bug we just fixed twice.
+- DefaultToolMetadataSource is still the right shape for tests that want to lock down the
+  pre-spec-010 byte-for-byte output. Keep it; just don't use it as a production default.
+
+---
+
+
+
 ### 2026-05-12: Issue #225 — IToolMetadataSource seam extraction (PR #238, draft)
 
 **Requested by:** Steven. Spec 010 sequencing step 3. Wave-2 foundational issue;

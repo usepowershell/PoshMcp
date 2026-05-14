@@ -539,3 +539,21 @@ Release notes for v0.8.9–0.8.11: PSModule docs in Dockerfile, --appsettings bu
 **Recommendation to Brady:** File a GitHub issue for new article `docs/articles/authoring-tools.md`, cross-linked from `exposing-tools.md` and the README "Rich Metadata" bullet. Draft body provided in response, NOT filed pending approval.
 
 **Why this complements Hermes:** Hermes answers "what PoshMcp extracts from a function." This entry answers "what should a module author *write* so PoshMcp has something good to extract." Both halves needed.
+
+## Learnings — 2026-05-13 — issue #234 / PR #247
+
+### Doc pattern: precedence chains as tables + per-step example
+- For multi-step resolver chains (FR-500/FR-510), a table with Step/Source/Notes columns is the most scannable surface for module authors. Pair it with one tiny PowerShell example per rung — readers can match their function shape against an example faster than against prose.
+- Anchor the chain to the implementation by naming the FR: `synopsis -> description -> syntax -> name` (tool) and `helpParameter -> helpMessage -> validateSet -> typeFallback` (parameter). These literals also match the wire vocabulary in DescriptionSourceVocabulary / IToolMetadataSource.cs and the doctor `descriptionSource` JSON values, so the doc, the metric tag, and the doctor field are one phrase.
+- Existing fixtures (HelpParityFixture) make great worked examples — each function targets one rung; lifting them into docs is zero-cost.
+
+### Doc pattern: footnoting an active bug honestly
+- When a feature ships partially — resolver works, surfacing doesn't — write a short **Known issue** callout in-line with the affected section (not at the bottom of the doc). Format used here:
+  > **Known issue.** {what works} / {what doesn't} / {tracking issue link} / {what authors should do today} / {what changes when the fix ships}.
+- The "no module change required when fix ships" line is what made the callout safe — authors who add help today will get the surfacing for free later, so the doc isn't telling them to wait.
+- Do NOT pretend the bug is fixed. Future-tense optimism in docs erodes trust faster than honest gaps do.
+
+### Cross-link discipline
+- README "Rich Metadata" bullet was the right hook — single inline link to the new section, no rewording. Don't restate the precedence chain in two places; let README defer to the article.
+
+- **20260514T000000Z**: ✓ v0.13.0 release notes drafted at `docs/release-notes/0.13.0.md`. Marquee theme: spec 010 Help-aware tool descriptions — in-process and OOP paths now byte-identical, FR-500/FR-510 precedence + FR-540 sanitization, IToolMetadataSource seam, doctor descriptionSource reporting, OTel resolution counters, parity/regression tests, pre/post-spec010 cold-start gates. Fixes: SwitchParameter round-trip (#222), parameter descriptions wired to inputSchema (#248), HelpAwareToolMetadataSource as default (#250). No breaking changes. Behavior change called out: tools previously showing the raw syntax line now show help-derived descriptions. Matched 0.12.x / 0.11.0 tone and structure (Summary, What's New, Bug Fixes, Documentation, Tests & Benchmarks, Breaking Changes, Upgrade Notes, Affected files & specs).

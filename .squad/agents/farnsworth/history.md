@@ -476,3 +476,96 @@ Reviewed PR #222 at Steven's request. **Verdict: Approve with suggestions** (UI-
 **Minor items flagged:** two converter/schema cleanups + several nits (recorded in the chat review; not formalized as a decision because no team-level architectural commitment was made beyond the approve-with-suggestions verdict).
 
 **Process note:** Review was performed in chat; verdict was not posted to the PR. If Steven wants this on the PR record, that's a follow-up action — not done in this session.
+### 2026-05-13: PR #243 review (issue #229, spec 010 wave 5) — APPROVED
+- Fry's test trio (HelpParityFixtureSession + ToolDescriptionParityTests + ToolDescriptionRegressionTests + ParameterSetConsistencyTests) is architecturally clean: one shared fixture, three consumers, correct unit-vs-integration split.
+- Skip strategy on the 10 `ParameterDescription_IsNonEmpty_*` variants pinned to issue #242 is the right call. Tests-before-fix sequencing with explicit regression gate; failing them would block unrelated CI for an already-triaged finding.
+- Issue #242 (FR-510 wiring gap: resolver returns correct strings but they don't reach `inputSchema.properties.<name>.description` JSON) is well-scoped — names the seam, points at the fixture for repro, lists the 10 test methods that un-skip green on fix.
+- One non-blocking nit: `ToolDescriptionRegressionTests.IsEqualOrSuperset` uses `Contains(baseline)` as a third acceptance branch, which is broader than FR-550's "equal OR baseline + paragraph separator + additional text". Suggested tightening to `EndsWith(separator + baseline)` or dropping the fallback once confirmed unneeded. Filed as a review nit, not a gate.
+- Lesson: when a test PR exposes a real bug, file a separate issue + skip-with-tracking-comment is the right pattern. Don't conflate measurement and remediation in one PR — different domains, different reviewers.
+
+### 2026-05-13: PR #244 review (issue #230, spec 010 step 8) — APPROVE
+**Requested by:** Steven (via Ralph)
+**Author:** Bender
+**Verdict:** APPROVE with one non-blocking follow-up.
+
+**Reviewed:** descriptionSource per command and per parameter in doctor JSON.
+
+**Architectural takeaways:**
+- Parallel IToolDescriptionSourceTracker (NOT extending IToolMetadataSource) — right call. Preserves the OOP seam from #228; adding methods to the interface would have rippled into every external implementer. Tracker is additive, optional, full back-compat across all McpToolFactoryV2 constructor overloads (chained through with descriptionSourceTracker: null).
+- OOP coverage verified at all four Resolve* sites: SetParameterSetDescription, BuildParameterDescriptionMap (in-proc) + CreateRemoteCommandMetadataMapping, BuildRemoteParameterDescriptionMap (OOP).
+- Vocabulary centralized in DescriptionSourceVocabulary.ToWireValue(...) — both JSON converters route exclusively through it. No duplicated switches anywhere.
+- CLI doctor now wires `new HelpAwareToolMetadataSource()` via the new DiscoverToolsForCliAsync overload — matches production DI at HttpServerHost.cs:287 and StdioServerHost.cs:148 (both TryAddSingleton<IToolMetadataSource, HelpAwareToolMetadataSource>()).
+- Field placement (functionsTools.tools[]) is consistent with spec 006 FunctionsToolsSection.
+
+**Non-blocking follow-up (file as separate issue):**
+Runtime doctor (BuildDoctorReportFromConfig — used by McpToolSetupService.cs:411 and ConfigurationReloadTools.cs:198) does NOT receive a tracker. Live-server doctor resource emits empty tools[]. Seam is in place; wiring is small additive change. CLI doctor is the canonical diagnostic surface, so SC-207 is materially served — but full coverage requires runtime path too.
+
+**#231 handoff:** Decision drop is unusually well-prepared. Names canonical APIs (DescriptionSourceVocabulary.ToWireValue, IToolDescriptionSourceTracker), proposes observer-fan-out pattern so OTel attaches at the same call sites without coupling to the doctor tracker. Amy can land FR-590 cleanly.
+
+**#242:** Correct to leave out of scope. Different code path (parameter desc → JSON Schema, not tracker → doctor). Would have muddied the spec-010-step-8 landing.
+
+521 unit tests passing (12 new). All 8 enum values exercised through real HelpAwareToolMetadataSource resolver.
+
+## 2026-05-13 — PR #245 (issue #231, FR-590) — APPROVE
+
+OTel counters for description-source resolution. Amy chose Option B (direct emission in McpToolFactoryV2) over Option A (decorator over IToolDescriptionSourceTracker).
+
+**Verdict: APPROVE.**
+
+Key architectural points:
+- Tracker is IToolDescriptionSourceTracker? — null by default, only wired by doctor command path. Decorator over a null-by-default service cannot satisfy FR-590 (emit on every resolution). Option B is structurally correct, not a workaround.
+- All four `Resolve*` sites covered (in-proc tool ~L268, in-proc param ~L625, OOP tool ~L671, OOP param ~L750). Counter call sits immediately after each tracker call — same lexical line of sight, drift-resistant.
+- Tag values flow exclusively through `DescriptionSourceVocabulary.ToWireValue(...)`. Doctor JSON `descriptionSource` and OTel `step` tag are byte-identical by construction. Zero string duplication.
+- Failure isolation: null-check + try/catch swallowing all exceptions including vocabulary's `ArgumentOutOfRangeException` for unknown enums. Test `Counter_emission_swallows_unknown_enum_values` exercises the failure path.
+- Performance: cold path (no MeterListener) is near-no-op; warm path is one `KeyValuePair` allocation per resolution. Negligible on discovery cycle.
+
+Future-proofing flag (non-blocking): if someone later wires the tracker in production AND adds a tracker-side decorator for these counters, you'd get 2x counts. Mitigation already baked in: helpers live in McpToolFactoryV2 not in any tracker impl, so wiring the tracker is a no-op for these counters. Optional one-line "do not duplicate in tracker decorators" comment on each helper would be belt-and-suspenders.
+
+OOP flake (`Lifecycle_Start_Ping_Setup_Shutdown_Restart` STATUS_ACCESS_VIOLATION) confirmed unrelated — counter emission is parent-host code with no IPC contribution to OOP child address space, and the failing test is lifecycle/restart not discovery.
+
+MeterListener test pattern is the right shape (filter on MeterName + instrument name, copy tags into owned dict because ReadOnlySpan doesn't outlive the callback, cache MethodInfo for reflection). Sets a clean precedent for future McpMetrics instrument tests.
+
+## 2026-05-13 — PR #245 (issue #231, FR-590) — APPROVE
+
+OTel counters for description-source resolution. Amy chose Option B (direct emission in McpToolFactoryV2) over Option A (decorator over IToolDescriptionSourceTracker).
+
+**Verdict: APPROVE.**
+
+Key architectural points:
+- Tracker is IToolDescriptionSourceTracker? — null by default, only wired by doctor command path. Decorator over a null-by-default service cannot satisfy FR-590 (emit on every resolution). Option B is structurally correct, not a workaround.
+- All four `Resolve*` sites covered (in-proc tool ~L268, in-proc param ~L625, OOP tool ~L671, OOP param ~L750). Counter call sits immediately after each tracker call — same lexical line of sight, drift-resistant.
+- Tag values flow exclusively through `DescriptionSourceVocabulary.ToWireValue(...)`. Doctor JSON `descriptionSource` and OTel `step` tag are byte-identical by construction. Zero string duplication.
+- Failure isolation: null-check + try/catch swallowing all exceptions including vocabulary's `ArgumentOutOfRangeException` for unknown enums. Test `Counter_emission_swallows_unknown_enum_values` exercises the failure path.
+- Performance: cold path (no MeterListener) is near-no-op; warm path is one `KeyValuePair` allocation per resolution. Negligible on discovery cycle.
+
+Future-proofing flag (non-blocking): if someone later wires the tracker in production AND adds a tracker-side decorator for these counters, you'd get 2x counts. Mitigation already baked in: helpers live in McpToolFactoryV2 not in any tracker impl, so wiring the tracker is a no-op for these counters. Optional one-line "do not duplicate in tracker decorators" comment on each helper would be belt-and-suspenders.
+
+OOP flake (`Lifecycle_Start_Ping_Setup_Shutdown_Restart` STATUS_ACCESS_VIOLATION) confirmed unrelated — counter emission is parent-host code with no IPC contribution to OOP child address space, and the failing test is lifecycle/restart not discovery.
+
+MeterListener test pattern is the right shape (filter on MeterName + instrument name, copy tags into owned dict because ReadOnlySpan doesn't outlive the callback, cache MethodInfo for reflection). Sets a clean precedent for future McpMetrics instrument tests.
+- 2026-05-13: PR #246 (Amy — issue #232, FR-572 spec-010 cold-start regression gate). Methodology parity confirmed: same BDN config (InvocationCount=1, MaxIterationCount=10), same filter, same machine, same scenario class. Direct .exe launch in run-6 is functionally equivalent to `dotnet run -c Release`. Toolchain drift minor (SDK 10.0.107 → 10.0.108). Regression ~11–12% Mean across all three modes (Single +11.74% / Pool +12.08% / ProcessPool +10.66%); P95 and P99 track Mean within ±2pp — uniform overhead, not mode-specific. Spec 010 attribution clean: `git log 16878b8..48db59a -- PoshMcp.Server PoshMcp.Benchmarks` returns exactly the 7 spec-010 wave merges (#235, #238, #239, #240, #241, #244, #245), zero unrelated changes. COMPARISON.md is solid template material — keep the paired `run-N` + COMPARISON.md pattern for future regression gates. Verdict: ✅ APPROVE (comment posted; EMU restriction prevents formal review).
+
+## Learnings - 2026-05-13 - PR #247 review (issue #234, spec 010 step 11)
+
+### Verdict
+APPROVE. Documentation for FR-500/FR-510 description precedence chains in docs/articles/exposing-tools.md plus README cross-link.
+
+### What I cross-checked and what passed
+- **Vocabulary parity**: Doc literals (synopsis/description/syntax/name and helpParameter/helpMessage/validateSet/typeFallback) match IToolDescriptionSourceTracker.cs ToString() lines 152-165 verbatim. This is the property we want — doctor JSON, OTel `step` tag, and prose are all one phrase.
+- **Resolver behavior**: HelpAwareToolMetadataSource.cs ResolveToolDescription early-returns at each rung; the doc's "tries each step in order, stops at first non-empty" framing is structurally accurate.
+- **Step 3 string format**: Code emits `$"{CommandName} {ParameterSetSyntax}"`. Doc shows `"Get-FixtureBare [[-Anything] <string>] [<CommonParameters>]"` — matches.
+- **ValidateSet prefixes**: Code line 111 uses `"Each item is one of: "` vs `"One of: "` based on `ValidateSetAppliesToArrayElement`. Doc strings match verbatim, including punctuation/spacing.
+- **TypeFallback**: `$"Parameter of type {typeName}"` matches doc's `"Parameter of type System.String"`.
+- **Synopsis-equals-name filter**: The StringComparison.Ordinal guard in the code is correctly described as "not equal to the command name".
+- **#242 callout**: Honest framing — what works (resolver + doctor), what doesn't (inputSchema plumbing), tracking link, what authors should do today, what changes when fix ships. NO fix date promised.
+- **Cross-link**: README anchor `#description-precedence` resolves to `## Description Precedence` heading in both GitHub and DocFX renderers.
+- **HelpParityFixture mapping**: Every fixture function the doc references exists in HelpParityFixture.psm1 with the matching shape.
+
+### Doc review patterns worth keeping
+- For a multi-step resolver, **table + tiny per-step example** beats prose. Anchoring step names to the literal wire vocabulary makes the doc dual-purpose: human reading + searchability across doctor output and metrics.
+- **In-line "Known issue" callout** under the affected section (not at bottom) for partially-shipped features. Format: what works / what doesn't / link / today's guidance / what changes on fix. The "no module change required" line is what makes the callout safe to ship — authors aren't asked to wait.
+- **README defers to article**, doesn't restate the chain. Single-link cross-link from a one-line bullet is the right hook.
+- For doc PRs touching behavior I've reviewed code-side, cross-checking literal strings (prefixes, format strings, enum-to-wire names) catches drift faster than re-reading the prose.
+
+### Process note
+Worktree-local strategy meant I could `gh pr view` and read implementation files in the same session without cross-branch confusion. Resolved everything from c:\Users\stmuraws\source\github\usepowershell\poshmcp-234.

@@ -258,3 +258,110 @@ Replace `"PowerShell"` with `"PowerShellConfiguration"` as the top-level key in 
 - The `IToolMetadataSource` seam is the single best place to gate sanitization in this codebase — if a new code path routes through `ResolveToolDescription` / `ResolveParameterDescription`, `DescriptionSanitizer.Normalize` is guaranteed via `HelpAwareToolMetadataSource`. Verifying sanitizer coverage reduces to "does the path call the seam?" which is one `grep` per entry point.
 - `capture-snapshots.ps1` overwrites the committed baseline files in-place. ALWAYS back them up to `\C:\Users\stmuraws\AppData\Local\Temp` before running and restore after. This makes the script safe to run for verification without polluting the working tree.
 
+
+### 2026-05-13: PR #243 fact-check (issue #229, spec 010 wave 5) - APPROVED
+- Verified PR body numbers by running tests in worktree: 23 passed + 2 skipped on new test trio (1m 36s), 501/501 unit suite green (1m 11s). Both match the PR body exactly.
+- Spot-checked 4 test methods (parity count, parity per-param, resolver determinism, regression equal-or-superset) - all behave as their names declare. Param parity test correctly uses union-of-keys (not intersection) so a missing parameter on one side surfaces as a parity failure, not a silent skip.
+- Issue #242 is factually accurate: names the seam (resolver returns correct strings per ParameterSetConsistencyTests, gap is in inputSchema JSON output), points at HelpParityFixture for repro, lists the 10 specific [Theory(Skip)] methods as the regression gate, gives crisp acceptance criteria.
+- Skip messages on the 10 ParameterDescription_IsNonEmpty_* variants reference issue #242 verbatim and accurately describe the gap. Reviewers landing on a skipped test can navigate straight to the tracking issue.
+- Baseline files exist (specs/010-tool-self-documentation/baseline/{inprocess,oop}-tools-list.json) and ToolDescriptionRegressionTests.LoadBaseline reads them via workspace-root walk-up to PoshMcp.sln, then unwraps esult.tools JArray. Parsing matches captured snapshot shape.
+- The gap I raised in PR #241 is unchanged: parity test passing while the non-empty test would fail is only consistent if descriptions are uniformly empty in both modes - exactly what PR #241 reported.
+- Concurred with Farnsworth's non-blocking nit on IsEqualOrSuperset.Contains(baseline) being broader than FR-550 wording. Not a gate.
+- Lesson: when verifying a PR that confirms a previous finding I raised, run the tests myself in the worktree rather than trusting the body. Two test commands took ~3 minutes total and turned "the PR says 23/2 and 501/501" into verified ground truth.
+
+## 2026-05-13: Fact-checked PR #244 (issue #230, spec 010 step 8) — APPROVE
+**Requested by:** Steven (via Ralph)
+**PR:** Bender — descriptionSource doctor reporting (FR-582/FR-583/SC-207)
+
+### Verified facts
+- Vocabulary literals in DescriptionSourceVocabulary.ToWireValue match spec.md FR-583 line 137 exactly: tools synopsis|description|syntax|name, params helpParameter|helpMessage|validateSet|typeFallback. Case-sensitive match.
+- 521 unit tests pass (12 new) — ran `dotnet test --filter FullyQualifiedName~Unit` in poshmcp-230 worktree.
+- Spot-checked 3 of 12 new tests in `DoctorDescriptionSourceTests.cs`; each test name accurately describes what is asserted (enum value + JSON wire string).
+- Confirmed Farnsworth's finding: `BuildDoctorReportFromConfig` (DoctorService.cs:180) does not instantiate or accept a tracker. Only `BuildDoctorReportForCliAsync` (line 92) wires it. Runtime MCP doctor returns empty `tools[]` until follow-up.
+- Confirmed #242 still present: PR diff touches no schema-emission files (no PowerShellAssemblyGenerator.cs changes). Tracker reads resolver result, not inputSchema.
+- Decision drop `bender-description-source-vocabulary.md` correctly pins vocabulary + tracker reuse pattern for Amy's #231 work.
+
+### Minor observation (non-blocking)
+PR includes `.squad/scribe-session-report.txt` — stray Scribe artifact. Worth a .gitignore entry next pass.
+
+### Pattern noted
+For PRs that ship vocabulary-as-API: always character-by-character diff the wire literals against the spec FR text, both case and ordering. Implementation correctness alone isn't enough — the strings ARE the contract.
+
+## 2026-05-13: Fact-checked PR #244 (issue #230, spec 010 step 8) — APPROVE
+**Requested by:** Steven (via Ralph)
+**PR:** Bender — descriptionSource doctor reporting (FR-582/FR-583/SC-207)
+
+### Verified facts
+- Vocabulary literals in DescriptionSourceVocabulary.ToWireValue match spec.md FR-583 line 137 exactly: tools synopsis|description|syntax|name, params helpParameter|helpMessage|validateSet|typeFallback. Case-sensitive match.
+- 521 unit tests pass (12 new) — ran `dotnet test --filter FullyQualifiedName~Unit` in poshmcp-230 worktree.
+- Spot-checked 3 of 12 new tests in `DoctorDescriptionSourceTests.cs`; each test name accurately describes what is asserted (enum value + JSON wire string).
+- Confirmed Farnsworth's finding: `BuildDoctorReportFromConfig` (DoctorService.cs:180) does not instantiate or accept a tracker. Only `BuildDoctorReportForCliAsync` (line 92) wires it. Runtime MCP doctor returns empty `tools[]` until follow-up.
+- Confirmed #242 still present: PR diff touches no schema-emission files (no PowerShellAssemblyGenerator.cs changes). Tracker reads resolver result, not inputSchema.
+- Decision drop `bender-description-source-vocabulary.md` correctly pins vocabulary + tracker reuse pattern for Amy's #231 work.
+
+### Minor observation (non-blocking)
+PR includes `.squad/scribe-session-report.txt` — stray Scribe artifact. Worth a .gitignore entry next pass.
+
+### Pattern noted
+For PRs that ship vocabulary-as-API: always character-by-character diff the wire literals against the spec FR text, both case and ordering. Implementation correctness alone isn't enough — the strings ARE the contract.
+
+## 2026-05-13 — PR #245 Fact-Check (FR-590 OTel description-source counters)
+
+**Verdict:** ✅ APPROVE. Posted comment-id 4441777768.
+
+**What I verified (Steven, via Ralph):**
+- Counter names exact: `poshmcp.tool_description.source` + `poshmcp.parameter_description.source` declared in `McpMetrics.cs` (~L144, ~L148).
+- Tag literals exact via `[InlineData]` rows + `MeterListener` capture: tool {synopsis,description,syntax,name}; parameter {helpParameter,helpMessage,validateSet,typeFallback}.
+- 11 new tests in `DescriptionSourceMetricsTests` (4+4+1+1+1). My rerun: 532/532 passed (Amy reported 531/532; OOP flake passed on rerun = transient confirmed).
+- 4/4 Resolve* sites paired (lines 268-269, 625-626, 671-672, 750-751 in McpToolFactoryV2.cs).
+- Failure isolation: bare `catch` swallows all incl. `ArgumentOutOfRangeException` from vocabulary on unknown enums; null-meter early-return; both paths exercised by tests.
+- Vocabulary single-source: grep for FR-583 wire literals across both files = zero matches; tags flow exclusively via `DescriptionSourceVocabulary.ToWireValue`.
+- #242 untouched: diff is exactly 3 files (McpToolFactoryV2.cs, Metrics/McpMetrics.cs, new test file).
+
+**Operational lesson — gh CLI on Windows mangles UTF-8 in --body-file and --input:**
+`gh.exe` reads file content using the OEM code page (CP437/CP850 on en-US Windows), not UTF-8. Em-dash bytes `E2 80 94` get re-encoded as `ΓÇö`. Affected both `gh pr comment --body-file` and `gh api --input`. Workaround: bypass gh and POST/PATCH directly via `urllib.request` from Python with `Content-Type: application/json; charset=utf-8` and the auth token from `gh auth token`. Confirmed clean storage afterward (6 em-dashes, 8 checks counted in the API response). Worth recording as a team skill if it bites again.
+
+No decision drop — no architectural gap found.
+
+## 2026-05-13 — PR #246 fact-check (issue #232, FR-572)
+
+Reviewed Amy's bench artifacts PR. Verified:
+- Numbers in COMPARISON.md and PR body match raw BDN .md/.csv exactly.
+- Run-5 baseline (ench-runs/run-5-pre-spec010/) untouched (last commit a4440e6, parent of PR).
+- Recomputed Mean deltas: Single +11.74% ✓, Pool +12.0851% (reported 12.08%, 1bp display-rounding noise — not blocking), ProcessPool +10.66% ✓. All << 50% gate.
+- FR-572 wording: spec.md L240 (> 50% triggers redesign) and L387 (< 50%) both consistent. PR uses correct baseline + formula.
+- Diff scope: exactly 5 files under bench-runs/run-6-post-spec010/. Zero source changes.
+
+**Verdict: APPROVE.** Posted to PR.
+
+**Lesson:** When BDN reports show 3-decimal seconds, recomputed % deltas can differ ~0.01% from the report's % column because the underlying ns means have higher precision. Treat sub-basis-point discrepancies as rounding artifacts, not math errors. The CSV doesn't expose the higher-precision values either — only the displayed seconds.
+
+## 2026-05-13 — PR #246 fact-check (issue #232, FR-572)
+
+Reviewed Amy's bench artifacts PR. Verified:
+- Numbers in COMPARISON.md and PR body match raw BDN .md/.csv exactly.
+- Run-5 baseline (bench-runs/run-5-pre-spec010/) untouched (last commit a4440e6, parent of PR).
+- Recomputed Mean deltas: Single +11.74%, Pool +12.0851% (reported 12.08%, 1bp display-rounding noise, not blocking), ProcessPool +10.66%. All well under 50% gate.
+- FR-572 wording: spec.md L240 ("> 50% triggers redesign") and L387 ("< 50%") both consistent. PR uses correct baseline and formula.
+- Diff scope: exactly 5 files under bench-runs/run-6-post-spec010/. Zero source changes.
+
+Verdict: APPROVE. Posted to PR (comment 4442013557).
+
+Lesson: When BDN reports show 3-decimal seconds, recomputed % deltas can differ ~0.01% from the report's own % column because the underlying ns means have higher precision than the display. Treat sub-basis-point discrepancies as rounding artifacts, not math errors. The CSV does not expose the higher-precision values either - only displayed seconds.
+
+## 2026-05-13 — PR #247 fact-check (docs precedence chains, issue #234)
+
+**Verdict: APPROVE.** All facts clean.
+
+- Vocabulary literals in doc tables match DescriptionSourceVocabulary.ToWireValue (IToolDescriptionSourceTracker.cs:150-168) byte-for-byte: synopsis|description|syntax|name and helpParameter|helpMessage|validateSet|typeFallback.
+- Counter names exact: poshmcp.tool_description.source + poshmcp.parameter_description.source declared at McpMetrics.cs:143/147.
+- #242 callout accurately describes current state I verified in PRs #243-#245: resolver returns right value with right Source, doctor reports correct source, but inputSchema.properties.<name>.description plumbing not wired into tools/list payload.
+- All FR numbers (500, 510, 540, 541, 542, 582, 583, 590) verified present in specs/010-tool-self-documentation/spec.md. No invented FRs.
+- Length caps numeric: FR-541 = 1024 chars (line 216), FR-542 = 512 chars (line 217). Code: ToolDescriptionMaxLength = 1024 at HelpAwareToolMetadataSource.cs:21. Match.
+- Doctor JSON paths in doc (tools[].descriptionSource, tools[].parameters[].descriptionSource) match spec FR-583 line 250 verbatim.
+- Worked example Get-WidgetReport synthesized (not a fixture) but predicted resolutions follow chain rules correctly. Fixture functions referenced (FixtureSynopsisOnly, FullHelp, HelpMessageOnly, ValidateSetScalar, Bare) all exist in HelpParityFixture.psm1 lines 11/21/56/68/88.
+- Diff scope: README.md +1/-1 (single bullet edit) and docs/articles/exposing-tools.md +186 appended. Zero code changes.
+- README cross-link docs/articles/exposing-tools.md#description-precedence resolves to ## Description Precedence H2 — slug correct for both GitHub and DocFX.
+
+**Pattern:** docs PRs that anchor every chain step to a code symbol are fast to fact-check — grep the wire-vocabulary class once, walk the table top to bottom. Leela's table format (Step | Source | Notes) made each row a one-shot grep target. Recommend adopting this format for future precedence-chain docs.
+
