@@ -96,7 +96,7 @@ dotnet test PoshMcp.sln --filter "Category=Functional"
 
 Per FR-417, a test with no `Category` trait falls back to a documented default bucket. The default bucket is **not** `Unit` — untagged tests cannot accidentally enter the fast pre-commit tier.
 
-The default bucket name is set by the test-categorization rollout (issue #212) and documented in `PoshMcp.Tests/README.md`. When in doubt, run the full suite without a `--filter` argument to ensure your test executes:
+The default bucket is **`Integration`**: an untagged test runs in the `Integration` phase, not `Unit`. The policy is committed in [`PoshMcp.Tests/AssemblyInfo.cs`](PoshMcp.Tests/AssemblyInfo.cs) (see the Spec 009 policy comment block) and reflects FR-417. When in doubt, run the full suite without a `--filter` argument to ensure your test executes:
 
 ```bash
 dotnet test PoshMcp.sln
@@ -119,7 +119,7 @@ CI runs the suite as a sequence of category-scoped phases (FR-409). Each phase r
 | Azure | `dotnet test PoshMcp.sln --filter "Category=Azure"` (requires creds; skipped without them) |
 | Functional | `dotnet test PoshMcp.sln --filter "Category=Functional"` |
 
-Phase order in CI follows fast-fail logic: cheaper, more deterministic phases run first so a Unit-tier regression fails the build before the heavier phases start. The exact phase order, runner image, and reporting format are owned by `.github/workflows/ci.yml` (issue #215). When in doubt about what CI actually ran, the workflow file is the source of truth.
+`Unit` runs first so a fast-tier regression fails the build before any heavier phase starts. The ordering of the remaining phases, the runner image, and the reporting format are owned by `.github/workflows/ci.yml` (issue #215). When in doubt about what CI actually ran, the workflow file is the source of truth.
 
 ### Flake-rate measurement
 
