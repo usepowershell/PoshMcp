@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using PoshMcp.Server.PowerShell;
+using PoshMcp.Tests.Shared;
 using Xunit;
 
 namespace PoshMcp.Tests.Unit;
@@ -18,7 +19,8 @@ public sealed class ModuleDiscoveryStartupOrderingTests : IDisposable
     private readonly IsolatedPowerShellRunspace _runspace;
     private readonly McpToolFactoryV2 _toolFactory;
     private readonly PowerShellEnvironmentSetup _environmentSetup;
-    private readonly string _tempDirectory;
+    private readonly TempDirectory _tempDir;
+    private string _tempDirectory => _tempDir.Path;
 
     public ModuleDiscoveryStartupOrderingTests()
     {
@@ -31,8 +33,7 @@ public sealed class ModuleDiscoveryStartupOrderingTests : IDisposable
         _runspace = new IsolatedPowerShellRunspace();
         _toolFactory = new McpToolFactoryV2(_runspace);
         _environmentSetup = new PowerShellEnvironmentSetup(_loggerFactory.CreateLogger<PowerShellEnvironmentSetup>());
-        _tempDirectory = Path.Combine(Path.GetTempPath(), $"poshmcp-module-order-tests-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(_tempDirectory);
+        _tempDir = new TempDirectory("module-order");
     }
 
     [Fact]
@@ -164,10 +165,6 @@ function {functionName} {{
         _toolFactory.ClearCache();
         _runspace.Dispose();
         _loggerFactory.Dispose();
-
-        if (Directory.Exists(_tempDirectory))
-        {
-            Directory.Delete(_tempDirectory, recursive: true);
-        }
+        _tempDir.Dispose();
     }
 }

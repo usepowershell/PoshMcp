@@ -188,7 +188,12 @@ public class OutOfProcessCommandExecutorTests
     [Fact]
     public void ResolveModulePaths_DeduplicatesCaseInsensitively()
     {
-        var baseDir = Path.Combine(Path.GetTempPath(), "PoshMcp-ResolveModulePaths");
+        // Pure path-string computation — no I/O — but using TempDirectory keeps the
+        // base path unique per test run and consistent with spec 009 hygiene
+        // (FR-403, FR-410). Replaces the previous shared "PoshMcp-ResolveModulePaths"
+        // fixed name flagged in PR #256 review.
+        using var tmp = new Tests.Shared.TempDirectory("oop-resolve-module-paths");
+        var baseDir = tmp.Path;
         var duplicateA = Path.Combine(baseDir, "Modules");
         var duplicateB = duplicateA.ToUpperInvariant();
 

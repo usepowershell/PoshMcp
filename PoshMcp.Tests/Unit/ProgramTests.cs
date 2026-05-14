@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using PoshMcp.Server.PowerShell;
+using PoshMcp.Tests.Shared;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -125,15 +126,16 @@ public class ProgramTests : PowerShellTestBase
     [Fact]
     public async Task ResolveConfigurationPath_WhenCurrentDirectoryHasAppSettings_ReturnsAppSettings()
     {
-        // Arrange
+        // Arrange — isolated working dir so the generic appsettings.json filename
+        // can't collide with siblings (spec 009 FR-403).
         var originalDirectory = Directory.GetCurrentDirectory();
-        var tempDir = Path.GetTempPath();
-        var appSettingsPath = Path.Combine(tempDir, "appsettings.json");
-        var configPath = Path.Combine(tempDir, "config.json");
+        using var tmp = new TempDirectory("resolve-config-with-appsettings");
+        var appSettingsPath = Path.Combine(tmp.Path, "appsettings.json");
+        var configPath = Path.Combine(tmp.Path, "config.json");
 
         try
         {
-            Directory.SetCurrentDirectory(tempDir);
+            Directory.SetCurrentDirectory(tmp.Path);
             await File.WriteAllTextAsync(appSettingsPath, "{}");
 
             // Act
@@ -145,21 +147,19 @@ public class ProgramTests : PowerShellTestBase
         finally
         {
             Directory.SetCurrentDirectory(originalDirectory);
-            if (File.Exists(appSettingsPath))
-                File.Delete(appSettingsPath);
-            if (File.Exists(configPath))
-                File.Delete(configPath);
         }
     }
 
     [Fact]
     public async Task ResolveConfigurationPath_WhenNeitherExists_CreatesDefaultAndReturnsPath()
     {
-        // Arrange
+        // Arrange — both the candidate config path and the working directory live
+        // inside a single per-test scratch dir so cleanup is guaranteed by Dispose
+        // (spec 009 FR-403).
         var originalDirectory = Directory.GetCurrentDirectory();
-        var tempDir = Path.GetTempPath();
-        var configPath = Path.Combine(tempDir, $"test_config_{Path.GetRandomFileName()}.json");
-        var tempWorkingDir = Path.Combine(tempDir, Path.GetRandomFileName());
+        using var tmp = new TempDirectory("resolve-config-default");
+        var configPath = Path.Combine(tmp.Path, $"test_config_{Path.GetRandomFileName()}.json");
+        var tempWorkingDir = Path.Combine(tmp.Path, Path.GetRandomFileName());
         var userConfigPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "PoshMcp",
@@ -182,12 +182,8 @@ public class ProgramTests : PowerShellTestBase
         finally
         {
             Directory.SetCurrentDirectory(originalDirectory);
-            if (File.Exists(configPath))
-                File.Delete(configPath);
             if (!userConfigExistedBefore && File.Exists(userConfigPath))
                 File.Delete(userConfigPath);
-            if (Directory.Exists(tempWorkingDir))
-                Directory.Delete(tempWorkingDir, true);
         }
     }
 

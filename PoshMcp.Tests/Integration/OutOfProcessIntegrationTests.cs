@@ -11,6 +11,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using PoshMcp.Server.PowerShell;
 using PoshMcp.Server.PowerShell.OutOfProcess;
+using PoshMcp.Tests.Shared;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -27,6 +28,7 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private readonly ITestOutputHelper _output;
+    private TempDirectory? _testTempDirHolder;
     private string _testTempDir = string.Empty;
 
     public OutOfProcessIntegrationTests(ITestOutputHelper output)
@@ -42,8 +44,8 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _testTempDir = Path.Combine(Path.GetTempPath(), $"poshmcp-oop-tests-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(_testTempDir);
+        _testTempDirHolder = new TempDirectory("oop-int");
+        _testTempDir = _testTempDirHolder.Path;
 
         // Only start if pwsh is available — tests using PwshAvailableFactAttribute won't
         // reach here when pwsh is missing, but guard for safety.
@@ -67,9 +69,7 @@ public class OutOfProcessIntegrationTests : IAsyncLifetime
         if (_executor != null)
             await _executor.DisposeAsync();
         _loggerFactory.Dispose();
-
-        if (Directory.Exists(_testTempDir))
-            Directory.Delete(_testTempDir, recursive: true);
+        _testTempDirHolder?.Dispose();
     }
 
     // ---- Subprocess lifecycle tests ----
