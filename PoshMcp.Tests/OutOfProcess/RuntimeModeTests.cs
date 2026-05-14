@@ -1,7 +1,7 @@
 using System;
 using Xunit;
 
-namespace PoshMcp.Tests.Unit.OutOfProcess;
+namespace PoshMcp.Tests.OutOfProcess;
 
 /// <summary>
 /// Unit tests for the RuntimeMode enum.
