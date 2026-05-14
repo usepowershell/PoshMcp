@@ -245,7 +245,10 @@ internal sealed class AppInsightsTestHttpServer : IDisposable
         Dictionary<string, string>? environmentOverrides = null,
         int port = 0)
     {
-        _port = port == 0 ? Random.Shared.Next(6100, 6900) : port;
+        // FR-411: bind on a kernel-allocated free port (probe TcpListener on
+        // port 0, read .Port, release). Replaces a Random.Shared.Next(6100,
+        // 6900) range-picker that produced collisions across concurrent runs.
+        _port = port == 0 ? PoshMcp.Tests.Shared.DynamicPort.Allocate() : port;
         _environmentOverrides = environmentOverrides ?? new Dictionary<string, string>();
     }
 
