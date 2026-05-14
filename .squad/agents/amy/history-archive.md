@@ -568,3 +568,107 @@ settings into Container App environment variables.
 
 ---
 *Older entries (pre-2026-05-05 bulk) moved to `history-archive.md` on 2026-05-05 by Scribe to satisfy 15KB hard gate. See archive for full record.*
+
+## Archived 2026-05-14T11:34Z
+
+### 2026-04-18: Spec 002 PR creation and merge session
+
+- Created 4 PRs targeting main: #125 (resources), #126 (prompts), #127 (doctor), #128 (tests).
+- PR #125 squash-merged cleanly (no conflicts on origin).
+- PR #126 required rebase in worktree `poshmcp-002-prompts` (`Program.cs` conflict resolved using integration branch version with both handlers chained). Squash-merged.
+- PR #127 required rebase in worktree `poshmcp-002-doctor` (5 add/add conflicts on McpPrompts/McpResources config files — kept HEAD/main versions; `Program.cs` resolved from integration branch). Squash-merged.
+- PR #128 (tests) created but NOT merged — pending rebase onto merged main.
+- **Encoding bug encountered and fixed:** `git show | Out-File -Encoding UTF8` in PowerShell 5 converts UTF-8 BOM bytes (0xEF 0xBB 0xBF) through CP850 console encoding into literal characters ∩╗┐ (U+2229 U+2557 U+2510), causing `CS1056` C# build errors.
+- **Fix:** Use `cmd /c "git show <ref>:path > outfile"` for binary-safe file extraction. Applied as fix commit `c17cdf8` on main.
+- Final build: `dotnet build PoshMcp.sln --no-incremental` → **Build succeeded, 0 errors**.
+
+### 2026-04-18: Spec 002 final merge — PR #128 and worktree cleanup
+
+- Squash-merged PR #128 (`feature/002-tests` → `main`) via `gh pr merge 128 --squash --delete-branch`. GitHub confirmed merge to `b6a268c`.
+- Pulled `main` (fast-forward): 10 new test files, 2,267 lines added.
+- Final `dotnet test PoshMcp.sln` on main: **476 passed, 1 failed, 1 skipped — total 478**.
+  - Failing: `McpResourcesValidatorTests.cs(250) Assert.NotEmpty()` — pre-existing, non-blocking.
+  - Skipped: `ShouldHandleGetChildItemCorrectly` — pre-existing, non-blocking.
+- Removed all four spec-002 feature worktrees: `poshmcp-002-resources`, `poshmcp-002-prompts`, `poshmcp-002-doctor`, `poshmcp-002-tests`.
+- Deleted local branches: `feature/002-resources`, `feature/002-prompts`, `feature/002-doctor`, `feature/002-tests`, `integration/spec-002-mcp-resources-and-prompts`.
+- Deleted remote branches: all four `feature/002-*` and `integration/spec-002-mcp-resources-and-prompts`.
+- Spec review worktrees (`poshmcp-spec-001` through `poshmcp-spec-005`) are separate infrastructure — left intact.
+- Note: `gh pr merge --delete-branch` produces a non-zero exit but the merge itself succeeds when GitHub auto-deletes the remote branch (same false-failure pattern as #92–#95 session). Squash-merge is the required strategy (merge commits blocked on this repo).
+- Spec 002 is fully closed. No residual branches or worktrees remain.
+
+### 2026-04-18: Issue #131 STDIO logging infrastructure (Amy as DevOps lead)
+
+- Suppressed OTel console exporter in stdio mode via isStdioMode parameter in ConfigureOpenTelemetry.
+- Updated all appsettings files with Logging.File.Path schema (appsettings.json, default.appsettings.json, environment-example, azure, modules).
+- Infrastructure changes complete and merged to squad/131-stdio-logging-to-file branch.
+
+### 2026-04-18: v0.6.0 minor release
+
+- Minor version bump: `PoshMcp.Server/PoshMcp.csproj` `0.5.6` → `0.6.0` (reflects merged feature PRs #125–#128 for Spec 002).
+- Pulled latest main: branch already up-to-date (10 spec-002 test commits already present from previous session).
+- Pack command: `dotnet pack PoshMcp.Server/PoshMcp.csproj -c Release -o ./nupkg` → produced `poshmcp.0.6.0.nupkg` (25.8 MB).
+- Uninstall/reinstall cycle: removed `poshmcp.0.5.6`, installed `0.6.0` from local nupkg source.
+- Verified: `poshmcp --version` → `0.6.0+3ed89f5946ba89be53ebb9f85238ab1a3143015b` (commit hash from main).
+- Commit: `chore: bump version to 0.6.0` with Copilot co-author trailer; pushed to main.
+
+### 2026-04-18: CI/CD pipeline improvements — preview builds, NuGet.org release, README in package
+
+- Added `<PackageReadmeFile>README.md</PackageReadmeFile>` to `PoshMcp.Server/PoshMcp.csproj` PropertyGroup.
+- Added `<None Include="..\README.md" Pack="true" PackagePath="\" />` so README.md from the repo root is embedded in the NuGet package.
+- Created `.github/workflows/preview-packages.yml`: triggers on push to main (same paths as ci.yml), skips on `[skip ci]` or `[no preview]` in commit message, versions as `{base-version}-preview.{GITHUB_RUN_NUMBER}`, runs unit + functional tests, packs and publishes to GitHub Packages, uploads artifact (14-day retention), writes a job summary with version and link.
+- Reworked `.github/workflows/publish-packages.yml`: replaced `release: published` trigger with `push: tags: ['v*']`; updated version logic to strip `v` prefix from `github.ref_name` on tag push; added "Publish to NuGet.org" step (using `NUGET_API_KEY` secret, `if: github.event_name == 'push'`); added "Create or update GitHub Release with notes" step that uses `docs/release-notes/{version}.md` if present or auto-generates notes; updated `contents` permission from `read` to `write` (required for `gh release`); updated container job's "Tag image as latest" and "Push latest tag" `if:` conditions from `release` to `push`.
+- All changes committed and pushed to main: `0037c66`.
+
+
+
+- Package artifact: `nupkg/poshmcp.0.6.0.nupkg` (verified present, 25.8 MB).
+- GitHub Packages source was already registered as `github-poshmcp` → `https://nuget.pkg.github.com/usepowershell/index.json`.
+- Publish command: `dotnet nuget push ./nupkg/poshmcp.0.6.0.nupkg --source https://nuget.pkg.github.com/usepowershell/index.json --api-key (gh auth token)`.
+- Result: **Successfully published** to GitHub Packages NuGet registry.
+- Verified via `gh api "/users/usepowershell/packages/nuget/poshmcp/versions"` → confirmed `0.6.0` is the latest published version (alongside 0.5.6 and 0.5.5).
+- Repository owner: `usepowershell` (user account, not organization).
+
+
+## Cross-Agent: PR #139 Also Approved (2026-04-20)
+
+- Farnsworth approved both PRs #138 and #139
+- Bender added config secrets redaction to #139
+- 334 tests now passing across suite
+
+## Learnings
+
+- **Version management:** Project version is maintained solely in PoshMcp.Server/PoshMcp.csproj under the <Version> element. No distributed version configuration across multiple files (e.g., Directory.Build.props). Bumped  .7.1 →  .8.0.- **Tool update access denied:** `dotnet tool update -g poshmcp` can fail with "Access to the path ... is denied" if the poshmcp process is currently running (e.g., as an MCP server in VS Code). Stop all poshmcp processes first (`Get-Process poshmcp | Stop-Process -Force`), then retry the update. This applies to 0.8.3 → 0.8.4 and any future in-place updates while the tool is active.
+- **Container Apps OAuth Configuration (2026-05-01):** Audited deployed Container Apps OAuth setup. Key findings: (1) OAuth Proxy not enabled on deployment — OAuthProxy.Enabled defaults to false, so /.well-known/oauth-authorization-server returns 404. (2) /.well-known/oauth-protected-resource returns 200 with valid metadata pointing to Entra (tenant: d91aa5af-8c1e-442c-b77c-0b92988b387b), but has duplicate entries. (3) Easy Auth disabled (correct). (4) Bicep infrastructure sound; serverEnvVars parameter exists but deploy.ps1 only translates Authentication__Enabled. (5) Managed Identity properly configured. Next: await Bender's OAuth metadata fix, then deploy with full auth config template (see .squad/decisions/inbox/amy-container-apps-auth-config.md).
+- **Release process (.NET projects):** Cut v0.9.15 release on 2026-05-02. For .NET projects, version is in `PoshMcp.Server/PoshMcp.csproj` `<Version>` element. Release steps: (1) bump version in csproj, (2) commit with "chore: bump version to X.Y.Z" and Copilot co-author trailer, (3) create annotated tag `git tag -a vX.Y.Z -m "vX.Y.Z - release description"`, (4) push with `git push origin main --tags`. Differs from npm-based workflow: no draft releases, no workspace-scoped publish, no pre-flight dependency scans — just semantic versioning in single file + git tag + push.
+- **Release v0.9.20 (2026-05-03):** Patch release capturing three authentication fixes (OR semantics for RequiredRoles, JWT claim-type remapping disabled, RequiredScopes format correction, and DoctorReport role claim lookup consistency). Version bumped 0.9.19 → 0.9.20 in PoshMcp.csproj, CHANGELOG.md prepended with 4-bullet release notes documenting each fix. Committed as `b87ca27` with Copilot co-author trailer; tagged `v0.9.20`. Build committed and tagged successfully; 3 commits captured since v0.9.19 (fe1b1bc, fd6d115, 8c8e4ad).
+## [2026-04-23T15:08:26] Source Image Implementation
+
+**Session:** Deploy source image support implementation (spec 007)
+**Contribution:** Implemented -SourceImage and -UseRegistryCache parameters
+
+**Key Learnings:**
+- Parameters added to infrastructure/azure/deploy.ps1
+- -SourceImage: specify container source image
+- -UseRegistryCache: control registry caching behavior
+- Implements parameter validation and integration
+- Coordinated with Farnsworth (spec) and Fry (testing)
+
+**Artifacts:** infrastructure/azure/deploy.ps1
+
+## [2026-07-18] Resource Group Default Alignment
+
+**Session:** Fix mismatched `$ResourceGroup` default between deploy scripts and Bicep
+**Contribution:** Aligned all three deploy-side files to the canonical value defined in Bicep/parameters
+
+**Key Learnings:**
+- **Canonical resource group name is `rg-poshmcp`** — Azure naming convention uses type-prefix-first (e.g., `rg-`, `ca-`, `acr-`). The authoritative source is `infrastructure/azure/main.bicep` and `parameters.json`.
+
+---
+*Further trimmed to 100 lines on 2026-05-05 by Scribe (15KB gate). Full record in `history-archive.md`.*
+
+## 2026-05-06 — CodeQL workflow permissions + secret scanning docs
+- Added top-level `permissions: contents: read` to `.github/workflows/ci.yml` to resolve CodeQL `actions/missing-workflow-permissions` alert. Build job only restores/builds/tests and uploads artifacts via `actions/upload-artifact@v4` — none of which require write scopes on GITHUB_TOKEN. Future jobs needing more (check runs, PR comments, package publish) should request scopes at job level, not widen the top-level grant.
+- Added `Repository Security Controls` section to `SECURITY.md` documenting expected GitHub-native controls: secret scanning, push protection, Dependabot alerts, CodeQL. Cannot toggle these settings from a workflow — admin UI required.
+
+
+

@@ -768,3 +768,8 @@ Get-Help returns .parameters as a PSObject whose BaseObject is a marker PSCustom
 Rule: when working with PowerShell adapted/synthesized members (especially Get-Help output, format data, custom property sets), access `Properties["name"]` on the PSObject wrapper directly. Only fall back to BaseObject when the wrapper does not expose the member you need. Never reflexively unwrap.
 
 This bug shipped silently because the resolver returned the right strings for parameters it could find, but the array itself was empty — so callers got "no parameters in help" rather than an exception.
+
+### 2026-05-14: v0.13.0 released from main (tag pending CI)
+**By:** Scribe (cross-agent note from coordinator)
+**What:** v0.13.0 commits landed on origin/main: housekeeping `5847efb` + release `a2b9c3e` (csproj 0.12.3 → 0.13.0, CHANGELOG, docs/release-notes/0.13.0.md). Tests 777/0/7. Tag NOT yet created — pending CI green on `a2b9c3e`.
+**Marquee:** Spec 010 — Help-aware tool descriptions. In-process + OOP byte-identical schemas, `IToolMetadataSource` seam, FR-500/510/540 precedence, `HelpAwareToolMetadataSource` as default, doctor `descriptionSource` reporting, OTel counters, parity tests. Includes #222 (SwitchParameter round-trip) and #248 (parameter descriptions on inputSchema).

@@ -12,730 +12,6 @@
 **Why:** Single chokepoint, no per-parameter detection needed, schema stays honest about what the converter actually accepts. PR #222 establishes the template.
 **Follow-up:** Track whether globally replacing the SDK's default `SerializerOptions` (instead of cloning + extending) introduces response-serialization regressions for tools that emit explicit nulls — `DefaultIgnoreCondition = WhenWritingNull` now applies to every tool.
 
-### 2026-05-07: Leela — OOP docs + samples audit (PR #210)
-**By:** Steven Murawski (via Leela)
-**What:** Audited whether spec 004 OOP changes (default flip to `Pool`, `SubprocessHostMode` taxonomy, sizing knobs, cancellation contract) reached `./docs` and the sample `appsettings.json` files. Findings: docs had material gaps (advanced.md stale, configuration.md silent on RuntimeMode/SubprocessHostMode, azure-integration.md described RuntimeMode incorrectly as "sync/async"); samples were partial (root + PoshMcp.Server were current; `examples/appsettings.advanced.json` and `examples/appsettings.tenant.json` had no PowerShell runtime tuning despite being the heavy-Az and multi-tenant scenarios where OOP applies). Updates landed in PR #210: rewrote advanced.md OOP section with full taxonomy, sizing, cancellation contract, ProcessPool example, link to benchmark-findings.md; added Runtime Mode section to configuration.md; fixed azure-integration.md description; added `RuntimeMode: OutOfProcess` + `SubprocessHostMode: Pool` to advanced.json and `RuntimeMode: OutOfProcess` + `SubprocessHostMode: ProcessPool` (size 4, min healthy 2) to tenant.json; documented rationale in `examples/README.md`. Intentionally left alone: examples/appsettings.basic.json (purpose mismatch), PoshMcp.Server/default+modules+azure+environment-example (loaded by dev/tests, out of audit scope), README.md/DOCKER.md (already updated in #208), docs/release-notes (belongs with the shipping release). Build green.
-**Why:** Source-of-truth schema (`PowerShellConfiguration.cs`) shipped Pool as the default but the user-facing docs and the two samples whose use cases are exactly what the modes exist for hadn't been updated to match. Risk was that users following the docs or copying the samples would not know the new default exists, would not know how to opt into ProcessPool for trust-boundary scenarios, and (in azure-integration.md) would read a wrong description of the RuntimeMode field.
-
-### 2026-05-07: Cubert — Fact-check verdict on PR #210 (OOP docs + samples audit)
-**By:** Steven Murawski (via Cubert)
-**Verdict:** REQUEST CHANGES — three substantive errors in `docs/articles/advanced.md`. Samples and other docs check out.
-
-**Verified ✅**
-- All property names in changed docs and samples exist in `PoshMcp.Server/PowerShell/PowerShellConfiguration.cs` with the casing shown: `RuntimeMode`, `SubprocessHostMode`, `SubprocessRunspacePoolSize`, `SubprocessPoolSize`, `SubprocessMinHealthyForStartup`.
-- All `SubprocessHostMode` string values used (`Single`, `Pool`, `ProcessPool`) match the enum defined in `PoshMcp.Server/PowerShell/OutOfProcess/SubprocessHostMode.cs`.
-- Defaults cited match code: `SubprocessHostMode = Pool`, `SubprocessRunspacePoolSize = 0` auto-sizes to `min(ProcessorCount, 8)`, `SubprocessPoolSize = 4`, `SubprocessMinHealthyForStartup = 1`.
-- Clamp claim "Clamped to `[1, SubprocessPoolSize]`" matches `Math.Min(config.SubprocessMinHealthyForStartup, Math.Max(1, config.SubprocessPoolSize))` in `McpToolSetupService.cs:214` and the doctor-warning paths in `DoctorService.cs:361,365`.
-- `4.86×` warm-invoke throughput at concurrency 10 matches `specs/004-out-of-process-execution/benchmark-findings.md` §1 (table: 4.86× mean / 4.79× P99).
-- "Clears the spec's per-scenario 4× bar for I/O-shaped workloads" matches the same findings file.
-- "Default since 2026-05-06" matches the date on `benchmark-findings.md` and the spec-004 default-flip context.
-- `examples/appsettings.advanced.json` and `examples/appsettings.tenant.json` (PR-branch versions) parse as valid JSON. advanced.json uses Pool-mode-relevant key (`SubprocessRunspacePoolSize`); tenant.json uses ProcessPool-mode-relevant keys (`SubprocessPoolSize`, `SubprocessMinHealthyForStartup`) — correct per-mode key selection.
-- `examples/README.md` rationale aligns with `benchmark-findings.md` §4 recommendation (Pool for typical concurrent MCP load, ProcessPool for trust-boundary / tail-latency-sensitive workloads).
-- `docs/articles/azure-integration.md` `RuntimeMode` fix uses real values from the schema (`InProcess`/`OutOfProcess`).
-- `POSHMCP_RUNTIME_MODE=OutOfProcess` (PascalCase) in advanced.md is accepted by `SettingsResolver.NormalizeRuntimeModeValue`.
-- No new TOC entries needed; no broken intra-doc links observed in the diff.
-
-**Discrepancies ❌**
-1. `docs/articles/advanced.md`, "Enable Out-of-Process Mode": "Unrecognized values fall back to `InProcess` with a logged error." Code does not fall back — `ConfigurationLoader.cs:50` **throws `InvalidOperationException`** ("Unsupported runtime mode '{value}'. Supported runtime modes: in-process, out-of-process.") and the server fails to start. Recommend: replace with "Unrecognized values cause the server to fail startup with `InvalidOperationException`."
-2. `docs/articles/advanced.md`, "Cancellation" section, **ProcessPool** bullet: "cancellation tears down the leased subprocess; the pool spins a replacement. Other hosts are unaffected." Per PR #207 (merged 2026-05-07) and `specs/004-out-of-process-execution/cancellation-design.md` §2.3, ProcessPool now inherits soft-cancel via the new `cancel` wire frame. BeginStop is invoked inside the host; the slot **stays healthy** and is returned to the pool. Subprocess teardown is only the **backstop** for wedged hosts (unmanaged code) via the existing per-request kill-on-timeout path. Leela's text describes the backstop as if it were the normal path.
-3. `docs/articles/advanced.md`, "Cancellation" section, **Single** bullet: "cancellation kills the host; the historical timeout-and-restart behavior applies." PR #207 explicitly refactored `oop-host.ps1` so the Single-mode handler runs invokes on a background dispatcher thread; cancel calls `BeginStop` on the matching `[powershell]` instance and **the host stays healthy for follow-ups** (PR #207 description, verbatim). This is pre-#207 behavior.
-
-**Minor ⚠️**
-- `docs/articles/advanced.md` "Valid values: `InProcess`, `OutOfProcess`" is incomplete. `SettingsResolver.NormalizeRuntimeModeValue` also accepts `in-process` / `out-of-process` (kebab-case) and lowercase forms. The repo's own `README.md`, `integration/README.md`, and `CliDefinition.cs:212` describe the kebab form as canonical for the env var/CLI, while `spec.md` uses the PascalCase form. Not blocking, but could mislead.
-
-**Lockout:** Per Reviewer Rejection Protocol — strict lockout. Leela may not self-revise. Recommend Steven assigns Bender (owner of PR #207, cancellation-design.md author) to revise the cancellation bullets and the runtime-mode error-handling claim.
-
-**Why:** External-facing docs that misstate the cancellation contract are exactly what the spec-004 default flip was gated on (`benchmark-findings.md` §6 caveat 5). Shipping these docs as-is would teach users wrong expectations about host survivability after a cancelled invoke — the property the cancellation work was created to provide.
-
-### 2026-05-07: Farnsworth — PR #210 review (Leela — OOP docs + samples audit)
-
-**By:** Steven Murawski (via Farnsworth, Lead / Architect)
-
-**What:** APPROVE with one non-blocking framing nit. Architectural review of PR #210 covering mental model, framing coherence with #208 (default flip), sample-pick rationale, and operator-facing completeness. Cubert handled fact-checking in parallel; this review is scoped to architecture and framing only.
-
-**Mental model assessment — clear.** Two-entry-point split (brief in `configuration.md`, deep-dive in `advanced.md`) avoids duplication. New operator landing on either article reaches the three-mode taxonomy with explicit "when to use" guidance, sizing knobs (pool runspaces vs pool processes vs min healthy), per-mode cancellation contract, and doctor pointer for verification. Decision narrative — `Pool` wins warm throughput (~4.86×, citing `benchmark-findings.md`), `ProcessPool` opt-in for trust/tail, `Single` legacy/bisect — matches the spec 004 study and #208 default-flip rationale exactly.
-
-**Coherence with #208.** `RuntimeMode` correctly described as `InProcess`/`OutOfProcess` (the `azure-integration.md` "sync/async" line was a real bug; correctly fixed). `SubprocessHostMode` is presented as a primary configuration concept rather than a tuning knob — correct framing for post-default-flip docs. Cancellation is documented as a contract per mode, not a footnote — correct framing because cancellation is what made the flip safe.
-
-**Sample-pick rationale — both correct.** `advanced.json` → `Pool` matches Pool's documented strength (concurrent warm-invoke throughput) plus the heavy-Az use case; `SubprocessRunspacePoolSize: 0` (auto-tune to `min(ProcessorCount, 8)`) is the right default for a copy-paste sample. `tenant.json` → `ProcessPool` (size 4, min healthy 2) matches ProcessPool's documented strength (per-slot crash recovery + process-level isolation between callers). The `examples/README.md` rationale names the tradeoff explicitly ("trust boundaries between callers matter more than peak throughput") — multi-tenant is exactly the workload class where peak throughput is the wrong optimization target.
-
-**Operator completeness.** `poshmcp doctor` is referenced from `advanced.md` ("reports the resolved host mode, effective pool sizes, host-script path, and any clamp warnings under Runtime Settings"). Adequate — answers the "how do I verify my config did what I intended?" question without burying it or over-emphasizing.
-
-**Non-blocking framing nit (one):** The Cancellation section in `advanced.md` says of `Single`: *"the historical timeout-and-restart behavior applies."* This undersells what Single mode does post-#207 — the `SingleDispatcher` worker-thread pattern landed in #207 supports the same cooperative soft-cancel contract as Pool/ProcessPool, with the per-request timeout serving as the backstop. As written, an operator could read this as "Single mode does not support cooperative cancellation," which would be inaccurate, and which would also undersell why the default flip became safe across all three modes simultaneously. Suggested follow-up phrasing: *"Single: cooperative cancellation via the dispatcher worker; the per-request timeout acts as the backstop and recycles the host on timeout."* One line. Not blocking #210.
-
-**No architectural gaps that block.** Mental model intact, decision narrative matches engineering, sample picks match documented tradeoffs, doctor surfaced for verification.
-
-**Comment URL:** https://github.com/usepowershell/PoshMcp/pull/210#issuecomment-4396923714
-
-### 2026-05-07: Cubert — Re-verification verdict on PR #210 (post-Bender revision)
-**By:** Steven Murawski (via Cubert)
-**Verdict:** APPROVE — all three blocking findings from prior fact-check are resolved in commit `a4c9ed0`. No collateral defects introduced.
-
-**Scope:** Re-verified `docs/articles/advanced.md` at HEAD (`a4c9ed09a395384596905aa169c3edb30ae60eb0`) on `squad/oop-docs-samples-audit`. Bender (revision author per strict-lockout rule) modified only `advanced.md` per his decision drop.
-
-**Per-finding verdict:**
-
-1. ✅ **`RuntimeMode` invalid-value behavior — RESOLVED.** Doc text now reads: "Unrecognized values cause the server to fail startup with `InvalidOperationException` (`Unsupported runtime mode '<value>'. Supported runtime modes: in-process, out-of-process.`)." Matches ground truth in `PoshMcp.Server/Configuration/ConfigurationLoader.cs:46-50` verbatim — the loader throws when `config.RuntimeMode == RuntimeMode.Unsupported`. No fallback path exists. The non-blocking kebab-case clarification (`in-process` / `out-of-process` accepted by env var/CLI) is folded into the same paragraph correctly.
-
-2. ✅ **ProcessPool cancellation — RESOLVED.** Doc now describes soft-cancel via inherited `OutOfProcessHost` cancel frame as the primary path: "each leased host runs the Single-mode script and inherits the same soft-cancel via the inherited `OutOfProcessHost` cancel frame. If the host honors `BeginStop`, the slot stays healthy and is returned to the pool; other hosts are unaffected. The existing per-request kill-on-timeout path in `OutOfProcessSubprocessPool` remains as a backstop for wedged hosts (e.g., a cmdlet stuck in unmanaged code) that do not honor `BeginStop` within the per-request timeout." Matches `specs/004-out-of-process-execution/cancellation-design.md` §2.3.
-
-3. ✅ **Single cancellation — RESOLVED.** Doc now reads: "`SingleDispatcher` runs the invoke on a background dispatcher thread and calls `BeginStop` on the matching `[powershell]` instance when the cancel frame arrives. The host stays healthy for follow-up requests; the per-request timeout serves as the backstop and recycles the host only if `BeginStop` does not unwind the pipeline in time." Matches `cancellation-design.md` §2.1.
-
-**Collateral check:** Skimmed surrounding cancellation section. The new shared-mechanism lead-in is accurate (`cancel` control frame from `OutOfProcessHost.SendRequestAsync`; cooperative `BeginStop`; .NET awaiter completes with `OperationCanceledException` immediately without waiting for host ack — matches `cancellation-design.md` §3 lines 104, 115). Pool bullet (`PoolDispatcher` looks up active `[powershell]` by request id and calls `BeginStop`, runspace returned without restart) matches §2.2 lines 46-47. No broken markdown links, no broken code fences, no new factual errors introduced. Markdown structure intact.
-
-**CI:** All checks green on `a4c9ed0` (CodeQL actions/csharp/python, Squad CI test, submit-nuget). PR is `MERGEABLE`.
-
-**Lockout note:** With APPROVE verdict, no further lockout triggers. PR cleared from fact-check standpoint.
-
-### 2026-05-07: v0.11.0 minor release version bump
-**By:** Amy (DevOps / Platform / Azure Engineer), requested by Steven Murawski
-**What:** Bumped `PoshMcp.Server/PoshMcp.csproj` version from `0.10.0` to `0.11.0` and added a `## [0.11.0] - 2026-05-07` entry to `CHANGELOG.md`.
-**Why:** Cutting a minor release. The marquee feature is the out-of-process subprocess pool (`Pool` is now the default `SubprocessHostMode`, #196), with supporting work across ProcessPool mode, `OutOfProcessHost` extraction, OOP cancellation propagation (#188), the new `PoshMcp.Benchmarks` harness, OOP fixes (`ConvertTo-Json` wrap #203, `$Error` clear #189), CWE-117 log-injection hardening in the OOP host, CI permission minimization plus `SECURITY.md`, and docs catch-up (#210, #187). Minor-version bump is appropriate — new feature surface (Pool default, ProcessPool, benchmarks) is additive but a meaningful behavior change for OOP users.
-**Status:** Code change shipped (csproj + CHANGELOG). Build verified clean (`dotnet build PoshMcp.sln -c Debug` → 0 errors, only pre-existing nullable warnings). Git tag (`v0.11.0`) and push are intentionally deferred to Steven, after Cubert reviews release notes and Leela finishes `docs/release-notes/` + `SECURITY.md` work.
-
-### 2026-05-07: v0.11.0 release notes published; SECURITY.md support matrix bumped to 0.11.x
-**By:** Leela (Developer Advocate), requested by Steven Murawski
-**What:**
-- Created `docs/release-notes/0.11.0.md`. Lead story is OOP execution maturity: `Pool` is now the default `SubprocessHostMode` (replacing `Single`) backed by ~4.86× warm-invoke throughput at concurrency 10 in the new benchmarks harness; new `ProcessPool` topology for trust-boundary / tail-latency workloads; cancellation now propagates across the OOP boundary. Also covers `PoshMcp.Benchmarks` harness, log-sanitization (CWE-117) hardening, minimum workflow permissions, published `SECURITY.md`, and bug fixes (`ConvertTo-Json` `Content` shadowing, `$Error` clear-before-invoke). Upgrade notes call out the `Pool` default flip explicitly with an opt-out snippet to preserve `Single`.
-- Updated `SECURITY.md` supported-versions table: `0.11.x` now `:white_check_mark:`, `< 0.11` now `:x:`. Replaces the prior `0.10.x` line.
-**Why:** v0.11.0 is the first release where OOP `Pool` is the default — that needs an explicit, accurate upgrade story for users, and the supported-versions matrix must follow the new minor line.
-**Scope:** Did not touch `CHANGELOG.md` or `PoshMcp.Server/PoshMcp.csproj` — those are Amy's. Cubert to review.
-
-### 2026-05-07: v0.11.0 release notes review — config key error in upgrade snippets
-**By:** Cubert (review of Leela's docs/release-notes/0.11.0.md)
-**What:** REJECTED. Both jsonc snippets in the "Upgrade Notes" section use `"PowerShell"` as the top-level config key. The actual section name in every shipping `appsettings.json`, doc, and example is `"PowerShellConfiguration"`. Users copy-pasting the opt-out snippet would silently keep the new `Pool` default instead of restoring `Single` — defeating the entire purpose of the upgrade note.
-**Why:** Verified zero matches for `"PowerShell": { ... }` carrying these properties; 30+ matches for `"PowerShellConfiguration"` as the canonical section. Confirmed against `PoshMcp.Server/PowerShell/PowerShellConfiguration.cs` (binds to the `PowerShellConfiguration` section) and all repo configs/docs.
-**Rule for future release notes:** Spot-check every jsonc/json snippet's top-level keys against an actual shipping `appsettings.json` before publishing. Default-flip snippets are user-facing executable content — wrong keys are silent landmines, not cosmetic bugs.
-**Other claims in v0.11.0 release notes verified accurate:** Pool default flip in code, three-mode taxonomy, sizing knobs, cancellation propagation, benchmarks harness, bug fixes (#203, #189), security hardening, SECURITY.md table update. Format matches prior release notes.
----
-
-## Recommendation
-
-Both PRs are ready to merge. Wave 1 infrastructure for spec 008 is complete.
-
-### The Problem
-
-`WebApplicationBuilder` starts with a `ConfigurationManager` that already contains the **baked-in `appsettings.json`** from the container image at `/app/server/appsettings.json`. This file has:
-```json
-"Authentication": { "Enabled": false, ... }
-```
-
-At line 1758 of `Program.cs`, the custom user config file (`PoshMcp/appsettings.json`, with `Enabled: true`) is added to `builder.Configuration`. In theory, later-added sources have higher priority. In practice, with `WebApplicationBuilder`'s `ConfigurationManager`, the baked-in `appsettings.json` was winning, causing:
-
-- `authConfigValue.Enabled = false` at line 1800 → auth filters NOT registered, `WithRequestFilters` NOT set up
-- `IOptions<AuthenticationConfiguration>.Value.Enabled = false` at middleware setup (line 1858-1864) → `UseAuthentication()` and `UseAuthorization()` NOT called
-- `RequireAuthorization("McpAccess")` NOT applied to the MCP endpoint (inside the same `if (authConfigForMiddleware.Value.Enabled)` block)
-- `AddPoshMcpAuthentication(builder.Configuration)` (line 1842) reads `Enabled: false` → returns early without registering JWT Bearer or the McpAccess policy
-
-### Why the v0.9.2 Fix Didn't Fix This
-
-The v0.9.2 fix addressed a **different bug**: when `Enabled: false` in config, `IOptions<AuthenticationConfiguration>` was not registered at all (the `services.Configure<T>()` call was inside the early-return guard). That fix moved `services.Configure<T>()` before the guard so IOptions always shows the real configured value.
-
-The **current bug** is upstream: `builder.Configuration` itself returns `Enabled: false` because the base `appsettings.json` overrides the custom file. The fix was applied to the wrong layer.
-
-### The Disconnect Between Diagnostic Tools and Runtime
-
-`BuildRootConfiguration(configPath)` used by all diagnostic tools (`get-configuration-troubleshooting`, `get-configuration-guidance`, `BuildDoctorReportFromConfig`) is:
-```csharp
-var builder = new ConfigurationBuilder();
-builder.AddJsonFile(configPath, ...);  // ONLY the custom file
-builder.AddEnvironmentVariables();
-return builder.Build();
-```
-
-This **does NOT include the base `appsettings.json`**. It only sees the custom file with `Enabled: true`. The runtime DI uses `builder.Configuration` (the `WebApplicationBuilder`'s `ConfigurationManager`) which starts with the base `appsettings.json` and has a precedence problem with the custom file.
-
----
-
-## 5. The Fix
-
-Changed `RunHttpTransportServerAsync` to build a dedicated `authRootConfig` via `ConfigurationLoader.BuildRootConfiguration(finalConfigPath, reloadOnChange: false)` — reading ONLY from the custom file and env vars, exactly like the diagnostic tools.
-
-**Three call sites changed:**
-
-```csharp
-// NEW: build auth-specific config from custom file only
-var authRootConfig = ConfigurationLoader.BuildRootConfiguration(finalConfigPath, reloadOnChange: false);
-
-// IOptions now bound to authRootConfig (not builder.Configuration)
-builder.Services
-    .AddOptions<AuthenticationConfiguration>()
-    .Configure(opts => authRootConfig.GetSection("Authentication").Bind(opts))
-    .ValidateOnStart();
-
-// ...
-
-// authConfigValue from authRootConfig (not builder.Configuration)
-var authConfigValue = authRootConfig.GetSection("Authentication").Get<AuthenticationConfiguration>() ?? new();
-
-// ...
-
-// AddPoshMcpAuthentication reads from authRootConfig (not builder.Configuration)
-builder.Services.AddPoshMcpAuthentication(authRootConfig);
-```
-
-**Result:**
-- `authConfigValue.Enabled = true` → filters registered, `WithRequestFilters` set up ✓
-- `IOptions<AuthenticationConfiguration>.Value.Enabled = true` → `UseAuthentication()` and `UseAuthorization()` called ✓
-- `RequireAuthorization("McpAccess")` applied to MCP endpoint ✓
-- JWT Bearer scheme and McpAccess policy registered ✓
-
-**Tests:** 574 passing, 0 failing, 7 skipped.
-
----
-
-## 6. Key Rule Going Forward
-
-> **Never use `WebApplicationBuilder.Configuration` as the source for security-gate decisions when a custom config file is involved.**
->
-> The `WebApplicationBuilder` default config chain always includes the baked-in `appsettings.json` which has `Authentication.Enabled: false` as a safe default. This can unexpectedly win over the custom file due to configuration precedence issues with `ConfigurationManager`. Use `ConfigurationLoader.BuildRootConfiguration(configPath)` for auth configuration — it reads only what the user explicitly configured.
-
----
-
-## 7. Remaining Action Items
-
-- [ ] **Deploy v0.9.3** with this fix. The current deployed v0.9.2 is still vulnerable.
-- [ ] **Consider a regression test** verifying `authConfigValue.Enabled` is correctly read from the custom config file in an HTTP server context (Fry's domain per `fry-auth-regression-tests.md`).
-- [ ] **Consider removing `Authentication.Enabled: false` from the baked-in `appsettings.json`** entirely — or at least document that the baked-in defaults are NOT for production use and will be overridden by custom configs only if there's no precedence race.
-
-
-# Decision: Auth Config Source Fix — ConfigureCorsForMcp
-
-**Date:** 2026-05-01  
-**Author:** Bender  
-**Commit:** 351c42c  
-**Status:** Applied
-
-## Context
-
-After the main auth bypass fix (building `authRootConfig` via `ConfigurationLoader.BuildRootConfiguration` for IOptions and `AddPoshMcpAuthentication`), a second instance of `builder.Configuration` usage for auth settings was found in `ConfigureCorsForMcp`.
-
-`ConfigureCorsForMcp` read `builder.Configuration.GetSection("Authentication")` to decide whether to open up CORS (`AllowAnyOrigin`) or restrict it. Because `builder.Configuration` includes the baked-in `appsettings.json` (where `Authentication.Enabled: false`), CORS would be opened wide even for deployments where the custom config had `Enabled: true` — a security gap.
-
-## Decision
-
-Extend `ConfigureCorsForMcp` to accept the `IConfigurationRoot authRootConfig` built from `ConfigurationLoader.BuildRootConfiguration(finalConfigPath)` and use it instead of `builder.Configuration`.
-
-## Change
-
-```csharp
-// Before
-private static void ConfigureCorsForMcp(WebApplicationBuilder builder)
-{
-    var authConfig = builder.Configuration.GetSection("Authentication").Get<AuthenticationConfiguration>()
-        ?? new AuthenticationConfiguration();
-    ...
-}
-
-// Call site
-ConfigureCorsForMcp(builder);
-
-// After
-private static void ConfigureCorsForMcp(WebApplicationBuilder builder, IConfigurationRoot authRootConfig)
-{
-    var authConfig = authRootConfig.GetSection("Authentication").Get<AuthenticationConfiguration>()
-        ?? new AuthenticationConfiguration();
-    ...
-}
-
-// Call site
-ConfigureCorsForMcp(builder, authRootConfig);
-```
-
-## Rationale
-
-`authRootConfig` is the canonical auth config source for this server session — it reads only from the user-resolved config file + env vars, bypassing the WebApplicationBuilder config chain that includes the baked-in base defaults. All auth-gated decisions must use this same source.
-
-## Verification
-
-- `dotnet build PoshMcp.Server\PoshMcp.csproj --no-incremental`: 0 errors, 10 pre-existing warnings
-- `dotnet test PoshMcp.Tests\PoshMcp.Tests.csproj`: 574 passed, 0 failed, 7 skipped
-
-## Rule for Future Work
-
-After any auth config source refactor, run:
-```
-grep -n "builder.Configuration.GetSection.*Authentication" Program.cs
-```
-Any remaining hits are potential auth bypass vectors.
-
-
-# Decision: Always Register AuthenticationConfiguration with IOptions
-
-**Date:** 2026-05-01
-**By:** Bender (Backend Developer)
-**Status:** Applied
-
-## What
-
-In `AuthenticationServiceExtensions.AddPoshMcpAuthentication()`, added `services.Configure<AuthenticationConfiguration>(configuration.GetSection("Authentication"))` **before** the early-return guard that exits when auth is disabled.
-
-## Why
-
-`IOptions<AuthenticationConfiguration>` was resolving to the default object (`Enabled = false`) throughout the application because the options system was never bound to configuration. The method used `.Get<AuthenticationConfiguration>()` for local decision-making but never called `services.Configure<>()` to wire up the DI options binding.
-
-Three consumers were broken as a result:
-- `Program.cs` (lines ~1859, ~1893): middleware and endpoint authorization guards both evaluated `false`, leaving the pipeline open to unauthenticated requests even when `Authentication.Enabled: true` in appsettings.
-- `ApiKeyAuthenticationHandler.cs` (line 79): handler received a default (blank) config.
-- `ConfigurationHealthCheck.cs` (line 24): health check evaluated against defaults, not real config.
-
-## Rule Going Forward
-
-When a service extension reads configuration via `.Get<T>()` for local logic AND consumers elsewhere depend on `IOptions<T>`, **always call `services.Configure<T>()` unconditionally** — regardless of whether the feature is enabled. The options registration must not be gated behind a feature flag because consumers may need to observe the real disabled state versus the default state.
-
-
-# Decision: Show server version in doctor/troubleshooter output
-
-**Author:** Bender (Backend Developer)  
-**Date:** 2026-05-01  
-**Status:** Implemented
-
-## Decision
-
-Add the PoshMcp server version string to both the `poshmcp doctor` CLI banner and the `get-configuration-troubleshooting` MCP tool JSON output.
-
-## Rationale
-
-Users and operators need to know which version of PoshMcp is running when diagnosing issues. The doctor/troubleshooter output is the natural place to surface this.
-
-## Implementation
-
-- Added `Version` property to `DoctorSummary` record (`DoctorReport.cs`).
-- Added private `GetServerVersion()` helper to `DoctorReport` that reads `AssemblyInformationalVersionAttribute` and strips any `+{commit-hash}` suffix.
-- Updated `DoctorReport.Build()` to populate `Version = GetServerVersion()`.
-- Updated `DoctorTextRenderer.RenderBanner()` to show `PoshMcp v{version}` instead of `PoshMcp Doctor`.
-
-## Version source
-
-`typeof(DoctorReport).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion`
-stripped of everything after `+`.
-
-The `.NET SDK` sets this automatically from `<Version>0.9.2</Version>` in `PoshMcp.csproj`.
-
-
-# Fix: VS Code OAuth Redirect to PoshMcp `/authorize`
-
-**Date:** 2026-05-01  
-**Author:** Bender (Backend Developer)  
-**Status:** Implemented — build clean, 574/574 tests pass
-
----
-
-## What Was Fixed
-
-Two authentication handler bugs that together caused VS Code to redirect to PoshMcp's own `/authorize` endpoint instead of Entra ID.
-
----
-
-## Fix 1: JwtBearer — inject `resource_metadata` into `WWW-Authenticate`
-
-**File:** `PoshMcp.Server/Authentication/AuthenticationServiceExtensions.cs`
-
-**Before:** JwtBearer was configured with no `Events`, so 401 responses emitted:
-```http
-WWW-Authenticate: Bearer
-```
-
-**After:** Added `JwtBearerEvents.OnChallenge` that emits:
-```http
-WWW-Authenticate: Bearer resource_metadata="https://<host>/.well-known/oauth-protected-resource"
-```
-
-Key implementation details:
-- `context.HandleResponse()` is called to suppress ASP.NET Core's default challenge pipeline (prevents a duplicate plain `Bearer` header being appended).
-- `context.Response.StatusCode = 401` is set explicitly after `HandleResponse()`.
-- The metadata URL is derived from `context.HttpContext.Request.Scheme + Request.Host` — never hardcoded.
-- The `OnChallenge` block is guarded by `cfg.Value.ProtectedResource?.Resource is not null` so it only fires when PRM is configured (auth-disabled deployments are unaffected).
-
----
-
-## Fix 2: ApiKeyAuthenticationHandler — fix `resource_metadata` URL construction
-
-**File:** `PoshMcp.Server/Authentication/ApiKeyAuthenticationHandler.cs`
-
-**Before:**
-```csharp
-var metadataUrl = $"{authConfig.Value.ProtectedResource.Resource}/.well-known/oauth-protected-resource";
-// Produced: api://80939099-d811-4488-8333-83eb0409ed53/.well-known/oauth-protected-resource
-```
-
-**After:**
-```csharp
-var metadataUrl = $"{Request.Scheme}://{Request.Host}/.well-known/oauth-protected-resource";
-// Produces: https://poshmcp.calmstone-9cfc4790.eastus.azurecontainerapps.io/.well-known/oauth-protected-resource
-```
-
----
-
-## Expected Post-Fix Behavior
-
-1. Unauthenticated request hits PoshMcp
-2. Server responds `401` with `WWW-Authenticate: Bearer resource_metadata="https://<host>/.well-known/oauth-protected-resource"`
-3. VS Code reads `resource_metadata`, fetches the PRM
-4. PRM returns `authorization_servers: ["https://login.microsoftonline.com/<tenant>"]`
-5. VS Code fetches Entra ID metadata, discovers `authorization_endpoint`
-6. Browser redirects to `login.microsoftonline.com/...` with VS Code's own `client_id=aebc6443-996d-45c2-90f0-388ff96faa56`
-
----
-
-## Files Modified
-
-| File | Change |
-|------|--------|
-| `PoshMcp.Server/Authentication/AuthenticationServiceExtensions.cs` | Added `JwtBearerEvents.OnChallenge` with `resource_metadata` header; added `using System.Threading.Tasks` |
-| `PoshMcp.Server/Authentication/ApiKeyAuthenticationHandler.cs` | Fixed metadata URL to use `Request.Scheme + Request.Host` |
-
----
-
-## Validation
-
-- `dotnet build PoshMcp.Server/PoshMcp.csproj -c Release` — 0 errors, 10 pre-existing warnings (unchanged)
-- `dotnet test PoshMcp.Tests/PoshMcp.Tests.csproj --no-build -c Release` — 574 passed, 0 failed, 7 skipped (pre-existing)
-
-
-# Diagnosis: VS Code Redirecting to PoshMcp's Own `/authorize` Endpoint
-
-**Date:** 2026-05-01  
-**Author:** Bender (Backend Developer)  
-**Status:** Diagnosis complete — awaiting fix approval
-
----
-
-## The Symptom
-
-VS Code opens a browser tab to:
-```
-https://poshmcp.calmstone-9cfc4790.eastus.azurecontainerapps.io/authorize
-  ?client_id=80939099-d811-4488-8333-83eb0409ed53
-  &response_type=code
-  &code_challenge=DsFdRdRJrgNLeuzw_RsPo1Qv30blZiB0LfcPVbv2bQk
-  &code_challenge_method=S256
-  &redirect_uri=http%3A%2F%2F127.0.0.1%3A33418%2F
-  &state=HqfYeTV%2F%2Bxr48AmWc9Wjfg%3D%3D
-```
-
-VS Code should redirect to **Entra ID** (`login.microsoftonline.com/...`), not to PoshMcp itself.
-
----
-
-## Investigation Findings
-
-### 1. What does the PRM return for `authorization_servers`?
-
-The PRM is correctly configured in the deployed `appsettings.json`
-(`C:\Users\stmuraws\source\emu\gim-home\AdvocacyBami\appsettings.json`):
-
-```json
-"ProtectedResource": {
-  "Resource": "api://80939099-d811-4488-8333-83eb0409ed53",
-  "ResourceName": "PoshMcp Server",
-  "AuthorizationServers": ["https://login.microsoftonline.com/d91aa5af-8c1e-442c-b77c-0b92988b387b"],
-  "ScopesSupported": ["api://80939099-d811-4488-8333-83eb0409ed53/user_impersonation"],
-  "BearerMethodsSupported": ["header"]
-}
-```
-
-**The PRM content itself is correct.** `authorization_servers` points to the right Entra ID tenant URL. This is NOT the bug.
-
-### 2. Does PoshMcp have a `/authorize` endpoint?
-
-**No.** There is no `app.MapGet("/authorize", ...)` or any route handling for `/authorize` anywhere in the codebase. The only auth-related endpoint PoshMcp maps is `/.well-known/oauth-protected-resource` via `ProtectedResourceMetadataEndpoint.MapProtectedResourceMetadata()`.
-
-So when VS Code hits `/authorize`, it will get a 404 or fall through to the MCP handler.
-
-### 3. Root Cause: JwtBearer 401 challenge omits `resource_metadata`
-
-**This is the bug.** In `AuthenticationServiceExtensions.cs`, the JwtBearer scheme is configured with default options only:
-
-```csharp
-authBuilder.AddJwtBearer(name, options =>
-{
-    options.Authority = scheme.Authority;
-    options.Audience = scheme.Audience;
-    options.RequireHttpsMetadata = scheme.RequireHttpsMetadata;
-    // ...
-    // ← NO Events.OnChallenge configured
-});
-```
-
-When an unauthenticated request hits a protected endpoint, ASP.NET Core's built-in JwtBearer handler issues a 401 with:
-```http
-WWW-Authenticate: Bearer
-```
-
-RFC 9728 (OAuth 2.0 Protected Resource Metadata) requires the 401 to include a `resource_metadata` parameter pointing to the PRM endpoint:
-```http
-WWW-Authenticate: Bearer resource_metadata="https://poshmcp.calmstone-9cfc4790.eastus.azurecontainerapps.io/.well-known/oauth-protected-resource"
-```
-
-Without this hint, VS Code's MCP OAuth client never discovers the PRM. It falls back to treating the resource server itself as the authorization server and constructs the authorization URL as `{resourceServerBaseUrl}/authorize`.
-
-### 4. Secondary Bug: ApiKeyAuthenticationHandler constructs a wrong `resource_metadata` URL
-
-`ApiKeyAuthenticationHandler.HandleChallengeAsync()` does attempt to set `resource_metadata`, but it has a bug:
-
-```csharp
-// BUGGY — uses the api:// URI, not the server's HTTP base URL
-var metadataUrl = $"{authConfig.Value.ProtectedResource.Resource}/.well-known/oauth-protected-resource";
-// Produces: api://80939099-d811-4488-8333-83eb0409ed53/.well-known/oauth-protected-resource
-```
-
-This is not a valid HTTP URL. It uses `ProtectedResource.Resource` (the `api://` URI identifier) instead of the server's actual HTTPS base URL. This doesn't affect the current deployment (which uses JwtBearer), but would break any future ApiKey deployment.
-
-### 5. The `client_id` discrepancy
-
-`client_id=80939099-d811-4488-8333-83eb0409ed53` in the browser redirect is **the PoshMcp App Registration's Application ID** — the same GUID used in `"Audience": "api://80939099-d811-4488-8333-83eb0409ed53"` in the deployed config.
-
-The documented VS Code pre-registered client ID for MCP is `aebc6443-996d-45c2-90f0-388ff96faa56`.
-
-**Why VS Code is using `80939099-d811-4488-8333-83eb0409ed53` as its client_id:**
-
-VS Code's MCP OAuth implementation has a fallback behavior. When it cannot resolve the authorization server via `WWW-Authenticate: Bearer resource_metadata=...`, it falls back to treating the resource server as the AS. In this fallback mode, VS Code extracts the GUID from the resource's `api://` URI and uses it as the `client_id` in the authorization request. This GUID (`80939099-d811-4488-8333-83eb0409ed53`) is exactly what's in the PRM's `resource` field.
-
-**This is confirmation** that VS Code is in fallback mode — it found the PRM but couldn't follow the `authorization_servers` metadata path (or never got the `resource_metadata` hint to find the PRM in the first place).
-
----
-
-## Root Cause Summary
-
-**Primary cause:** `AuthenticationServiceExtensions.cs` does not configure `JwtBearerEvents.OnChallenge` to inject `WWW-Authenticate: Bearer resource_metadata="<serverBaseUrl>/.well-known/oauth-protected-resource"` into 401 responses. Without this header, VS Code cannot discover the PRM and falls back to using PoshMcp as the authorization server.
-
-**Contributing cause:** Even the ApiKey handler's `resource_metadata` URL would be wrong (using `api://` URI instead of the server's HTTP base URL), so neither scheme currently produces a correct `WWW-Authenticate` challenge.
-
----
-
-## What the Fix Should Be
-
-### Fix 1: Add `OnChallenge` to JwtBearer configuration
-
-In `AuthenticationServiceExtensions.cs`, configure the JwtBearer events to inject the correct `WWW-Authenticate` header:
-
-```csharp
-authBuilder.AddJwtBearer(name, options =>
-{
-    options.Authority = scheme.Authority;
-    options.Audience = scheme.Audience;
-    options.RequireHttpsMetadata = scheme.RequireHttpsMetadata;
-    // ... existing config ...
-
-    options.Events = new JwtBearerEvents
-    {
-        OnChallenge = context =>
-        {
-            var authCfg = context.HttpContext.RequestServices
-                .GetRequiredService<IOptions<AuthenticationConfiguration>>();
-            if (authCfg.Value.ProtectedResource?.Resource is not null)
-            {
-                var request = context.HttpContext.Request;
-                var baseUrl = $"{request.Scheme}://{request.Host}";
-                context.Response.Headers["WWW-Authenticate"] =
-                    $"Bearer resource_metadata=\"{baseUrl}/.well-known/oauth-protected-resource\"";
-            }
-            return Task.CompletedTask;
-        }
-    };
-});
-```
-
-**Important:** The `baseUrl` must be derived from `HttpContext.Request` (the actual server URL), NOT from `ProtectedResource.Resource` (which is an `api://` URI).
-
-### Fix 2: Fix ApiKeyAuthenticationHandler
-
-Replace:
-```csharp
-var metadataUrl = $"{authConfig.Value.ProtectedResource.Resource}/.well-known/oauth-protected-resource";
-```
-With:
-```csharp
-var request = Context.Request;
-var metadataUrl = $"{request.Scheme}://{request.Host}/.well-known/oauth-protected-resource";
-```
-
-### Additional consideration: VS Code's pre-registered client_id
-
-Once VS Code can properly discover Entra ID via the PRM, it should use its own pre-registered client ID (`aebc6443-996d-45c2-90f0-388ff96faa56`) rather than the fallback GUID. Confirm this works post-fix by verifying that:
-1. The `WWW-Authenticate` header contains `resource_metadata`
-2. VS Code fetches the PRM and follows `authorization_servers` to Entra ID
-3. The browser redirect goes to `login.microsoftonline.com` with `client_id=aebc6443-996d-45c2-90f0-388ff96faa56`
-
----
-
-## Files to Modify (when fix is approved)
-
-| File | Change |
-|------|--------|
-| `PoshMcp.Server/Authentication/AuthenticationServiceExtensions.cs` | Add `JwtBearerEvents.OnChallenge` to inject `resource_metadata` in `WWW-Authenticate` |
-| `PoshMcp.Server/Authentication/ApiKeyAuthenticationHandler.cs` | Fix `resource_metadata` URL construction to use `Request.Scheme + Request.Host` |
-
----
-
-## Deployed Config Summary (for reference)
-
-- **App Registration Application ID / Audience:** `80939099-d811-4488-8333-83eb0409ed53`
-- **Tenant ID:** `d91aa5af-8c1e-442c-b77c-0b92988b387b`
-- **JwtBearer Authority:** `https://login.microsoftonline.com/d91aa5af-8c1e-442c-b77c-0b92988b387b`
-- **PRM `authorization_servers`:** `["https://login.microsoftonline.com/d91aa5af-8c1e-442c-b77c-0b92988b387b"]` ✅ correct
-- **VS Code expected client_id:** `aebc6443-996d-45c2-90f0-388ff96faa56` (per docs)
-- **VS Code actual client_id in redirect:** `80939099-d811-4488-8333-83eb0409ed53` ← fallback mode
-
-
-### 1. Scope Naming Convention
-- **New file** (`entra-id-mcp-auth.md`): Used `user_impersonation` as scope name example
-- **Existing file** (`entra-id-auth-guide.md`): Used `access_as_server` as scope name example
-- **Decision**: Keep `access_as_server` (more descriptive; already used throughout the guide for consistency)
-- **Impact**: Low — both are valid; users should pick meaningful names for their use case. Consolidated guide now explicitly states this is a user-choice with guidance on granular scope design.
-
-### 2. Protected Resource Metadata (PRM) Configuration
-- **New file**: Mentioned App Service EasyAuth automatic PRM generation via `WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES` environment variable
-- **Existing file**: Covered manual `/.well-known/oauth-protected-resource` endpoint implementation for self-hosted deployments
-- **Decision**: Include both approaches in the guide
-- **Impact**: Informational addition. Users deploying on App Service now know they can use EasyAuth's auto-generation; self-hosted users already had guidance. No breaking changes.
-
-### 3. VS Code Pre-Registered Client ID Authorization (Critical Missing Step)
-- **New file**: Explicitly covered VS Code's pre-registered client ID (`aebc6443-996d-45c2-90f0-388ff96faa56`) and need to authorize it in "Authorized client applications"
-- **Existing file**: Did not mention VS Code client authorization or this critical setup step
-- **Decision**: Add as **Step 2b** in app registration setup (new step between scope creation and M2M credentials)
-- **Rationale**: This is essential guidance for VS Code MCP users. Without authorizing the pre-registered client ID, users get "Dynamic client registration not supported" error with no clear fix
-- **Impact**: High importance — prevents user confusion and support burden. New users will now see this step clearly
-
-### 4. Scope Consent Model Guidance
-- **New file**: Briefly mentioned consent model selection ("Admins only" vs "Admins and users")
-- **Existing file**: Covered this in detail with guidance on M2M scenarios
-- **Decision**: Existing guide's coverage is comprehensive; no changes needed
-- **Impact**: None — existing documentation already correct
-
-## Content Migration Summary
-
-| Content Area | Source | Location in Consolidated Guide |
-|--------------|--------|--------------------------------|
-| OAuth 2.1 + RFC 9728 basics | New file | VS Code MCP Integration subsection |
-| VS Code client ID authorization | New file | Step 2b (Authorize Client Applications) |
-| VS Code OAuth flow explanation | New file | VS Code MCP Integration subsection |
-| VS Code settings.json config | New file | VS Code MCP Integration subsection |
-| Protected Resource Metadata endpoint | New file | VS Code MCP Integration subsection |
-| PRM via App Service EasyAuth | New file | VS Code MCP Integration subsection |
-| VS Code troubleshooting | New file | VS Code MCP Integration subsection |
-| App Registration general guidance | Existing | Path A (unchanged) |
-| Managed Identity guidance | Existing | Path B (unchanged) |
-| Token validation & security | Existing | Token Validation & Security section (unchanged) |
-| Comprehensive troubleshooting | Existing | Troubleshooting section (enhanced with VS Code errors) |
-
-## Decision Authority
-
-**Authority**: Leela (Developer Advocate) — documentation structure and organization
-
-**Rationale for Keeping Existing File as Canonical**:
-- More comprehensive scope (covers app registration + managed identity + security + troubleshooting)
-- Better structured with clear paths and decision matrices
-- Established TOC and cross-references
-- More extensive testing and troubleshooting sections
-
-**Rationale for Adding VS Code as Subsection (Not Separate Doc)**:
-- Avoids link fragmentation — users looking for "Entra ID auth" now find everything in one place
-- VS Code is one implementation scenario, not a separate authentication method
-- Single source of truth for app registration steps (no duplication)
-- Easier to maintain consistency across both general and VS Code-specific guidance
-
-## Files Changed
-
-- **Modified**: `docs/entra-id-auth-guide.md` (added Step 2b and VS Code MCP Integration subsection)
-- **Deleted**: `docs/entra-id-mcp-auth.md` (content consolidated)
-- **Updated**: `.squad/agents/leela/history.md` (added learning notes)
-
-## Testing & Validation
-
-- ✓ No broken cross-references (only reference was in auto-generated DOCFX summary)
-- ✓ All VS Code-specific content from new file now in consolidated guide
-- ✓ All app registration and managed identity content from existing file preserved
-- ✓ Scope naming, terminology, and step sequence consistent throughout
-- ✓ No duplicate content in final guide
-
-## Recommendation for Future Entra ID Auth Docs
-
-If new authentication scenarios emerge (e.g., third-party OIDC providers, custom claims mapping), add them as subsections to `docs/entra-id-auth-guide.md` rather than creating separate files. Keep the main authentication guide as the single source of truth.
-
-If a scenario becomes large enough to warrant its own detailed guide, create a separate file and link to it from the main guide's TOC, but avoid duplication of core setup steps.
-
-
-# Decision: VS Code Scope Naming Requirements
-
-**Date:** 2026-05-01  
-**Status:** RESOLVED — No changes needed  
-**Owner:** Leela (Developer Advocate)  
-**Stakeholder:** Steven Murawski  
-
-## Question
-
-After consolidating Entra ID documentation and choosing `access_as_server` as the scope name, Steven flagged a concern: Does VS Code specifically require the scope name `user_impersonation` rather than custom scope names?
-
-## Investigation Results
-
-### 1. VS Code OAuth Flow with MCP
-
-VS Code's MCP client uses OAuth 2.1 with PKCE and a pre-registered client ID (`aebc6443-996d-45c2-90f0-388ff96faa56`). The flow:
-
-1. VS Code connects to the MCP server
-2. Server responds with `401 Unauthorized` + metadata URL
-3. **VS Code fetches Protected Resource Metadata (RFC 9728) from the server**
-4. **Metadata includes `scopes_supported` array listing available scopes**
-5. VS Code requests those scopes during the OAuth flow
-6. User authenticates and grants consent for the requested scopes
-7. VS Code receives a token with the approved scopes
-
-**Key insight:** VS Code does NOT hardcode scope names. It dynamically reads scope names from the server's Protected Resource Metadata endpoint.
-
-### 2. Scope Naming Conventions
-
-**`user_impersonation`** — Microsoft's built-in convention:
-- Used for Azure service permissions: `AzureServiceManagement/user_impersonation`, `https://management.azure.com/user_impersonation`
-- Indicates delegated access (acting on behalf of a user)
-- Owned by Microsoft services
-
-**`access_as_server`** — Custom scope owned by PoshMcp:
-- Follows the custom scope pattern: `api://app-id/scope-name`
-- Descriptive: clearly indicates delegated server access
-- Fully configurable (any name works)
-
-### 3. VS Code Compatibility
-
-✅ **VS Code is compatible with any scope name**, as long as:
-- The scope is declared in `ScopesSupported` in the Protected Resource Metadata
-- The scope is authorized in "Authorized client applications" for the VS Code client ID
-- The token includes the scope in its `scp` claim
-
-No special naming convention is required.
-
-## Decision
-
-**Keep `access_as_server` as the scope name for PoshMcp.**
-
-### Rationale
-
-1. **Ownership:** PoshMcp defines and owns its custom scopes; `user_impersonation` belongs to Microsoft services
-2. **Clarity:** `access_as_server` better describes the permission (delegated server access)
-3. **Flexibility:** Custom scope names are fully supported by VS Code's dynamic scope discovery
-4. **Standards compliance:** Follows OAuth 2.0 + RFC 9728 standards without constraint
-5. **Existing compatibility:** Already implemented and working in the current documentation
-
-## Documentation Status
-
-✅ **No changes needed.** The current documentation is accurate:
-- `access_as_server` is properly configured
-- VS Code section correctly explains the Protected Resource Metadata mechanism
-- Scope authorization step (Step 2b) is correct
-- All troubleshooting guidance is accurate
-
-## References
-
-- **RFC 8414**: OAuth 2.0 Authorization Server Metadata (well-known endpoint discovery)
-- **RFC 9728**: OAuth 2.0 Protected Resource Metadata (scope discovery)
-- **Microsoft Entra ID scopes documentation**: Custom scopes follow pattern `api://{app-id}/{scope-name}`
-- **VS Code MCP integration**: Uses RFC 9728 for dynamic scope discovery
-
----
-
-**Next Steps:** None — document this finding in Leela's learnings and archive the decision.
-
 ### 2026-05-12: Bender — AuthServer metadata diagnosis (AggregateError fix)
 
 **By:** Bender (Backend Developer)
@@ -1320,3 +596,83 @@ Per the 2026-05-05 user directive, Cubert pre-reviews Farnsworth plans/proposals
 - The in-process discovery path does not auto-load modules from `PSModulePath` via `Get-Command -Module`; explicit `CommandNames` are required to trigger auto-load.
 - `PowerShellConfiguration.Environment` (ImportModules / ModulePaths) is wired only for the OOP path; the `PowerShellEnvironmentSetup` class exists but is not instantiated for in-process. Captured but worth a separate bug if not intentional.
 - `IncludePatterns = ["*"]` is required for OOP discovery to enumerate commands from imported modules; in-process treats it as the no-filter default. Same setting in both modes produces semantically equivalent discovery.
+
+# Decision: v0.13.0 is a MINOR bump
+
+**Date:** 2026-05-13
+**By:** Amy (DevOps), at Steven's direction
+**Affects:** Versioning policy for spec-completion releases
+
+## Decision
+
+v0.13.0 is a **minor** bump (0.12.3 → 0.13.0), not a patch.
+
+## Why
+
+Spec 010 (tool self-documentation) lands end-to-end in this release plus the #242 wire-path fix. Both materially change what MCP clients see in `tools/list` results — descriptions go from often-empty/fallback in v0.12.x to richer, sanitized text resolved via the FR-500/FR-510 precedence chain. New observable surfaces also ship: doctor's `descriptionSource` field per command/parameter, and OTel counters for description-source resolution. The `SwitchParameter` round-trip fix (#222) is a correctness fix, but the spec 010 surfaces and the wire-path change are the gating reasons.
+
+Patch (0.12.4) would have understated the user-facing change. Major (1.0.0) is reserved for the API-stability commitment we haven't made yet. Minor is the right call.
+
+## Convention going forward
+
+For PoshMcp under 1.x:
+
+- **Patch (0.X.Y → 0.X.Y+1):** server-internal correctness fixes that don't change `tools/list`, doctor output shape, or configuration surface. Hotfixes for OOP, executor, or auth bugs that don't add a new observable surface.
+- **Minor (0.X.Y → 0.X+1.0):** spec completions; new observable surfaces (new MCP fields, new doctor sections, new metrics); behavior changes visible to MCP clients on the wire (even when they're "more correct"); new configuration keys.
+- **Major:** reserved for the eventual 1.0 API stability commitment.
+
+The headline question for "patch vs minor" is: **does an MCP client see something different in `tools/list` or in tool responses?** If yes, minor.
+
+### 2026-05-14T11:34Z: v0.13.0 release prepped and pushed; tag deferred until CI green
+**By:** Amy (executed autonomously while Steven away)
+**What:** Cut v0.13.0 in two commits and pushed to `origin/main`:
+- Housekeeping commit `5847efb` — stale agent history.md updates (amy, bender, cubert, farnsworth, hermes, leela) and docker.ps1.
+- Release commit `a2b9c3e` — version bump (0.12.3 → 0.13.0) in `PoshMcp.Server/PoshMcp.csproj`, CHANGELOG entry for 0.13.0, and `docs/release-notes/0.13.0.md`.
+
+**Quality gates:** `dotnet format --verify-no-changes` passed (warnings only). `dotnet test --nologo` passed: 777/0/7 (passed/failed/skipped of 784, 11m15s).
+
+**Why:** Steven asked Amy to run the autonomous release while away. Marquee for 0.13.0 is spec 010 — Help-aware tool descriptions (in-process + OOP byte-identical schemas, FR-500/510/540, `IToolMetadataSource` seam, doctor `descriptionSource` reporting, OTel counters, parity tests, cold-start gates). Includes fixes for SwitchParameter round-trip (#222), parameter descriptions on inputSchema (#248), and `HelpAwareToolMetadataSource` as default (#250). No breaking API changes.
+
+**Tag NOT created.** Per the team's release process, the v0.13.0 tag must wait for CI green on `a2b9c3e`. When CI is green, tag with:
+```
+git tag -a v0.13.0 -m "v0.13.0"
+git push origin v0.13.0
+```
+
+**Process notes for the team:**
+- Continued explicit-path-only staging: only `PoshMcp.Server/PoshMcp.csproj`, `CHANGELOG.md`, and `docs/release-notes/0.13.0.md` were staged for the release commit; `.squad/tmp/` left untracked deliberately.
+- During the first test run, polling `get_terminal_output` on the long-running `dotnet test` terminal coincided with a build-cancel event at 143s. The clean re-run (no mid-flight polling, generous timeout, single sync wait) completed in 11m15s with full pass. Future autonomous releases on this repo: budget ~12 minutes for the test gate and don't poll.
+
+### 2026-05-13: Test-PR + tracking-issue pattern for found bugs is the team norm
+
+**By:** Farnsworth (via PR #243 review)
+**What:** When a test-addition PR exposes a real bug in the code under test, the right architectural choice is: (1) ship the tests pinned to a tracking issue via `[Theory(Skip="Tracking issue #N — ...")]`, (2) file the bug as a separate issue with the skipped test method names listed under acceptance criteria, (3) keep the test-addition PR mergeable on its own. Do NOT conflate measurement and remediation in one PR.
+**Why:** Test addition (#229) and resolver→schema wiring fix (#242) belong to different files, different review domains, and different agents. Failing the new tests instead of skipping would block unrelated CI work for a finding that's already triaged and assigned. The skip-with-tracking-issue pattern preserves the regression gate (un-skip when the fix lands → tests turn green) without holding the test PR hostage to the fix PR. Confirmed by PR #243 (Fry's spec 010 wave 5 trio) where 10 `ParameterDescription_IsNonEmpty_*` variants pin to #242.
+
+### 2026-05-13: PR #250 review — PowerShellSchemaGenerator default swap → APPROVE
+
+**PR:** https://github.com/usepowershell/PoshMcp/pull/250 (cold-path twin of #248, closes #249)
+**Verdict:** ✅ APPROVE — comment posted https://github.com/usepowershell/PoshMcp/pull/250#issuecomment-4443824935
+
+**What I verified:**
+- Diff is exactly the two default swaps Bender described (lines ~33 and ~131): `DefaultToolMetadataSource()` → `HelpAwareToolMetadataSource()` in `GenerateParameterSchema` and the four-arg `CreateParameterSchema` overload, plus matching XML doc updates on class remarks and the `metadataSource` parameter doc.
+- `HelpAwareToolMetadataSource` is `sealed` with no explicit ctor → implicit parameterless ctor available. Confirmed by reading the file: it's a pure resolver, never invokes PowerShell, degrades naturally to HelpMessage / ValidateSet / typed fallback when Synopsis/HelpParameterDescription are null. Cold path can't crash.
+- Zero-caller claim verifies independently: `grep_search PowerShellSchemaGenerator\.(Generate|Create)` returns no matches in `PoshMcp.Server/**/*.cs` outside the file itself. Cubert's history.md L234 also independently confirms `McpToolFactoryV2` doesn't call `CreateParameterSchema` — the actual inputSchema comes from MCP SDK reflecting on the dynamically-generated assembly. Latent-bug fix, no production impact.
+- CI: 2 successful, 1 skipped, 4 pending (CodeQL + CI/build), zero failures at review time. Bender's local validation: ParameterDescription_IsNonEmpty 10/10 + unit suite 532/532.
+
+**Non-blocking notes I left on the PR:**
+1. `HelpAwareToolMetadataSource`'s parameterless ctor is now load-bearing for this file. If it ever grows DI, the two default-construction sites need a different strategy (don't revert to `DefaultToolMetadataSource`).
+2. Two-arg `CreateParameterSchema(ParameterMetadata)` overload (L67-68) passes `metadataSource: null`, which now lands on the new default — correct, but the comment could clarify it inherits HelpAware rather than implying no-op.
+
+**Architectural takeaway:** The cold doc-emission path and the live MCP wire path now share the same FR-510 precedence default. Two-spec contract (010 FR-500/510/520/540) is uniformly applied across both code paths — no more "fix one, leave the twin" trap. This is the pattern I want to see propagated: when a default fallback embodies a spec contract, both call sites must share the same impl, and the impl should be a pure resolver that degrades safely on missing inputs.
+
+### 2026-05-13: External PR merge protocol — squash via `gh pr merge`, never force-push contributor branches
+**By:** Hermes (PowerShell Engineer) on behalf of Steven
+**What:** When merging an external contributor's PR (no write access to their fork branch), the protocol is:
+1. Fetch the PR head into a local worktree (`git fetch origin pull/N/head:pr-N` + `git worktree add`).
+2. Locally rebase onto current `main` ONLY to verify build + tests pass against latest. Do NOT push the rebased commits anywhere.
+3. Run full build (`dotnet build PoshMcp.sln`) and the test suites that touch the changed code (Unit + Functional + any feature-targeted filter).
+4. Merge via `gh pr merge <N> --squash --delete-branch`. Squash collapses everything to one commit on `main`; the local rebase was just for confidence. GitHub handles the merge atomically.
+5. Never use `--rebase` on `gh pr merge` for external PRs unless we've coordinated with the contributor — it can fail mid-merge if their branch has drift we didn't account for.
+**Why:** External contributors don't grant push access to their fork branches, so we can't `git push --force-with-lease` to update their PR. Squash-merge sidesteps the entire rewrite-history problem and keeps `main` history linear.
+
