@@ -7,14 +7,14 @@ using PoshMcp.Tests.Integration;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace PoshMcp.Tests.Functional;
+namespace PoshMcp.Tests.OutOfProcess;
 
 /// <summary>
 /// Functional tests that verify stdio logging suppression behavior:
 /// - No log output leaks to stderr in stdio mode without a log file configured.
 /// - When a log file is configured, logs are written to that file instead.
 /// </summary>
-[Trait("Category", "Integration")]
+[Trait("Category", "OutOfProcess")]
 public class StdioLoggingTests : PowerShellTestBase
 {
     // Matches Serilog template "[2024-01-01 12:00:00 INF]" and MEL console "info: " / "warn: " etc.

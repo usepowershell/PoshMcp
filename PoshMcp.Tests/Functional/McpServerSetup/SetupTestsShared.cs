@@ -16,7 +16,7 @@ namespace PoshMcp.Tests.Functional.McpServerSetup;
 /// <summary>
 /// Shared setup for MCP server setup tests
 /// </summary>
-[Trait("Category", "Functional")]
+[Trait("Category", "Integration")]
 public partial class SetupTests : PowerShellTestBase
 {
     public SetupTests(ITestOutputHelper output) : base(output) { }
