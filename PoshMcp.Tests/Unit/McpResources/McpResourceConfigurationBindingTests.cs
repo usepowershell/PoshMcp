@@ -13,6 +13,7 @@ namespace PoshMcp.Tests.Unit.McpResources;
 /// These tests compile and pass today using stub POCOs in PoshMcp.Tests.Models.
 /// Once the server implementation PR lands, update to bind against the server-side types.
 /// </summary>
+[Trait("Category", "Unit")]
 public class McpResourceConfigurationBindingTests
 {
     private static IConfiguration BuildConfig(string json)

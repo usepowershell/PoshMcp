@@ -17,6 +17,7 @@ namespace PoshMcp.Tests.Functional;
 /// They document expected behavior and will be activated once WithListPromptsHandler and
 /// WithGetPromptHandler are registered in Program.cs (Spec 002 implementation PR).
 /// </summary>
+[Trait("Category", "Functional")]
 public class McpPromptsTests : PowerShellTestBase
 {
     public McpPromptsTests(ITestOutputHelper output) : base(output) { }

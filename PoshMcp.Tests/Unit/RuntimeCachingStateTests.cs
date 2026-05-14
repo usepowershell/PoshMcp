@@ -15,6 +15,7 @@ namespace PoshMcp.Tests.Unit;
 /// for result caching, set via the set-result-caching MCP tool.
 /// Spec reference: specs/large-result-performance.md section 3.6
 /// </summary>
+[Trait("Category", "Unit")]
 public class RuntimeCachingStateTests : PowerShellTestBase
 {
     public RuntimeCachingStateTests(ITestOutputHelper output) : base(output) { }

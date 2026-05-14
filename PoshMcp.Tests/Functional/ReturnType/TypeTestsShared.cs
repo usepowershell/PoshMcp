@@ -15,6 +15,7 @@ namespace PoshMcp.Tests.Functional.ReturnType;
 /// <summary>
 /// Shared setup for return type tests
 /// </summary>
+[Trait("Category", "Functional")]
 public partial class GeneratedMethod : PowerShellTestBase
 {
     public GeneratedMethod(ITestOutputHelper output) : base(output) { }

@@ -18,6 +18,7 @@ namespace PoshMcp.Tests.Functional.PowerShellCommandExecution;
 /// Test for cache overwriting behavior
 /// </summary>
 [Collection("CachingStateTests")]
+[Trait("Category", "Functional")]
 public class OverwriteCache : PowerShellTestBase
 {
 

@@ -14,6 +14,7 @@ namespace PoshMcp.Tests.Unit;
 /// explicit property lists, and configuration validation.
 /// Spec reference: specs/large-result-performance.md sections 3.2, 4.3, 5.1, 5.2
 /// </summary>
+[Trait("Category", "Unit")]
 public class PerformanceConfigurationTests : PowerShellTestBase
 {
     public PerformanceConfigurationTests(ITestOutputHelper output) : base(output) { }

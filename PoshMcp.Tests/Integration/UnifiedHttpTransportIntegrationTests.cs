@@ -12,6 +12,7 @@ using Xunit.Abstractions;
 
 namespace PoshMcp.Tests.Integration;
 
+[Trait("Category", "Http")]
 public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
 {
     public UnifiedHttpTransportIntegrationTests(ITestOutputHelper output) : base(output)

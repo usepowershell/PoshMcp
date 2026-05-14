@@ -18,6 +18,7 @@ namespace PoshMcp.Tests.Functional.SortLastCommand;
 /// Test for sorting cached results
 /// </summary>
 [Collection("CachingStateTests")]
+[Trait("Category", "Functional")]
 public class Output_Test : PowerShellTestBase
 {
     public Output_Test(ITestOutputHelper output) : base(output) { }

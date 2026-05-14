@@ -13,6 +13,7 @@ namespace PoshMcp.Tests.Functional.PowerShellCommandExecution;
 /// property filtering, _AllProperties override, _MaxResults composition,
 /// and fallback when no DefaultDisplayPropertySet exists.
 /// </summary>
+[Trait("Category", "Functional")]
 public class ShouldApplyPhase3PropertyFiltering : PowerShellTestBase
 {
     public ShouldApplyPhase3PropertyFiltering(ITestOutputHelper output) : base(output)

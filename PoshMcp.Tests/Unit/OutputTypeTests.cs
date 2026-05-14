@@ -12,6 +12,7 @@ namespace PoshMcp.Tests.Unit;
 /// <summary>
 /// Tests for examining PowerShell command OutputType information
 /// </summary>
+[Trait("Category", "Unit")]
 public class OutputTypeTests : PowerShellTestBase
 {
     public OutputTypeTests(ITestOutputHelper output) : base(output) { }

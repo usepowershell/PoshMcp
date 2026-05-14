@@ -34,6 +34,7 @@ namespace PoshMcp.Tests.Integration;
 /// 
 /// Priority: System environment > .env.test > .env.local > .env
 /// </remarks>
+[Trait("Category", "Azure")]
 public class AzureDeploymentIntegrationTests : IAsyncLifetime
 {
     private readonly ITestOutputHelper _output;

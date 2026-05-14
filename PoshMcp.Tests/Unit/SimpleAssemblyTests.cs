@@ -7,6 +7,7 @@ namespace PoshMcp.Tests.Unit;
 /// <summary>
 /// Simple tests for PowerShell dynamic assembly generation
 /// </summary>
+[Trait("Category", "Unit")]
 public class SimpleAssemblyTests : PowerShellTestBase
 {
     public SimpleAssemblyTests(ITestOutputHelper output) : base(output) { }

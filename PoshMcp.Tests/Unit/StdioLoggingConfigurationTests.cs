@@ -9,6 +9,7 @@ namespace PoshMcp.Tests.Unit;
 /// <summary>
 /// Unit tests for ResolveLogFilePath — verifies CLI > env > config > null precedence.
 /// </summary>
+[Trait("Category", "Unit")]
 public class StdioLoggingConfigurationTests
 {
     private const string LogFileEnvVar = "POSHMCP_LOG_FILE";

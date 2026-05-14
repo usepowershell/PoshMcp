@@ -14,6 +14,7 @@ namespace PoshMcp.Tests.Integration;
 /// <summary>
 /// Integration tests for the complete PowerShell dynamic assembly workflow
 /// </summary>
+[Trait("Category", "Integration")]
 public class IntegrationTests : PowerShellTestBase
 {
     public IntegrationTests(ITestOutputHelper output) : base(output) { }

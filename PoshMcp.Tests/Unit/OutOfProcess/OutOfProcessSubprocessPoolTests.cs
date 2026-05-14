@@ -14,6 +14,7 @@ namespace PoshMcp.Tests.Unit.OutOfProcess;
 /// before <c>StartAsync</c>, environment fingerprint stability, and the
 /// <see cref="SubprocessHostMode"/> string detection.
 /// </summary>
+[Trait("Category", "OutOfProcess")]
 public class OutOfProcessSubprocessPoolTests
 {
     [Fact]

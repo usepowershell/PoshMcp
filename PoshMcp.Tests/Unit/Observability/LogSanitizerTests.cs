@@ -3,6 +3,7 @@ using Xunit;
 
 namespace PoshMcp.Tests.Unit.Observability;
 
+[Trait("Category", "Unit")]
 public class LogSanitizerTests
 {
     [Fact]

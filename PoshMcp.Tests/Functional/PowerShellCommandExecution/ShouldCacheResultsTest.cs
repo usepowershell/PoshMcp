@@ -18,6 +18,7 @@ namespace PoshMcp.Tests.Functional.PowerShellCommandExecution;
 /// Test for caching PowerShell command results and retrieval
 /// </summary>
 [Collection("CachingStateTests")]
+[Trait("Category", "Functional")]
 public class CacheResults : PowerShellTestBase
 {
     public CacheResults(ITestOutputHelper output) : base(output) { }

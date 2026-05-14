@@ -11,6 +11,7 @@ namespace PoshMcp.Tests.Functional.PowerShellCommandExecution;
 /// <summary>
 /// Regression test for serializing Get-Process output without traversing expensive live process graphs.
 /// </summary>
+[Trait("Category", "Functional")]
 public class HandleGetProcessSerialization : PowerShellTestBase
 {
     public HandleGetProcessSerialization(ITestOutputHelper output) : base(output)

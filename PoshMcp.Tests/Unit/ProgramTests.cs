@@ -14,6 +14,7 @@ namespace PoshMcp.Tests.Unit;
 /// <summary>
 /// Unit tests for Program class extracted methods
 /// </summary>
+[Trait("Category", "Unit")]
 public class ProgramTests : PowerShellTestBase
 {
     public ProgramTests(ITestOutputHelper output) : base(output) { }

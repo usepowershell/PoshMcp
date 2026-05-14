@@ -17,6 +17,7 @@ namespace PoshMcp.Tests.Unit.OutOfProcess;
 /// Tests construction, static helpers, stub methods (Phase 3/4),
 /// and lifecycle management.
 /// </summary>
+[Trait("Category", "OutOfProcess")]
 public class OutOfProcessCommandExecutorTests
 {
     private readonly ILogger<OutOfProcessCommandExecutor> _logger;

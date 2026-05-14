@@ -14,6 +14,7 @@ namespace PoshMcp.Tests.Functional.MethodExecution;
 /// <summary>
 /// Shared setup for method execution tests
 /// </summary>
+[Trait("Category", "Functional")]
 public partial class ExecutionTests : PowerShellTestBase
 {
     public ExecutionTests(ITestOutputHelper output) : base(output) { }

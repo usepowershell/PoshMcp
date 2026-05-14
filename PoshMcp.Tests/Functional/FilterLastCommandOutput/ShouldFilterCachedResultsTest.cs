@@ -17,6 +17,7 @@ namespace PoshMcp.Tests.Functional.FilterLastCommandOutput;
 /// <summary>
 /// Test for filtering cached results
 /// </summary>
+[Trait("Category", "Functional")]
 public partial class FilterCachedResults : PowerShellTestBase
 {
     public FilterCachedResults(ITestOutputHelper output) : base(output) { }
