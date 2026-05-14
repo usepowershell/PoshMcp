@@ -28,6 +28,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    # Job-level env. HAS_AZURE_CREDS is evaluated once at job start by checking
+    # whether AZURE_CLIENT_ID secret is non-empty. GitHub Actions does not allow
+    # `secrets.X != ''` directly inside step-level `if:` expressions outside of
+    # environment contexts, so we project it into env here and gate steps on env.
+    env:
+      HAS_AZURE_CREDS: ${{ secrets.AZURE_CLIENT_ID != '' }}
+
     steps:
     - uses: actions/checkout@v4
 
@@ -45,11 +52,52 @@ jobs:
     - name: Build
       run: dotnet build --configuration Release --no-restore
 
+    # ---------------------------------------------------------------------------
+    # Phased test execution per spec 009 (issue #215).
+    #
+    # Each phase runs as its own step so a failure is attributable to exactly
+    # one category in the CI UI, with its own duration and pass/fail summary.
+    # `continue-on-error` is left at the default (false) so a phase failure
+    # halts subsequent phases — matches today's serial-suite behavior.
+    #
+    # Filter strategy: `--filter "Category=X"` matches xUnit
+    # `[Trait("Category", "X")]`. While issue #212 (trait rollout) is in flight,
+    # tests without a Category trait fall into the default bucket and are
+    # excluded from category-scoped phases — those phases will run honestly
+    # against whatever is currently labeled. As traits land, each phase
+    # automatically picks up its newly-tagged tests.
+    # ---------------------------------------------------------------------------
+
     - name: Test (Unit)
-      run: dotnet test --no-build --configuration Release --filter "FullyQualifiedName~Unit" --logger "trx;LogFileName=unit-tests.trx" --results-directory ./TestResults
+      run: dotnet test --no-build --configuration Release --filter "Category=Unit" --logger "trx;LogFileName=phase-unit.trx" --results-directory ./TestResults
+
+    - name: Test (Integration)
+      run: dotnet test --no-build --configuration Release --filter "Category=Integration" --logger "trx;LogFileName=phase-integration.trx" --results-directory ./TestResults
+
+    - name: Test (OutOfProcess)
+      run: dotnet test --no-build --configuration Release --filter "Category=OutOfProcess" --logger "trx;LogFileName=phase-outofprocess.trx" --results-directory ./TestResults
+
+    - name: Test (Http)
+      run: dotnet test --no-build --configuration Release --filter "Category=Http" --logger "trx;LogFileName=phase-http.trx" --results-directory ./TestResults
 
     - name: Test (Functional)
-      run: dotnet test --blame --no-build --configuration Release --filter "FullyQualifiedName~Functional" --logger "trx;LogFileName=functional-tests.trx" --results-directory ./TestResults
+      run: dotnet test --blame --no-build --configuration Release --filter "Category=Functional" --logger "trx;LogFileName=phase-functional.trx" --results-directory ./TestResults
+
+    # Azure phase: skipped (not failed) when credentials absent. PR builds from
+    # forks and any environment without AZURE_CLIENT_ID configured will see this
+    # step as "skipped" in the CI UI rather than a hard failure. Credentialed
+    # CI for the Azure phase is deferred per spec 009.
+    - name: Test (Azure)
+      if: ${{ env.HAS_AZURE_CREDS == 'true' }}
+      env:
+        AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      run: dotnet test --no-build --configuration Release --filter "Category=Azure" --logger "trx;LogFileName=phase-azure.trx" --results-directory ./TestResults
+
+    - name: Test (Azure) — skipped (no credentials)
+      if: ${{ env.HAS_AZURE_CREDS != 'true' }}
+      run: echo "Azure phase skipped — AZURE_CLIENT_ID secret is not configured for this build."
 
     - name: Upload Test Results
       if: always()
