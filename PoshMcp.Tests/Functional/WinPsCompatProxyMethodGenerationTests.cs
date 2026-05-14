@@ -34,6 +34,7 @@ namespace PoshMcp.Tests.Functional;
 /// Integration test for proxy and high-parameter method generation through tool registration.
 /// Tests that PR #211 changes work correctly end-to-end with real PowerShell commands.
 /// </summary>
+[Trait("Category", "Functional")]
 public class WinPsCompatProxyMethodGenerationTests : PowerShellTestBase
 {
     public WinPsCompatProxyMethodGenerationTests(ITestOutputHelper output) : base(output) { }

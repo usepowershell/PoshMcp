@@ -13,6 +13,7 @@ namespace PoshMcp.Tests.Unit;
 /// Unit tests for PowerShellParameterUtils.IsUnserializableType — verifies that the method
 /// correctly identifies types that cannot be meaningfully represented in a JSON schema.
 /// </summary>
+[Trait("Category", "Unit")]
 public class UnserializableTypeTests
 {
     private readonly ITestOutputHelper _output;

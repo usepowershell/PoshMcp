@@ -9,6 +9,7 @@ namespace PoshMcp.Tests.Unit;
 /// <summary>
 /// Unit tests for tool name to command name conversion
 /// </summary>
+[Trait("Category", "Unit")]
 public class ToolNameMappingTests
 {
     private readonly ITestOutputHelper _output;

@@ -9,6 +9,7 @@ using Xunit.Abstractions;
 
 namespace PoshMcp.Tests.Integration;
 
+[Trait("Category", "Integration")]
 public class DeployScriptConfigurationPrecedenceTests
 {
     private readonly ITestOutputHelper _output;

@@ -18,6 +18,7 @@ namespace PoshMcp.Tests.Functional.CorrelationId;
 /// - IDs follow a consistent, parseable format
 /// - IDs can be set explicitly from request headers
 /// </summary>
+[Trait("Category", "Functional")]
 public class CorrelationIdGenerationTests : PowerShellTestBase
 {
     public CorrelationIdGenerationTests(ITestOutputHelper output) : base(output) { }

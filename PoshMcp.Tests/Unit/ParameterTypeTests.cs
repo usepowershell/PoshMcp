@@ -13,6 +13,7 @@ namespace PoshMcp.Tests.Unit;
 /// <summary>
 /// Tests for PowerShell parameter type handling in dynamic assembly generation
 /// </summary>
+[Trait("Category", "Unit")]
 public class ParameterTypeTests : PowerShellTestBase
 {
     public ParameterTypeTests(ITestOutputHelper output) : base(output) { }

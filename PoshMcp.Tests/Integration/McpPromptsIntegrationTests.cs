@@ -18,7 +18,7 @@ namespace PoshMcp.Tests.Integration;
 /// To run only these tests:
 ///   dotnet test --filter "Category=McpPrompts"
 /// </summary>
-[Trait("Category", "McpPrompts")]
+[Trait("Category", "Integration")]
 public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
 {
     private InProcessMcpServer? _server;

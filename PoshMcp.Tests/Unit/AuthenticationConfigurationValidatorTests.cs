@@ -5,6 +5,7 @@ using Xunit;
 
 namespace PoshMcp.Tests.Unit;
 
+[Trait("Category", "Unit")]
 public class AuthenticationConfigurationValidatorTests
 {
     private readonly AuthenticationConfigurationValidator _validator = new();

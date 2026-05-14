@@ -17,7 +17,7 @@ namespace PoshMcp.Tests.Integration;
 /// Requires pwsh on PATH and vendored modules at integration/Modules/.
 /// Tests skip automatically via <see cref="AzModulesAvailableFactAttribute"/>.
 /// </summary>
-[Trait("Category", "OutOfProcessModules")]
+[Trait("Category", "OutOfProcess")]
 public class OutOfProcessModuleTests
 {
     private readonly ITestOutputHelper _output;

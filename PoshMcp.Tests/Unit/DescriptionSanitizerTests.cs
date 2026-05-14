@@ -9,6 +9,7 @@ namespace PoshMcp.Tests.Unit;
 /// FR-520 byte-equivalence guarantee depends on: any change here must hold across both
 /// execution paths.
 /// </summary>
+[Trait("Category", "Unit")]
 public class DescriptionSanitizerTests
 {
     [Theory]

@@ -7,6 +7,7 @@ using Xunit.Abstractions;
 
 namespace PoshMcp.Tests.Unit;
 
+[Trait("Category", "Unit")]
 public class MetricsTests
 {
     private readonly ITestOutputHelper _output;

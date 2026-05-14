@@ -12,6 +12,7 @@ namespace PoshMcp.Tests.Integration;
 /// <summary>
 /// Tests to verify that multiple users get isolated PowerShell runspaces in the web server
 /// </summary>
+[Trait("Category", "Integration")]
 public class MultiUserIsolationTests : PowerShellTestBase, IAsyncLifetime
 {
     private readonly ITestOutputHelper _output;

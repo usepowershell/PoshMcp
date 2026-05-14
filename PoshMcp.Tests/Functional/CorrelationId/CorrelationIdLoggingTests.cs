@@ -20,6 +20,7 @@ namespace PoshMcp.Tests.Functional.CorrelationId;
 /// - Structured logging captures correlation ID as a field
 /// - Log filtering by correlation ID is possible
 /// </summary>
+[Trait("Category", "Functional")]
 public class CorrelationIdLoggingTests : PowerShellTestBase
 {
     public CorrelationIdLoggingTests(ITestOutputHelper output) : base(output) { }

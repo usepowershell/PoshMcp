@@ -9,6 +9,7 @@ namespace PoshMcp.Tests.Unit;
 /// <summary>
 /// Unit tests for McpToolFactoryV2 class extracted methods
 /// </summary>
+[Trait("Category", "Unit")]
 public class McpToolFactoryV2Tests : PowerShellTestBase
 {
     public McpToolFactoryV2Tests(ITestOutputHelper output) : base(output) { }
