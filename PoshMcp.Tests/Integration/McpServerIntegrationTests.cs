@@ -20,6 +20,7 @@ namespace PoshMcp.Tests.Integration;
 /// <summary>
 /// Integration tests that run the MCP server in-process and communicate with external clients
 /// </summary>
+[Trait("Category", "Integration")]
 public class ServerWithExternalClient : PowerShellTestBase, IAsyncLifetime
 {
     private InProcessMcpServer? _sharedServer;
@@ -224,6 +225,7 @@ public class ServerWithExternalClient : PowerShellTestBase, IAsyncLifetime
     #endregion
 }
 
+[Trait("Category", "Integration")]
 public class McpServerProcessLifecycleTests : PowerShellTestBase
 {
     public McpServerProcessLifecycleTests(ITestOutputHelper output) : base(output)

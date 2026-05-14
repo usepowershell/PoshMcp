@@ -8,6 +8,7 @@ namespace PoshMcp.Tests.Integration
     /// <summary>
     /// Tests for the command line argument parsing functionality
     /// </summary>
+    [Trait("Category", "Integration")]
     public class CommandLineTests
     {
         private readonly ITestOutputHelper _output;

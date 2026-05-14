@@ -18,6 +18,7 @@ namespace PoshMcp.Tests.Functional.PowerShellCommandExecution;
 /// Test for parameterized command caching
 /// </summary>
 [Collection("CachingStateTests")]
+[Trait("Category", "Functional")]
 public class ExecutePowerShellCommandWithParameters : PowerShellTestBase
 {
     public ExecutePowerShellCommandWithParameters(ITestOutputHelper output) : base(output)

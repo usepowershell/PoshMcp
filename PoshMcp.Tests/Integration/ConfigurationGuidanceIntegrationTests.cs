@@ -7,6 +7,7 @@ using Xunit.Abstractions;
 
 namespace PoshMcp.Tests.Integration;
 
+[Trait("Category", "Integration")]
 public class ConfigurationGuidanceIntegrationTests : PowerShellTestBase
 {
     public ConfigurationGuidanceIntegrationTests(ITestOutputHelper output) : base(output)

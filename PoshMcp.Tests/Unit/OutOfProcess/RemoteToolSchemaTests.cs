@@ -10,6 +10,7 @@ namespace PoshMcp.Tests.Unit.OutOfProcess;
 /// Unit tests for RemoteToolSchema and RemoteParameterSchema DTOs.
 /// Validates default values, construction, and JSON serialization round-trips.
 /// </summary>
+[Trait("Category", "OutOfProcess")]
 public class RemoteToolSchemaTests
 {
     #region RemoteToolSchema Defaults

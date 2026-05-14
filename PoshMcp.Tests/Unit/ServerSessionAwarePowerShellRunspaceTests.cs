@@ -9,6 +9,7 @@ using Xunit;
 
 namespace PoshMcp.Tests.Unit;
 
+[Trait("Category", "Unit")]
 public class ServerSessionAwarePowerShellRunspaceTests : IDisposable
 {
     private readonly Mock<IHttpContextAccessor> _mockHttpContextAccessor;

@@ -3,6 +3,7 @@ using Xunit;
 
 namespace PoshMcp.Tests.Unit;
 
+[Trait("Category", "Unit")]
 public class DoctorTextRendererTests
 {
     // ── Banner ───────────────────────────────────────────────────────────────

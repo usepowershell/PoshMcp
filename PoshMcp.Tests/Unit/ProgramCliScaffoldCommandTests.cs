@@ -7,6 +7,7 @@ using Xunit;
 namespace PoshMcp.Tests.Unit;
 
 [Collection("TransportSelectionTests")]
+[Trait("Category", "Unit")]
 public class ProgramCliScaffoldCommandTests
 {
     [Fact]

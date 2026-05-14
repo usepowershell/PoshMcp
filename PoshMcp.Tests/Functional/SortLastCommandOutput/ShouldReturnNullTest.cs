@@ -3,12 +3,14 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Xunit.Abstractions;
+using Xunit;
 
 namespace PoshMcp.Tests.Functional.SortLastCommandOutput;
 
 /// <summary>
 /// Test for sort behavior when no cache exists
 /// </summary>
+[Trait("Category", "Functional")]
 public class ShouldReturnNullTest : PowerShellTestBase
 {
     public ShouldReturnNullTest(ITestOutputHelper output) : base(output) { }

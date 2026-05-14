@@ -19,6 +19,7 @@ namespace PoshMcp.Tests.Functional.CorrelationId;
 /// - IDs don't leak between unrelated operations
 /// - IDs survive across thread pool thread switches
 /// </summary>
+[Trait("Category", "Functional")]
 public class CorrelationIdPropagationTests : PowerShellTestBase
 {
     public CorrelationIdPropagationTests(ITestOutputHelper output) : base(output) { }

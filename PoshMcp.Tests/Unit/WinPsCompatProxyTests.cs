@@ -24,6 +24,7 @@ using Xunit.Abstractions;
 
 namespace PoshMcp.Tests.Unit;
 
+[Trait("Category", "Unit")]
 public class WinPsCompatProxyTests
 {
     private readonly ITestOutputHelper _output;

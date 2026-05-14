@@ -18,6 +18,7 @@ namespace PoshMcp.Tests.Unit.OutOfProcess;
 /// gracefully no-op when the script cannot be resolved (CI without
 /// build artifacts copied).
 /// </summary>
+[Trait("Category", "OutOfProcess")]
 public class OutOfProcessHostTests
 {
     [Fact]

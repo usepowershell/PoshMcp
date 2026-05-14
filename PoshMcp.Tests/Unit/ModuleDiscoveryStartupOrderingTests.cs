@@ -11,6 +11,7 @@ using Xunit;
 
 namespace PoshMcp.Tests.Unit;
 
+[Trait("Category", "Unit")]
 public sealed class ModuleDiscoveryStartupOrderingTests : IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;

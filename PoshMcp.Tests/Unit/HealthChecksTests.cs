@@ -23,6 +23,7 @@ namespace PoshMcp.Tests.Unit;
 /// - Health checks complete within 500ms (suitable for K8s probes)
 /// - Health check results include meaningful diagnostic data
 /// </summary>
+[Trait("Category", "Unit")]
 public class HealthChecksTests : PowerShellTestBase
 {
     public HealthChecksTests(ITestOutputHelper output) : base(output) { }

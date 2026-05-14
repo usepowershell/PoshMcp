@@ -17,6 +17,7 @@ namespace PoshMcp.Tests.Functional;
 /// They document expected behavior and will be activated once WithListResourcesHandler and
 /// WithReadResourceHandler are registered in Program.cs (Spec 002 implementation PR).
 /// </summary>
+[Trait("Category", "Functional")]
 public class McpResourcesTests : PowerShellTestBase
 {
     public McpResourcesTests(ITestOutputHelper output) : base(output) { }

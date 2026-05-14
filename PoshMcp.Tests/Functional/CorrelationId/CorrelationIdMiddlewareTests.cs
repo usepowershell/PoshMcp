@@ -18,6 +18,7 @@ namespace PoshMcp.Tests.Functional.CorrelationId;
 /// Note: These are functional tests that may require integration test setup
 /// with actual HTTP requests once the middleware is implemented.
 /// </summary>
+[Trait("Category", "Functional")]
 public class CorrelationIdMiddlewareTests : PowerShellTestBase
 {
     public CorrelationIdMiddlewareTests(ITestOutputHelper output) : base(output) { }

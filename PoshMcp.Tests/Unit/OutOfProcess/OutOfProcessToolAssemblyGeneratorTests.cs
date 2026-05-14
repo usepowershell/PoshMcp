@@ -15,6 +15,7 @@ namespace PoshMcp.Tests.Unit.OutOfProcess;
 /// Unit tests for OutOfProcessToolAssemblyGenerator.
 /// Tests IL generation of dynamic methods that delegate to ICommandExecutor.
 /// </summary>
+[Trait("Category", "OutOfProcess")]
 public class OutOfProcessToolAssemblyGeneratorTests
 {
     private readonly Mock<ICommandExecutor> _mockExecutor;

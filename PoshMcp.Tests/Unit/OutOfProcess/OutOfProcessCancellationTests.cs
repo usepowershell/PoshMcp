@@ -20,6 +20,7 @@ namespace PoshMcp.Tests.Unit.OutOfProcess;
 /// stop within a bounded time, leave the host healthy for follow-up requests,
 /// and (in Pool/ProcessPool) not block parallel work.
 /// </summary>
+[Trait("Category", "OutOfProcess")]
 public class OutOfProcessCancellationTests
 {
     private static readonly TimeSpan ObservationTimeout = TimeSpan.FromSeconds(15);

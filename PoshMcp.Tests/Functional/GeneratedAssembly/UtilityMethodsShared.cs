@@ -12,6 +12,7 @@ namespace PoshMcp.Tests.Functional.GeneratedAssembly;
 /// <summary>
 /// Shared utilities for assembly generation tests
 /// </summary>
+[Trait("Category", "Functional")]
 public partial class GeneratedInstance : PowerShellTestBase
 {
     private void SetupTestPowerShellFunction()

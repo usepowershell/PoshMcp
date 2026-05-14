@@ -38,6 +38,7 @@ namespace PoshMcp.Tests.Functional;
 /// flow correctly from MCP JSON input to bound CLR values, and that the
 /// advertised JSON schema accepts every shape an MCP client might emit.
 /// </summary>
+[Trait("Category", "Functional")]
 public class SwitchParameterMcpRoundTripTests : PowerShellTestBase
 {
     public SwitchParameterMcpRoundTripTests(ITestOutputHelper output) : base(output) { }
