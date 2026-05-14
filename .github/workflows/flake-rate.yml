@@ -1,0 +1,345 @@
+name: Flake Rate Measurement
+
+# Spec 009 (issue #216 / FR-418, supports FR-405 and SC-105):
+# Re-runs the phased test suite N times back-to-back on a clean runner and
+# aggregates the per-test failure counts into a single human-readable
+# flake-rate summary. Triggered nightly on main and on demand.
+#
+# Phasing matches `.github/workflows/ci.yml` (PR #252 / issue #215). If that
+# workflow has not landed yet, this workflow still runs — it owns its own
+# phased sequence and does not depend on `ci.yml` being present. If #252 is
+# in flight on a different branch, both workflows can co-exist; this one is
+# the source of truth for flake-rate measurement only.
+#
+# Azure phase is intentionally excluded:
+#   - Scheduled / on-demand runs do not have Azure credentials wired
+#     (per spec 009 Non-Goals — credentialed CI for Azure is deferred).
+#   - Azure tests skip-when-no-creds, so including the phase would just
+#     add noise without adding signal.
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: 'Number of suite repetitions (default 5).'
+        required: false
+        default: '5'
+        type: string
+  schedule:
+    # Nightly at 07:00 UTC. Off-peak vs. typical maintainer working hours
+    # so a long measurement run does not contend with on-demand CI.
+    - cron: '0 7 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  measure-flake-rate:
+    runs-on: ubuntu-latest
+
+    # RUN_COUNT defaults to 5 for the nightly schedule; workflow_dispatch
+    # overrides via the `runs` input. The aggregator parses whatever
+    # iteration directories actually exist, so a partial run (e.g. one
+    # iteration crashed early) still produces a usable summary.
+    env:
+      RUN_COUNT: ${{ github.event.inputs.runs || '5' }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.x
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
+
+    # ------------------------------------------------------------------
+    # Repetition loop.
+    #
+    # One bash loop runs RUN_COUNT iterations. Each iteration runs the
+    # same phased sequence as ci.yml (Unit -> Integration -> OutOfProcess
+    # -> Http -> Functional). Per-iteration TRX files land in
+    # `flake-runs/run-${i}/` so the aggregator can attribute every result
+    # to the iteration it came from.
+    #
+    # `set +e` is critical: a phase failing in iteration 3 must NOT skip
+    # iterations 4 and 5 — the whole point of the workflow is to measure
+    # flakes across ALL iterations. We capture per-phase exit codes into
+    # iteration-scoped status files so the aggregator can report which
+    # phases failed in which run, but the loop itself never short-circuits.
+    # ------------------------------------------------------------------
+    - name: Run phased suite N times
+      shell: bash
+      run: |
+        set +e
+        mkdir -p flake-runs
+        echo "Running suite ${RUN_COUNT} times."
+        for i in $(seq 1 "${RUN_COUNT}"); do
+          out="flake-runs/run-${i}"
+          mkdir -p "${out}"
+          echo "::group::Iteration ${i} of ${RUN_COUNT}"
+
+          dotnet test --no-build --configuration Release \
+            --filter "Category=Unit" \
+            --logger "trx;LogFileName=phase-unit.trx" \
+            --results-directory "${out}"
+          echo "unit=$?" >> "${out}/exit-codes.txt"
+
+          dotnet test --no-build --configuration Release \
+            --filter "Category=Integration" \
+            --logger "trx;LogFileName=phase-integration.trx" \
+            --results-directory "${out}"
+          echo "integration=$?" >> "${out}/exit-codes.txt"
+
+          dotnet test --no-build --configuration Release \
+            --filter "Category=OutOfProcess" \
+            --logger "trx;LogFileName=phase-outofprocess.trx" \
+            --results-directory "${out}"
+          echo "outofprocess=$?" >> "${out}/exit-codes.txt"
+
+          dotnet test --no-build --configuration Release \
+            --filter "Category=Http" \
+            --logger "trx;LogFileName=phase-http.trx" \
+            --results-directory "${out}"
+          echo "http=$?" >> "${out}/exit-codes.txt"
+
+          dotnet test --no-build --configuration Release \
+            --filter "Category=Functional" \
+            --logger "trx;LogFileName=phase-functional.trx" \
+            --results-directory "${out}"
+          echo "functional=$?" >> "${out}/exit-codes.txt"
+
+          echo "::endgroup::"
+        done
+        # Surface exit code 0 to the loop step itself — failures are
+        # captured in exit-codes.txt and the TRX results, not via the
+        # shell exit code. The aggregator decides whether to fail the job.
+        exit 0
+
+    # ------------------------------------------------------------------
+    # Aggregator.
+    #
+    # PowerShell, because (a) this repo lives in pwsh land and (b)
+    # `Select-Xml` is a clean way to walk TRX without dragging in a
+    # third-party parser. The summary is markdown rather than JSON
+    # because the primary consumer is a human looking at the workflow
+    # run page (we append it to $GITHUB_STEP_SUMMARY).
+    #
+    # Output: flake-rate-summary.md
+    #   - Run metadata (commit SHA, runner OS, .NET SDK, RUN_COUNT,
+    #     start/end timestamps inferred from TRX).
+    #   - Aggregate flake rate (total flaky test instances / total test
+    #     runs across iterations).
+    #   - Per-test failure-count table for any test that failed at least
+    #     once across the N iterations.
+    #   - Per-iteration phase exit codes (so a fully-failed iteration
+    #     stands out from a partially-flaky one).
+    # ------------------------------------------------------------------
+    - name: Aggregate flake rate
+      if: always()
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $runRoot = Join-Path $PWD 'flake-runs'
+        $summary = Join-Path $PWD 'flake-rate-summary.md'
+
+        if (-not (Test-Path $runRoot)) {
+          @"
+        # Flake Rate Summary
+
+        No iterations executed. The repetition step did not produce a
+        ``flake-runs/`` directory. See the workflow log for the failure.
+        "@ | Set-Content -Path $summary -Encoding utf8
+          return
+        }
+
+        # Iteration directories are run-1, run-2, ... — sort numerically
+        # so the per-iteration table reads in execution order, not
+        # lexicographic order (run-10 vs run-2).
+        $iterDirs = Get-ChildItem -Path $runRoot -Directory |
+          Where-Object { $_.Name -match '^run-(\d+)$' } |
+          Sort-Object { [int]($_.Name -replace '^run-','') }
+
+        # Walk every TRX file; xUnit emits a UnitTestResult element per
+        # test invocation with attributes testName, outcome, duration.
+        # We only care about outcome != 'Passed' for flake counting.
+        # 'Passed' / 'Failed' / 'NotExecuted' are the values seen in
+        # practice; treat anything other than 'Passed' as a non-pass and
+        # break it out by outcome in the per-test table for diagnosis.
+        $perTest = @{}        # testName -> @{ Failed = N; NotExecuted = N; Iterations = @() }
+        $totalRuns = 0
+        $totalNonPass = 0
+        $iterPhaseStatus = @{}  # iter -> phase -> exitCode
+
+        foreach ($iter in $iterDirs) {
+          $iterName = $iter.Name
+          $iterPhaseStatus[$iterName] = @{}
+
+          $exitFile = Join-Path $iter.FullName 'exit-codes.txt'
+          if (Test-Path $exitFile) {
+            foreach ($line in Get-Content $exitFile) {
+              if ($line -match '^([^=]+)=(\d+)$') {
+                $iterPhaseStatus[$iterName][$matches[1]] = [int]$matches[2]
+              }
+            }
+          }
+
+          $trxFiles = Get-ChildItem -Path $iter.FullName -Filter '*.trx' -ErrorAction SilentlyContinue
+          foreach ($trx in $trxFiles) {
+            try {
+              [xml]$doc = Get-Content -Path $trx.FullName -Raw
+            }
+            catch {
+              Write-Host "Could not parse $($trx.FullName): $_"
+              continue
+            }
+
+            # TRX uses a default namespace; walk via SelectNodes with
+            # an XmlNamespaceManager rather than dotted property access
+            # (which silently returns nothing under default namespaces).
+            $ns = New-Object System.Xml.XmlNamespaceManager($doc.NameTable)
+            $ns.AddNamespace('t', 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010')
+
+            $results = $doc.SelectNodes('//t:UnitTestResult', $ns)
+            foreach ($r in $results) {
+              $name = $r.GetAttribute('testName')
+              $outcome = $r.GetAttribute('outcome')
+              if (-not $name) { continue }
+              $totalRuns++
+              if ($outcome -ne 'Passed') {
+                $totalNonPass++
+                if (-not $perTest.ContainsKey($name)) {
+                  $perTest[$name] = @{
+                    Failed = 0
+                    NotExecuted = 0
+                    Other = 0
+                    Iterations = New-Object System.Collections.Generic.List[string]
+                  }
+                }
+                switch ($outcome) {
+                  'Failed'      { $perTest[$name].Failed++ }
+                  'NotExecuted' { $perTest[$name].NotExecuted++ }
+                  default       { $perTest[$name].Other++ }
+                }
+                if (-not $perTest[$name].Iterations.Contains($iterName)) {
+                  $perTest[$name].Iterations.Add($iterName) | Out-Null
+                }
+              }
+            }
+          }
+        }
+
+        $iterCount = $iterDirs.Count
+        $sha = $env:GITHUB_SHA
+        $ref = $env:GITHUB_REF
+        $runner = "$($env:RUNNER_OS) $($env:RUNNER_ARCH)"
+        $runId = $env:GITHUB_RUN_ID
+        $runUrl = if ($env:GITHUB_SERVER_URL -and $env:GITHUB_REPOSITORY -and $runId) {
+          "$($env:GITHUB_SERVER_URL)/$($env:GITHUB_REPOSITORY)/actions/runs/$runId"
+        } else { '(not set)' }
+        $dotnet = (& dotnet --version) 2>$null
+        $now = (Get-Date).ToUniversalTime().ToString('u')
+
+        # Aggregate flake rate is non-pass-instances / total-test-runs.
+        # This intentionally counts repeated failures of the same test
+        # in different iterations as separate flake instances — that is
+        # the signal we want (one test failing 3/5 is worse than three
+        # tests each failing 1/5).
+        $rate = if ($totalRuns -gt 0) {
+          '{0:N4} ({1}/{2})' -f ($totalNonPass / $totalRuns), $totalNonPass, $totalRuns
+        } else { 'n/a (no test results parsed)' }
+
+        $sb = New-Object System.Text.StringBuilder
+        [void]$sb.AppendLine('# Flake Rate Summary')
+        [void]$sb.AppendLine()
+        [void]$sb.AppendLine('| Field | Value |')
+        [void]$sb.AppendLine('|---|---|')
+        [void]$sb.AppendLine("| Generated (UTC) | $now |")
+        [void]$sb.AppendLine("| Commit | ``$sha`` |")
+        [void]$sb.AppendLine("| Ref | ``$ref`` |")
+        [void]$sb.AppendLine("| Runner | $runner |")
+        [void]$sb.AppendLine("| .NET SDK | $dotnet |")
+        [void]$sb.AppendLine("| Iterations completed | $iterCount of $env:RUN_COUNT |")
+        [void]$sb.AppendLine("| Total test invocations | $totalRuns |")
+        [void]$sb.AppendLine("| Total non-pass invocations | $totalNonPass |")
+        [void]$sb.AppendLine("| Aggregate flake rate | $rate |")
+        [void]$sb.AppendLine("| Workflow run | $runUrl |")
+        [void]$sb.AppendLine()
+
+        if ($perTest.Count -eq 0) {
+          [void]$sb.AppendLine('## Per-test results')
+          [void]$sb.AppendLine()
+          [void]$sb.AppendLine('No flaky tests observed across all iterations.')
+        } else {
+          [void]$sb.AppendLine('## Per-test failure counts')
+          [void]$sb.AppendLine()
+          [void]$sb.AppendLine("Tests that did not pass in at least one of the $iterCount iterations.")
+          [void]$sb.AppendLine('Sorted by total non-pass count, highest first.')
+          [void]$sb.AppendLine()
+          [void]$sb.AppendLine('| Test | Failed | NotExecuted | Other | Total / Iterations | Iterations affected |')
+          [void]$sb.AppendLine('|---|---:|---:|---:|---:|---|')
+
+          $ranked = $perTest.GetEnumerator() | Sort-Object {
+            -([int]$_.Value.Failed + [int]$_.Value.NotExecuted + [int]$_.Value.Other)
+          }
+          foreach ($entry in $ranked) {
+            $name = $entry.Key
+            $v = $entry.Value
+            $total = $v.Failed + $v.NotExecuted + $v.Other
+            $iters = ($v.Iterations | Sort-Object { [int]($_ -replace '^run-','') }) -join ', '
+            [void]$sb.AppendLine("| ``$name`` | $($v.Failed) | $($v.NotExecuted) | $($v.Other) | $total / $iterCount | $iters |")
+          }
+        }
+
+        [void]$sb.AppendLine()
+        [void]$sb.AppendLine('## Per-iteration phase exit codes')
+        [void]$sb.AppendLine()
+        [void]$sb.AppendLine('Exit code 0 = all tests in the phase passed; non-zero = at least one failure.')
+        [void]$sb.AppendLine('A fully red iteration (all phases non-zero) suggests an environmental issue;')
+        [void]$sb.AppendLine('a single phase flicking red across iterations is the classic flake signature.')
+        [void]$sb.AppendLine()
+        [void]$sb.AppendLine('| Iteration | Unit | Integration | OutOfProcess | Http | Functional |')
+        [void]$sb.AppendLine('|---|---:|---:|---:|---:|---:|')
+        foreach ($iter in $iterDirs) {
+          $name = $iter.Name
+          $p = $iterPhaseStatus[$name]
+          $u = if ($p.ContainsKey('unit'))         { $p['unit'] }         else { '-' }
+          $i = if ($p.ContainsKey('integration'))  { $p['integration'] }  else { '-' }
+          $o = if ($p.ContainsKey('outofprocess')) { $p['outofprocess'] } else { '-' }
+          $h = if ($p.ContainsKey('http'))         { $p['http'] }         else { '-' }
+          $f = if ($p.ContainsKey('functional'))   { $p['functional'] }   else { '-' }
+          [void]$sb.AppendLine("| $name | $u | $i | $o | $h | $f |")
+        }
+
+        [void]$sb.AppendLine()
+        [void]$sb.AppendLine('---')
+        [void]$sb.AppendLine()
+        [void]$sb.AppendLine('Spec 009 / FR-418. The `flake-runs/` artifact contains the raw TRX')
+        [void]$sb.AppendLine('files for every iteration if you need to drill into a specific failure.')
+
+        $sb.ToString() | Set-Content -Path $summary -Encoding utf8
+
+        # Mirror the summary into the workflow run page so reviewers do
+        # not have to download the artifact for the common case.
+        if ($env:GITHUB_STEP_SUMMARY) {
+          Get-Content -Path $summary -Raw | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8
+        }
+
+    - name: Upload flake-rate summary
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: flake-rate-summary
+        path: flake-rate-summary.md
+
+    - name: Upload raw flake runs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: flake-runs-raw
+        path: flake-runs/
