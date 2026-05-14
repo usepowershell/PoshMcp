@@ -431,24 +431,10 @@ public class InProcessMcpServer : IDisposable
             return;
         }
 
-        try
-        {
-            if (!_serverProcess.HasExited)
-            {
-                _serverProcess.Kill(entireProcessTree: true);
-                _serverProcess.WaitForExit(5000);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to stop stdio server process cleanly");
-        }
-        finally
-        {
-            TestProcessRegistry.Unregister(_serverProcess);
-            _serverProcess.Dispose();
-            _serverProcess = null;
-        }
+        // Centralized teardown: kill tree + WaitForExit + Windows handle-release poll.
+        // Spec 009 FR-412 — see PoshMcp.Tests/Shared/SubprocessTeardown.cs.
+        SubprocessTeardown.Teardown(_serverProcess, _logger);
+        _serverProcess = null;
     }
 }
 
