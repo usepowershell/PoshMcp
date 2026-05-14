@@ -131,3 +131,15 @@ To find them quickly next time: `git grep -n "<old-version>" -- ':!docs/release-
 - **HARD STOP held:** No tag created or pushed. Release process requires CI green before tagging; Steven (or whoever returns) will run `git tag -a v0.13.0 -m "v0.13.0"` followed by `git push origin v0.13.0` once CI on a2b9c3e passes.
 - Marquee theme for v0.13.0 (per CHANGELOG): Help-aware tool descriptions (spec 010) — in-process and OOP byte-identical schemas, FR-500/FR-510/FR-540, `IToolMetadataSource` seam, doctor `descriptionSource` reporting, OTel counters, parity tests, cold-start gates. Includes fixes for SwitchParameter round-trip (#222), parameter descriptions on inputSchema (#248), and `HelpAwareToolMetadataSource` as default (#250). No breaking API changes.
 - Process pattern reaffirmed: explicit-path `git add` only, no `-A` / no `--force`, push to main only, tag only after CI green.
+
+## Learnings — 2026-05-14 (#216 / spec 009 FR-418)
+
+- Authored `.github/workflows/flake-rate.yml`: separate workflow (cleaner than bolting onto `ci.yml`), triggers `workflow_dispatch` (with `runs` input, default 5) + nightly `schedule` (cron `0 7 * * *`).
+- Mirrors PR #252 phasing exactly (Unit/Integration/OutOfProcess/Http/Functional). Azure phase intentionally excluded — scheduled runs have no creds, would skip silently.
+- Loop pattern: bash `for i in $(seq 1 RUN_COUNT)` with `set +e` so a flaky phase in iteration 3 does NOT short-circuit iterations 4 and 5. Per-phase exit codes captured into `flake-runs/run-{i}/exit-codes.txt`; loop step always exits 0. The aggregator owns the verdict.
+- Aggregator in PowerShell (matches repo idiom). Walks TRX via `Select-Xml` + `XmlNamespaceManager` (TRX uses default namespace `http://microsoft.com/schemas/VisualStudio/TeamTest/2010` — dotted access silently returns nothing). Counts non-Passed outcomes, breaks out Failed / NotExecuted / Other separately so the table tells you what kind of flake it was.
+- Aggregate rate = `total non-pass instances / total test invocations` (intentional: same test failing 3/5 should weigh more than three different tests each failing once).
+- Output is markdown (`flake-rate-summary.md`) — easier human read than JSON. Uploaded as `flake-rate-summary` artifact AND mirrored into `$GITHUB_STEP_SUMMARY` so reviewers see it on the run page without downloading. Raw TRX uploaded as `flake-runs-raw` for drill-down.
+- TESTING.md (PR #253) is owned by another agent — did NOT touch it. PR body calls out exactly where the pointer to `flake-rate-summary` artifact should land in TESTING.md so the next person merging #253 can add it without coordination overhead.
+- Workflow co-exists with `ci.yml` from PR #252; if #252 lands first the phasing already matches, if it lands after this still works (separate workflow file).
+- Gotcha: PowerShell expanded `$(seq 1 ...)` inside an unquoted here-string when appending these notes. Use single-quoted here-strings (or write a file then append) when notes contain literal shell syntax.
