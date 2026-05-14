@@ -577,12 +577,16 @@ Run the comprehensive test suite:
 # Run all tests
 dotnet test
 
-# Run specific test categories
-dotnet test --filter "FullyQualifiedName~Unit"
-dotnet test --filter "FullyQualifiedName~Integration"
+# Fast pre-commit tier (target: < 60s, no subprocesses, no ports, no creds)
+dotnet test PoshMcp.sln --filter "Category=Unit"
+
+# Run a specific category
+dotnet test PoshMcp.sln --filter "Category=Integration"
+dotnet test PoshMcp.sln --filter "Category=OutOfProcess"
+dotnet test PoshMcp.sln --filter "Category=Http"
 ```
 
-See [PoshMcp.Tests/README.md](PoshMcp.Tests/README.md) for test organization details.
+See **[TESTING.md](TESTING.md)** for the full category list, per-category caveats (Azure skip-when-no-creds, default bucket for untagged tests), and the local command for each CI phase. See [PoshMcp.Tests/README.md](PoshMcp.Tests/README.md) for test organization details.
 
 ### Interactive Test Client
 
