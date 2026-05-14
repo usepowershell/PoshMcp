@@ -94,3 +94,9 @@ Your work landed in v0.11.0 (csproj 0.10.0 → 0.11.0, CHANGELOG entry, release 
 **By:** Scribe (cross-agent note from coordinator)
 **What:** v0.13.0 commits landed on origin/main: housekeeping `5847efb` + release `a2b9c3e` (csproj 0.12.3 → 0.13.0, CHANGELOG, docs/release-notes/0.13.0.md). Tests 777/0/7. Tag NOT yet created — pending CI green on `a2b9c3e`.
 **Marquee:** Spec 010 — Help-aware tool descriptions. In-process + OOP byte-identical schemas, `IToolMetadataSource` seam, FR-500/510/540 precedence, `HelpAwareToolMetadataSource` as default, doctor `descriptionSource` reporting, OTel counters, parity tests. Includes #222 (SwitchParameter round-trip) and #248 (parameter descriptions on inputSchema).
+
+### 2026-05-14 — #219 spec 009 temp directory hygiene
+- Created `PoshMcp.Tests/Shared/TempDirectory.cs` as the canonical hygiene helper. Pattern: `using var tmp = new TempDirectory("label"); // tmp.Path`. Prefix `poshmcp-test-` + `Guid:N` ensures uniqueness; `Dispose()` is best-effort + idempotent; static `AuditLeftoverDirectories()` lets later agents sweep CI residue.
+- Fixed real audit hits: `OutOfProcessCommandExecutorTests.ResolveModulePaths_DeduplicatesCaseInsensitively` (Farnsworth PR #256 flag), `ProgramTests.ResolveConfigurationPath_*` (two cases writing to bare temp root).
+- Representative refactors only — did NOT touch `OopTestPaths`; it's a deliberate cross-test cache, not a hygiene violation. Document this in PRs that audit it again.
+- Lesson: when changing a field type from `string` to `TempDirectory?`, ALWAYS grep usages first. I broke 12 call sites in OutOfProcessIntegrationTests and recovered with a companion `_testTempDirHolder` field plus a `string _testTempDir` view, keeping the diff small.

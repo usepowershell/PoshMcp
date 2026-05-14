@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using PoshMcp.Server.PowerShell;
 using PoshMcp.Server.PowerShell.OutOfProcess;
+using PoshMcp.Tests.Shared;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -195,13 +196,11 @@ public class OutOfProcessPoolHostIntegrationTests
 
         await executor.StartAsync();
 
-        var tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
-            "poshmcp-pool-stale-" + Guid.NewGuid().ToString("N"));
-        System.IO.Directory.CreateDirectory(tempDir);
+        var tempDir = new TempDirectory("oop-pool-stale");
         try
         {
             var markerA = "poshmcp-pool-a-" + Guid.NewGuid().ToString("N");
-            var markerDir = System.IO.Path.Combine(tempDir, markerA);
+            var markerDir = System.IO.Path.Combine(tempDir.Path, markerA);
             System.IO.Directory.CreateDirectory(markerDir);
 
             var first = await executor.InvokeAsync(
@@ -225,7 +224,7 @@ public class OutOfProcessPoolHostIntegrationTests
         }
         finally
         {
-            try { System.IO.Directory.Delete(tempDir, recursive: true); } catch { }
+            tempDir.Dispose();
         }
     }
 
@@ -247,13 +246,11 @@ public class OutOfProcessPoolHostIntegrationTests
 
         await executor.StartAsync();
 
-        var tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
-            "poshmcp-pool-err-" + Guid.NewGuid().ToString("N"));
-        System.IO.Directory.CreateDirectory(tempDir);
+        var tempDir = new TempDirectory("oop-pool-err");
         try
         {
             var markerA = "poshmcp-pool-x-" + Guid.NewGuid().ToString("N");
-            var markerDir = System.IO.Path.Combine(tempDir, markerA);
+            var markerDir = System.IO.Path.Combine(tempDir.Path, markerA);
             System.IO.Directory.CreateDirectory(markerDir);
 
             var first = await executor.InvokeAsync(
@@ -261,7 +258,7 @@ public class OutOfProcessPoolHostIntegrationTests
                 new Dictionary<string, object?> { ["Path"] = markerDir });
             Assert.Contains(markerA, first, StringComparison.Ordinal);
 
-            var missingPath = System.IO.Path.Combine(tempDir,
+            var missingPath = System.IO.Path.Combine(tempDir.Path,
                 "missing-b-" + Guid.NewGuid().ToString("N"));
             var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             {
@@ -279,7 +276,7 @@ public class OutOfProcessPoolHostIntegrationTests
         }
         finally
         {
-            try { System.IO.Directory.Delete(tempDir, recursive: true); } catch { }
+            tempDir.Dispose();
         }
     }
 
@@ -301,9 +298,7 @@ public class OutOfProcessPoolHostIntegrationTests
 
         await executor.StartAsync();
 
-        var tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
-            "poshmcp-pool-empty-" + Guid.NewGuid().ToString("N"));
-        System.IO.Directory.CreateDirectory(tempDir);
+        var tempDir = new TempDirectory("oop-pool-empty");
         try
         {
             var emptyParams = new Dictionary<string, object?>
@@ -314,7 +309,7 @@ public class OutOfProcessPoolHostIntegrationTests
             var resultA = await executor.InvokeAsync("Write-Verbose", emptyParams);
 
             var sentinel = "POOL-SENTINEL-" + Guid.NewGuid().ToString("N");
-            var sentinelDir = System.IO.Path.Combine(tempDir, sentinel);
+            var sentinelDir = System.IO.Path.Combine(tempDir.Path, sentinel);
             System.IO.Directory.CreateDirectory(sentinelDir);
 
             // Run the sentinel-producing command MANY times to hit every
@@ -338,7 +333,7 @@ public class OutOfProcessPoolHostIntegrationTests
         }
         finally
         {
-            try { System.IO.Directory.Delete(tempDir, recursive: true); } catch { }
+            tempDir.Dispose();
         }
     }
 
