@@ -89,6 +89,11 @@ dotnet test PoshMcp.sln --filter "Category=Functional"
 ### `Functional`
 
 - Multi-area scenarios that stay in-process. Per FR-416, any `Functional` test that ends up touching external resources (disk, network, subprocesses, ports) must be reclassified as `Integration` (or a more specific resource-bound category). This is a rule applied at categorization time, not a case-by-case judgment call.
+- The FR-416 sweep against the existing `Functional/` folder (issue #220) reclassified three classes:
+  - `Functional/StdioLoggingTests.cs` → moved to `OutOfProcess/StdioLoggingTests.cs` with `Category=OutOfProcess` (spawns the MCP server as a subprocess via `InProcessMcpServer` + `ExternalMcpClient`).
+  - `Functional/ConfigurationReload/ConfigurationReloadTests.cs` → `Category=Integration` (writes config files via `Path.GetTempFileName()` + `File.WriteAllTextAsync`).
+  - `Functional/McpServerSetup/SetupTestsShared.cs` (the `partial class SetupTests`) → `Category=Integration`. The whole partial class promotes together, since FR-416 is a rule, not case-by-case; multiple partials in this class touch tempfiles.
+- The remaining `Functional/` tests are genuine cross-area, in-process scenarios: prompt/resource MCP placeholders, switch-parameter round-trips through PowerShell + MCP, Windows PowerShell compat proxy detection, and the in-proc PowerShell SDK groups under `CorrelationId/`, `PowerShellCommandExecution/`, `MethodExecution/`, `GeneratedAssembly/`, `FilterLastCommandOutput/`, `SortLastCommandOutput/`, and `GetLastCommandOutput/`.
 
 ---
 

@@ -15,7 +15,7 @@ namespace PoshMcp.Tests.Functional.ConfigurationReload;
 /// <summary>
 /// Tests for PowerShell configuration reload functionality
 /// </summary>
-[Trait("Category", "Functional")]
+[Trait("Category", "Integration")]
 public class ConfigurationReloadTests : PowerShellTestBase
 {
     public ConfigurationReloadTests(ITestOutputHelper outputHelper) : base(outputHelper)
