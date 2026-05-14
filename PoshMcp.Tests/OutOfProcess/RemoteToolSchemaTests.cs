@@ -4,7 +4,7 @@ using Newtonsoft.Json;
 using PoshMcp.Server.PowerShell.OutOfProcess;
 using Xunit;
 
-namespace PoshMcp.Tests.Unit.OutOfProcess;
+namespace PoshMcp.Tests.OutOfProcess;
 
 /// <summary>
 /// Unit tests for RemoteToolSchema and RemoteParameterSchema DTOs.

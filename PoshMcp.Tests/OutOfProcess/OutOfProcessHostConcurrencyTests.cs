@@ -13,7 +13,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using PoshMcp.Server.PowerShell.OutOfProcess;
 using Xunit;
 
-namespace PoshMcp.Tests.Unit.OutOfProcess;
+namespace PoshMcp.Tests.OutOfProcess;
 
 /// <summary>
 /// Concurrency tests for <see cref="OutOfProcessHost.SendRequestAsync{T}"/>.
