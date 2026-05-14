@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented here.
 
+## [0.13.0] - 2026-05-14
+
+### Added
+- **Help-aware tool descriptions (spec 010 — marquee)** — Tool and parameter descriptions exposed to MCP clients are now sourced from `Get-Help` output rather than the raw PowerShell syntax line. Implements FR-500/FR-510 description precedence chains and FR-540 sanitization. In-process and out-of-process paths produce byte-identical schemas. (#226, #240, #234, #247)
+- **`IToolMetadataSource` seam** — Extracted metadata resolution into a dedicated abstraction so in-process and OOP hosts share a single source of truth for tool descriptions and parameter metadata. `HelpAwareToolMetadataSource` is now the default. (#225, #228, #238, #241, #249, #250)
+- **OOP `RemoteToolSchema` extended** — Out-of-process schema now carries the full description and per-parameter metadata across the OOP boundary, eliminating description loss in subprocess and pool host modes. (#227, #239)
+- **Doctor: `descriptionSource` reporting** — `poshmcp doctor` and the `get-configuration-troubleshooting` MCP tool now report the resolved description source (e.g. `help`, `attribute`, `syntax`) per command and per parameter, making schema provenance auditable. (#230, #244)
+- **OTel counters for description-source resolution** — New metrics emitted under the description-source resolution pipeline so operators can monitor which sources are being hit at runtime. (#231, #245)
+
+### Fixed
+- **`SwitchParameter` round-trips through MCP JSON arguments** — Switch parameters now correctly survive the MCP JSON → PowerShell argument bind, fixing tools whose switches were silently dropped. (#222)
+- **Parameter descriptions wired through to MCP `inputSchema`** — Per-parameter descriptions resolved by the metadata source are now emitted on the tool's `inputSchema.properties[*].description`, where MCP clients actually read them. (#242, #248)
+- **`HelpAwareToolMetadataSource` wired as default in `PowerShellSchemaGenerator`** — Closes the gap where the new metadata source was registered but not selected by the schema generator's default code path. (#249, #250)
+- **Misleading `RemoteToolSchema` XML doc** corrected. (#233, #235)
+
+### Tests
+- **Tool description parity, regression, and parameter-set consistency tests** — New parity suite asserts that in-process and OOP paths produce identical tool descriptions and parameter metadata; regression tests lock the FR-500/FR-510/FR-540 behavior. (#229, #243)
+- **Pre-spec010 `tools/list` snapshots captured** to anchor regression comparisons. (#224, #236)
+
+### Documentation
+- **Exposing-tools doc** — Documents the FR-500/FR-510 description precedence chains and FR-540 sanitization rules so module authors can reason about which description wins. (#234, #247)
+- **Spec 010 promoted to Accepted.**
+
+### Benchmarks
+- **Pre-spec010 cold-start baseline** captured. (#223, #237)
+- **Post-spec010 cold-start gate** added: cold-start regression is now gated at <50% vs the run-5 baseline. (#232, #246)
+
+### Behavior notes
+- Tools whose descriptions were previously the raw PowerShell syntax line now show help-derived descriptions to MCP clients. This is the intended behavior change for spec 010 — no API surface change, but the strings clients see will look meaningfully different (and better) for any command with comment-based help or `MAML` help available.
+
 ## [0.12.3] - 2026-05-12
 
 ### Fixed
