@@ -20,6 +20,7 @@ namespace PoshMcp.Tests.Integration;
 /// <summary>
 /// Integration tests that run the MCP server in-process and communicate with external clients
 /// </summary>
+[Trait("Category", "Integration")]
 public class ServerWithExternalClient : PowerShellTestBase, IAsyncLifetime
 {
     private InProcessMcpServer? _sharedServer;
@@ -224,6 +225,7 @@ public class ServerWithExternalClient : PowerShellTestBase, IAsyncLifetime
     #endregion
 }
 
+[Trait("Category", "Integration")]
 public class McpServerProcessLifecycleTests : PowerShellTestBase
 {
     public McpServerProcessLifecycleTests(ITestOutputHelper output) : base(output)
@@ -431,24 +433,10 @@ public class InProcessMcpServer : IDisposable
             return;
         }
 
-        try
-        {
-            if (!_serverProcess.HasExited)
-            {
-                _serverProcess.Kill(entireProcessTree: true);
-                _serverProcess.WaitForExit(5000);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to stop stdio server process cleanly");
-        }
-        finally
-        {
-            TestProcessRegistry.Unregister(_serverProcess);
-            _serverProcess.Dispose();
-            _serverProcess = null;
-        }
+        // Centralized teardown: kill tree + WaitForExit + Windows handle-release poll.
+        // Spec 009 FR-412 — see PoshMcp.Tests/Shared/SubprocessTeardown.cs.
+        SubprocessTeardown.Teardown(_serverProcess, _logger);
+        _serverProcess = null;
     }
 }
 

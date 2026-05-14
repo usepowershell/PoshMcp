@@ -4,6 +4,7 @@ using Xunit;
 
 namespace PoshMcp.Tests.Unit;
 
+[Trait("Category", "Unit")]
 public class DockerRunnerTests
 {
     [Fact]

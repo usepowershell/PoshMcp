@@ -9,6 +9,7 @@ namespace PoshMcp.Tests.Unit.McpPrompts;
 /// Unit tests for McpPromptsValidator — doctor validation checks from Spec 002 User Story 5
 /// (FR-026, FR-027, SC-012).
 /// </summary>
+[Trait("Category", "Unit")]
 public class McpPromptsValidatorTests
 {
     private static readonly string ExistingDir = Path.GetTempPath();

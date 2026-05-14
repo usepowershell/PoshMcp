@@ -34,6 +34,7 @@ namespace PoshMcp.Tests.Integration;
 /// 
 /// Priority: System environment > .env.test > .env.local > .env
 /// </remarks>
+[Trait("Category", "Azure")]
 public class AzureDeploymentIntegrationTests : IAsyncLifetime
 {
     private readonly ITestOutputHelper _output;
@@ -431,7 +432,9 @@ public class AzureDeploymentIntegrationTests : IAsyncLifetime
         var outputBuilder = new StringBuilder();
         var errorBuilder = new StringBuilder();
 
-        using var process = new Process { StartInfo = processStartInfo };
+        // Spec 009 FR-412 — wrap in try/finally so SubprocessTeardown runs
+        // even if WaitForExitAsync throws or is cancelled.
+        var process = new Process { StartInfo = processStartInfo };
 
         process.OutputDataReceived += (sender, e) =>
         {
@@ -449,13 +452,22 @@ public class AzureDeploymentIntegrationTests : IAsyncLifetime
             }
         };
 
-        process.Start();
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
+        int exitCode;
+        try
+        {
+            process.Start();
+            TestProcessRegistry.Register(process);
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
 
-        await process.WaitForExitAsync();
+            await process.WaitForExitAsync();
+            exitCode = process.ExitCode;
+        }
+        finally
+        {
+            await SubprocessTeardown.TeardownAsync(process);
+        }
 
-        var exitCode = process.ExitCode;
         var output = outputBuilder.ToString();
         var error = errorBuilder.ToString();
 

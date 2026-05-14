@@ -22,6 +22,7 @@ namespace PoshMcp.Tests.Unit.OutOfProcess;
 /// serialization errors caused by objects whose CLR type shadows a base-class
 /// member of the same name (e.g. BasicHtmlWebResponseObject's 'Content').
 /// </summary>
+[Trait("Category", "OutOfProcess")]
 public class OutOfProcessHostConcurrencyTests
 {
     [Fact]

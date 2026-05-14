@@ -13,6 +13,7 @@ namespace PoshMcp.Tests.Unit.Diagnostics;
 /// FR-500 (tool descriptions) and FR-510 (parameter descriptions) MUST surface
 /// the matching <c>descriptionSource</c> wire literal in doctor JSON output.
 /// </summary>
+[Trait("Category", "Unit")]
 public class DoctorDescriptionSourceTests
 {
     private const string TestCommandName = "Get-Doctor";

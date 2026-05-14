@@ -17,6 +17,7 @@ namespace PoshMcp.Tests.Functional.PowerShellCommandExecution;
 /// <summary>
 /// Test for handling invalid PowerShell commands
 /// </summary>
+[Trait("Category", "Functional")]
 public class InvalidCommand : PowerShellTestBase
 {
     public InvalidCommand(ITestOutputHelper output) : base(output)

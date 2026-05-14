@@ -15,6 +15,7 @@ namespace PoshMcp.Tests.Unit;
 /// <c>poshmcp.parameter_description.source</c> emit one sample per
 /// resolution with the FR-583 wire literal in the <c>step</c> tag.
 /// </summary>
+[Trait("Category", "Unit")]
 public class DescriptionSourceMetricsTests : IDisposable
 {
     private readonly McpMetrics _metrics;

@@ -18,7 +18,7 @@ namespace PoshMcp.Tests.Integration;
 /// To run only these tests:
 ///   dotnet test --filter "Category=McpResources"
 /// </summary>
-[Trait("Category", "McpResources")]
+[Trait("Category", "Integration")]
 public class McpResourcesIntegrationTests : PowerShellTestBase, IAsyncLifetime
 {
     private InProcessMcpServer? _server;

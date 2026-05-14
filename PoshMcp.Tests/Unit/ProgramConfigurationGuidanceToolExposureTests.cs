@@ -8,6 +8,7 @@ using Xunit;
 namespace PoshMcp.Tests.Unit;
 
 [Collection("TransportSelectionTests")]
+[Trait("Category", "Unit")]
 public class ProgramConfigurationGuidanceToolExposureTests
 {
     private const string TroubleshootingToolEnvVar = "POSHMCP_ENABLE_CONFIGURATION_TROUBLESHOOTING_TOOL";

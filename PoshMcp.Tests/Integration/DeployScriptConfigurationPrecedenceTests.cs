@@ -9,6 +9,7 @@ using Xunit.Abstractions;
 
 namespace PoshMcp.Tests.Integration;
 
+[Trait("Category", "Integration")]
 public class DeployScriptConfigurationPrecedenceTests
 {
     private readonly ITestOutputHelper _output;
@@ -156,7 +157,9 @@ function Invoke-WebRequest {{
         var outputBuilder = new StringBuilder();
         var errorBuilder = new StringBuilder();
 
-        using var process = new Process { StartInfo = startInfo };
+        // Spec 009 FR-412 — local pwsh spawn wrapped in try/finally so a hung
+        // child still routes through SubprocessTeardown (kill tree + handle poll).
+        var process = new Process { StartInfo = startInfo };
         process.OutputDataReceived += (_, e) =>
         {
             if (!string.IsNullOrEmpty(e.Data))
@@ -172,15 +175,25 @@ function Invoke-WebRequest {{
             }
         };
 
-        process.Start();
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-        await process.WaitForExitAsync();
+        int exitCode;
+        try
+        {
+            process.Start();
+            TestProcessRegistry.Register(process);
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+            await process.WaitForExitAsync();
+            exitCode = process.ExitCode;
+        }
+        finally
+        {
+            await SubprocessTeardown.TeardownAsync(process);
+        }
 
         var combined = outputBuilder.ToString() + Environment.NewLine + errorBuilder.ToString();
         _output.WriteLine(combined);
 
-        return (process.ExitCode, combined);
+        return (exitCode, combined);
     }
 
     private static string EscapeSingleQuoted(string value)

@@ -17,6 +17,7 @@ namespace PoshMcp.Tests.Functional.GetLastCommandOutput;
 /// <summary>
 /// Test for cache retrieval when no cache exists
 /// </summary>
+[Trait("Category", "Functional")]
 public class GetLastCommandResult : PowerShellTestBase
 {
     public GetLastCommandResult(ITestOutputHelper output) : base(output) { }

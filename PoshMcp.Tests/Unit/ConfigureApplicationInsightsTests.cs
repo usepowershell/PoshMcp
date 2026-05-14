@@ -10,6 +10,7 @@ using Xunit;
 
 namespace PoshMcp.Tests.Unit;
 
+[Trait("Category", "Unit")]
 public class ConfigureApplicationInsightsTests
 {
     private static readonly MethodInfo ConfigureMethod = typeof(PoshMcp.StdioServerHost)

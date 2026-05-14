@@ -17,6 +17,7 @@ namespace PoshMcp.Tests.Functional.PowerShellCommandExecution;
 /// <summary>
 /// Test for handling valid PowerShell commands
 /// </summary>
+[Trait("Category", "Functional")]
 public class ValidCommand : PowerShellTestBase
 {
     public ValidCommand(ITestOutputHelper output) : base(output)

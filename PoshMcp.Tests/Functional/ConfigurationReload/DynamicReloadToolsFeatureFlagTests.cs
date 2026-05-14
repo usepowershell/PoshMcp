@@ -12,6 +12,7 @@ namespace PoshMcp.Tests.Functional.ConfigurationReload;
 /// <summary>
 /// Tests for the EnableDynamicReloadTools feature flag functionality
 /// </summary>
+[Trait("Category", "Functional")]
 public class DynamicReloadToolsFeatureFlagTests : PowerShellTestBase
 {
     public DynamicReloadToolsFeatureFlagTests(ITestOutputHelper outputHelper) : base(outputHelper)

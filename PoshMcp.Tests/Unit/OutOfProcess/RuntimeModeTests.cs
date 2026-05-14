@@ -7,6 +7,7 @@ namespace PoshMcp.Tests.Unit.OutOfProcess;
 /// Unit tests for the RuntimeMode enum.
 /// Validates that all expected enum values exist and parsing round-trips correctly.
 /// </summary>
+[Trait("Category", "OutOfProcess")]
 public class RuntimeModeTests
 {
     [Fact]

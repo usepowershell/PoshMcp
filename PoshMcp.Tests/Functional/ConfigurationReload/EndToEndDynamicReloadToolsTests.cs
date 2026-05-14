@@ -11,6 +11,7 @@ namespace PoshMcp.Tests.Functional.ConfigurationReload;
 /// <summary>
 /// Test to verify the end-to-end behavior of the dynamic reload tools feature flag
 /// </summary>
+[Trait("Category", "Functional")]
 public class EndToEndDynamicReloadToolsTests : PowerShellTestBase
 {
     public EndToEndDynamicReloadToolsTests(ITestOutputHelper outputHelper) : base(outputHelper)

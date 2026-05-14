@@ -32,6 +32,7 @@ namespace PoshMcp.Tests.Unit;
 /// branching on it) would break these tests.
 /// </summary>
 [Trait("Spec", "010")]
+[Trait("Category", "Unit")]
 public sealed class ParameterSetConsistencyTests : PowerShellTestBase
 {
     private readonly HelpAwareToolMetadataSource _resolver = new();
