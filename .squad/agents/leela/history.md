@@ -557,3 +557,8 @@ Release notes for v0.8.9–0.8.11: PSModule docs in Dockerfile, --appsettings bu
 - README "Rich Metadata" bullet was the right hook — single inline link to the new section, no rewording. Don't restate the precedence chain in two places; let README defer to the article.
 
 - **20260514T000000Z**: ✓ v0.13.0 release notes drafted at `docs/release-notes/0.13.0.md`. Marquee theme: spec 010 Help-aware tool descriptions — in-process and OOP paths now byte-identical, FR-500/FR-510 precedence + FR-540 sanitization, IToolMetadataSource seam, doctor descriptionSource reporting, OTel resolution counters, parity/regression tests, pre/post-spec010 cold-start gates. Fixes: SwitchParameter round-trip (#222), parameter descriptions wired to inputSchema (#248), HelpAwareToolMetadataSource as default (#250). No breaking changes. Behavior change called out: tools previously showing the raw syntax line now show help-derived descriptions. Matched 0.12.x / 0.11.0 tone and structure (Summary, What's New, Bug Fixes, Documentation, Tests & Benchmarks, Breaking Changes, Upgrade Notes, Affected files & specs).
+
+## 2026-05-14: Spec 009 closed via this session
+
+Spec 009 (Test Suite Consistency and Fast Unit Tier) is functionally complete. Five PRs merged in the closeout wave (#252, #253, #257, #259, #260) and six issues closed (#213, #214, #215, #216, #220, #221). Issue #221 acceptance gate (Fry) measured the Unit tier at 432 passed / 0 failed / 0 skipped across 5 consecutive runs, mean 20.45s wall-clock — well under the <60s FR-419 budget. Your contribution: see your own history entries for this session.
+

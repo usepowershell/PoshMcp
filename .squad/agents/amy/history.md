@@ -143,3 +143,15 @@ To find them quickly next time: `git grep -n "<old-version>" -- ':!docs/release-
 - TESTING.md (PR #253) is owned by another agent — did NOT touch it. PR body calls out exactly where the pointer to `flake-rate-summary` artifact should land in TESTING.md so the next person merging #253 can add it without coordination overhead.
 - Workflow co-exists with `ci.yml` from PR #252; if #252 lands first the phasing already matches, if it lands after this still works (separate workflow file).
 - Gotcha: PowerShell expanded `$(seq 1 ...)` inside an unquoted here-string when appending these notes. Use single-quoted here-strings (or write a file then append) when notes contain literal shell syntax.
+## 2026-05-14T17:20Z — PR #251 cleanup (v0.13.0)
+- v0.13.0 was already shipped via direct-to-main (5847efb + a2b9c3e); PR #251 was redundant and CONFLICTING.
+- Cherry-picked the only unique content (`docs/toc.yml` v0.13.0 entry, +2 lines) from `origin/release/0.13.0` to main as commit `cbf5d7d`.
+- Pushed main (a2b9c3e..cbf5d7d, also carried prior unpushed scribe log commit cd7c9f5).
+- Deleted `origin/release/0.13.0` (matches convention — no other release/* branches preserved on origin).
+- PR #251 auto-closed when source branch was deleted. `gh pr comment` blocked by EMU policy, so closure rationale lives only in this history entry + commit message.
+- Note: repo URL casing changed remote-side (poshmcp -> PoshMcp); `gh` calls now require `--repo usepowershell/PoshMcp` explicitly.
+
+## 2026-05-14: Spec 009 closed via this session
+
+Spec 009 (Test Suite Consistency and Fast Unit Tier) is functionally complete. Five PRs merged in the closeout wave (#252, #253, #257, #259, #260) and six issues closed (#213, #214, #215, #216, #220, #221). Issue #221 acceptance gate (Fry) measured the Unit tier at 432 passed / 0 failed / 0 skipped across 5 consecutive runs, mean 20.45s wall-clock — well under the <60s FR-419 budget. Your contribution: see your own history entries for this session.
+

@@ -100,3 +100,28 @@ Your work landed in v0.11.0 (csproj 0.10.0 → 0.11.0, CHANGELOG entry, release 
 - Fixed real audit hits: `OutOfProcessCommandExecutorTests.ResolveModulePaths_DeduplicatesCaseInsensitively` (Farnsworth PR #256 flag), `ProgramTests.ResolveConfigurationPath_*` (two cases writing to bare temp root).
 - Representative refactors only — did NOT touch `OopTestPaths`; it's a deliberate cross-test cache, not a hygiene violation. Document this in PRs that audit it again.
 - Lesson: when changing a field type from `string` to `TempDirectory?`, ALWAYS grep usages first. I broke 12 call sites in OutOfProcessIntegrationTests and recovered with a companion `_testTempDirHolder` field plus a `string _testTempDir` view, keeping the diff small.
+## Learnings
+
+### 2026-05-14 — Spec 009 / FR-412: pwsh subprocess teardown centralization (#218 / PR #255)
+**Requested by:** Steven
+**Branch / Worktree:** `squad/218-pwsh-teardown` in `poshmcp-218`
+
+- **Spawn-site audit (5 sites in tests):**
+  1. `PoshMcp.Tests/Integration/McpServerIntegrationTests.cs` — `InProcessMcpServer.StopServerProcess()` (composed by every test that uses an out-of-process MCP server, plus `HelpParityFixtureSession`)
+  2. `PoshMcp.Tests/Integration/ApplicationInsightsIntegrationTests.cs` — `AppInsightsTestHttpServer.Dispose()` spawns a `dotnet`/`pwsh` HTTP listener
+  3. `PoshMcp.Tests/Integration/UnifiedHttpTransportIntegrationTests.cs` — anonymous server helper with same shape
+  4. `PoshMcp.Tests/Integration/DeployScriptConfigurationPrecedenceTests.cs` — direct `pwsh` invocation of deploy.ps1
+  5. `PoshMcp.Tests/Integration/AzureDeploymentIntegrationTests.cs` — `RunCommandAsync` spawning `pwsh`/`az`
+- **Production code (`PoshMcp.Server/PowerShell/OutOfProcess/OutOfProcessHost.cs`) was already compliant** — `Kill(entireProcessTree:true)` + `WaitForExitAsync`. Out of scope for this test refactor.
+- **Centralized helper:** `PoshMcp.Tests/Shared/SubprocessTeardown.cs` — `TeardownAsync` and sync `Teardown`. Both NEVER throw. Contract: capture pid → `HasExited` short-circuit → `Kill(entireProcessTree:true)` (catch `InvalidOperationException` for already-exited race) → `WaitForExitAsync(linkedCts)` bounded by graceful timeout (5s default) → on Windows poll handle release (2s default, 50ms interval) → `TestProcessRegistry.Unregister` → `Dispose`.
+- **Windows handle-release gotcha:** `WaitForExitAsync` returning is NOT enough — the kernel `Process` object can linger briefly after the OS has reaped the exit code, especially after a tree kill. Probe with `Process.GetProcessById(pid).HasExited`. `ArgumentException` from `GetProcessById` means "fully released" (process record gone). 50ms poll interval / 2s timeout covers it without making teardown noticeably slow.
+- **Audit helper:** `PoshMcp.Tests/Shared/OrphanProcessAuditor.cs` — snapshot PIDs by name, then diff. Powers the FR-412 acceptance smoke test (`SubprocessTeardownTests`). Two scenarios: short-lived `pwsh -Command "exit 0"` and hung `pwsh -Command "Start-Sleep -Seconds 120"`. Both report **0 new living `pwsh` PIDs** post-teardown.
+- **Fixture composition note:** `HelpParityFixtureSession` already constructs an `InProcessMcpServer` — refactoring its `StopServerProcess` automatically uplifts every fixture-backed test for free. `CachingStateTestCollection`/`TransportSelectionTestCollection` are pure xUnit collection markers (no spawn) — composed cleanly without changes.
+- **Don't lose the registry:** `TestProcessRegistry` (AppDomain ProcessExit + UnhandledException hooks calling `KillAllTrackedProcesses`) is still the safety net for crashes; the new helper unregisters from it on the success path so the registry doesn't keep stale entries during long test runs.
+- **Worktree pitfall (msbuild output redirection):** Building from another worktree on the same machine can leave the build server holding state that emits its previous worktree's paths. Symptom: warnings reference `poshmcp-217` paths while building from `poshmcp-218`, and `bin/Debug/net10.0/` ends up empty. Fix: `dotnet build-server shutdown` then build with `--no-incremental /p:UseSharedCompilation=false`. After that the DLL lands in the correct worktree.
+- **Verification:** smoke tests 2/2 ✓; impacted integration suites (McpServer + ApplicationInsights + UnifiedHttpTransport) 8/8 ✓; orphan audit 0 new pids.
+
+## 2026-05-14: Spec 009 closed via this session
+
+Spec 009 (Test Suite Consistency and Fast Unit Tier) is functionally complete. Five PRs merged in the closeout wave (#252, #253, #257, #259, #260) and six issues closed (#213, #214, #215, #216, #220, #221). Issue #221 acceptance gate (Fry) measured the Unit tier at 432 passed / 0 failed / 0 skipped across 5 consecutive runs, mean 20.45s wall-clock — well under the <60s FR-419 budget. Your contribution: see your own history entries for this session.
+

@@ -3,6 +3,63 @@
 ## Recent Decisions
 > Older entries archived to `decisions-archive.md` (entries >7d removed when file >= 50KB).
 
+### 2026-05-14: User directive — gh CLI auth check before use
+**By:** Steven (via Copilot)
+**What:** Before starting to use the `gh` CLI in this project, ALWAYS check authentication status first. This project requires the `usepowershell` identity. Use `gh auth status` to verify, and `gh auth switch` if a different identity is currently active.
+**Why:** This is a multi-account environment; the wrong identity can cause silent failures (e.g., EMU policy blocks like the `gh pr comment` Unauthorized error during the v0.13.0 release) or, worse, write to the wrong account. Captured for team memory.
+**Applies to:** All agents (Amy, Bender, Hermes, Farnsworth, Fry, Leela, Cubert, Ralph) and the Coordinator before any `gh` invocation.
+
+---
+
+### 2026-05-14: Spec 009 unit-tier acceptance gate (Issue #221) — PASSED
+**By:** Fry (Tester) — requested by Steven via Ralph
+**What:** Measured 5 consecutive `dotnet test --filter Category=Unit --no-build` runs on FR-419 reference machine (commit 629486a, post-#216). All 5 clean: 432 passed / 0 failed / 0 skipped, wall-clock 20.07–21.08s (mean 20.45s), 0 flake re-runs. SC-100, SC-101, FR-404, FR-405, FR-419 satisfied. Issue #221 closed as completed.
+**Why:** Closing acceptance gate for Spec 009 (Test Suite Consistency) — all blockers (#213/#214/#215/#216/#217/#218/#219) merged; gate run validates the Unit tier meets the <60s, 0-flake budget on the maintainer reference machine.
+
+---
+
+### 2026-05-14: Amy — Spec 009 / #216 flake-rate measurement workflow
+**By:** Amy (DevOps / Platform / Azure)
+**What:** Spec 009 FR-418 (and supporting FR-405 / SC-105) implemented as a separate workflow at `.github/workflows/flake-rate.yml` (NOT additional steps in `ci.yml`). Re-runs the phased suite N times (default 5, configurable via `workflow_dispatch` input `runs`), aggregates per-test failure counts, and emits a single markdown summary (`flake-rate-summary.md`) uploaded as artifact and mirrored to `$GITHUB_STEP_SUMMARY`. Triggers: `workflow_dispatch` + `schedule '0 7 * * *'` (nightly UTC). Phasing mirrors PR #252 one-for-one (Unit → Integration → OutOfProcess → Http → Functional). Azure phase intentionally excluded (no creds in CI per spec 009 Non-Goals).
+**Why:** FR-418 demands flake measurement that does not gate normal CI. A separate workflow keeps `ci.yml` lean and lets maintainers crank N up to 20+ on demand. Aggregator is PowerShell + `Select-Xml` with explicit `XmlNamespaceManager` (TRX has a default namespace; dotted access silently returns nothing). Loop uses `set +e` and per-iteration exit-code text files so a phase failure in iteration 3 does NOT skip 4 and 5.
+**Aggregate flake-rate definition:** `total non-pass instances / total test invocations across all iterations` — repeated failure of the same test in different iterations counts as separate flake instances.
+**Artifacts:** `flake-rate-summary` (the headline `.md`) + `flake-runs-raw` (full TRX tree). Both `if: always()`.
+**Cross-PR:** TESTING.md (PR #253) should add a "Flake-rate measurement" pointer linking to the workflow run page → Artifacts → `flake-rate-summary`. Whoever merges #253 (or follow-up) owns that pointer.
+
+---
+
+### 2026-05-14: Cubert REQUEST CHANGES on PR #253 — broken cross-reference
+**By:** Cubert (Reviewer/Fact-checker) — review of PR #253 (Leela, `docs(009): add TESTING.md`)
+**Verdict:** ⚠️ REQUEST CHANGES (one blocking F1, one non-blocking F2).
+**F1 BLOCKER:** TESTING.md punted on naming the default bucket: "set by issue #212 and documented in `PoshMcp.Tests/README.md`". Both halves stale — (a) bucket IS already named `Integration` per Fry's `AssemblyInfo.cs:8-25` policy block on `squad/212-category-traits-baseline`; (b) `PoshMcp.Tests/README.md` at HEAD only documents legacy folder convention, no trait policy. For external-facing docs that's a broken cross-reference, not a stylistic choice. Fix: inline the answer (quote `AssemblyInfo.cs:8-25`).
+**F2 NON-BLOCKER:** "Phase order in CI follows fast-fail logic: cheaper, more deterministic phases run first" overstates. Actual #252 order is Unit → Integration → OutOfProcess → Http → Functional → Azure; Http (1-2 min) and Functional (<1 min) run AFTER OutOfProcess (3-6 min). Hedge two sentences later softens this; rewrite recommended not required.
+**Lockout:** Leela cannot self-revise. Recommended Fry — owns the AssemblyInfo policy block.
+**Patterns to remember:**
+- For external-facing contributor docs, a "see X for the answer" pointer where X doesn't yet contain the answer is a defect, not a stub. When the answer IS already known and committed elsewhere, inline it.
+- Wave-of-PRs reviews need cross-PR fact-checking. PR #253 referenced bucket-naming work in PR #256 and CI work in PR #252; verifying required pulling all three.
+- xUnit `--filter "Category=X"` matches `[Trait("Category", "X")]` exactly, no shell quoting subtleties on Windows pwsh or bash.
+- Always pass `-R usepowershell/PoshMcp` to `gh pr view` in this repo (the smurawski/poshmcp redirect causes silent ID mismatches without it).
+
+---
+
+### 2026-05-14: Reject PR #256 — reassign to Bender (NOT Fry)
+**By:** Farnsworth (requested by Steven)
+**What:** PR #256 (Fry — class-level Category traits, branch `squad/212-category-traits-baseline`) rejected. Class-level `[Trait("Category", "Unit")]` applied to `Unit/OutOfProcess/OutOfProcessCancellationTests`, `OutOfProcessHostConcurrencyTests`, `OutOfProcessCommandExecutorTests` — these classes spawn `pwsh` (FR-401), bind `HttpListener` on 127.0.0.1 (FR-402), and write to shared temp dir `Path.Combine(Path.GetTempPath(), "PoshMcp-ResolveModulePaths")` (FR-403). Spec 009 edge-case section explicitly names `Unit/OutOfProcess/*` as the case to NOT mislabel. Class-level traits aggregate — even classes with some pure validation methods cannot wear `Unit` if any sibling method violates FR-401/402/403.
+**Why:** Honest-tagging promise; SC-103 (zero pwsh / zero ports / zero shared temp in unit tier) cannot be satisfied at filter time if these classes carry the `Unit` tag.
+**Reassign to:** Bender (owns OOP wave from Spec 004 — Pool / cancellation production code; immune to the folder-name-as-category trap that produced this miss). NOT Fry (reviewer-rejection lockout).
+**Scope of revision:** Re-tag the three confirmed classes (and any other `Unit/OutOfProcess/*` that fails the audit) as `OutOfProcess`. Spot-check `Unit/ProgramCli*`. Update `scripts/add-category-traits.ps1` category map. Re-run FR-415 deterministic count check. Metadata-only — no test logic changes.
+
+---
+
+### 2026-05-14: Partial-class trait promotion under FR-416
+**By:** Farnsworth (Lead/Architect) — surfaced during PR #260 review (closes #220, spec 009 closing PR).
+**What:** When `[Trait("Category", ...)]` lives on a single declaration of a `partial class` and any partial in that class touches external resources (disk, network, subprocess, port), the **entire partial class promotes together** to the more specific category (Integration, OutOfProcess, or Http). Trait flips on the shared declaration; per-partial trait overrides are not used.
+**Rationale:** FR-414 requires reclassification PRs to be metadata-only — no `[Fact]` body, `Assert.*`, ctor/setup, or fixture changes. The only metadata-only way to apply FR-416 to a `partial class` is to flip the trait on the shared declaration (which xUnit applies class-wide). Alternatives both violate FR-414: (a) splitting the partial class into two separate classes is a structural refactor; (b) per-method `[Trait]` overrides on partials rely on flaky xUnit semantics and produce mixed-category test files that defeat the point of FR-416 being a class-level rule.
+**Known cost:** Some partials that do not themselves touch external resources will be over-classified (e.g. in `SetupTests`, six of the ten partials are pure-functional but inherit Integration). Acceptable. If surgical separation is wanted later, that's a follow-up structural refactor, not part of an FR-416 metadata sweep.
+**Applies to:** Any future FR-416 sweep encountering a `partial class` test fixture. Do not split partials in a metadata-only PR. Promote the whole class together and call out over-classified partials in the PR body so reviewers can confirm the trade-off was deliberate.
+
+---
+
 ### 2026-05-13: Accept JsonConverter + TransformSchemaNode pattern as the standard workaround for MCP SDK reflection-binding gaps
 **By:** Farnsworth (review of PR #222 by youyuanwu, requested by Steven)
 **What:** When a CLR type cannot be bound by the MCP SDK's default System.Text.Json reflection (e.g. `SwitchParameter` — struct with getter-only `IsPresent`), the accepted fix is:
