@@ -383,19 +383,8 @@ internal sealed class AppInsightsTestHttpServer : IDisposable
     {
         if (_serverProcess == null) return;
 
-        try
-        {
-            if (!_serverProcess.HasExited)
-            {
-                _serverProcess.Kill(entireProcessTree: true);
-                _serverProcess.WaitForExit(5000);
-            }
-        }
-        finally
-        {
-            TestProcessRegistry.Unregister(_serverProcess);
-            _serverProcess.Dispose();
-            _serverProcess = null;
-        }
+        // Spec 009 FR-412 — centralized teardown.
+        SubprocessTeardown.Teardown(_serverProcess);
+        _serverProcess = null;
     }
 }
