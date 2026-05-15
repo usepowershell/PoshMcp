@@ -341,3 +341,23 @@ APPROVE. Documentation for FR-500/FR-510 description precedence chains in docs/a
 
 ### Process note
 Worktree-local strategy meant I could `gh pr view` and read implementation files in the same session without cross-branch confusion. Resolved everything from c:\Users\stmuraws\source\github\usepowershell\poshmcp-234.
+### 2026-05-15 ΓÇö Spec 011 authored (Issue #263, PR #265, follow-ups #267/#268)
+
+**Outcome A (design-only spec).** Filed specs/011-doctor-module-imports/spec.md covering a new top-level moduleImports section on DoctorReport so module-imported and pattern-matched tools get validation parity with CommandNames. Today BuildConfiguredFunctionStatus only walks CommandNames (DoctorService.cs L105); a misnamed module produces zero tools and summary.status: `healthy`. Steven's live AdvocacyBami deployment loads 9 tools but doctor only validates 1.
+
+**Why split off implementation:** three import sources (CommandNames/Modules/IncludePatterns) with three filter modes, OOP byte-parity guarantee inherited from spec 010, additive RemoteToolSchema fields, and a status-flip risk for existing healthy configs that are actually broken. Single-PR implementation would be wide and risky to review. Split: #267 Bender (C# wiring + 8 test cases), #268 Hermes (PowerShell discovery + OOP wire-format).
+
+**Key design decisions:**
+- moduleImports is top-level (not nested under unctionsTools) ΓÇö avoids a long array-inside-array (OQ-263-1).
+- 	ools[].source priority commandName > module > pattern mirrors the dedup order in GetAvailableCommandsWithMetadata (FR-263-9 / OQ-263-4).
+- Validation reuses the already-discovered CommandInfo set; only Get-Module -ListAvailable is new ΓÇö one call per configured module, no per-command lookups (FR-263-7 / FR-263-10). Keeps doctor runtime cost <50ms (SC-263-1).
+- OOP path extends RemoteToolSchema additively + emits a parallel moduleImports payload so the in-process side does not re-run Get-Module in OOP mode. Older hosts that omit the new fields fall back to source: "unknown" + one-time warning (FR-263-11 / OQ-263-5).
+- IncludePatterns: ["*"] filter-vs-discovery surprise is **deliberately out of scope** ΓÇö this spec surfaces the current behavior; ergonomics fix is a separate issue.
+- summary.status may flip healthy -> rrors for configs with broken Modules ΓÇö **intended** (CHANGELOG entry required).
+
+**Patterns to remember:**
+- When designing a new doctor section, look at all three discovery paths in GetAvailableCommandsWithMetadata ΓÇö each has independent failure modes that the operator wants visibility into.
+- The IncludePatterns filter-vs-discovery branch (commands.Any() at McpToolFactoryV2.cs L1022) is genuinely confusing; surfacing the active ole in diagnostics is enough without changing the behavior.
+- CommandInfo.ModuleName / CommandInfo.Source is reliable for module attribution after dedup ΓÇö no need to track origin during discovery.
+- EMU gh pr create / gh issue create blocked from CLI but gh api -X POST works for both. Use -f body="$contents" with PowerShell variable expansion.
+- When a worktree exists, .git is a file not a dir ΓÇö don't write .git/PR_BODY*.md, write to worktree root and clean up after.
