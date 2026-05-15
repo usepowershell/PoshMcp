@@ -3,6 +3,31 @@
 ## Recent Decisions
 > Older entries archived to `decisions-archive.md` (entries >7d removed when file >= 50KB).
 
+### 2026-05-15: Doctor "effective" sizing fields use string sentinels for inert knobs
+**By:** Bender (PR #266, issue #261) — requested by Steven
+**What:** When a doctor-report "effective sizing" field corresponds to a knob that is **inert in the current host mode**, render it as a sentinel string (`"n/a (Pool mode)"`) rather than `0` or another integer. Apply this consistently across `OutOfProcessSection` effective fields. The field type on the report record is `string`, not `int` or a discriminated union.
+**Why:** `0` for inert knobs reads as a bug to operators (configured-vs-effective drift looks broken). The pattern was already established by `EffectiveRunspacePoolSize` (string, returns `"n/a"` outside Pool mode); promoting `EffectiveProcessPoolSize` and `EffectiveMinHealthyForStartup` from `int` to `string` aligns the surface. Keeps the doctor JSON self-explanatory without needing a separate "applicable" boolean per knob.
+**Scope:** Applies to "effective" fields on `OutOfProcessSection` and any future host-mode-conditional knobs surfaced in the doctor report. Does **not** apply to "configured" fields — those remain typed (`int`, `bool`) since they reflect the literal config value.
+**Rendering:** Active mode → `"<integer>"` (e.g., `"4"`, `"1"`). Inert mode → `"n/a (<active mode> mode)"` (e.g., `"n/a (Pool mode)"`).
+**Out of scope:** Not refactoring the report record into a discriminated union. String sentinels are sufficient and keep the JSON contract flat.
+**Files:** `PoshMcp.Server/Diagnostics/DoctorReport.cs`, `PoshMcp.Server/Diagnostics/DoctorService.cs`, `PoshMcp.Tests/Unit/Diagnostics/DoctorOutOfProcessSectionTests.cs`.
+
+---
+
+### 2026-05-15T14:00:00Z: ClaimsMapping.NameClaim drives Identity.Name
+**By:** Hermes (for Steven, issue #262, PR #264)
+**What:** Added per-scheme `ClaimsMapping.NameClaim` (nullable string) to `AuthenticationConfiguration`. When set, `AuthenticationServiceExtensions` writes it to `JwtBearerOptions.TokenValidationParameters.NameClaimType`. Null/empty preserves the JwtBearer default (`http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name`) — no behavior change for existing deployments.
+**Why:** AAD v2.0 access tokens carry `preferred_username` rather than `name`. Without this knob, `Identity.Name` and the doctor report's `identity.name` were silently null in v2.0 deployments. Operators now set `"NameClaim": "preferred_username"` (documented in `entra-id-auth-guide.md`) and `principal.Identity?.Name` resolves correctly. `DoctorReport.cs` needed no change — it reads through the framework primitive.
+
+---
+
+### 2026-05-15: Spec 011 ships design-only; module-imports validation deferred to #267/#268
+**By:** Farnsworth (for Steven)
+**What:** Issue #263 (doctor: module-imported tools have no validation/visibility section) is being addressed via design-only spec 011 (`specs/011-doctor-module-imports/spec.md`, PR #265). Implementation split into two follow-up issues: #267 (Bender — C#/JSON wiring + tests) and #268 (Hermes — PowerShell module discovery + OOP wire-format parity). The design intentionally flips `summary.status` from `healthy` to `errors` for configurations with broken `Modules` (e.g., misnamed module names) — this is the bug fix, requires CHANGELOG entry under "Breaking — diagnostics" when implementation lands.
+**Why:** Discovery surface spans three sources (CommandNames/Modules/IncludePatterns) with three filter modes plus OOP byte-parity (inherited from spec 010); a single implementation PR would be too wide. Splitting along agent expertise (C# vs PowerShell) keeps each follow-up reviewable. The `IncludePatterns: ["*"]` filter-vs-discovery surprise (McpToolFactoryV2.cs L1022) is deliberately out of scope — spec surfaces current behavior, separate ergonomics issue can change it.
+
+---
+
 ### 2026-05-14: User directive — gh CLI auth check before use
 **By:** Steven (via Copilot)
 **What:** Before starting to use the `gh` CLI in this project, ALWAYS check authentication status first. This project requires the `usepowershell` identity. Use `gh auth status` to verify, and `gh auth switch` if a different identity is currently active.
