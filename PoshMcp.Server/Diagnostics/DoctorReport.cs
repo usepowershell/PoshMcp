@@ -562,17 +562,26 @@ public sealed record OutOfProcessSection
     [JsonPropertyName("processPoolSize")]
     public int ProcessPoolSize { get; init; }
 
-    /// <summary>Effective process pool size after clamping.</summary>
+    /// <summary>
+    /// Effective process pool size after clamping (string for display parity with
+    /// <see cref="EffectiveRunspacePoolSize"/>). Renders as <c>"n/a (Pool mode)"</c>
+    /// when <see cref="HostMode"/> is not <c>ProcessPool</c>, since this knob is
+    /// inert outside ProcessPool mode.
+    /// </summary>
     [JsonPropertyName("effectiveProcessPoolSize")]
-    public int EffectiveProcessPoolSize { get; init; }
+    public string EffectiveProcessPoolSize { get; init; } = string.Empty;
 
     /// <summary>Minimum healthy hosts required at startup for <c>ProcessPool</c> mode (configured value).</summary>
     [JsonPropertyName("minHealthyForStartup")]
     public int MinHealthyForStartup { get; init; }
 
-    /// <summary>Minimum healthy hosts after clamping (capped at the effective pool size).</summary>
+    /// <summary>
+    /// Minimum healthy hosts after clamping (capped at the effective pool size).
+    /// Renders as <c>"n/a (Pool mode)"</c> when <see cref="HostMode"/> is not
+    /// <c>ProcessPool</c>, since this knob is inert outside ProcessPool mode.
+    /// </summary>
     [JsonPropertyName("effectiveMinHealthyForStartup")]
-    public int EffectiveMinHealthyForStartup { get; init; }
+    public string EffectiveMinHealthyForStartup { get; init; } = string.Empty;
 
     /// <summary>Per-request timeout enforced by the host for outbound invokes (defaults to 30s).</summary>
     [JsonPropertyName("requestTimeoutSeconds")]

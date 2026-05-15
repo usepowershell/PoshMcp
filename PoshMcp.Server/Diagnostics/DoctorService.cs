@@ -334,15 +334,25 @@ internal static class DoctorService
             _ => "n/a",
         };
 
-        var effectiveProcessPoolSize = config.SubprocessHostMode == SubprocessHostMode.ProcessPool
-            ? (config.SubprocessPoolSize > 0 ? config.SubprocessPoolSize : 4)
-            : 0;
-
-        var effectiveMinHealthy = config.SubprocessHostMode == SubprocessHostMode.ProcessPool
-            ? Math.Max(1, Math.Min(
+        // ProcessPool-only sizing knobs. In other modes (e.g., Pool) these knobs are
+        // inert, so render "n/a (Pool mode)" to avoid alarming operators who see
+        // configured values of 4/1 next to effective values of 0. (Issue #261)
+        string effectiveProcessPoolSize;
+        string effectiveMinHealthy;
+        if (config.SubprocessHostMode == SubprocessHostMode.ProcessPool)
+        {
+            var processPoolSize = config.SubprocessPoolSize > 0 ? config.SubprocessPoolSize : 4;
+            var minHealthy = Math.Max(1, Math.Min(
                 config.SubprocessMinHealthyForStartup > 0 ? config.SubprocessMinHealthyForStartup : 1,
-                effectiveProcessPoolSize > 0 ? effectiveProcessPoolSize : 1))
-            : 0;
+                processPoolSize));
+            effectiveProcessPoolSize = processPoolSize.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            effectiveMinHealthy = minHealthy.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+        else
+        {
+            effectiveProcessPoolSize = "n/a (Pool mode)";
+            effectiveMinHealthy = "n/a (Pool mode)";
+        }
 
         // Best-effort host script resolution. Mirrors the executor's resolution
         // path without starting the subprocess. Failures are reported, not thrown.
