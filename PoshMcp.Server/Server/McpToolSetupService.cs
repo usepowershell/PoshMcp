@@ -121,9 +121,21 @@ internal static class McpToolSetupService
         IToolDescriptionSourceTracker? descriptionSourceTracker = null)
     {
         logger.LogInformation("Discovering PowerShell tools...");
+        // Spec 011 FR-263-2 / FR-263-10: clear any stale OOP module-imports
+        // capture from a prior discovery in this async flow before starting
+        // a new lease, so a fresh discovery starts from a clean slate.
+        OopModuleImportsCapture.Reset();
         await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger, configurationPath);
         var toolFactory = CreateToolFactory(config, executorLease?.Executor, runspace: null, toolMetadataSource, descriptionSourceTracker);
         var tools = await toolFactory.GetToolsListAsync(config, logger);
+        // Spec 011 FR-263-2 / FR-263-10: capture the executor's
+        // LastModuleImports payload BEFORE the lease disposes (the
+        // executor is gone after this method returns). DoctorService
+        // reads the capture in BuildDoctorReportForCliAsync.
+        if (executorLease?.Executor is not null)
+        {
+            OopModuleImportsCapture.Set(executorLease.Executor.LastModuleImports);
+        }
         AddConfigurationGuidanceToolToList(tools, config, configurationPath, "stdio", config.RuntimeMode.ToString(), null, loggerFactory);
         AddConfigurationTroubleshootingToolToList(tools, config, configurationPath, "stdio", null, config.RuntimeMode.ToString(), null, logger);
         return tools;

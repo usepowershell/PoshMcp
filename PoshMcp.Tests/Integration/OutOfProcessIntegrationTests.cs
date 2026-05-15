@@ -871,6 +871,66 @@ Export-ModuleMember -Function Invoke-KillHost
         // And the rerun should match the first call's shape (both null/empty).
         Assert.Equal(resultA ?? string.Empty, resultC ?? string.Empty);
     }
+
+    // ---- Spec 011 Phase 2 (#268): wire-format parity ----
+
+    [PwshAvailableFact]
+    public async Task DiscoverCommandsAsync_PopulatesLastModuleImports_FromOopHostPayload()
+    {
+        Assert.NotNull(_executor);
+
+        // Configure a small modules+pattern surface so the host emits a
+        // moduleImports payload (FR-263-2) and per-command source attribution
+        // populates SourceModule / SourcePattern / SourceDetail (FR-263-9).
+        var config = new PowerShellConfiguration
+        {
+            FunctionNames = new List<string> { "Get-Date" }, // commandName-source
+            Modules = new List<string> { "Microsoft.PowerShell.Utility" }, // module-source
+            IncludePatterns = new List<string> { "Out-*" }, // pattern-source
+            ExcludePatterns = new List<string>(),
+        };
+
+        var schemas = await _executor!.DiscoverCommandsAsync(config);
+        Assert.NotNull(schemas);
+        Assert.NotEmpty(schemas);
+
+        // Wire-format parity: payload must be present after a discovery against
+        // a spec-011-aware host (this test runs against the in-tree oop-host.ps1).
+        var payload = _executor.LastModuleImports;
+        Assert.NotNull(payload);
+        Assert.NotEmpty(payload!.Modules);
+
+        var probe = payload.Modules.FirstOrDefault(m =>
+            string.Equals(m.Name, "Microsoft.PowerShell.Utility", StringComparison.OrdinalIgnoreCase));
+        Assert.NotNull(probe);
+        Assert.True(probe!.Found, "Microsoft.PowerShell.Utility should be found by the OOP host probe");
+
+        // FR-263-9 source attribution per command:
+        //   - Get-Date appears in FunctionNames → SourceModule must be null
+        //     (commandName takes precedence; pattern/module sources unset).
+        //   - Out-* matches come via the include pattern → SourcePattern set.
+        //   - Module-derived commands have SourceModule set (with module name in SourceDetail).
+        var getDate = schemas.FirstOrDefault(s =>
+            string.Equals(s.Name, "Get-Date", StringComparison.OrdinalIgnoreCase));
+        if (getDate is not null)
+        {
+            Assert.Null(getDate.SourceModule);
+            Assert.Null(getDate.SourcePattern);
+        }
+
+        var outAny = schemas.FirstOrDefault(s =>
+            s.Name.StartsWith("Out-", StringComparison.OrdinalIgnoreCase));
+        if (outAny is not null)
+        {
+            Assert.True(
+                outAny.SourcePattern is not null || outAny.SourceModule is not null,
+                $"Out-* command '{outAny.Name}' must have SourcePattern or SourceModule populated.");
+        }
+
+        _logger.LogInformation(
+            "Phase-2 payload: modules={ModuleCount} patterns={PatternCount} schemas={SchemaCount}",
+            payload.Modules.Count, payload.Patterns.Count, schemas.Count);
+    }
 }
 
 /// <summary>

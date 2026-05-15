@@ -775,6 +775,11 @@ function Invoke-DiscoverHandler {
         param($modules, $functionNames, $includePatterns, $excludePatterns, $commonParameters)
 
         $commands = [System.Collections.ArrayList]::new()
+        # Spec 011 FR-263-9: per-command source attribution map.
+        $sourceMap = New-Object 'System.Collections.Generic.Dictionary[string,object]' ([System.StringComparer]::OrdinalIgnoreCase)
+        # Spec 011 FR-263-3: per-pattern match counts for include patterns.
+        $patternMatchCounts = @{}
+
         foreach ($moduleName in $modules) {
             try { Import-Module -Name $moduleName -ErrorAction Stop -WarningAction SilentlyContinue }
             catch { throw "Failed to import module '$moduleName': $_" }
@@ -783,7 +788,17 @@ function Invoke-DiscoverHandler {
         foreach ($name in $functionNames) {
             try {
                 $cmds = @(Get-Command -Name $name -ErrorAction SilentlyContinue)
-                foreach ($cmd in $cmds) { $null = $commands.Add($cmd) }
+                foreach ($cmd in $cmds) {
+                    $null = $commands.Add($cmd)
+                    if (-not $sourceMap.ContainsKey($cmd.Name)) {
+                        $sourceMap[$cmd.Name] = [pscustomobject]@{
+                            Source        = 'commandName'
+                            SourceModule  = $null
+                            SourcePattern = $null
+                            SourceDetail  = $name
+                        }
+                    }
+                }
             } catch { }
         }
 
@@ -794,7 +809,19 @@ function Invoke-DiscoverHandler {
                     foreach ($cmd in $cmds) {
                         $excluded = $false
                         foreach ($ep in $excludePatterns) { if ($cmd.Name -like $ep) { $excluded = $true; break } }
-                        if (-not $excluded) { $null = $commands.Add($cmd) }
+                        if (-not $excluded) {
+                            $null = $commands.Add($cmd)
+                            if (-not $patternMatchCounts.ContainsKey($pattern)) { $patternMatchCounts[$pattern] = 0 }
+                            $patternMatchCounts[$pattern]++
+                            if (-not $sourceMap.ContainsKey($cmd.Name)) {
+                                $sourceMap[$cmd.Name] = [pscustomobject]@{
+                                    Source        = 'module'
+                                    SourceModule  = $moduleName
+                                    SourcePattern = $null
+                                    SourceDetail  = $moduleName
+                                }
+                            }
+                        }
                     }
                 } catch { }
             }
@@ -807,7 +834,19 @@ function Invoke-DiscoverHandler {
                     foreach ($cmd in $cmds) {
                         $excluded = $false
                         foreach ($ep in $excludePatterns) { if ($cmd.Name -like $ep) { $excluded = $true; break } }
-                        if (-not $excluded) { $null = $commands.Add($cmd) }
+                        if (-not $excluded) {
+                            $null = $commands.Add($cmd)
+                            if (-not $patternMatchCounts.ContainsKey($pattern)) { $patternMatchCounts[$pattern] = 0 }
+                            $patternMatchCounts[$pattern]++
+                            if (-not $sourceMap.ContainsKey($cmd.Name)) {
+                                $sourceMap[$cmd.Name] = [pscustomobject]@{
+                                    Source        = 'pattern'
+                                    SourceModule  = $null
+                                    SourcePattern = $pattern
+                                    SourceDetail  = $pattern
+                                }
+                            }
+                        }
                     }
                 } catch { }
             }
@@ -928,16 +967,73 @@ function Invoke-DiscoverHandler {
                         ValidateSetValues = $paramAttrMeta.ValidateSetValues
                     })
                 }
+                $attribution = $null
+                if ($sourceMap.ContainsKey($cmd.Name)) { $attribution = $sourceMap[$cmd.Name] }
                 $null = $schemas.Add([ordered]@{
                     Name             = $cmd.Name
                     Description      = $helpMeta.Synopsis
                     FullDescription  = $helpMeta.FullDescription
                     ParameterSetName = $paramSet.Name
                     Parameters       = @($parameters)
+                    # Spec 011 FR-263-11: per-command source attribution.
+                    SourceModule     = if ($attribution) { $attribution.SourceModule } else { $null }
+                    SourcePattern    = if ($attribution) { $attribution.SourcePattern } else { $null }
+                    SourceDetail     = if ($attribution) { $attribution.SourceDetail } else { $null }
                 })
             }
         }
-        return ,@($schemas)
+
+        # Spec 011 FR-263-2 / FR-263-10: build the parallel moduleImports payload.
+        $modulesPayload = [System.Collections.ArrayList]::new()
+        foreach ($moduleName in $modules) {
+            $found = $false; $version = $null; $path = $null
+            try {
+                $availableModules = @(Get-Module -ListAvailable -Name $moduleName -ErrorAction SilentlyContinue)
+                if ($availableModules.Count -gt 0) {
+                    $found = $true
+                    $first = $availableModules[0]
+                    if ($null -ne $first.Version) { $version = "$($first.Version)" }
+                    if ($null -ne $first.Path) { $path = "$($first.Path)" }
+                }
+            } catch { }
+            $null = $modulesPayload.Add([ordered]@{
+                Name    = $moduleName
+                Found   = [bool]$found
+                Version = $version
+                Path    = $path
+            })
+        }
+
+        $anyOtherSource = ($modules.Count -gt 0) -or ($functionNames.Count -gt 0)
+        $patternsPayload = [System.Collections.ArrayList]::new()
+        foreach ($pattern in $includePatterns) {
+            $role = if ($anyOtherSource) { 'filter' } else { 'discovery' }
+            $matchedCount = 0
+            if ($patternMatchCounts.ContainsKey($pattern)) { $matchedCount = [int]$patternMatchCounts[$pattern] }
+            $null = $patternsPayload.Add([ordered]@{
+                Pattern      = $pattern
+                Kind         = 'include'
+                Role         = $role
+                MatchedCount = $matchedCount
+            })
+        }
+        foreach ($pattern in $excludePatterns) {
+            $matchedCount = 0
+            foreach ($cmd in $unique) { if ($cmd.Name -like $pattern) { $matchedCount++ } }
+            $null = $patternsPayload.Add([ordered]@{
+                Pattern      = $pattern
+                Kind         = 'exclude'
+                Role         = 'exclude'
+                MatchedCount = $matchedCount
+            })
+        }
+
+        $moduleImportsPayload = [ordered]@{
+            Modules  = @($modulesPayload)
+            Patterns = @($patternsPayload)
+        }
+
+        return ,@([pscustomobject]@{ Schemas = @($schemas); ModuleImports = $moduleImportsPayload })
     }
 
     $ps = [powershell]::Create()
@@ -957,8 +1053,21 @@ function Invoke-DiscoverHandler {
             return
         }
         $schemas = @()
-        if ($null -ne $output -and $output.Count -gt 0) { $schemas = @($output[0]) }
-        Write-NdjsonResponse -Id $Id -Result @{ commands = $schemas }
+        $moduleImports = $null
+        if ($null -ne $output -and $output.Count -gt 0) {
+            $payload = $output[0]
+            if ($null -ne $payload -and $null -ne $payload.Schemas) {
+                $schemas = @($payload.Schemas)
+                $moduleImports = $payload.ModuleImports
+            }
+            else {
+                # Defensive: legacy script shape (bare schema array).
+                $schemas = @($payload)
+            }
+        }
+        $result = @{ commands = $schemas }
+        if ($null -ne $moduleImports) { $result['moduleImports'] = $moduleImports }
+        Write-NdjsonResponse -Id $Id -Result $result
     }
     catch {
         Write-NdjsonResponse -Id $Id -ErrorObj @{ code = -1; message = "$_" }

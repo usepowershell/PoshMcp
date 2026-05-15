@@ -105,6 +105,13 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
     private string[]? _cachedDiscoveryModules;
     private IReadOnlyList<RemoteToolSchema>? _cachedSchemas;
     private string? _cachedSchemasFingerprint;
+    private RemoteModuleImportsPayload? _cachedModuleImports;
+
+    /// <inheritdoc />
+    public RemoteModuleImportsPayload? LastModuleImports
+    {
+        get { lock (_envLock) { return _cachedModuleImports; } }
+    }
 
     private CancellationTokenSource? _reconcilerCts;
     private Task? _reconcilerTask;
@@ -279,6 +286,7 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
                     _cachedSchemasFingerprint, fingerprint);
                 _cachedSchemas = null;
                 _cachedSchemasFingerprint = null;
+                _cachedModuleImports = null;
             }
         }
 
@@ -367,10 +375,31 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
             schemas = new List<RemoteToolSchema>();
         }
 
+        // Spec 011 FR-263-2 / FR-263-10: optional moduleImports payload from
+        // the OOP host. Older hosts omit this entirely; missing is fine and
+        // signals to consumers (DoctorService) to fall back to the in-process
+        // probe path with a one-time warning.
+        RemoteModuleImportsPayload? moduleImports = null;
+        if (result.TryGetProperty("moduleImports", out var moduleImportsElement)
+            && moduleImportsElement.ValueKind != JsonValueKind.Null)
+        {
+            try
+            {
+                moduleImports = JsonSerializer.Deserialize<RemoteModuleImportsPayload>(
+                    moduleImportsElement.GetRawText(), jsonOptions);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Failed to deserialize moduleImports payload; treating as absent.");
+                moduleImports = null;
+            }
+        }
+
         lock (_envLock)
         {
             _cachedSchemas = schemas;
             _cachedSchemasFingerprint = _cachedEnvFingerprint;
+            _cachedModuleImports = moduleImports;
         }
 
         _logger.LogInformation(

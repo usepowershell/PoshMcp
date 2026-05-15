@@ -159,9 +159,31 @@ internal static class DoctorService
                 OopModulePaths = oopModulePaths,
             },
             OutOfProcess = BuildOutOfProcessSection(config, settings.FinalConfigPath, loggerFactory),
-            ModuleImports = BuildModuleImportsSection(config, tools, logger),
+            ModuleImports = BuildModuleImportsSection(config, tools, OopModuleImportsCapture.Current, logger),
             ConfigurationErrors = [.. report.ConfigurationErrors, .. configurationErrors],
         };
+
+        // Spec 011 FR-263-2 / FR-263-10: surface a one-time warning when
+        // running in OOP mode with a host that predates spec 011. The
+        // doctor moduleImports section still works (falls back to the
+        // in-process Get-Module probe path), but the OOP host could be
+        // upgraded to skip that round-trip and provide richer attribution.
+        var hasModuleOrPatternConfig = (config.Modules?.Count ?? 0) > 0
+            || (config.IncludePatterns?.Count ?? 0) > 0
+            || (config.ExcludePatterns?.Count ?? 0) > 0;
+        if (config.RuntimeMode == RuntimeMode.OutOfProcess
+            && hasModuleOrPatternConfig
+            && OopModuleImportsCapture.Current is null)
+        {
+            report = report with
+            {
+                Warnings =
+                [
+                    .. report.Warnings,
+                    "OOP host predates spec 011: 'moduleImports' payload not emitted by host. Doctor fell back to the in-process Get-Module probe path; per-tool source attribution may be reported as 'unknown'. Upgrade the OOP host to enable byte-parity moduleImports.",
+                ],
+            };
+        }
 
         report = report with
         {
@@ -768,6 +790,27 @@ internal static class DoctorService
         List<McpServerTool> tools,
         ILogger logger)
     {
+        return BuildModuleImportsSection(config, tools, oopPayload: null, logger);
+    }
+
+    /// <summary>
+    /// Spec 011 FR-263-2 / FR-263-10: overload that consumes a
+    /// <see cref="RemoteModuleImportsPayload"/> from the OOP host instead of
+    /// running the in-process <c>Get-Module -ListAvailable</c> probe. When
+    /// <paramref name="oopPayload"/> is non-null (OOP mode + spec-011-aware
+    /// host), per-module probe data and per-pattern match counts come
+    /// directly from the payload — no in-process runspace is created. When
+    /// <paramref name="oopPayload"/> is null (in-process mode, OOP mode with
+    /// an older host, or CommandNames-only configs), behavior matches the
+    /// pre-spec-011 path: run <see cref="ModuleDiscovery.ProbeModules"/>
+    /// when modules are configured.
+    /// </summary>
+    internal static ModuleImportsSection BuildModuleImportsSection(
+        PowerShellConfiguration config,
+        List<McpServerTool> tools,
+        RemoteModuleImportsPayload? oopPayload,
+        ILogger logger)
+    {
         if (config is null) throw new ArgumentNullException(nameof(config));
         if (tools is null) throw new ArgumentNullException(nameof(tools));
         if (logger is null) throw new ArgumentNullException(nameof(logger));
@@ -783,8 +826,25 @@ internal static class DoctorService
         if (!hasModuleOrPattern)
             return new ModuleImportsSection();
 
-        IReadOnlyList<ModuleProbeResult> probes = [];
-        if (configuredModules.Count > 0)
+        IReadOnlyList<ModuleProbeResult> probes;
+        if (oopPayload is not null && configuredModules.Count > 0)
+        {
+            // Spec 011 FR-263-10: build ModuleProbeResult[] from the OOP
+            // payload — skip the in-process Get-Module probe entirely.
+            var payloadProbeMap = oopPayload.Modules.ToDictionary(
+                p => p.Name, StringComparer.OrdinalIgnoreCase);
+            probes = configuredModules
+                .Select(name =>
+                {
+                    if (payloadProbeMap.TryGetValue(name, out var entry))
+                    {
+                        return new ModuleProbeResult(name, entry.Found, entry.Version, entry.Path);
+                    }
+                    return new ModuleProbeResult(name, false, null, null);
+                })
+                .ToList();
+        }
+        else if (configuredModules.Count > 0)
         {
             try
             {
@@ -798,6 +858,10 @@ internal static class DoctorService
                     .Select(m => new ModuleProbeResult(m, false, null, null))
                     .ToList();
             }
+        }
+        else
+        {
+            probes = [];
         }
 
         return BuildModuleImportsSection(config, tools, probes, logger);
