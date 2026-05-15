@@ -64,19 +64,54 @@ public sealed record DoctorReport
     public OutOfProcessSection OutOfProcess { get; init; } = new();
 
     /// <summary>
+    /// Spec 011 (FR-263-1): per-module / per-pattern / per-tool import diagnostics.
+    /// Surfaces validation results for tools brought in via
+    /// <see cref="PowerShellConfiguration.Modules"/> and
+    /// <see cref="PowerShellConfiguration.IncludePatterns"/> /
+    /// <see cref="PowerShellConfiguration.ExcludePatterns"/>, which were
+    /// previously invisible to the doctor report. Empty for configurations
+    /// that use only <see cref="PowerShellConfiguration.CommandNames"/>.
+    /// </summary>
+    [JsonPropertyName("moduleImports")]
+    public ModuleImportsSection ModuleImports { get; init; } = new();
+
+    /// <summary>
     /// Computes the overall health status from the diagnostic data.
     /// Returns <c>"errors"</c>, <c>"warnings"</c>, or <c>"healthy"</c>.
     /// </summary>
     public static string ComputeStatus(DoctorReport report)
     {
+        // Spec 011 FR-263-5: any module-import error escalates to errors;
+        // module/pattern warnings escalate to warnings. Existing rules preserved.
+        var moduleImports = report.ModuleImports;
+        var hasModuleErrors = false;
+        var hasModuleWarnings = false;
+        var hasPatternWarnings = false;
+        for (var i = 0; i < moduleImports.Modules.Count; i++)
+        {
+            var status = moduleImports.Modules[i].Status;
+            if (string.Equals(status, "error", StringComparison.Ordinal))
+                hasModuleErrors = true;
+            else if (string.Equals(status, "warning", StringComparison.Ordinal))
+                hasModuleWarnings = true;
+        }
+        for (var i = 0; i < moduleImports.Patterns.Count; i++)
+        {
+            if (string.Equals(moduleImports.Patterns[i].Status, "warning", StringComparison.Ordinal))
+                hasPatternWarnings = true;
+        }
+
         if (report.FunctionsTools.ConfiguredFunctionsMissing > 0
             || report.McpDefinitions.Resources.Errors.Count > 0
             || report.McpDefinitions.Prompts.Errors.Count > 0
-            || report.ConfigurationErrors.Count > 0)
+            || report.ConfigurationErrors.Count > 0
+            || hasModuleErrors)
             return "errors";
         if (report.Warnings.Count > 0
             || report.McpDefinitions.Resources.Warnings.Count > 0
-            || report.McpDefinitions.Prompts.Warnings.Count > 0)
+            || report.McpDefinitions.Prompts.Warnings.Count > 0
+            || hasModuleWarnings
+            || hasPatternWarnings)
             return "warnings";
         return "healthy";
     }
@@ -598,4 +633,154 @@ public sealed record OutOfProcessSection
     /// <summary>If <see cref="HostScriptResolved"/> is false, a short error description.</summary>
     [JsonPropertyName("hostScriptError")]
     public string? HostScriptError { get; init; }
+}
+
+/// <summary>
+/// Spec 011 (FR-263-1, FR-263-6): per-module / per-pattern / per-tool import
+/// diagnostics. Renders as the <c>moduleImports</c> JSON property on
+/// <see cref="DoctorReport"/>. The text renderer omits the section entirely
+/// when all three arrays are empty.
+/// </summary>
+public sealed record ModuleImportsSection
+{
+    /// <summary>
+    /// One entry per <see cref="PowerShellConfiguration.Modules"/> entry,
+    /// reporting whether the module resolved on disk and how many tools it
+    /// contributed to the discovered set.
+    /// </summary>
+    [JsonPropertyName("modules")]
+    public List<ModuleImportEntry> Modules { get; init; } = [];
+
+    /// <summary>
+    /// One entry per pattern across
+    /// <see cref="PowerShellConfiguration.IncludePatterns"/> and
+    /// <see cref="PowerShellConfiguration.ExcludePatterns"/>, reporting which
+    /// branch (filter / discovery / exclude) executed and how many commands
+    /// it affected.
+    /// </summary>
+    [JsonPropertyName("patterns")]
+    public List<PatternImportEntry> Patterns { get; init; } = [];
+
+    /// <summary>
+    /// Per-discovered-tool attribution back to the configuration source that
+    /// produced it (FR-263-4). Empty when no tools were discovered.
+    /// </summary>
+    [JsonPropertyName("tools")]
+    public List<ToolImportEntry> Tools { get; init; } = [];
+}
+
+/// <summary>
+/// Spec 011 (FR-263-2): per-module diagnostic. <c>found / version / path</c>
+/// come from a single <c>Get-Module -ListAvailable</c> probe per module
+/// (<see cref="PoshMcp.Server.PowerShell.ModuleDiscovery.ProbeModules"/>);
+/// <c>contributedToolCount / contributedToolNames</c> are derived from the
+/// already-discovered tool set.
+/// </summary>
+public sealed record ModuleImportEntry
+{
+    /// <summary>The configured module name, preserved verbatim.</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; init; } = string.Empty;
+
+    /// <summary><c>true</c> when <c>Get-Module -ListAvailable</c> resolved at least one record.</summary>
+    [JsonPropertyName("found")]
+    public bool Found { get; init; }
+
+    /// <summary>Module version string, or <c>null</c> when not found.</summary>
+    [JsonPropertyName("version")]
+    public string? Version { get; init; }
+
+    /// <summary><c>ModuleBase</c> directory, or <c>null</c> when not found.</summary>
+    [JsonPropertyName("path")]
+    public string? Path { get; init; }
+
+    /// <summary>Count of tools attributed to this module after dedup and pattern filtering.</summary>
+    [JsonPropertyName("contributedToolCount")]
+    public int ContributedToolCount { get; init; }
+
+    /// <summary>MCP tool names attributed to this module.</summary>
+    [JsonPropertyName("contributedToolNames")]
+    public List<string> ContributedToolNames { get; init; } = [];
+
+    /// <summary><c>"ok"</c>, <c>"warning"</c>, or <c>"error"</c>.</summary>
+    [JsonPropertyName("status")]
+    public string Status { get; init; } = "ok";
+
+    /// <summary>Sanitized diagnostic message when <see cref="Status"/> is not <c>"ok"</c>.</summary>
+    [JsonPropertyName("diagnostic")]
+    public string? Diagnostic { get; init; }
+}
+
+/// <summary>
+/// Spec 011 (FR-263-3): per-pattern diagnostic. <c>role</c> records which
+/// branch the pattern executed in (<c>filter</c> when other sources populated
+/// the command set; <c>discovery</c> when the pattern itself drove discovery;
+/// <c>exclude</c> for entries from <see cref="PowerShellConfiguration.ExcludePatterns"/>).
+/// </summary>
+public sealed record PatternImportEntry
+{
+    /// <summary>The configured pattern, preserved verbatim.</summary>
+    [JsonPropertyName("pattern")]
+    public string Pattern { get; init; } = string.Empty;
+
+    /// <summary><c>"include"</c> or <c>"exclude"</c>.</summary>
+    [JsonPropertyName("kind")]
+    public string Kind { get; init; } = string.Empty;
+
+    /// <summary><c>"filter"</c>, <c>"discovery"</c>, or <c>"exclude"</c>.</summary>
+    [JsonPropertyName("role")]
+    public string Role { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Count of commands the pattern affected. Meaning depends on <see cref="Role"/>:
+    /// for <c>filter</c> and <c>discovery</c>, the number retained; for <c>exclude</c>,
+    /// the number dropped.
+    /// </summary>
+    [JsonPropertyName("matchedCount")]
+    public int MatchedCount { get; init; }
+
+    /// <summary><c>"ok"</c> or <c>"warning"</c>; <c>"warning"</c> for dead patterns.</summary>
+    [JsonPropertyName("status")]
+    public string Status { get; init; } = "ok";
+
+    /// <summary>Diagnostic message when <see cref="Status"/> is <c>"warning"</c>.</summary>
+    [JsonPropertyName("diagnostic")]
+    public string? Diagnostic { get; init; }
+}
+
+/// <summary>
+/// Spec 011 (FR-263-4): per-tool attribution back to its configuration source.
+/// Source priority is <c>commandName</c> &gt; <c>module</c> &gt; <c>pattern</c>
+/// (FR-263-9); <c>unknown</c> appears when the OOP wire format omits attribution
+/// fields (FR-263-11) or when in-process attribution cannot be resolved.
+/// </summary>
+public sealed record ToolImportEntry
+{
+    /// <summary>The MCP tool name (lowercase / snake_case).</summary>
+    [JsonPropertyName("toolName")]
+    public string ToolName { get; init; } = string.Empty;
+
+    /// <summary>The PowerShell command name (e.g. <c>Get-AzContext</c>).</summary>
+    [JsonPropertyName("commandName")]
+    public string CommandName { get; init; } = string.Empty;
+
+    /// <summary><c>"commandName"</c>, <c>"module"</c>, <c>"pattern"</c>, or <c>"unknown"</c>.</summary>
+    [JsonPropertyName("source")]
+    public string Source { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The configured string that produced this tool: the command name for
+    /// <c>commandName</c>, the module name for <c>module</c>, the pattern
+    /// string for <c>pattern</c>, or empty for <c>unknown</c>.
+    /// </summary>
+    [JsonPropertyName("sourceDetail")]
+    public string SourceDetail { get; init; } = string.Empty;
+
+    /// <summary><c>"exposed"</c>, <c>"filteredOut"</c>, or <c>"discoveryFailed"</c>.</summary>
+    [JsonPropertyName("disposition")]
+    public string Disposition { get; init; } = "exposed";
+
+    /// <summary>Diagnostic message when <see cref="Disposition"/> is not <c>"exposed"</c>.</summary>
+    [JsonPropertyName("diagnostic")]
+    public string? Diagnostic { get; init; }
 }

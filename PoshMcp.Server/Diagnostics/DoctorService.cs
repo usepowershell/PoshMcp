@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -12,6 +13,7 @@ using ModelContextProtocol.Server;
 using PoshMcp.Server.Authentication;
 using PoshMcp.Server.McpPrompts;
 using PoshMcp.Server.McpResources;
+using PoshMcp.Server.Observability;
 using PoshMcp.Server.PowerShell;
 using PoshMcp.Server.PowerShell.OutOfProcess;
 
@@ -157,6 +159,7 @@ internal static class DoctorService
                 OopModulePaths = oopModulePaths,
             },
             OutOfProcess = BuildOutOfProcessSection(config, settings.FinalConfigPath, loggerFactory),
+            ModuleImports = BuildModuleImportsSection(config, tools, logger),
             ConfigurationErrors = [.. report.ConfigurationErrors, .. configurationErrors],
         };
 
@@ -268,6 +271,7 @@ internal static class DoctorService
             with
         {
             OutOfProcess = BuildOutOfProcessSection(config, configurationPath, Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance),
+            ModuleImports = BuildModuleImportsSection(config, tools, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance),
         };
     }
 
@@ -746,5 +750,301 @@ internal static class DoctorService
     }
 
     private static string EscapeForPowerShell(string value) => "'" + value.Replace("'", "''") + "'";
+
+    // ── Spec 011 — Module Imports ────────────────────────────────────────────
+
+    /// <summary>
+    /// Spec 011 (FR-263-1, FR-263-7, FR-263-9, FR-263-10): build the
+    /// <see cref="ModuleImportsSection"/> from the live configuration and
+    /// already-discovered tool set. Performs at most one
+    /// <c>Get-Module -ListAvailable</c> probe per configured module
+    /// (<see cref="ModuleDiscovery.ProbeModules"/>); does not invoke
+    /// <c>Get-Command</c> a second time. Returns an empty section when the
+    /// configuration uses only <see cref="PowerShellConfiguration.CommandNames"/>
+    /// (FR-263-6).
+    /// </summary>
+    internal static ModuleImportsSection BuildModuleImportsSection(
+        PowerShellConfiguration config,
+        List<McpServerTool> tools,
+        ILogger logger)
+    {
+        if (config is null) throw new ArgumentNullException(nameof(config));
+        if (tools is null) throw new ArgumentNullException(nameof(tools));
+        if (logger is null) throw new ArgumentNullException(nameof(logger));
+
+        var configuredModules = config.Modules ?? [];
+        var includePatterns = config.IncludePatterns ?? [];
+        var excludePatterns = config.ExcludePatterns ?? [];
+        var hasModuleOrPattern = configuredModules.Count > 0
+            || includePatterns.Count > 0
+            || excludePatterns.Count > 0;
+
+        // FR-263-6: omit entirely when CommandNames-only.
+        if (!hasModuleOrPattern)
+            return new ModuleImportsSection();
+
+        IReadOnlyList<ModuleProbeResult> probes = [];
+        if (configuredModules.Count > 0)
+        {
+            try
+            {
+                using var runspace = new IsolatedPowerShellRunspace();
+                probes = ModuleDiscovery.ProbeModules(runspace, configuredModules, logger);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning("Module probing failed: {Message}", LogSanitizer.Scrub(ex.Message));
+                probes = configuredModules
+                    .Select(m => new ModuleProbeResult(m, false, null, null))
+                    .ToList();
+            }
+        }
+
+        return BuildModuleImportsSection(config, tools, probes, logger);
+    }
+
+    /// <summary>
+    /// Spec 011: pure logic overload accepting pre-computed module probes.
+    /// Lets unit tests exercise the section without spinning up a runspace.
+    /// </summary>
+    internal static ModuleImportsSection BuildModuleImportsSection(
+        PowerShellConfiguration config,
+        List<McpServerTool> tools,
+        IReadOnlyList<ModuleProbeResult> moduleProbes,
+        ILogger logger)
+    {
+        if (config is null) throw new ArgumentNullException(nameof(config));
+        if (tools is null) throw new ArgumentNullException(nameof(tools));
+        if (moduleProbes is null) throw new ArgumentNullException(nameof(moduleProbes));
+        if (logger is null) throw new ArgumentNullException(nameof(logger));
+
+        var configuredModules = config.Modules ?? [];
+        var includePatterns = config.IncludePatterns ?? [];
+        var excludePatterns = config.ExcludePatterns ?? [];
+        var commandNames = config.CommandNames ?? [];
+        var effectiveCommandNames = config.GetEffectiveCommandNames() ?? [];
+        var hasModuleOrPattern = configuredModules.Count > 0
+            || includePatterns.Count > 0
+            || excludePatterns.Count > 0;
+
+        if (!hasModuleOrPattern)
+            return new ModuleImportsSection();
+
+        // Build per-tool attribution first (FR-263-9 source priority:
+        // commandName > module > pattern > unknown).
+        var commandNameSet = new HashSet<string>(commandNames, StringComparer.OrdinalIgnoreCase);
+        var includePatternSet = includePatterns.ToList();
+        var excludePatternSet = excludePatterns.ToList();
+        var moduleNameSet = new HashSet<string>(configuredModules, StringComparer.OrdinalIgnoreCase);
+
+        var toolEntries = new List<ToolImportEntry>(tools.Count);
+        var moduleContributions = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in configuredModules)
+            moduleContributions[name] = [];
+        var patternMatchCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var p in includePatternSet)
+            patternMatchCounts[p] = 0;
+
+        foreach (var tool in tools)
+        {
+            var (toolName, commandName) = ExtractToolIdentity(tool);
+            if (string.IsNullOrWhiteSpace(toolName))
+                continue;
+
+            string source;
+            string sourceDetail;
+            if (!string.IsNullOrEmpty(commandName) && commandNameSet.Contains(commandName))
+            {
+                source = "commandName";
+                sourceDetail = commandName;
+            }
+            else if (configuredModules.Count == 1)
+            {
+                // FR-263-9 + best-effort attribution: when exactly one module is
+                // configured and the tool is not a CommandNames hit, attribute
+                // it to that module. Multi-module attribution requires CommandInfo
+                // threading (Phase 2 — Hermes wires sourceModule on the wire format).
+                source = "module";
+                sourceDetail = configuredModules[0];
+                moduleContributions[configuredModules[0]].Add(toolName);
+            }
+            else if (configuredModules.Count > 1)
+            {
+                source = "unknown";
+                sourceDetail = string.Empty;
+            }
+            else if (includePatternSet.Count > 0)
+            {
+                // No modules configured — attribute to the first matching include pattern.
+                var matched = includePatternSet.FirstOrDefault(p =>
+                    !string.IsNullOrEmpty(commandName) && PatternMatches(p, commandName));
+                if (matched is not null)
+                {
+                    source = "pattern";
+                    sourceDetail = matched;
+                    patternMatchCounts[matched] = patternMatchCounts.GetValueOrDefault(matched) + 1;
+                }
+                else
+                {
+                    source = "unknown";
+                    sourceDetail = string.Empty;
+                }
+            }
+            else
+            {
+                source = "unknown";
+                sourceDetail = string.Empty;
+            }
+
+            toolEntries.Add(new ToolImportEntry
+            {
+                ToolName = toolName,
+                CommandName = commandName ?? string.Empty,
+                Source = source,
+                SourceDetail = sourceDetail,
+                Disposition = "exposed",
+            });
+        }
+
+        // Build per-module entries.
+        var probeMap = moduleProbes.ToDictionary(p => p.Name, StringComparer.OrdinalIgnoreCase);
+        var moduleEntries = new List<ModuleImportEntry>(configuredModules.Count);
+        foreach (var name in configuredModules)
+        {
+            probeMap.TryGetValue(name, out var probe);
+            var found = probe?.Found ?? false;
+            var contributed = moduleContributions.GetValueOrDefault(name) ?? [];
+            string status;
+            string? diagnostic;
+            if (!found)
+            {
+                status = "error";
+                diagnostic = $"Module '{LogSanitizer.Scrub(name)}' not found via Get-Module -ListAvailable.";
+            }
+            else if (contributed.Count == 0)
+            {
+                status = "warning";
+                diagnostic = $"Module '{LogSanitizer.Scrub(name)}' resolved but contributed no tools (filtered out, or attribution requires Phase 2 wire fields).";
+            }
+            else
+            {
+                status = "ok";
+                diagnostic = null;
+            }
+
+            moduleEntries.Add(new ModuleImportEntry
+            {
+                Name = name,
+                Found = found,
+                Version = probe?.Version,
+                Path = probe?.Path,
+                ContributedToolCount = contributed.Count,
+                ContributedToolNames = contributed.OrderBy(n => n, StringComparer.Ordinal).ToList(),
+                Status = status,
+                Diagnostic = diagnostic,
+            });
+        }
+
+        // Build per-pattern entries.
+        var anyConfiguredCommands = commandNames.Count > 0 || configuredModules.Count > 0;
+        var patternEntries = new List<PatternImportEntry>(includePatternSet.Count + excludePatternSet.Count);
+        foreach (var p in includePatternSet)
+        {
+            // Role: 'filter' when other sources populated the candidate set;
+            // 'discovery' when the pattern is the sole driver.
+            var role = anyConfiguredCommands ? "filter" : "discovery";
+            var matchedCount = patternMatchCounts.GetValueOrDefault(p);
+            // For 'filter' role with no patternMatchCounts (because attribution
+            // went to commandName/module first), recompute against discovered tools.
+            if (role == "filter")
+            {
+                matchedCount = toolEntries.Count(t =>
+                    !string.IsNullOrEmpty(t.CommandName) && PatternMatches(p, t.CommandName));
+            }
+            var status = matchedCount == 0 ? "warning" : "ok";
+            string? diag = matchedCount == 0
+                ? $"Include pattern '{LogSanitizer.Scrub(p)}' matched no discovered commands."
+                : null;
+            patternEntries.Add(new PatternImportEntry
+            {
+                Pattern = p,
+                Kind = "include",
+                Role = role,
+                MatchedCount = matchedCount,
+                Status = status,
+                Diagnostic = diag,
+            });
+        }
+        foreach (var p in excludePatternSet)
+        {
+            // Exclude patterns drop commands, so 'matchedCount' is the number dropped.
+            // We can't know that without the pre-filter set; report 0 with a
+            // diagnostic when the pattern matches no discovered tool name (i.e. it
+            // either dropped everything that matched, or was never relevant).
+            var matchedCount = toolEntries.Count(t =>
+                !string.IsNullOrEmpty(t.CommandName) && PatternMatches(p, t.CommandName));
+            var status = matchedCount > 0 ? "warning" : "ok";
+            string? diag = matchedCount > 0
+                ? $"Exclude pattern '{LogSanitizer.Scrub(p)}' did not drop matching tool '{LogSanitizer.Scrub(toolEntries.First(t => PatternMatches(p, t.CommandName)).ToolName)}'."
+                : null;
+            patternEntries.Add(new PatternImportEntry
+            {
+                Pattern = p,
+                Kind = "exclude",
+                Role = "exclude",
+                MatchedCount = matchedCount,
+                Status = status,
+                Diagnostic = diag,
+            });
+        }
+
+        return new ModuleImportsSection
+        {
+            Modules = moduleEntries,
+            Patterns = patternEntries,
+            Tools = toolEntries,
+        };
+    }
+
+    /// <summary>
+    /// Spec 011: extract <c>(toolName, commandName)</c> from an
+    /// <see cref="McpServerTool"/>. <c>commandName</c> is sourced from
+    /// <see cref="ModelContextProtocol.Protocol.Tool.Title"/> when set
+    /// (McpToolFactoryV2 stores the original PowerShell command name there);
+    /// falls back to <c>null</c> when the tool was synthesized without a Title.
+    /// </summary>
+    private static (string toolName, string? commandName) ExtractToolIdentity(McpServerTool tool)
+    {
+        try
+        {
+            var protocol = tool.ProtocolTool;
+            var name = protocol.Name ?? string.Empty;
+            var title = protocol.Title;
+            return (name, string.IsNullOrWhiteSpace(title) ? null : title);
+        }
+        catch
+        {
+            return (string.Empty, null);
+        }
+    }
+
+    /// <summary>
+    /// PowerShell-style wildcard match against a single command name.
+    /// Translates <c>*</c> and <c>?</c> to a regex; case-insensitive.
+    /// </summary>
+    private static bool PatternMatches(string pattern, string? value)
+    {
+        if (string.IsNullOrEmpty(pattern) || string.IsNullOrEmpty(value))
+            return false;
+        try
+        {
+            var regex = "^" + Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".") + "$";
+            return Regex.IsMatch(value, regex, RegexOptions.IgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
 }

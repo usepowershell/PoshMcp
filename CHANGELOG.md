@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented here.
 
+## [Unreleased]
+
+### Added
+- **Doctor: `moduleImports` section (spec 011 — Issue #267)** — `poshmcp doctor` now reports per-module, per-pattern, and per-tool import diagnostics under a new `moduleImports` JSON section (and a corresponding text-rendered "Module Imports" block). Each module entry surfaces resolved version/path, contributed-tool count and names, and an `ok`/`warning`/`error` status; pattern entries distinguish `filter`, `discovery`, and `exclude` roles per FR-263-9; tool entries attribute every exposed tool to a `commandName`, `module`, `pattern`, or `unknown` source. The section is omitted entirely for `CommandNames`-only configurations (FR-263-6, SC-263-4). (#267)
+
+### Breaking
+- **Doctor: `summary.status` flips `healthy → errors` when configured modules fail to resolve, and `healthy → warnings` when modules resolve without contributing tools or include patterns match nothing.** Existing `CommandNames`-only configurations are unaffected — the new `moduleImports` section is omitted and `summary.status` is computed as before (SC-263-4). Operators relying on `summary.status === "healthy"` as a proxy for "everything is fine" should now also tolerate `warnings`/`errors` driven by misconfigured `Modules`/`IncludePatterns`/`ExcludePatterns`. (#267)
+
 ## [0.13.1] - 2026-05-15
 
 ### Added

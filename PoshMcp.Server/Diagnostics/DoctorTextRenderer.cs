@@ -18,9 +18,15 @@ public static class DoctorTextRenderer
             FormatSection("Environment Variables", RenderEnvironmentVariables(report.EnvironmentVariables)),
             FormatSection("PowerShell",            RenderPowerShell(report.PowerShell)),
             FormatSection("Functions/Tools",       RenderFunctionsTools(report.FunctionsTools)),
-            FormatSection("MCP Definitions",       RenderMcpDefinitions(report.McpDefinitions)),
-            FormatSection("Authentication",        RenderAuthentication(report.Authentication, report.Identity)),
         };
+
+        // Spec 011 FR-263-6: omit Module Imports section entirely when all three
+        // arrays are empty (e.g., CommandNames-only configurations).
+        if (HasModuleImports(report.ModuleImports))
+            parts.Add(FormatSection("Module Imports", RenderModuleImports(report.ModuleImports)));
+
+        parts.Add(FormatSection("MCP Definitions",       RenderMcpDefinitions(report.McpDefinitions)));
+        parts.Add(FormatSection("Authentication",        RenderAuthentication(report.Authentication, report.Identity)));
 
         if (report.OutOfProcess.Applicable)
             parts.Add(FormatSection("Out-of-Process Execution", RenderOutOfProcess(report.OutOfProcess)));
@@ -245,6 +251,67 @@ public static class DoctorTextRenderer
         if (!section.HostScriptResolved && !string.IsNullOrWhiteSpace(section.HostScriptError))
         {
             lines.Add($"      error    : {section.HostScriptError}");
+        }
+
+        return string.Join("\n", lines);
+    }
+
+    // ── Spec 011 — Module Imports ────────────────────────────────────────────
+
+    /// <summary>FR-263-6: section is omitted when all three arrays are empty.</summary>
+    private static bool HasModuleImports(ModuleImportsSection section)
+        => section.Modules.Count > 0
+        || section.Patterns.Count > 0
+        || section.Tools.Count > 0;
+
+    private static string RenderModuleImports(ModuleImportsSection section)
+    {
+        var lines = new List<string>
+        {
+            $"  modules  : {section.Modules.Count} configured",
+        };
+
+        foreach (var m in section.Modules)
+        {
+            var sym = m.Status switch
+            {
+                "ok" => "✓",
+                "warning" => "⚠",
+                _ => "✗",
+            };
+            var statusUpper = m.Status.ToUpperInvariant();
+            var version = m.Version ?? "(unknown)";
+            lines.Add($"  - {m.Name} → {m.ContributedToolCount} tool(s) [v{version}] [{sym} {statusUpper}]");
+            if (!string.IsNullOrEmpty(m.Diagnostic))
+                lines.Add($"      {m.Diagnostic}");
+        }
+
+        if (section.Patterns.Count > 0)
+        {
+            lines.Add(string.Empty);
+            lines.Add($"  patterns : {section.Patterns.Count} configured");
+            foreach (var p in section.Patterns)
+            {
+                var sym = p.Status == "ok" ? "✓" : "⚠";
+                var statusUpper = p.Status.ToUpperInvariant();
+                lines.Add($"  - [{p.Kind}/{p.Role}] '{p.Pattern}' → {p.MatchedCount} match(es) [{sym} {statusUpper}]");
+                if (!string.IsNullOrEmpty(p.Diagnostic))
+                    lines.Add($"      {p.Diagnostic}");
+            }
+        }
+
+        if (section.Tools.Count > 0)
+        {
+            lines.Add(string.Empty);
+            lines.Add($"  tools    : {section.Tools.Count} attributed");
+            foreach (var t in section.Tools)
+            {
+                var sym = t.Disposition == "exposed" ? "✓" : "✗";
+                var detail = string.IsNullOrEmpty(t.SourceDetail) ? "" : $" ← {t.SourceDetail}";
+                lines.Add($"  - {t.ToolName} [{sym} {t.Source}{detail}]");
+                if (!string.IsNullOrEmpty(t.Diagnostic))
+                    lines.Add($"      {t.Diagnostic}");
+            }
         }
 
         return string.Join("\n", lines);
