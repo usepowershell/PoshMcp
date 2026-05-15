@@ -56,6 +56,18 @@ public static class AuthenticationServiceExtensions
                         // now that inbound claim mapping is disabled.
                         options.TokenValidationParameters.RoleClaimType = scheme.ClaimsMapping.RoleClaim;
 
+                        // If a NameClaim is configured, override the JwtBearer default
+                        // (NameClaimType = "name") so ClaimsIdentity.Name resolves to a
+                        // claim that actually exists on the token. Critical for AAD v2.0
+                        // access tokens, which carry "preferred_username"/"oid"/"sub" but
+                        // no "name" claim — leaving Identity.Name null without this.
+                        // Backwards-compatible: when NameClaim is null/empty, the
+                        // JwtBearer default is preserved untouched.
+                        if (!string.IsNullOrEmpty(scheme.ClaimsMapping.NameClaim))
+                        {
+                            options.TokenValidationParameters.NameClaimType = scheme.ClaimsMapping.NameClaim;
+                        }
+
                         // Build the full set of valid audiences: primary Audience + any extras.
                         var allAudiences = scheme.ValidAudiences.ToList();
                         if (!string.IsNullOrEmpty(scheme.Audience) &&

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -100,5 +101,65 @@ public class AuthenticationServiceExtensionsTests
         var options = sp.GetRequiredService<IOptions<AuthenticationConfiguration>>();
 
         Assert.False(options.Value.Enabled);
+    }
+
+    [Fact]
+    public void WhenNameClaimNotConfigured_JwtBearerNameClaimType_PreservesDefault()
+    {
+        // Backwards compatibility: if NameClaim is absent from config, do NOT mutate
+        // the JwtBearer default ("name"). Existing deployments must keep the same
+        // Identity.Name resolution behavior.
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Authentication:Enabled"] = "true",
+                ["Authentication:DefaultScheme"] = "Bearer",
+                ["Authentication:Schemes:Bearer:Type"] = "JwtBearer",
+                ["Authentication:Schemes:Bearer:Authority"] = "https://login.microsoftonline.com/tenant/v2.0",
+                ["Authentication:Schemes:Bearer:Audience"] = "api://my-app",
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        services.AddPoshMcpAuthentication(config);
+
+        var sp = services.BuildServiceProvider();
+        var jwtOptions = sp.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>().Get("Bearer");
+
+        // JwtBearer's stock default is the SOAP-style name URI; make sure we left it alone.
+        const string defaultNameClaim = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name";
+        Assert.Equal(defaultNameClaim, jwtOptions.TokenValidationParameters.NameClaimType);
+        Assert.Null(sp.GetRequiredService<IOptions<AuthenticationConfiguration>>().Value
+            .Schemes["Bearer"].ClaimsMapping.NameClaim);
+    }
+
+    [Fact]
+    public void WhenNameClaimConfigured_JwtBearerNameClaimType_IsOverridden()
+    {
+        // AAD v2.0 access tokens carry "preferred_username" instead of "name".
+        // Verify operators can wire that through ClaimsMapping.NameClaim so
+        // Identity.Name (and therefore the doctor report) resolves correctly.
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Authentication:Enabled"] = "true",
+                ["Authentication:DefaultScheme"] = "Bearer",
+                ["Authentication:Schemes:Bearer:Type"] = "JwtBearer",
+                ["Authentication:Schemes:Bearer:Authority"] = "https://login.microsoftonline.com/tenant/v2.0",
+                ["Authentication:Schemes:Bearer:Audience"] = "api://my-app",
+                ["Authentication:Schemes:Bearer:ClaimsMapping:NameClaim"] = "preferred_username",
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        services.AddPoshMcpAuthentication(config);
+
+        var sp = services.BuildServiceProvider();
+        var jwtOptions = sp.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>().Get("Bearer");
+
+        Assert.Equal("preferred_username", jwtOptions.TokenValidationParameters.NameClaimType);
+        Assert.Equal("preferred_username",
+            sp.GetRequiredService<IOptions<AuthenticationConfiguration>>().Value
+                .Schemes["Bearer"].ClaimsMapping.NameClaim);
     }
 }

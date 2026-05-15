@@ -46,6 +46,16 @@ public class ClaimsMappingConfiguration
 {
     public string ScopeClaim { get; set; } = "scp";
     public string RoleClaim { get; set; } = "roles";
+
+    /// <summary>
+    /// Short claim name to use as <see cref="System.Security.Claims.ClaimsIdentity.Name"/>.
+    /// When null/empty, the JwtBearer default (<c>"name"</c>) is preserved for backwards
+    /// compatibility. Set to <c>"preferred_username"</c> for AAD v2.0 access tokens, which
+    /// do not carry a <c>name</c> claim by default and would otherwise leave
+    /// <c>Identity.Name</c> as <c>null</c>. Other common values: <c>"upn"</c>, <c>"oid"</c>,
+    /// <c>"sub"</c>, or <c>"unique_name"</c> for AAD v1.0 tokens.
+    /// </summary>
+    public string? NameClaim { get; set; }
 }
 
 public class ApiKeyDefinition
