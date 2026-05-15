@@ -50,4 +50,30 @@ public interface ICommandExecutor : IAsyncDisposable
         string commandName,
         IDictionary<string, object?> parameters,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Spec 011 FR-263-2 / FR-263-10: payload returned alongside the
+    /// <c>commands</c> array on the most recent <c>discover</c> response.
+    /// Surfaces per-module probe data and per-pattern match data so the
+    /// .NET consumer can build the doctor <c>moduleImports</c> section
+    /// without re-running <c>Get-Module -ListAvailable</c> in an
+    /// in-process runspace.
+    /// </summary>
+    /// <remarks>
+    /// <para><c>null</c> in any of the following cases:
+    /// <list type="bullet">
+    ///   <item>No discovery has been performed yet.</item>
+    ///   <item>The OOP host predates spec 011 (older hosts omit the
+    ///   <c>moduleImports</c> field from the discover response).</item>
+    ///   <item>The configuration uses only <c>CommandNames</c>
+    ///   (no modules or patterns; the host omits the payload because
+    ///   FR-263-6 requires the section to be empty).</item>
+    /// </list>
+    /// </para>
+    /// <para>Default implementation returns <c>null</c> so consumers that
+    /// don't care about this payload (and adapter implementations such as
+    /// the in-process path that don't run the OOP host at all) work without
+    /// changes.</para>
+    /// </remarks>
+    RemoteModuleImportsPayload? LastModuleImports => null;
 }

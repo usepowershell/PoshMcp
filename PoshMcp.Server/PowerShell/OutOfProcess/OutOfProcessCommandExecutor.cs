@@ -36,6 +36,10 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
     private OutOfProcessHost? _host;
     private bool _disposed;
     private IReadOnlyList<RemoteToolSchema>? _cachedSchemas;
+    private RemoteModuleImportsPayload? _cachedModuleImports;
+
+    /// <inheritdoc />
+    public RemoteModuleImportsPayload? LastModuleImports => _cachedModuleImports;
 
     // Cached setup parameters captured on first SetupAsync call so the
     // executor can replay environment configuration after an automatic
@@ -159,6 +163,25 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
         {
             _logger.LogWarning("Discover response missing 'commands' property. Raw: {Raw}", result.GetRawText());
             schemas = new List<RemoteToolSchema>();
+        }
+
+        // Spec 011 FR-263-2 / FR-263-10: optional moduleImports payload from
+        // the OOP host. Older hosts omit this entirely; missing is fine and
+        // signals to consumers (DoctorService) to fall back to the in-process
+        // probe path with a one-time warning.
+        if (result.TryGetProperty("moduleImports", out var moduleImportsElement)
+            && moduleImportsElement.ValueKind != JsonValueKind.Null)
+        {
+            try
+            {
+                _cachedModuleImports = JsonSerializer.Deserialize<RemoteModuleImportsPayload>(
+                    moduleImportsElement.GetRawText(), options);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Failed to deserialize moduleImports payload; treating as absent.");
+                _cachedModuleImports = null;
+            }
         }
 
         _logger.LogInformation("Discovered {Count} commands via OOP subprocess.", schemas.Count);

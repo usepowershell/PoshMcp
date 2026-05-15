@@ -778,6 +778,14 @@ function Invoke-DiscoverHandler {
     )
 
     $commands = [System.Collections.ArrayList]::new()
+    # Spec 011 FR-263-9: track per-command source attribution as commands
+    # are discovered. Priority: commandName > module > pattern. Keyed by
+    # command name (case-insensitive). Once a command is attributed it is
+    # not re-attributed by lower-priority loops.
+    $sourceMap = New-Object 'System.Collections.Generic.Dictionary[string,object]' ([System.StringComparer]::OrdinalIgnoreCase)
+    # Spec 011 FR-263-3: track include pattern match counts (per-pattern,
+    # case-sensitive: pattern strings are configured verbatim).
+    $patternMatchCounts = @{}
 
     # Import requested modules
     $modules = @()
@@ -828,6 +836,14 @@ function Invoke-DiscoverHandler {
             $cmds = @(Get-Command -Name $name -ErrorAction SilentlyContinue)
             foreach ($cmd in $cmds) {
                 $null = $commands.Add($cmd)
+                if (-not $sourceMap.ContainsKey($cmd.Name)) {
+                    $sourceMap[$cmd.Name] = [pscustomobject]@{
+                        Source        = 'commandName'
+                        SourceModule  = $null
+                        SourcePattern = $null
+                        SourceDetail  = $name
+                    }
+                }
             }
         }
         catch {
@@ -851,6 +867,20 @@ function Invoke-DiscoverHandler {
                     }
                     if (-not $excluded) {
                         $null = $commands.Add($cmd)
+                        if (-not $patternMatchCounts.ContainsKey($pattern)) { $patternMatchCounts[$pattern] = 0 }
+                        $patternMatchCounts[$pattern]++
+                        if (-not $sourceMap.ContainsKey($cmd.Name)) {
+                            # FR-263-9: prefer 'module' attribution over 'pattern'
+                            # when the command's ModuleName matches a configured
+                            # module (it always will here, since Get-Command was
+                            # scoped by -Module).
+                            $sourceMap[$cmd.Name] = [pscustomobject]@{
+                                Source        = 'module'
+                                SourceModule  = $moduleName
+                                SourcePattern = $null
+                                SourceDetail  = $moduleName
+                            }
+                        }
                     }
                 }
             }
@@ -870,7 +900,19 @@ function Invoke-DiscoverHandler {
                     foreach ($ep in $excludePatterns) {
                         if ($cmd.Name -like $ep) { $excluded = $true; break }
                     }
-                    if (-not $excluded) { $null = $commands.Add($cmd) }
+                    if (-not $excluded) {
+                        $null = $commands.Add($cmd)
+                        if (-not $patternMatchCounts.ContainsKey($pattern)) { $patternMatchCounts[$pattern] = 0 }
+                        $patternMatchCounts[$pattern]++
+                        if (-not $sourceMap.ContainsKey($cmd.Name)) {
+                            $sourceMap[$cmd.Name] = [pscustomobject]@{
+                                Source        = 'pattern'
+                                SourceModule  = $null
+                                SourcePattern = $pattern
+                                SourceDetail  = $pattern
+                            }
+                        }
+                    }
                 }
             }
             catch {
@@ -935,17 +977,97 @@ function Invoke-DiscoverHandler {
                 })
             }
 
+            $attribution = $null
+            if ($sourceMap.ContainsKey($cmd.Name)) { $attribution = $sourceMap[$cmd.Name] }
+
             $null = $schemas.Add([ordered]@{
                 Name             = $cmd.Name
                 Description      = $helpMeta.Synopsis
                 FullDescription  = $helpMeta.FullDescription
                 ParameterSetName = $paramSet.Name
                 Parameters       = @($parameters)
+                # Spec 011 FR-263-11: per-command source attribution. All
+                # three fields are nullable; only the one(s) corresponding to
+                # the winning source per FR-263-9 priority are populated.
+                SourceModule     = if ($attribution) { $attribution.SourceModule } else { $null }
+                SourcePattern    = if ($attribution) { $attribution.SourcePattern } else { $null }
+                SourceDetail     = if ($attribution) { $attribution.SourceDetail } else { $null }
             })
         }
     }
 
-    Write-NdjsonResponse -Id $Id -Result @{ commands = @($schemas) }
+    # Spec 011 FR-263-2 / FR-263-3 / FR-263-10: build the parallel
+    # moduleImports payload so the .NET consumer (DoctorService) can build
+    # the doctor moduleImports section without re-running Get-Module
+    # -ListAvailable in an in-process runspace.
+    $modulesPayload = [System.Collections.ArrayList]::new()
+    foreach ($moduleName in $modules) {
+        $found = $false
+        $version = $null
+        $path = $null
+        try {
+            # FR-263-10: one Get-Module -ListAvailable per configured module.
+            $availableModules = @(Get-Module -ListAvailable -Name $moduleName -ErrorAction SilentlyContinue)
+            if ($availableModules.Count -gt 0) {
+                $found = $true
+                $first = $availableModules[0]
+                if ($null -ne $first.Version) { $version = "$($first.Version)" }
+                if ($null -ne $first.Path) { $path = "$($first.Path)" }
+            }
+        }
+        catch {
+            Write-Diag "Warning: Get-Module -ListAvailable failed for '$moduleName': $_"
+        }
+        $null = $modulesPayload.Add([ordered]@{
+            Name    = $moduleName
+            Found   = [bool]$found
+            Version = $version
+            Path    = $path
+        })
+    }
+
+    # Determine pattern role per FR-263-3:
+    #   'discovery' when patterns are the sole driver (no modules + no commandNames)
+    #   'filter'    when other sources also populated the candidate set
+    #   'exclude'   for entries from ExcludePatterns
+    $anyOtherSource = ($modules.Count -gt 0) -or ($functionNames.Count -gt 0)
+    $patternsPayload = [System.Collections.ArrayList]::new()
+    foreach ($pattern in $includePatterns) {
+        $role = if ($anyOtherSource) { 'filter' } else { 'discovery' }
+        $matchedCount = 0
+        if ($patternMatchCounts.ContainsKey($pattern)) { $matchedCount = [int]$patternMatchCounts[$pattern] }
+        $null = $patternsPayload.Add([ordered]@{
+            Pattern      = $pattern
+            Kind         = 'include'
+            Role         = $role
+            MatchedCount = $matchedCount
+        })
+    }
+    foreach ($pattern in $excludePatterns) {
+        # Exclude patterns drop commands. Compute leakage: count of
+        # discovered (post-exclude) commands whose names still match the
+        # pattern (should be 0; non-zero indicates leakage).
+        $matchedCount = 0
+        foreach ($cmd in $uniqueCommands) {
+            if ($cmd.Name -like $pattern) { $matchedCount++ }
+        }
+        $null = $patternsPayload.Add([ordered]@{
+            Pattern      = $pattern
+            Kind         = 'exclude'
+            Role         = 'exclude'
+            MatchedCount = $matchedCount
+        })
+    }
+
+    $moduleImportsPayload = [ordered]@{
+        Modules  = @($modulesPayload)
+        Patterns = @($patternsPayload)
+    }
+
+    Write-NdjsonResponse -Id $Id -Result @{
+        commands      = @($schemas)
+        moduleImports = $moduleImportsPayload
+    }
 }
 
 function Invoke-InvokeHandler {

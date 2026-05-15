@@ -58,6 +58,39 @@ public class RemoteToolSchema
     /// Parameters for this command/parameter-set combination.
     /// </summary>
     public List<RemoteParameterSchema> Parameters { get; set; } = new();
+
+    /// <summary>
+    /// Spec 011 FR-263-11: configured module name that produced this command,
+    /// if attribution resolved to a module per FR-263-9 priority. Sourced from
+    /// <c>CommandInfo.ModuleName</c> when the module name appears in the
+    /// configured <c>Modules</c> list. <c>null</c> when attribution resolved
+    /// to <c>commandName</c> or <c>pattern</c> instead, or when the OOP host
+    /// predates spec 011 (older hosts omit this field; consumers MUST treat
+    /// missing/null as "unknown" and fall back to the in-process attribution
+    /// heuristic).
+    /// </summary>
+    public string? SourceModule { get; set; }
+
+    /// <summary>
+    /// Spec 011 FR-263-11: configured include pattern that matched this
+    /// command, if attribution resolved to <c>pattern</c> per FR-263-9
+    /// priority. <c>null</c> when attribution resolved to <c>commandName</c>
+    /// or <c>module</c> instead, or when the OOP host predates spec 011
+    /// (older hosts omit this field; consumers MUST treat missing/null as
+    /// "unknown" and fall back to the in-process attribution heuristic).
+    /// </summary>
+    public string? SourcePattern { get; set; }
+
+    /// <summary>
+    /// Spec 011 FR-263-11: verbatim configured string from whichever source
+    /// won attribution per FR-263-9 priority — the configured command name
+    /// when source is <c>commandName</c>, the configured module name when
+    /// source is <c>module</c>, the configured pattern when source is
+    /// <c>pattern</c>. <c>null</c> when the OOP host predates spec 011
+    /// (older hosts omit this field; consumers MUST treat missing/null as
+    /// "unknown" and fall back to the in-process attribution heuristic).
+    /// </summary>
+    public string? SourceDetail { get; set; }
 }
 
 /// <summary>
