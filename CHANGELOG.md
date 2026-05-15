@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented here.
 
+## [0.13.1] - 2026-05-15
+
+### Added
+- **Configurable `NameClaim` for AAD authentication.** `AuthenticationSchemes[*].ClaimsMapping` now accepts an optional `NameClaim` setting that maps `ClaimsIdentity.Name` from a non-default claim (e.g. `preferred_username` for AAD v2.0 access tokens). Fixes the doctor report showing `Identity name is null despite being authenticated` when the configured token authority emits `preferred_username` instead of `name`. Backwards compatible — when unset, the JWT bearer default (`name`) is used. (#262, #264)
+
+### Fixed
+- **Doctor: `effectiveProcessPoolSize` / `effectiveMinHealthyForStartup` displayed `0` in non-ProcessPool host modes.** These fields are now reported as the string sentinel `"n/a (Pool mode)"` (or `"n/a (Subprocess mode)"`, etc.) when ProcessPool sizing does not apply, eliminating the misleading `0` that conflicted with the configured pool size. The fields' JSON type is now `string` rather than `int`; consumers that parsed these as integers must update accordingly. (#261, #266)
+
 ## [0.13.0] - 2026-05-14
 
 ### Added
