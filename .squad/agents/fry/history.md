@@ -71,3 +71,17 @@ Detailed prior history (2026-03-27 through 2026-04-07) archived to `history-arch
 **By:** Scribe (cross-agent note from coordinator)
 **What:** v0.13.0 commits landed on origin/main: housekeeping `5847efb` + release `a2b9c3e` (csproj 0.12.3 → 0.13.0, CHANGELOG, docs/release-notes/0.13.0.md). Tests 777/0/7. Tag NOT yet created — pending CI green on `a2b9c3e`.
 **Marquee:** Spec 010 — Help-aware tool descriptions. In-process + OOP byte-identical schemas, `IToolMetadataSource` seam, FR-500/510/540 precedence, `HelpAwareToolMetadataSource` as default, doctor `descriptionSource` reporting, OTel counters, parity tests. Includes #222 (SwitchParameter round-trip) and #248 (parameter descriptions on inputSchema).
+
+## 2026-05-14: Issue #221 — Spec 009 Unit-Tier Acceptance Gate
+
+### Task
+Closing acceptance gate for Spec 009 (Test Suite Consistency). Measure 5 consecutive unit-tier runs, each <60s, 0 failures, 0 flake re-runs, on FR-419 maintainer reference machine.
+
+### Result
+GATE PASSED. 432 tests, 5/5 clean runs at 20.07-21.08s (mean 20.45s), ~65% headroom under 60s budget. 0 flakes. Issue #221 closed.
+
+### Learnings
+- Post-#216 main (commit 629486a) is stable: build clean, test set deterministic, no flakes observed across 5 sequential runs
+- Measure-Command wrapper around `dotnet test --no-build` gives reliable wall-clock; dotnet's reported "Duration: 19s/20s" matches Measure-Command within ~1s
+- The 20 build warnings are all pre-existing (NU1510 package pruning + nullable CS8602/CS8604) — none introduced by Spec 009 work
+- After #213-#218 (test re-categorization, Unit/Functional/Integration split, OutOfProcess move out of Unit), Category=Unit is now a tight fast tier

@@ -328,3 +328,140 @@ Lesson: When BDN reports show 3-decimal seconds, recomputed % deltas can differ 
 **By:** Scribe (cross-agent note from coordinator)
 **What:** v0.13.0 commits landed on origin/main: housekeeping `5847efb` + release `a2b9c3e` (csproj 0.12.3 → 0.13.0, CHANGELOG, docs/release-notes/0.13.0.md). Tests 777/0/7. Tag NOT yet created — pending CI green on `a2b9c3e`.
 **Marquee:** Spec 010 — Help-aware tool descriptions. In-process + OOP byte-identical schemas, `IToolMetadataSource` seam, FR-500/510/540 precedence, `HelpAwareToolMetadataSource` as default, doctor `descriptionSource` reporting, OTel counters, parity tests. Includes #222 (SwitchParameter round-trip) and #248 (parameter descriptions on inputSchema).
+
+### 2026-05-14: PR #254 (Bender, dynamic ports, closes #217) — APPROVE
+- Verified pre-PR state of all three candidate sites against `main`: `AppInsightsTestHttpServer:248` and `InProcessUnifiedHttpServer:317` both use `Random.Shared.Next(6100, 6900)`; `LoopbackHttpServer:206` already uses `TcpListener(IPAddress.Loopback, 0)` + read-back. Bender's audit table is exhaustive — `Random.Shared.Next` grep across PoshMcp.Tests returns exactly the two cited sites.
+- Verified post-PR state at SHA `0f87136f` via `gh api .../contents/...?ref=` (Base64 decode). Both bind sites now read `DynamicPort.Allocate()`; sweep for `:5000|:8080|localhost:[0-9]|127.0.0.1:[0-9]` returns nothing at bind sites. `ProxyTestFixtures:53` `localhost:5985` is the WSMan endpoint string (correctly classified as false positive in the PR body).
+- `DynamicPort.cs` exists in the diff (added, +55/-0). Implementation matches `LoopbackHttpServer` pattern verbatim. Test count: 4 + 4 + 1 = 9 `[Fact]` (categorization holds — `MultiUserIsolationTests:89` does use `InProcessUnifiedHttpServer`).
+- FR-411 alignment confirmed against `specs/009-test-suite-consistency/spec.md:100`. CI 7/7 green.
+- Lesson: when a PR body claims "no port literals remain", verify by fetching the merged-state file via `gh api repos/.../contents/PATH?ref=SHA` and decoding Base64, then grep. Local `main` doesn't reflect the PR's changes; relying on a workspace grep would have missed the actual post-PR state. The same Base64-decode trick I used on PR #210 a4c9ed0 applies here.
+- Lesson: when an audit table claims a third candidate is "already canonical", verify the canonical pattern actually exists at the cited line — don't take "already correct" on faith. Pulled `OutOfProcessHostConcurrencyTests.cs:206` and confirmed the `TcpListener(IPAddress.Loopback, 0)` + `LocalEndpoint.Port` read-back pattern. If the third site had drifted, the PR's claim of completeness would be wrong even though the changed sites are correct.
+
+
+### 2026-05-14: PR #252 fact-check (Amy — CI phased test execution, #215) — APPROVE
+
+**Verdict:** APPROVE. Comment: https://github.com/usepowershell/PoshMcp/pull/252#issuecomment-4453565416
+
+**Method:** Pulled PR diff (single file: .github/workflows/ci.yml, +50/-2). Counted distinct --filter "Category=X" steps (6, matches body table). Cross-checked phase order, filter strings, and TRX log paths against the PR-body table — exact match. Verified Azure-skip mechanism is the standard job-level-env workaround (HAS_AZURE_CREDS: secrets.AZURE_CLIENT_ID != "") gated at the step level on env.HAS_AZURE_CREDS. Confirmed FR-409, FR-407, FR-413, SC-104, SC-106 in spec.md match implementation. Spot-checked AssemblyInfo.cs:5 to confirm DisableTestParallelization=true preserved. Verified AZURE_CLIENT_ID is the established repo-wide env-var convention via 20 Select-String matches across docker.ps1, examples/, infrastructure/azure/, and AzureDeploymentIntegrationTests.cs (the secret name is new to GHA but the env-var contract pre-existed).
+
+**Patterns worth remembering:**
+
+- xUnit --filter "Category=X" matches against [Trait("Category","X")]. Untagged tests fall into the default bucket and are excluded from category filters — phased CI tolerates an in-flight trait rollout (#212) honestly without blocking it. Phases run against whatever is currently tagged.
+- A test class with multiple [Trait("Category", ...)] attributes is matched by EVERY --filter "Category=X" it carries. So AzureDeploymentIntegrationTests with Integration+Azure+Docker traits executes under both the Integration phase AND the Azure phase. Worth flagging on a CI-phasing PR even when the cause lives in the trait-rollout PR — saves the next reviewer from re-discovering it.
+- GitHub Actions blocks secrets.X != "" directly inside step-level if: outside environment contexts. Standard workaround = job-level env: HAS_X: ${{ secrets.X != "" }} then step uses if: env.HAS_X == "true". Always pair with a companion "skipped — no credentials" step on the negated condition so the UI shows an explicit skip rather than a missing step.
+- gh pr view 252 --json statusCheckRollup returned non-zero / no output during this review (CI status not independently confirmed). When that happens, fall back to the diff + spec cross-check — the workflow YAML is fully reviewable statically and CI green is corroboration, not evidence.
+
+
+### 2026-05-14: Fact-check — PR #255 (Hermes: centralize pwsh subprocess teardown, closes #218) — APPROVE
+
+- Branch `squad/218-pwsh-teardown` @ `5e852e4`. Diff scope: 8 files, all under `PoshMcp.Tests/` (4 modified `Integration/*Tests.cs`, 1 new `SubprocessTeardownTests.cs`, 2 new `Shared/*.cs`: `SubprocessTeardown.cs` and `OrphanProcessAuditor.cs`). +516/-58.
+- All 5 claimed spawn sites verified pre-PR (had real `pwsh` or `dotnet` Process spawn) and post-PR (route through `SubprocessTeardown.Teardown` or `TeardownAsync`):
+  * `McpServerIntegrationTests.cs` (`InProcessMcpServer.StopServerProcess`) — sync `Teardown(_serverProcess, _logger)`
+  * `ApplicationInsightsIntegrationTests.cs` (`AppInsightsTestHttpServer.Dispose`) — sync `Teardown(_serverProcess)`
+  * `UnifiedHttpTransportIntegrationTests.cs` (anonymous `Dispose`) — sync `Teardown(_serverProcess)`
+  * `DeployScriptConfigurationPrecedenceTests.cs` (inline pwsh) — `using` dropped, async `try/finally` + `TestProcessRegistry.Register` + `TeardownAsync`
+  * `AzureDeploymentIntegrationTests.cs` (`RunCommandAsync`) — same async `try/finally` + Register + `TeardownAsync` pattern
+- `SubprocessTeardown.cs` contract verified line-by-line: `Kill(entireProcessTree:true)` swallowing `InvalidOperationException`, bounded `WaitForExitAsync` (5s default), Windows-only `Process.GetProcessById` poll loop (50ms × 2s default, `ArgumentException` = released), `SafeUnregisterAndDispose` always in `finally`. Defensive PID capture up-front via `TryCapturePid`; `HasExitedSafe` returns true on throw to prevent loop hangs. Never throws — designed for `finally`/`Dispose` paths. Matches FR-412 verbatim ("full process exit and handle release").
+- Production OOP host (`PoshMcp.Server/PowerShell/OutOfProcess/`) untouched — confirmed via `gh pr diff --name-only`. Zero diff entries outside `PoshMcp.Tests/`.
+- Orphan-audit claim ("0 new living pwsh PIDs across both smoke scenarios; 2/2 ✓; impacted suites 8/8 ✓") backed by in-tree evidence: `Integration/SubprocessTeardownTests.cs` (two `[PwshAvailableFact]` tests covering short-lived `exit 0` and hung `Start-Sleep -Seconds 120` paths) + `Shared/OrphanProcessAuditor.cs` (diff-based snapshot of `Process.GetProcessesByName("pwsh")` PIDs). Diff-based design avoids false positives from unrelated dev pwsh sessions. Soft caveat: no CI artifact attached, evidence rests on (a) reproducible smoke tests now in tree (will run in Integration phase on every CI build) + (b) reported local execution in the session terminal history. Not a blocker.
+- Coverage completeness audited — grep for `new Process`, `Process.Start`, `FileName = "pwsh"`, `FileName = "dotnet"` in `PoshMcp.Tests/` returns exactly the 5 refactored files. No uncovered spawn sites.
+- Verdict posted: https://github.com/usepowershell/PoshMcp/pull/255#issuecomment-4453569644 (artifacts/cubert-pr255-verdict.md).
+- Lesson: when verifying "production code untouched" claims, `gh pr diff --name-only` is the fastest oracle — beats grepping the worktree because it answers the in/out question directly without ambiguity about which tree you're looking at.
+- Lesson: orphan-process audit smoke tests that live in-tree are stronger evidence than one-shot CI artifacts — they re-run on every Integration phase forever, which means a regression to `SubprocessTeardown` will surface on the very next PR rather than waiting for someone to notice an attached log is stale.
+- Lesson: when the workspace has multiple worktrees (poshmcp, poshmcp-212, poshmcp-218), shell `cd`/`Set-Location` between commands does NOT persist across separate `run_in_terminal` invocations — each call starts fresh in whatever cwd the terminal was last in. Use `cmd /c "cd /d X && ..."` or absolute `--body-file` paths to avoid the wrong cwd. Hit this twice tonight before correcting.
+
+
+### 2026-05-14: Fact-check — PR #255 (Hermes: centralize pwsh subprocess teardown, closes #218) — APPROVE
+
+- Branch `squad/218-pwsh-teardown` @ `5e852e4`. Diff scope: 8 files, all under `PoshMcp.Tests/` (4 modified `Integration/*Tests.cs`, 1 new `SubprocessTeardownTests.cs`, 2 new `Shared/*.cs`: `SubprocessTeardown.cs` and `OrphanProcessAuditor.cs`). +516/-58.
+- All 5 claimed spawn sites verified pre-PR (had real `pwsh` or `dotnet` Process spawn) and post-PR (route through `SubprocessTeardown.Teardown` or `TeardownAsync`):
+  * `McpServerIntegrationTests.cs` (`InProcessMcpServer.StopServerProcess`) — sync `Teardown(_serverProcess, _logger)`
+  * `ApplicationInsightsIntegrationTests.cs` (`AppInsightsTestHttpServer.Dispose`) — sync `Teardown(_serverProcess)`
+  * `UnifiedHttpTransportIntegrationTests.cs` (anonymous `Dispose`) — sync `Teardown(_serverProcess)`
+  * `DeployScriptConfigurationPrecedenceTests.cs` (inline pwsh) — `using` dropped, async `try/finally` + `TestProcessRegistry.Register` + `TeardownAsync`
+  * `AzureDeploymentIntegrationTests.cs` (`RunCommandAsync`) — same async `try/finally` + Register + `TeardownAsync` pattern
+- `SubprocessTeardown.cs` contract verified line-by-line: `Kill(entireProcessTree:true)` swallowing `InvalidOperationException`, bounded `WaitForExitAsync` (5s default), Windows-only `Process.GetProcessById` poll loop (50ms × 2s default, `ArgumentException` = released), `SafeUnregisterAndDispose` always in `finally`. Defensive PID capture up-front via `TryCapturePid`; `HasExitedSafe` returns true on throw to prevent loop hangs. Never throws — designed for `finally`/`Dispose` paths. Matches FR-412 verbatim ("full process exit and handle release").
+- Production OOP host (`PoshMcp.Server/PowerShell/OutOfProcess/`) untouched — confirmed via `gh pr diff --name-only`. Zero diff entries outside `PoshMcp.Tests/`.
+- Orphan-audit claim ("0 new living pwsh PIDs across both smoke scenarios; 2/2 ✓; impacted suites 8/8 ✓") backed by in-tree evidence: `Integration/SubprocessTeardownTests.cs` (two `[PwshAvailableFact]` tests covering short-lived `exit 0` and hung `Start-Sleep -Seconds 120` paths) + `Shared/OrphanProcessAuditor.cs` (diff-based snapshot of `Process.GetProcessesByName("pwsh")` PIDs). Diff-based design avoids false positives from unrelated dev pwsh sessions. Soft caveat: no CI artifact attached, evidence rests on (a) reproducible smoke tests now in tree (will run in Integration phase on every CI build) + (b) reported local execution in the session terminal history. Not a blocker.
+- Coverage completeness audited — grep for `new Process`, `Process.Start`, `FileName = "pwsh"`, `FileName = "dotnet"` in `PoshMcp.Tests/` returns exactly the 5 refactored files. No uncovered spawn sites.
+- Verdict posted: https://github.com/usepowershell/PoshMcp/pull/255#issuecomment-4453569644 (artifacts/cubert-pr255-verdict.md).
+- Lesson: when verifying "production code untouched" claims, `gh pr diff --name-only` is the fastest oracle — beats grepping the worktree because it answers the in/out question directly without ambiguity about which tree you're looking at.
+- Lesson: orphan-process audit smoke tests that live in-tree are stronger evidence than one-shot CI artifacts — they re-run on every Integration phase forever, which means a regression to `SubprocessTeardown` will surface on the very next PR rather than waiting for someone to notice an attached log is stale.
+- Lesson: when the workspace has multiple worktrees (poshmcp, poshmcp-212, poshmcp-218), shell `cd`/`Set-Location` between commands does NOT persist across separate `run_in_terminal` invocations — each call starts fresh in whatever cwd the terminal was last in. Use `cmd /c "cd /d X && ..."` or absolute `--body-file` paths to avoid the wrong cwd. Hit this twice tonight before correcting.
+
+### 2026-05-14: PR #253 fact-check (Leela — TESTING.md) — REQUEST CHANGES
+- Verdict ⚠️ REQUEST CHANGES. F1 blocker: `Default bucket for untagged tests` punts on a name (`Integration`) that is already committed in Fry's PR #256 `AssemblyInfo.cs:8-25`, and forwards to `PoshMcp.Tests/README.md` which does NOT document the trait policy at HEAD. Broken cross-reference for external-facing doc.
+- F2 non-blocker: `Phase order in CI follows fast-fail logic` overstates — actual #252 order is Unit → Integration → OutOfProcess → Http → Functional → Azure, with Http and Functional running AFTER heavier OutOfProcess.
+- Verified ✅: all six categories match Amy's #252 CI filters; Azure skip-when-no-creds at AzureDeploymentIntegrationTests.cs:70-72 (in-test, not just CI gate); FR-411 dynamic-port caveat matches Hermes #254; FR-416 rule applied correctly in Fry #256 (StdioLoggingTests → Integration, SetupTestsShared → Functional); README link present and bold; `DisableTestParallelization=true` preserved; all FR refs accurate.
+- Lockout: recommended Fry for revision (owns AssemblyInfo policy text Leela needs to quote).
+- Posted via gh pr comment (gh pr review --request-changes self-blocks on usepowershell EMU). Wrote decisions inbox file.
+- Lesson: wave-of-PRs review = mandatory cross-PR verification. `set by issue #X` is a tell that another PR's content needs verification before approving the doc that references it.
+- Lesson: `gh pr view N` without `-R usepowershell/PoshMcp` returned wrong PR data on first call; always pass `-R` due to smurawski/poshmcp redirect.
+
+\
+
+### 2026-05-14: Fact-check — PR #256 (Fry: spec 009 Category trait baseline) — APPROVE
+
+- Built PoshMcp.Tests.dll in worktree poshmcp-212 (clean, NU1510 pre-existing). Ran `dotnet test --no-build --list-tests` per category in the worktree and counted FQN lines.
+- Counts match PR claim exactly: Unit 424 / Integration 71 / OutOfProcess 161 / Http 4 / Azure 3 / Functional 124. Sum = 787.
+- 787-vs-784 reconciliation: `AzureDeploymentIntegrationTests` carries class-level `Azure` AND 3 method-level `Integration`, so 3 tests appear in both filters. 787 − 3 overlap = 784 unique. Math reconciles.
+- `AssemblyInfo.cs` default-bucket = `Integration` (verbatim FR-417 prohibition against `Unit` confirmed in the comment block).
+- Three non-canonical class-level traits replaced (McpPrompts→Integration, McpResources→Integration, OutOfProcessModules→OutOfProcess); method-level non-canonical (`RequiresImplementation`, `OutOfProcessModules`, `Docker`) explicitly retained per PR scope.
+- `scripts/add-category-traits.ps1` present (293 lines, idempotent class→category map). Diff +404/−3, no production-source changes.
+- Posted via `gh pr comment 256` (issuecomment-4453601426).
+
+**Pattern worth remembering:**
+- When `--list-tests` per-category sums exceed the unique-test total, look for class-level + method-level Category dual tags on the same class — those tests appear under multiple filters and double-count in the sum. Reconcile by computing `sum − unique = overlap_count` and finding a class with that many dual-tagged methods.
+- PowerShell `-Command` through `cmd /c` swallows `$variable` and `\` characters unpredictably. For anything beyond trivial one-liners, write a `.ps1` script and invoke with `-File` plus `-LiteralPath` parameters.
+
+## 2026-05-14 — PR #253 re-verify (TESTING.md)
+
+- Fry pushed c12f26d addressing both findings.
+- F1 fixed: dead pointer to PoshMcp.Tests/README.md replaced with inline 'default bucket = Integration' citing PoshMcp.Tests/AssemblyInfo.cs. Verified against squad/212-category-traits-baseline — AssemblyInfo policy block matches verbatim.
+- F2 fixed: 'fast-fail logic' framing replaced with neutral 'Unit runs first ... ordering of remaining phases owned by .github/workflows/ci.yml'. Matches PR #252 actual order.
+- Verdict flipped ⚠️ → ✅. Lockout protocol respected (Leela locked, Fry revised — correct since he owns the AssemblyInfo policy in #256).
+- Lesson: when a doc cites another file, fetch that file at the cited ref before approving. AssemblyInfo on the right branch was the only way to confirm F1 was a real fix and not just a different incorrect citation.
+
+### 2026-05-14: Fact-check — PR #257 (Amy: ci(009) flake-rate workflow) — APPROVE
+- Pulled raw flake-rate.yml via gh api at ref squad/216-ci-flake-rate-measurement; re-validated with python yaml.safe_load (PARSED OK).
+- Verified workflow_dispatch input runs default '5' string, schedule cron '0 7 * * *' (nightly UTC), 5 phases (Unit/Integration/OutOfProcess/Http/Functional, no Azure).
+- Cross-checked phase filter syntax against PR #252's ci.yml diff: 'Category=X' strings match one-for-one.
+- Aggregator confirmed: TRX walked via SelectNodes('//t:UnitTestResult', ) under TeamTest 2010 namespace; Failed/NotExecuted/Other split per test; sorted by total non-pass desc.
+- Both artifacts present (flake-rate-summary, flake-runs-raw, both if: always()), GITHUB_STEP_SUMMARY mirror present. set +e + per-phase exit-codes.txt prevents iteration short-circuit.
+- Workflow is ADDED file (345/0); ci.yml not touched. FR-418 satisfied. Comment posted: #issuecomment-4453761687.
+
+### 2026-05-14 — PR #258 verification (Hermes, spec 009 / #219, TempDirectory helper)
+- ✅ PROCEED (with one wait condition). All substantive claims verified against `gh pr diff 258`.
+- Three real audit hits confirmed pre/post: `ResolveModulePaths_DeduplicatesCaseInsensitively` (Farnsworth's PR #256 flag — fixed `PoshMcp-ResolveModulePaths` name) + two `ProgramTests.ResolveConfigurationPath_*` cases (bare `Path.GetTempPath()` writes of `appsettings.json` / `config.json`).
+- Three representative refactors confirmed: `ModuleDiscoveryStartupOrderingTests` (field `_tempDirectory` preserved as `=> _tempDir.Path` view to keep diff small), `OutOfProcessIntegrationTests` (`_testTempDirHolder` companion), `OutOfProcessPoolHostIntegrationTests` (3 inline pool tests).
+- `OopTestPaths.cs` confirmed NOT in the 8-file diff. Intentional; documented in PR body.
+- `TempDirectory.cs` (+115) and `TempDirectoryTests.cs` (+97, 8 `[Fact]` methods, `[Trait("Category","Unit")]`) verified. Helper contract: `Prefix = "poshmcp-test-"` + `Guid:N`, optional label, `_disposed` guard set BEFORE delete attempt (covers the throwing-delete idempotency case), `s_undeleted` audit bag, `AuditLeftoverDirectories()` cross-run sweep.
+- Independent `Path.GetTempPath` audit across `PoshMcp.Tests/**`: NO newly discovered FR-403 violations. Remaining sites are already-unique GUID paths (eligible for the explicit follow-up sweep), `GetTempFileName()` (OS-unique), or read-only/synthesized paths.
+- Wait condition: `CI / build` job (run 25878951951) and CodeQL `Analyze (csharp)` were still IN_PROGRESS at review time. `Squad CI / test` was already SUCCESS — the strongest signal for a test-only change.
+- Build / test counts (`0 errors`, `64+29 pass`) marked ⚠️ author-attested — not independently re-run; consistent with green `Squad CI / test` but not granular enough to cite per-filter counts.
+- Verdict: `artifacts/cubert-pr258-verdict.md` · Comment: https://github.com/usepowershell/PoshMcp/pull/258#issuecomment-4453769035
+
+### 2026-05-14: Fact-check — PR #259 (Fry: reclassify misfiled Unit tests, Spec 009/#213) — APPROVE
+- Diff is textbook FR-414: 8 file renames (similarity 98–99%), each one line edit (namespace PoshMcp.Tests.Unit.OutOfProcess → PoshMcp.Tests.OutOfProcess). Zero touches to `[Trait]`, `[Fact]`, asserts, setup, fixtures. Aggregate +8/-8 confirms scope.
+- Verified all 8 listed files match the audit table 1:1. `git diff main --stat` on the worktree shows exactly the 8 `{Unit => }/OutOfProcess/` renames, nothing else.
+- Directory hygiene: `PoshMcp.Tests/Unit/OutOfProcess/` is GONE on the PR branch (Test-Path returns false). Farnsworth's hygiene flag clears.
+- Independently grepped retained Unit files for `Process.Start`, `ProcessStartInfo`, `TcpListener`, `HttpListener`, `"pwsh`, `BindAsync`, `Listen(`, `GetTempPath`: `OAuthProxyEndpointsTests`, `WinPsCompatProxyTests`, `ProgramCliBuildCommandTests`, `ServerSessionAwarePowerShellRunspaceTests` are all clean. `ProgramCliConfigCommandsTests` and `ProgramCliScaffoldCommandTests` (NOT named in PR body) hit `GetTempPath` — but inspected context: both wrap it in a nested `TemporaryDirectory` helper with `poshmcp-cli-tests-{Guid.NewGuid():N}` suffix. Matches the "safe pattern" Hermes documented in PR #258. Not a violation; candidate for the follow-up `TempDirectory` migration sweep.
+- Reproduced the Unit tier metric: `dotnet test --filter "Category=Unit"` ran 432/0 in 20s test-only (29.7s wall). Author claimed 432/0 in 39s — count exact, timing well under FR-405 budget (60s).
+- OOP tier metric (155/0/6 skipped) NOT independently re-run — too expensive in this verification window. CI `Squad CI / test` green on head SHA corroborates. Marked ⚠️ in verdict, not a blocker.
+- Verdict: APPROVE, ready to merge. Posted to PR #259.
+- Process learning: PR #256's "grep the file, never infer from folder" rule WORKED again here — Fry's PR body listed `ProgramCli*Tests.cs` collectively as compliant, but only named `ProgramCliBuildCommandTests`. The other two (Config, Scaffold) DO touch `GetTempPath`, just safely. Folder/PR-body claims are not a substitute for grep evidence on each file.
+
+### 2026-05-14: Fact-check — PR #260 (Fry: FR-416 sweep of Functional folder, closes #220) — APPROVE
+
+- All 6 Fry claims verified on branch `squad/220-functional-reclassify` @ `b430a9d` via the existing worktree at `C:\Users\stmuraws\source\github\usepowershell\poshmcp-220`.
+- C1 metadata-only diff: confirmed via `gh pr diff 260` — 2 single-line Trait flips, 1 git mv + namespace flip on the moved file (StdioLoggingTests), +5 lines in TESTING.md. Zero body/assert/setup/data edits.
+- C2 StdioLoggingTests OutOfProcess shape: confirmed lines 31, 35, 62, 67, 69, 70 use `InProcessMcpServer`/`ExternalMcpClient`/`StartAsync` — the OutOfProcess subprocess shape, strictly more specific than Integration.
+- C3 ConfigurationReloadTests real I/O: confirmed `Path.GetTempFileName()` (line 68), `File.WriteAllTextAsync` (line 82), `File.Delete` (line 110).
+- C4 SetupTests partial-class promotion: confirmed FOUR partials touch FS (ShouldParseJsonFileCorrectlyTest, ShouldThrowExceptionWithInvalidJsonTest, ShouldThrowExceptionWithMissingFileTest, ShouldWorkWithConfigurationToToolsListIntegrationTest), and the `[Trait]` lives on the shared declaration in `SetupTestsShared.cs`. Whole-partial promotion is correct per FR-416. Same pattern Fry used in #259.
+- C5 borderline `ShouldHandleGetChildItemCorrectly`: confirmed `[Fact(Skip = "...")]` at line 20 and `Path.GetTempPath()` at line 52 is string-only (variable assignment, no file ops). Leaving Functional is correct.
+- C6 TESTING.md: +5 lines accurately enumerate the 3 reclassifications and the in-process groups that remain Functional.
+- C7 reproducibility: `dotnet test --filter "Category=Functional"` locally returned `Passed: 107, Skipped: 1, Total: 108, Duration: 4 s`. The 1 skip is the borderline. Cheap (~4s) and proves Functional tier stays green after the sweep.
+- Did NOT re-run Unit tier (432/432) or the targeted 18/18 — Fry's PR description records them and they were visible in Steven's recent session terminal output. The clean Functional run + metadata-only diff give high confidence.
+- Lesson — partial-class promotion is the right shape for FR-416 even when it over-classifies a few clean partials. Auditing every partial individually would re-introduce case-by-case judgment, which is exactly what FR-416 forbids.
+- Lesson — when a worktree already exists for the PR, USE IT. Avoids `git checkout` on the main checkout, isolates the build artifacts, and keeps Steven's main checkout on `main`.
+- Posted neutral verdict via `gh pr comment 260 --body-file artifacts/cubert-pr260-verdict.md`. Strict lockout NOT triggered (verdict is APPROVE).

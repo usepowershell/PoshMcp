@@ -5,6 +5,75 @@
 
 ## Learnings
 
+### 2026-05-14: Issue #217 — Resource hygiene audit, dynamic ports (PR draft)
+
+**Requested by:** Steven (Ralph started everyone on milestone 6 / spec 009).
+Spec 009 FR-411: tests that bind a TCP port must use port 0 + read back the
+actual port, not a hard-coded port from a small range.
+
+**Audit results.** Scanned `PoshMcp.Tests/` for `HttpListener|TcpListener|`
+`UseUrls|ListenLocalhost|UseKestrel|ConfigureKestrel|WebApplication.Create|`
+`UseHttpSys|Kestrel|ListenAnyIP|builder.WebHost`, plus port-literal patterns
+`:5000`, `:8080`, `:5001`, `:8081`, `localhost:N`, `127.0.0.1:N`, range
+allocators (`Random.Shared.Next`, `new Random()`).
+
+| File | Pattern found | Action |
+| --- | --- | --- |
+| `Unit/OutOfProcess/OutOfProcessHostConcurrencyTests.cs` (`LoopbackHttpServer`) | HttpListener bound via TcpListener probe on port 0 → URL `http://127.0.0.1:{port}/` | None — already canonical |
+| `Integration/ApplicationInsightsIntegrationTests.cs` (`AppInsightsTestHttpServer`) | `_port = port == 0 ? Random.Shared.Next(6100, 6900) : port;` | Replaced with `DynamicPort.Allocate()` |
+| `Integration/UnifiedHttpTransportIntegrationTests.cs` (`InProcessUnifiedHttpServer`) | Same `Random.Shared.Next(6100, 6900)` pattern | Replaced with `DynamicPort.Allocate()` |
+| `Fixtures/ProxyTestFixtures.cs` `:5985` and `Unit/WinPsCompatProxyTests.cs` `:1234` | Port literals in WSMan URL strings used as test description data — NOT bind sites | False positive — left alone |
+
+**Helper extracted.** Added `PoshMcp.Tests/Shared/DynamicPort.cs` — a single
+`Allocate()` method that binds `TcpListener(IPAddress.Loopback, 0)`, reads
+`((IPEndPoint)LocalEndpoint).Port`, then `Stop()`s the probe so the caller's
+child process can bind it. XML doc explains the small race window and why it's
+still vastly better than the 800-port range-picker we replaced (which
+collided across concurrent CI runs).
+
+**Why a probe-and-release helper instead of binding port 0 in-place.** The
+two affected fixtures spawn a child `dotnet run -- serve --transport http
+--url http://localhost:N` process and pass the URL by argument — the parent
+needs the numeric port BEFORE the child has bound. `LoopbackHttpServer`
+already used this exact pattern; I lifted it into shared code instead of a
+third copy.
+
+**Consumer changes.** `ServerUrl` properties were already
+`$"http://localhost:{_port}"` in both fixtures, so consumers didn't need any
+changes — the field they read is now populated by the OS instead of by a
+range-picker.
+
+**Validation.**
+- Build: `dotnet build PoshMcp.Tests` — 0 errors, 20 warnings, all
+  pre-existing (NU1510 + CS8602/CS8604 in untouched files).
+- Tests passed (background-spawned pwsh-style child processes; durations are
+  whole-second granularity from VSTest):
+  - `UnifiedHttpTransportIntegrationTests` — 4/4 (covers `InProcessUnifiedHttpServer`)
+  - `ApplicationInsightsIntegrationTests` — 4/4 (covers `AppInsightsTestHttpServer`)
+  - `MultiUserIsolationTests` — 1/1 (also uses `InProcessUnifiedHttpServer`)
+  - Total: 9/9 impacted tests pass.
+- `OutOfProcessHostConcurrencyTests` (the unchanged `LoopbackHttpServer`)
+  was attempted but the platform terminal kept cancelling the run mid-flight;
+  the fixture itself was not modified, so its existing pre-spec-009 baseline
+  applies.
+
+**Don't regress.**
+- `DynamicPort.Allocate()` is the canonical pattern for fixtures that hand
+  a port to a child process by argument. For fixtures that own the listener
+  in-process (HttpListener, TcpListener, Kestrel inside the test process),
+  prefer to bind to port 0 directly and read the bound endpoint —
+  `Allocate()` is only required when the bind happens elsewhere.
+- The probe-and-release race window is real but rare. If a future change
+  starts seeing collisions in CI, the fix is retry-on-bind-failure inside
+  the helper, NOT going back to a hand-picked range.
+- The two fixtures still expose an optional `port` parameter (default 0).
+  Keep that — callers can override for diagnosis. The auto-allocation only
+  kicks in when `port == 0`.
+
+---
+
+
+
 ### 2026-05-13: Issue #249 — PowerShellSchemaGenerator default swap (PR #250, draft)
 
 **Requested by:** Steven. Cold-path twin of the #242/#248 wire fix. Same class of bug,
