@@ -208,7 +208,8 @@ Authentication configuration goes in the `Authentication` section of your PoshMc
         "ValidIssuers": ["https://login.microsoftonline.com/{tenant-id}/v2.0"],
         "ClaimsMapping": {
           "ScopeClaim": "scp",
-          "RoleClaim": "roles"
+          "RoleClaim": "roles",
+          "NameClaim": "preferred_username"
         }
       }
     },
@@ -320,6 +321,7 @@ Update these values with your Azure AD app info:
 | `AuthorizationServers[0]` | **Entra v2.0 base URL** (v1.0 may issue v1.0 tokens) | `https://login.microsoftonline.com/12345678-1234-1234-1234-123456789012/v2.0` |
 | `ClaimsMapping.ScopeClaim` | Short claim name for scopes (always `scp` for Entra v2.0) | `scp` |
 | `ClaimsMapping.RoleClaim` | Short claim name for roles (typically `roles` for Entra) | `roles` |
+| `ClaimsMapping.NameClaim` | Short claim name to use for `Identity.Name`. **Required for Entra v2.0** — its access tokens carry `preferred_username` instead of `name`, so leaving this unset will leave `Identity.Name` (and the doctor report's `identity.name`) `null`. Omit for v1.0 tokens to keep the JwtBearer default. | `preferred_username` |
 
 #### Production Configuration
 
@@ -830,7 +832,8 @@ The configuration is identical to app registration; the difference is where cred
         "ValidIssuers": ["https://login.microsoftonline.com/{tenant-id}/v2.0"],
         "ClaimsMapping": {
           "ScopeClaim": "scp",
-          "RoleClaim": "roles"
+          "RoleClaim": "roles",
+          "NameClaim": "preferred_username"
         }
       }
     },
