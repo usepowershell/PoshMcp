@@ -3,6 +3,53 @@
 ## Recent Decisions
 > Older entries archived to `decisions-archive.md` (entries >7d removed when file >= 50KB).
 
+### 2026-05-15: Spec 011 Phase 2 — OOP wire-format parity for moduleImports (PR #271, closes #268)
+**By:** Hermes (PowerShell Expert) — requested by Steven via Squad Coordinator
+**What:** Phase 2 extends the OOP discover wire format so the C# server can build the doctor `moduleImports` section from data the OOP host produced — achieving SC-263-3 (byte-identical JSON across `InProcess` and `OutOfProcess` modes) without re-running `Get-Module -ListAvailable` in the parent process. Additive wire fields: `RemoteToolSchema.SourceModule` / `SourcePattern` / `SourceDetail` (nullable strings, FR-263-9), plus a new top-level optional `RemoteModuleImportsPayload` on the discover response carrying per-module probe data and per-pattern match data. `oop-host.ps1` and `oop-host-pool.ps1` populate both. The pool wraps script-block return as `PSCustomObject {Schemas, ModuleImports}` with a defensive bare-array fallback.
+**C# consumer chain:** `ICommandExecutor.LastModuleImports` (default null), `OutOfProcessCommandExecutor` + `OutOfProcessSubprocessPool` parse + stash + expose (pool variant under `_envLock`, cleared on fingerprint mismatch). `McpToolSetupService.DiscoverToolsAsync` captures via new `OopModuleImportsCapture` `AsyncLocal<RemoteModuleImportsPayload?>` — Reset before discovery, Set after, both BEFORE the executor lease disposes. `DoctorService.BuildModuleImportsSection` gains a 4-arg payload-aware overload (skips `IsolatedPowerShellRunspace` + `ModuleDiscovery.ProbeModules` when payload is non-null); 3-arg overload delegates with `payload: null`. `DoctorService.BuildDoctorReportForCliAsync` emits a one-time `DoctorReport.Warnings` entry when `RuntimeMode == OutOfProcess && hasModuleOrPatternConfig && OopModuleImportsCapture.Current is null` — older-host fallback contract per FR-263-2 / FR-263-10.
+**Backward compatibility:** Older OOP hosts → C# parses without error, `LastModuleImports` stays null, schemas have null `Source*` fields, doctor falls back to in-process probe + heuristic with one-time warning. Newer OOP host with older C# → unknown `moduleImports` field ignored by Newtonsoft.
+**Per-tool attribution:** Consolidated `ModuleImportsSection.Tools[]` still uses Bender's single-module heuristic from #270; full per-tool attribution (analogous to spec 010's `IToolDescriptionSourceTracker`) is deferred to a follow-up issue.
+**Tests:** `DoctorModuleImportsOopPayloadTests` (4), `RemoteToolSchemaSourceFieldsTests` (5), `OutOfProcessIntegrationTests.DiscoverCommandsAsync_PopulatesLastModuleImports_FromOopHostPayload` (real OOP host, all three FR-263-9 sources). 59 local tests pass; build clean.
+
+---
+
+### 2026-05-15: AsyncLocal as a cross-disposal capture pattern
+**By:** Farnsworth (Lead/Architect) — captured during PR #271 review
+**What:** When a value is produced on one side of a `using`/`await using` disposal boundary and consumed on the other side within the same one-shot async flow (CLI-shaped code paths), prefer a static `AsyncLocal<T?>` capture over refactoring a public-ish return shape — provided three things hold: (1) the capture is `Reset()` at the start of the producer flow so stale-from-prior-flow values cannot leak; (2) the `Set()` runs BEFORE the disposal boundary closes (producer is still alive at capture time); (3) the lifecycle contract — Reset-at-start + Set-before-disposal + Current-at-read, single async flow — is documented in XML on the capture class.
+**Why:** AsyncLocal flows through `await` boundaries within an ExecutionContext, so the consumer reads the captured value correctly without changing the public surface. CLI invocations are one-shot per process invocation, so cross-flow contamination is structurally impossible. The alternative (refactoring `DiscoverToolsAsync` return shape) has a larger blast radius across stdio + HTTP entry points.
+**Reference implementation:** `PoshMcp.Server/PowerShell/OutOfProcess/OopModuleImportsCapture.cs` (PR #271). The combination Hermes used is the safe shape.
+**When NOT to use:** Long-running multi-flow scenarios (web servers handling concurrent requests where producer and consumer are not in the same async flow), or when the value MUST cross a process boundary (use the response payload).
+**Apply to:** Future Phase-3+ doctor-section enrichment that sits across the same lease-disposal boundary. Any other CLI-flow-shaped code where a producer is disposed before the consumer needs its output.
+
+---
+
+### 2026-05-15: Spec 011 implementation split — Phase 1 ships standalone (PR #269), Phase 2 follows (PR #271)
+**By:** Hermes (PowerShell Engineer), per Steven's directive in issue #268 body
+**What:** Issue #268 implementation split into two PRs per the explicit allowance in the issue body. Phase 1 (PR #269 — MERGED) shipped only the in-process `ModuleDiscovery` helper + 10 unit tests with `ModuleProbeResult(Name, Found, Version, Path)` shape. Phase 2 (PR #271 — MERGED) shipped the OOP wire-format parity work as a single focused change. Bender's #270 (single-module attribution heuristic in `BuildModuleImportsSection`) consumed Phase 1 directly.
+**Why:** Phase 1 was small, self-contained, immediately useful — unblocked Bender's #267 doctor `moduleImports` section. Phase 2 touched `RemoteToolSchema.cs`, both OOP host scripts, `OutOfProcessCommandExecutor`, `McpToolFactoryV2` parity, parity tests, and older-host fallback test in lockstep — better as a focused review.
+**Outcome:** All 13 FRs from spec 011 delivered across #269 (Phase 1), #270 (Phase 2a — C# wiring), #271 (Phase 2b — OOP wire-format parity). Issue #263 closed; per-tool source attribution refinement deferred to issue #272.
+
+---
+
+### 2026-05-15: PR #269 (Phase 1 ModuleDiscovery helper) — APPROVED
+**By:** Farnsworth (architectural review) + Cubert (verification) — both 2026-05-15
+**Verdict:** ✅ APPROVED. `ModuleProbeResult(string Name, bool Found, string? Version, string? Path)` accepted as the in-process probe contract for spec 011.
+**Verifications (Cubert):** 10/10 ModuleDiscoveryTests pass in 1.79s; build clean (0 errors, 19 pre-existing warnings); FR-263-10 ("one Get-Module per module, never per command") matches implementation verbatim — single `AddCommand("Get-Module")` per name in foreach inside `runspace.ExecuteThreadSafe`; helper accepts `IPowerShellRunspace` interface, never spawns `pwsh` (FR-263-11 satisfied); branch on top of `b04c07d` = `v0.13.1`.
+**Architectural sign-off (Farnsworth):** Four-field surface maps exactly to FR-263-2's `name / found / version / path`. Tool attribution and source-priority resolution (FR-263-8/9) are `CommandInfo`-driven and live correctly in `BuildModuleImportsSection`, not in the probe helper. Phase split confirmed sound — Phase 2 work operates on surfaces NOT touched by this PR.
+**Non-blocking flag for #267 wiring:** `ModuleProbeResult` exposes no `Diagnostic` field — terminating `Get-Module` exceptions are logged but not surfaced. Lowest-friction follow-up if needed: optional `string? Diagnostic`. Not a Phase 1 blocker.
+**Self-approval block:** `gh pr review --approve` rejected for both reviewers (PR opened under same `usepowershell` identity). Comment-form approval is the team accepted pattern; verdicts stand. Cubert: https://github.com/usepowershell/PoshMcp/pull/269#issuecomment-4462728326. Farnsworth: https://github.com/usepowershell/PoshMcp/pull/269#issuecomment-4462727166.
+
+---
+
+### 2026-05-15: Spec 011 single-module attribution heuristic in DoctorService (PR #270, #267)
+**By:** Bender (Backend Developer)
+**What:** Per-tool module attribution in `DoctorService.BuildModuleImportsSection` uses a heuristic, not a precise mapping. (1) **Exact:** `commandName` source — match against `config.CommandNames`. (2) **Heuristic — single module:** if `config.Modules.Count == 1`, attribute all non-`commandName` tools to that module. (3) **Heuristic — multi module:** non-`commandName` tools fall back to `source: "unknown"` with no `sourceDetail`. (4) **Fallback:** pattern source — first `IncludePatterns` entry that matches the tool's `Title` (PowerShell command name).
+**Why:** Issue #267 explicitly permits this per FR-263-11. Clean precise fix is a wire-format extension threading `sourceModule` (and ideally `sourceCommandName`) through `RemoteToolSchema` and `PowerShellCommandMetadata` — that landed as Phase 2 (PR #271), but per-tool exact attribution is deferred to a follow-up issue (#272).
+**Trade-off:** Ships today with 80% diagnostic value. Single-module configs (Az.* / Microsoft.Graph.* common case) get exact attribution. Multi-module configs see `unknown` for tools from `Modules` rather than `CommandNames` — operators can't tell which module a given tool came from at a glance. Documented in PR body, in-code XML comments, and this decision drop.
+**Affects:** `DoctorService.BuildModuleImportsSection` (pure overload, multi-module branch); `ToolImportEntry.Source` / `ToolImportEntry.SourceDetail` semantics.
+
+---
+
 ### 2026-05-15: Doctor "effective" sizing fields use string sentinels for inert knobs
 **By:** Bender (PR #266, issue #261) — requested by Steven
 **What:** When a doctor-report "effective sizing" field corresponds to a knob that is **inert in the current host mode**, render it as a sentinel string (`"n/a (Pool mode)"`) rather than `0` or another integer. Apply this consistently across `OutOfProcessSection` effective fields. The field type on the report record is `string`, not `int` or a discriminated union.
