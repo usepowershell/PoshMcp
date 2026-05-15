@@ -25,8 +25,8 @@ public static class DoctorTextRenderer
         if (HasModuleImports(report.ModuleImports))
             parts.Add(FormatSection("Module Imports", RenderModuleImports(report.ModuleImports)));
 
-        parts.Add(FormatSection("MCP Definitions",       RenderMcpDefinitions(report.McpDefinitions)));
-        parts.Add(FormatSection("Authentication",        RenderAuthentication(report.Authentication, report.Identity)));
+        parts.Add(FormatSection("MCP Definitions", RenderMcpDefinitions(report.McpDefinitions)));
+        parts.Add(FormatSection("Authentication", RenderAuthentication(report.Authentication, report.Identity)));
 
         if (report.OutOfProcess.Applicable)
             parts.Add(FormatSection("Out-of-Process Execution", RenderOutOfProcess(report.OutOfProcess)));
