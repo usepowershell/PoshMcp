@@ -62,4 +62,13 @@ PRs #269 (Phase 1 ModuleDiscovery), #270 (Phase 2a DoctorService wiring), #271 (
 - In-process attribution should be recorded directly inside `McpToolFactoryV2` discovery (`GetCommandsByName`, `GetCommandsByModule`, `GetCommandsByPattern`) so no new `Get-Command`/`Get-Module` calls land on the doctor hot path.
 - OOP attribution should be captured from `RemoteToolSchema.SourceModule` / `SourcePattern` / `SourceDetail`; when older hosts omit those fields, doctor must report `tools[].source = "unknown"` instead of reviving the old heuristic.
 - Doctor consumption point: `PoshMcp.Server/Diagnostics/DoctorService.cs` now takes the tracker and uses it for `moduleImports.tools[]` plus module contribution counts. Wiring entry points are `PoshMcp.Server/McpToolFactoryV2.cs`, `PoshMcp.Server/Server/McpToolSetupService.cs`, and `PoshMcp.Tests/Integration/ToolImportParityTests.cs`.
+## 2026-05-16 — Issue #272 assigned to Bender
+
+**Via Farnsworth triage (22:00:11Z):**
+
+Issue #272 "Per-tool import source attribution: introduce IToolImportSourceTracker" assigned to Bender. 
+
+**Scope:** C# interface design task. Directly mirrors Spec 010 pattern (`IToolDescriptionSourceTracker`). No PowerShell discovery work. Builds on Spec 011 Phase 2 payload infrastructure (PR #271).
+
+**Next:** Scope implementation approach for exact per-tool source resolution in doctor report.
 
