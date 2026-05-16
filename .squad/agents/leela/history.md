@@ -36,3 +36,34 @@
 
 Spec 009 (Test Suite Consistency and Fast Unit Tier) is functionally complete. Five PRs merged in the closeout wave (#252, #253, #257, #259, #260) and six issues closed (#213, #214, #215, #216, #220, #221). Issue #221 acceptance gate (Fry) measured the Unit tier at 432 passed / 0 failed / 0 skipped across 5 consecutive runs, mean 20.45s wall-clock — well under the <60s FR-419 budget. Your contribution: see your own history entries for this session.
 
+
+## Learnings
+- **2026-05-14**: Authored 4-part tutorial series under `docs/articles/tutorials/` (PR #273, branch `squad/docs-tutorial-series`). Layout: `index.md` + `01-local-stdio-server.md` + `02-docker-http-custom-functions.md` + `03-docker-api-key-per-command.md` + `04-docker-api-key-multi-key-roles.md`. All auth configs grounded in actual code under `PoshMcp.Server/Authentication/` (no fabrication).
+- **2026-05-14**: Confirmed auth schema facts for future docs work:
+  - `Authentication.Schemes.ApiKey.Keys` is a dictionary where the **property name IS the API key value** (per `ApiKeyAuthenticationHandler`).
+  - `ApiKeyDefinition` has `Scopes: List<string>` and `Roles: List<string>`; roles become `ClaimTypes.Role` claims.
+  - `PowerShellConfiguration.CommandOverrides` is `Dict<string, FunctionOverride>`; key = PowerShell command name (e.g., `Get-PublicStatus`), NOT the snake_case MCP tool name.
+  - `FunctionOverride` nullable fields: `AllowAnonymous`, `RequiredScopes`, `RequiredRoles`. Null = fall through to `DefaultPolicy`.
+  - `RequiredRoles` is currently an **any-match** check (per `AuthorizationHelpers`) — caller passes if they have at least one listed role. Documented this in tutorial 4.
+  - `ToolListAuthorizationFilter` hides unauthorized tools from `tools/list` (nice UX detail to demonstrate).
+- **2026-05-14**: Confirmed Docker image contract:
+  - Base image: `ghcr.io/usepowershell/poshmcp/poshmcp:latest`
+  - AllUsers PowerShell module path: `/usr/local/share/powershell/Modules` (drop custom modules here)
+  - Runtime config path: `/app/server/appsettings.json` (override with COPY in custom Dockerfile)
+  - `examples/Dockerfile.user` pattern: `USER root` → COPY modules + config → `USER appuser`
+- **2026-05-14**: DocFX confirmation — `docs/docfx.json` uses `articles/**/*.md` glob, so new subdirectories under `articles/` are picked up automatically. Only `docs/toc.yml` needs an explicit nav entry. Avoids touching docfx config for content-only additions.
+- **2026-05-14**: CLI surface verified against actual docs: `poshmcp create-config`, `poshmcp update-config --add-command|--add-module|--add-include-pattern|--add-exclude-pattern`, `poshmcp serve --transport stdio|http`, `poshmcp doctor`, `poshmcp build --type custom --tag NAME`.
+
+## Learnings — 2026-05-16 — PR #273 polish landing
+
+### doctor moduleImports JSON shape (grounded against `DoctorReport.cs`)
+- `ModuleImportsSection` carries three arrays: `Modules` (one per configured module), `Patterns` (one per glob pattern), and `Tools` (one per discovered tool, post-filter).
+- `ToolImportEntry.Source` is one of `"commandName" | "module" | "pattern" | "unknown"`; `Disposition` is one of `"exposed" | "filteredOut" | "discoveryFailed"`. These are the surfaces tutorials should teach against — they're the audit trail for `CommandOverrides`.
+- Per spec 011 FR-263-9 the source-attribution priority is `commandName > module > pattern`, so a command reachable through both `Modules` and `CommandNames` still appears once and is attributed to `commandName`. This is what makes the `Modules` + `CommandNames` redundancy in tutorial 4 harmless.
+
+### Authentication.DefaultScheme semantics
+- `AuthenticationConfiguration.DefaultScheme` (defaults to `"Bearer"`) is consumed at `AuthenticationServiceExtensions.cs` line 37 — `services.AddAuthentication(authConfig.DefaultScheme)` — and again at line 249 to resolve the scope claim against the default scheme handler. So when `Schemes` has more than one entry, `DefaultScheme` is what binds the global authentication/authorization middleware to a specific handler. Worth flagging in any multi-scheme tutorial.
+
+### Tutorial polish workflow
+- Inserting a doctor-demo step mid-tutorial needs three small rituals: insert the step, renumber every later step, and update `What you learned` to mention any new field surface. Easy to forget the last one.
+- Two focused commits per polish landing reads cleaner in PR history than one omnibus commit — reviewers can scan each commit's scope from the subject line.
