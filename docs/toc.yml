@@ -7,6 +7,8 @@
 - name: Tutorials
   href: articles/tutorials/index.md
   items:
+  - name: Overview
+    href: articles/tutorials/index.md
   - name: 1. Local stdio MCP server
     href: articles/tutorials/01-local-stdio-server.md
   - name: 2. Docker HTTP with custom functions
