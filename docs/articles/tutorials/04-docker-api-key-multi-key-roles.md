@@ -159,6 +159,8 @@ Save the following to `appsettings.json`:
 Things worth calling out:
 
 - **There is no `AllowAnonymous` anywhere.** Combined with `DefaultPolicy.RequireAuthentication: true`, this means every tool now requires a valid API key.
+- **`DefaultScheme` picks which scheme the default policy enforces.** When `Schemes` has more than one entry, `Authentication.DefaultScheme` (here, `"ApiKey"`) selects the one the global authentication and authorization middleware bind to by default — this tutorial's single-scheme config relies on it implicitly, but it becomes load-bearing the moment you add a second scheme such as `JwtBearer`.
+- **`Modules` and `CommandNames` together are redundant for this config — and that's fine.** When a command is reachable through both `Modules` and `CommandNames`, it still appears exactly once in the discovered tool set; spec 011's source-attribution rule (FR-263-9) treats `commandName` as the highest-priority source, so `poshmcp doctor`'s `moduleImports.tools[].source` will report `"commandName"` for these tools rather than `"module"`.
 - **Each key carries a list of roles.** When PoshMcp authenticates a key, it adds a `ClaimTypes.Role` claim to the caller's identity for each role on that key. That is what `RequiredRoles` checks against.
 - **The `admin` key carries both roles.** A common pattern is for higher tiers to be a superset of lower tiers: anything the `reader` can do, the `admin` can also do. The reader cannot do anything the admin can.
 - **`Invoke-InventoryReset` is the only command with an override.** Its `RequiredRoles: ["admin"]` raises the bar for that tool only. The two read tools fall through to the default policy, which requires authentication but no specific role.
@@ -188,7 +190,33 @@ docker build -t my-poshmcp-roles:latest .
 docker run -d --name poshmcp-roles -p 8080:8080 my-poshmcp-roles:latest
 ```
 
-## Step 6 — Verify the reader key
+## Step 6 — Verify the no-key boundary
+
+Before reaching for either API key, confirm that an unauthenticated request is refused outright. With no `AllowAnonymous` exemption anywhere in this configuration, every endpoint sits behind the global `RequireAuthentication: true` policy, so the server should reject any request that arrives without an `X-API-Key` header:
+
+```bash
+curl -i -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+Expected response: `HTTP/1.1 401 Unauthorized`. You can cross-check that this is enforced configuration (not an accident) by reading `poshmcp doctor`'s authentication section:
+
+```bash
+docker exec poshmcp-roles poshmcp doctor --json | jq '.authentication | {enabled, defaultScheme, requireAuthentication}'
+```
+
+```json
+{
+  "enabled": true,
+  "defaultScheme": "ApiKey",
+  "requireAuthentication": true
+}
+```
+
+Those three fields together are the report's "auth is mandatory" signal — `enabled: true` turns the middleware on, `defaultScheme` picks which scheme guards the default policy, and `requireAuthentication: true` says the policy rejects anonymous callers.
+
+## Step 7 — Verify the reader key
 
 Configure the MCP client with the reader key:
 
@@ -212,7 +240,7 @@ Expected behavior:
 - Calling `get_inventory_item` with `Sku=A-001` succeeds and returns the matching item.
 - Trying to call `invoke_inventory_reset` (e.g., by asking the model to "use the inventory reset tool") fails with an authorization error similar to: *"Insufficient permissions to call tool 'invoke_inventory_reset'"*.
 
-## Step 7 — Verify the admin key
+## Step 8 — Verify the admin key
 
 Add or switch to a second client entry using the admin key:
 
@@ -235,7 +263,7 @@ Expected behavior:
 - `get_inventory_summary` and `get_inventory_item` still work.
 - `invoke_inventory_reset` now succeeds and returns the reset confirmation object.
 
-## Step 8 — Inspect the auth posture with `doctor`
+## Step 9 — Inspect the auth posture with `doctor`
 
 From inside the container, run the diagnostic:
 
@@ -259,6 +287,7 @@ The **Authentication** section should report `Enabled: true`, the `ApiKey` schem
 - How `CommandOverrides.{Command}.RequiredRoles` enforces a per-tool role check on top of the default policy
 - The current behavior of `RequiredRoles` as an any-match check
 - How the tool-list filter and the per-tool authorization filter combine to both *hide* and *reject* unauthorized tools
+- How `Authentication.DefaultScheme` selects which scheme guards the default policy, and how `poshmcp doctor`'s `authentication` block confirms global enforcement is mandatory
 
 ## Where to go next
 
