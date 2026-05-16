@@ -33,3 +33,15 @@ PoshMcp dynamically transforms PowerShell scripts, cmdlets, and modules into sec
 - 2026-04-24: When workflow/script build behavior is corrected by another agent, merge the inbox proposal into one concise canonical decision and create matching per-agent orchestration logs for traceability.
 - 2026-04-24: For version bump and packaging batches, preserve cross-agent continuity by logging three anchors together: canonical decision merge (with artifact path), one per-agent orchestration entry, and one short session log.
 - 2026-05-02: Cut release v0.9.17 following release process principles: clean build verified, version updated in PoshMcp.csproj, committed with context (token diagnostics and idle session timeout), tagged, and pushed. Remote accepted both commit and tag successfully.
+
+## 2026-05-16: Issue #272 spawn — IToolImportSourceTracker implementation
+
+**Spawn:** Bender + Fry background agents (claude-sonnet-4.6, general-purpose, ~18 min + ~15 min)
+
+**What happened:**
+- **Bender:** Implemented `IToolImportSourceTracker` interface + in-process implementation + OOP/OutOfProcess implementation. Wired `DoctorService` consumer with "unknown" fallback for multi-module configs. Added unit tests + OOP parity tests. Build passing. Branch: `squad/272-import-source-tracker`.
+- **Fry:** Wrote unit test files `DoctorToolImportSourceTests.cs` and `ToolImportParityTests.cs`. Could not run tests due to .NET version mismatch (available: .NET 9; required: .NET 10).
+
+**Outcome:** PR #276 opened at https://github.com/usepowershell/PoshMcp/pull/276. Ready for review. Resolves issue #272 per Spec 010 interface-design pattern for per-tool source attribution.
+
+**Artifacts:** PR #276, branch `squad/272-import-source-tracker`
