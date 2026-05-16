@@ -167,7 +167,52 @@ curl http://localhost:8080/health
 
 You should get a small JSON object reporting the server's health.
 
-## Step 7 — Verify your custom tools
+## Step 7 — Confirm `HelloModule` wired up with `poshmcp doctor`
+
+Before turning a client loose on the server, run the diagnostic inside the running container and grab the `moduleImports` block — it's the authoritative report of which configured modules resolved and which tools they contributed:
+
+```bash
+docker exec poshmcp poshmcp doctor --json | jq '.moduleImports'
+```
+
+For this tutorial's configuration you should see something close to:
+
+```json
+{
+  "modules": [
+    {
+      "name": "HelloModule",
+      "found": true,
+      "version": "0.0",
+      "path": "/usr/local/share/powershell/Modules/HelloModule",
+      "contributedToolCount": 2,
+      "contributedToolNames": ["get_greeting", "get_system_summary"],
+      "status": "ok"
+    }
+  ],
+  "patterns": [],
+  "tools": [
+    {
+      "toolName": "get_greeting",
+      "commandName": "Get-Greeting",
+      "source": "commandName",
+      "sourceDetail": "Get-Greeting",
+      "disposition": "exposed"
+    },
+    {
+      "toolName": "get_system_summary",
+      "commandName": "Get-SystemSummary",
+      "source": "commandName",
+      "sourceDetail": "Get-SystemSummary",
+      "disposition": "exposed"
+    }
+  ]
+}
+```
+
+`modules[].found: true` and `contributedToolCount: 2` confirm that `HelloModule` was found on the module path *and* contributed both tools to the discovered set. If `found` is `false`, the `COPY` path in your Dockerfile is wrong; if `contributedToolCount` is `0`, the function names in your module don't match the entries in `CommandNames`. The `tools[]` block shows each tool's MCP name (`get_greeting`) and the PowerShell command behind it — handy when an MCP client asks "what does this tool actually call?".
+
+## Step 8 — Verify your custom tools
 
 Tail the logs to confirm `HelloModule` was imported and the two commands were registered:
 

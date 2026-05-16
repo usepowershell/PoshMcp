@@ -158,17 +158,48 @@ Tail the logs to confirm authentication is enabled:
 docker logs poshmcp-apikey | grep -i "Authentication"
 ```
 
-## Step 6 — Verify the public tool requires no key
+## Step 6 — Confirm per-command overrides with `poshmcp doctor`
+
+Before exercising the tools from a client, run the diagnostic inside the container and grab the `moduleImports.tools` block — it shows exactly which configuration source produced each tool, so you can confirm the per-command override is wired to the right one:
+
+```bash
+docker exec poshmcp-apikey poshmcp doctor --json | jq '.moduleImports.tools'
+```
+
+For this tutorial's configuration you should see something close to:
+
+```json
+[
+  {
+    "toolName": "get_public_status",
+    "commandName": "Get-PublicStatus",
+    "source": "commandName",
+    "sourceDetail": "Get-PublicStatus",
+    "disposition": "exposed"
+  },
+  {
+    "toolName": "get_private_data",
+    "commandName": "Get-PrivateData",
+    "source": "commandName",
+    "sourceDetail": "Get-PrivateData",
+    "disposition": "exposed"
+  }
+]
+```
+
+Each entry's `source` field tells you whether the tool came from `commandName`, `module`, or a `pattern` (see spec 011, FR-263-4). `CommandOverrides` keys are matched against the `commandName` field, so confirming that the override's spelling (`Get-PublicStatus`) lines up with the `commandName` value here is the cheapest way to catch an attribution mismatch *before* a client gets a confusing 401.
+
+## Step 7 — Verify the public tool requires no key
 
 The health/status tool should be callable without any credentials. From an MCP client, listing tools without sending a key should still show `get_public_status` (the tool-list filter hides authenticated-only tools from unauthenticated callers, but `AllowAnonymous` tools stay visible). Calling `get_public_status` should succeed and return the small status object.
 
-## Step 7 — Verify the protected tool refuses anonymous calls
+## Step 8 — Verify the protected tool refuses anonymous calls
 
 From the same anonymous client, calling `get_private_data` should fail with an authorization error. The server's per-tool authorization filter returns an error result with a message similar to:
 
 > Authentication required to call tool 'get_private_data'
 
-## Step 8 — Verify the protected tool accepts the API key
+## Step 9 — Verify the protected tool accepts the API key
 
 Now configure the MCP client to send the `X-API-Key` header. In VS Code's MCP configuration, the entry looks like:
 
