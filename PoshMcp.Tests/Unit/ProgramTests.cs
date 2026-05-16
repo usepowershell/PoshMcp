@@ -275,7 +275,7 @@ public class ProgramTests : PowerShellTestBase
 
             var report = await DoctorService.BuildDoctorReportForCliAsync(
                 settings,
-                static (_, _, _, _, _, _) => throw new InvalidOperationException("discovery exploded"));
+                static (_, _, _, _, _, _, _) => throw new InvalidOperationException("discovery exploded"));
 
             Assert.NotNull(report);
             Assert.Equal("errors", report.Summary.Status);

@@ -55,3 +55,11 @@ PR #266 - https://github.com/usepowershell/PoshMcp/pull/266 - marked ready for r
 
 PRs #269 (Phase 1 ModuleDiscovery), #270 (Phase 2a DoctorService wiring), #271 (Phase 2b OOP wire-format parity) all merged to `main` on 2026-05-15. Issue #263 closed. #272 tracks per-tool source attribution refinement separately.
 
+## Learnings
+
+### 2026-05-16T17:02:54.700-05:00 — Issue #272 import source tracker
+- `IToolImportSourceTracker` mirrors the spec-010 description tracker shape: per-command, thread-safe, first-writer-wins, and populated during discovery rather than reconstructed later.
+- In-process attribution should be recorded directly inside `McpToolFactoryV2` discovery (`GetCommandsByName`, `GetCommandsByModule`, `GetCommandsByPattern`) so no new `Get-Command`/`Get-Module` calls land on the doctor hot path.
+- OOP attribution should be captured from `RemoteToolSchema.SourceModule` / `SourcePattern` / `SourceDetail`; when older hosts omit those fields, doctor must report `tools[].source = "unknown"` instead of reviving the old heuristic.
+- Doctor consumption point: `PoshMcp.Server/Diagnostics/DoctorService.cs` now takes the tracker and uses it for `moduleImports.tools[]` plus module contribution counts. Wiring entry points are `PoshMcp.Server/McpToolFactoryV2.cs`, `PoshMcp.Server/Server/McpToolSetupService.cs`, and `PoshMcp.Tests/Integration/ToolImportParityTests.cs`.
+

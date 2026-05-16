@@ -39,12 +39,13 @@ internal static class McpToolSetupService
         PowerShellAssemblyGenerator.SetConfiguration(config);
         logger.LogInformation("RuntimeCachingState initialized and wired into PowerShellAssemblyGenerator");
 
-        var toolFactory = CreateToolFactory(config, commandExecutor, runspace: null, toolMetadataSource);
+        var importSourceTracker = new ToolImportSourceTracker();
+        var toolFactory = CreateToolFactory(config, commandExecutor, runspace: null, toolMetadataSource, importSourceTracker: importSourceTracker);
         var tools = await toolFactory.GetToolsListAsync(config, logger);
 
         if (config.EnableDynamicReloadTools)
         {
-            var reloadTools = CreateConfigurationReloadTools(loggerFactory, toolFactory, config, finalConfigPath, configurationPathSource, "stdio", config.RuntimeMode.ToString(), null, () => tools);
+            var reloadTools = CreateConfigurationReloadTools(loggerFactory, toolFactory, config, finalConfigPath, configurationPathSource, "stdio", config.RuntimeMode.ToString(), null, () => tools, importSourceTracker);
             AddConfigurationReloadToolsToList(tools, reloadTools);
             logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools)");
         }
@@ -59,7 +60,7 @@ internal static class McpToolSetupService
         logger.LogInformation("Registered set-result-caching tool (always enabled)");
 
         AddConfigurationGuidanceToolToList(tools, config, finalConfigPath, "stdio", config.RuntimeMode.ToString(), null, loggerFactory);
-        AddConfigurationTroubleshootingToolToList(tools, config, finalConfigPath, "stdio", null, config.RuntimeMode.ToString(), null, logger);
+        AddConfigurationTroubleshootingToolToList(tools, config, finalConfigPath, "stdio", null, config.RuntimeMode.ToString(), null, logger, importSourceTracker: importSourceTracker);
 
         return tools;
     }
@@ -84,12 +85,13 @@ internal static class McpToolSetupService
         PowerShellAssemblyGenerator.SetConfiguration(config);
         logger.LogInformation("RuntimeCachingState initialized and wired into PowerShellAssemblyGenerator");
 
-        var toolFactory = CreateToolFactory(config, commandExecutor, sessionAwareRunspace, toolMetadataSource);
+        var importSourceTracker = new ToolImportSourceTracker();
+        var toolFactory = CreateToolFactory(config, commandExecutor, sessionAwareRunspace, toolMetadataSource, importSourceTracker: importSourceTracker);
         var tools = await toolFactory.GetToolsListAsync(config, logger);
 
         if (config.EnableDynamicReloadTools)
         {
-            var reloadTools = CreateConfigurationReloadTools(loggerFactory, toolFactory, config, finalConfigPath, configurationPathSource, "http", config.RuntimeMode.ToString(), null, () => tools);
+            var reloadTools = CreateConfigurationReloadTools(loggerFactory, toolFactory, config, finalConfigPath, configurationPathSource, "http", config.RuntimeMode.ToString(), null, () => tools, importSourceTracker);
             AddConfigurationReloadToolsToList(tools, reloadTools);
             logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools)");
         }
@@ -103,7 +105,7 @@ internal static class McpToolSetupService
         logger.LogInformation("Registered set-result-caching tool (always enabled)");
 
         AddConfigurationGuidanceToolToList(tools, config, finalConfigPath, "http", config.RuntimeMode.ToString(), null, loggerFactory);
-        AddConfigurationTroubleshootingToolToList(tools, config, finalConfigPath, "http", null, config.RuntimeMode.ToString(), null, logger, httpContextAccessor);
+        AddConfigurationTroubleshootingToolToList(tools, config, finalConfigPath, "http", null, config.RuntimeMode.ToString(), null, logger, httpContextAccessor, importSourceTracker);
 
         return tools;
     }
@@ -118,7 +120,8 @@ internal static class McpToolSetupService
         ILogger logger,
         string configurationPath,
         IToolMetadataSource? toolMetadataSource = null,
-        IToolDescriptionSourceTracker? descriptionSourceTracker = null)
+        IToolDescriptionSourceTracker? descriptionSourceTracker = null,
+        IToolImportSourceTracker? importSourceTracker = null)
     {
         logger.LogInformation("Discovering PowerShell tools...");
         // Spec 011 FR-263-2 / FR-263-10: clear any stale OOP module-imports
@@ -126,7 +129,7 @@ internal static class McpToolSetupService
         // a new lease, so a fresh discovery starts from a clean slate.
         OopModuleImportsCapture.Reset();
         await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger, configurationPath);
-        var toolFactory = CreateToolFactory(config, executorLease?.Executor, runspace: null, toolMetadataSource, descriptionSourceTracker);
+        var toolFactory = CreateToolFactory(config, executorLease?.Executor, runspace: null, toolMetadataSource, descriptionSourceTracker, importSourceTracker);
         var tools = await toolFactory.GetToolsListAsync(config, logger);
         // Spec 011 FR-263-2 / FR-263-10: capture the executor's
         // LastModuleImports payload BEFORE the lease disposes (the
@@ -157,18 +160,19 @@ internal static class McpToolSetupService
         ICommandExecutor? commandExecutor,
         IPowerShellRunspace? runspace = null,
         IToolMetadataSource? toolMetadataSource = null,
-        IToolDescriptionSourceTracker? descriptionSourceTracker = null)
+        IToolDescriptionSourceTracker? descriptionSourceTracker = null,
+        IToolImportSourceTracker? importSourceTracker = null)
     {
         if (config.RuntimeMode == RuntimeMode.OutOfProcess)
         {
             return commandExecutor is null
                 ? throw new InvalidOperationException("Out-of-process runtime mode requires a started command executor.")
-                : new McpToolFactoryV2(commandExecutor, toolMetadataSource, descriptionSourceTracker);
+                : new McpToolFactoryV2(commandExecutor, toolMetadataSource, descriptionSourceTracker, importSourceTracker);
         }
 
         return runspace is null
-            ? new McpToolFactoryV2(toolMetadataSource, descriptionSourceTracker)
-            : new McpToolFactoryV2(runspace, toolMetadataSource, descriptionSourceTracker);
+            ? new McpToolFactoryV2(toolMetadataSource, descriptionSourceTracker, importSourceTracker)
+            : new McpToolFactoryV2(runspace, toolMetadataSource, descriptionSourceTracker, importSourceTracker);
     }
 
     /// <summary>
@@ -287,7 +291,8 @@ internal static class McpToolSetupService
         string effectiveTransport,
         string? effectiveRuntimeMode,
         string? effectiveMcpPath,
-        Func<List<McpServerTool>> registeredToolsProvider)
+        Func<List<McpServerTool>> registeredToolsProvider,
+        IToolImportSourceTracker? importSourceTracker)
     {
         var reloadServiceLogger = loggerFactory.CreateLogger<PowerShellConfigurationReloadService>();
         var reloadService = new PowerShellConfigurationReloadService(reloadServiceLogger, toolFactory, config, finalConfigPath);
@@ -301,7 +306,8 @@ internal static class McpToolSetupService
             effectiveRuntimeMode,
             effectiveMcpPath,
             registeredToolsProvider,
-            reloadToolsLogger);
+            reloadToolsLogger,
+            importSourceTracker);
     }
 
     /// <summary>
@@ -381,6 +387,94 @@ internal static class McpToolSetupService
     }
 
     /// <summary>
+    /// Issue #272: builds the runtime troubleshooting payload with the same
+    /// authoritative tool-import attribution used by CLI doctor.
+    /// </summary>
+    internal static string BuildConfigurationTroubleshootingJson(
+        string configurationPath,
+        string effectiveTransport,
+        string? effectiveSessionMode,
+        string? effectiveRuntimeMode,
+        string? effectiveMcpPath,
+        Func<List<McpServerTool>> registeredToolsProvider,
+        ILogger logger,
+        AuthenticationConfiguration? authConfig = null,
+        Func<System.Security.Claims.ClaimsPrincipal?>? identityProvider = null,
+        IToolImportSourceTracker? importSourceTracker = null)
+    {
+        try
+        {
+            var configurationErrors = new List<string>();
+            PowerShellConfiguration config;
+
+            try
+            {
+                config = ConfigurationLoader.LoadPowerShellConfiguration(configurationPath, logger, effectiveRuntimeMode);
+            }
+            catch (Exception ex)
+            {
+                configurationErrors.Add($"Failed to load PowerShell configuration: {ex.Message}");
+                config = new PowerShellConfiguration();
+            }
+
+            var tools = new List<McpServerTool>();
+            try
+            {
+                logger.LogInformation("Processing configuration troubleshooting request");
+                tools = registeredToolsProvider();
+            }
+            catch (Exception ex)
+            {
+                configurationErrors.Add($"Tool discovery failed: {ex.Message}");
+            }
+
+            var report = DoctorService.BuildDoctorReportFromConfig(
+                configurationPath: configurationPath,
+                configurationPathSource: "runtime",
+                effectiveLogLevel: LoggingHelpers.InferEffectiveLogLevel(logger),
+                effectiveLogLevelSource: "runtime",
+                effectiveTransport: effectiveTransport,
+                effectiveTransportSource: "runtime",
+                effectiveSessionMode: effectiveSessionMode,
+                effectiveSessionModeSource: "runtime",
+                effectiveRuntimeMode: effectiveRuntimeMode,
+                effectiveRuntimeModeSource: "runtime",
+                effectiveMcpPath: effectiveMcpPath,
+                effectiveMcpPathSource: "runtime",
+                config: config,
+                tools: tools,
+                authConfig: authConfig,
+                currentIdentity: identityProvider?.Invoke(),
+                allowConfigurationFileAccess: false,
+                importSourceTracker: importSourceTracker);
+
+            if (configurationErrors.Count > 0)
+            {
+                var mergedErrors = report.ConfigurationErrors.Concat(configurationErrors).ToList();
+                report = report with
+                {
+                    ConfigurationErrors = mergedErrors,
+                    Summary = report.Summary with
+                    {
+                        Status = DoctorReport.ComputeStatus(report with { ConfigurationErrors = mergedErrors })
+                    }
+                };
+            }
+
+            return DoctorService.BuildDoctorJson(report);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error generating configuration troubleshooting output");
+            return JsonSerializer.Serialize(new
+            {
+                success = false,
+                error = $"Unexpected error: {ex.Message}"
+            });
+        }
+    }
+
+    /// <summary>
     /// Creates the "get-configuration-troubleshooting" MCP tool.
     /// Calls DoctorService to build diagnostics and render as JSON.
     /// </summary>
@@ -393,80 +487,21 @@ internal static class McpToolSetupService
         Func<List<McpServerTool>> registeredToolsProvider,
         ILogger logger,
         AuthenticationConfiguration? authConfig = null,
-        Func<System.Security.Claims.ClaimsPrincipal?>? identityProvider = null)
+        Func<System.Security.Claims.ClaimsPrincipal?>? identityProvider = null,
+        IToolImportSourceTracker? importSourceTracker = null)
     {
         Func<CancellationToken, Task<string>> troubleshootingDelegate = cancellationToken =>
-        {
-            try
-            {
-                var configurationErrors = new List<string>();
-                PowerShellConfiguration config;
-
-                try
-                {
-                    config = ConfigurationLoader.LoadPowerShellConfiguration(configurationPath, logger, effectiveRuntimeMode);
-                }
-                catch (Exception ex)
-                {
-                    configurationErrors.Add($"Failed to load PowerShell configuration: {ex.Message}");
-                    config = new PowerShellConfiguration();
-                }
-
-                var tools = new List<McpServerTool>();
-                try
-                {
-                    logger.LogInformation("Processing configuration troubleshooting request");
-                    tools = registeredToolsProvider();
-                }
-                catch (Exception ex)
-                {
-                    configurationErrors.Add($"Tool discovery failed: {ex.Message}");
-                }
-
-                var report = DoctorService.BuildDoctorReportFromConfig(
-                    configurationPath: configurationPath,
-                    configurationPathSource: "runtime",
-                    effectiveLogLevel: LoggingHelpers.InferEffectiveLogLevel(logger),
-                    effectiveLogLevelSource: "runtime",
-                    effectiveTransport: effectiveTransport,
-                    effectiveTransportSource: "runtime",
-                    effectiveSessionMode: effectiveSessionMode,
-                    effectiveSessionModeSource: "runtime",
-                    effectiveRuntimeMode: effectiveRuntimeMode,
-                    effectiveRuntimeModeSource: "runtime",
-                    effectiveMcpPath: effectiveMcpPath,
-                    effectiveMcpPathSource: "runtime",
-                    config: config,
-                    tools: tools,
-                    authConfig: authConfig,
-                    currentIdentity: identityProvider?.Invoke(),
-                    allowConfigurationFileAccess: false);
-
-                if (configurationErrors.Count > 0)
-                {
-                    var mergedErrors = report.ConfigurationErrors.Concat(configurationErrors).ToList();
-                    report = report with
-                    {
-                        ConfigurationErrors = mergedErrors,
-                        Summary = report.Summary with
-                        {
-                            Status = DoctorReport.ComputeStatus(report with { ConfigurationErrors = mergedErrors })
-                        }
-                    };
-                }
-
-                return Task.FromResult(DoctorService.BuildDoctorJson(report));
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Error generating configuration troubleshooting output");
-                return Task.FromResult(JsonSerializer.Serialize(new
-                {
-                    success = false,
-                    error = $"Unexpected error: {ex.Message}"
-                }));
-            }
-        };
+            Task.FromResult(BuildConfigurationTroubleshootingJson(
+                configurationPath,
+                effectiveTransport,
+                effectiveSessionMode,
+                effectiveRuntimeMode,
+                effectiveMcpPath,
+                registeredToolsProvider,
+                logger,
+                authConfig,
+                identityProvider,
+                importSourceTracker));
 
         return McpServerTool.Create(troubleshootingDelegate, new McpServerToolCreateOptions
         {
@@ -493,7 +528,8 @@ internal static class McpToolSetupService
         string? effectiveRuntimeMode,
         string? effectiveMcpPath,
         ILogger logger,
-        IHttpContextAccessor? httpContextAccessor = null)
+        IHttpContextAccessor? httpContextAccessor = null,
+        IToolImportSourceTracker? importSourceTracker = null)
     {
         if (!config.EnableConfigurationTroubleshootingTool)
         {
@@ -512,7 +548,8 @@ internal static class McpToolSetupService
             () => tools,
             logger,
             authConfig: null,
-            identityProvider: identityProvider));
+            identityProvider: identityProvider,
+            importSourceTracker: importSourceTracker));
     }
 
     /// <summary>
@@ -717,8 +754,9 @@ internal static class McpToolSetupService
         ILogger logger,
         string configurationPath,
         IToolMetadataSource? toolMetadataSource,
-        IToolDescriptionSourceTracker? descriptionSourceTracker)
+        IToolDescriptionSourceTracker? descriptionSourceTracker,
+        IToolImportSourceTracker? importSourceTracker)
     {
-        return await DiscoverToolsAsync(config, loggerFactory, logger, configurationPath, toolMetadataSource, descriptionSourceTracker);
+        return await DiscoverToolsAsync(config, loggerFactory, logger, configurationPath, toolMetadataSource, descriptionSourceTracker, importSourceTracker);
     }
 }
