@@ -15,7 +15,7 @@ namespace PoshMcp.Tests.Integration;
 /// for both mixed command/module discovery and pattern-only discovery.
 /// </summary>
 [Trait("Category", "Integration")]
-[Trait("Spec", "011")]
+[Trait("Issue", "272")]
 public sealed class ToolImportParityTests : PowerShellTestBase
 {
     public ToolImportParityTests(ITestOutputHelper output) : base(output)

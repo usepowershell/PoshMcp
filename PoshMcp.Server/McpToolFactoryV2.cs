@@ -449,6 +449,7 @@ public class McpToolFactoryV2
             {
                 logger.LogInformationWithCorrelation("Starting MCP tools generation using dynamic assembly approach");
                 LogToolGenerationStart(logger, config);
+                _importSourceTracker?.Reset();
 
                 if (config.RuntimeMode == RuntimeMode.OutOfProcess)
                 {

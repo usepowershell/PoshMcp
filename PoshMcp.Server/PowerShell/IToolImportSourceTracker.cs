@@ -58,6 +58,12 @@ public interface IToolImportSourceTracker
     void RecordToolSource(string commandName, ToolImportSource source, string sourceDetail);
 
     /// <summary>
+    /// Clears the current discovery-cycle snapshot so the tracker can be reused
+    /// for a fresh tool generation pass.
+    /// </summary>
+    void Reset();
+
+    /// <summary>
     /// Snapshot of the per-command import sources recorded so far.
     /// </summary>
     IReadOnlyDictionary<string, ToolImportSourceInfo> ToolSources { get; }
@@ -86,6 +92,15 @@ public sealed class ToolImportSourceTracker : IToolImportSourceTracker
             {
                 _toolSources[commandName] = new ToolImportSourceInfo(source, sourceDetail ?? string.Empty);
             }
+        }
+    }
+
+    /// <inheritdoc />
+    public void Reset()
+    {
+        lock (_gate)
+        {
+            _toolSources.Clear();
         }
     }
 

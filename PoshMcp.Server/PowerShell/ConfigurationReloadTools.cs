@@ -21,6 +21,7 @@ public class ConfigurationReloadTools
     private readonly string? _effectiveRuntimeMode;
     private readonly string? _effectiveMcpPath;
     private readonly Func<List<McpServerTool>> _registeredToolsProvider;
+    private readonly IToolImportSourceTracker? _importSourceTracker;
     private readonly ILogger<ConfigurationReloadTools> _logger;
 
     public ConfigurationReloadTools(
@@ -35,7 +36,8 @@ public class ConfigurationReloadTools
             reloadService.CurrentConfiguration.RuntimeMode.ToString(),
             null,
             static () => new List<McpServerTool>(),
-            logger)
+            logger,
+            importSourceTracker: null)
     {
     }
 
@@ -48,7 +50,8 @@ public class ConfigurationReloadTools
         string? effectiveRuntimeMode,
         string? effectiveMcpPath,
         Func<List<McpServerTool>> registeredToolsProvider,
-        ILogger<ConfigurationReloadTools> logger)
+        ILogger<ConfigurationReloadTools> logger,
+        IToolImportSourceTracker? importSourceTracker = null)
     {
         _reloadService = reloadService ?? throw new ArgumentNullException(nameof(reloadService));
         _configurationPath = configurationPath ?? string.Empty;
@@ -58,6 +61,7 @@ public class ConfigurationReloadTools
         _effectiveRuntimeMode = effectiveRuntimeMode;
         _effectiveMcpPath = effectiveMcpPath;
         _registeredToolsProvider = registeredToolsProvider ?? throw new ArgumentNullException(nameof(registeredToolsProvider));
+        _importSourceTracker = importSourceTracker;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -209,7 +213,8 @@ public class ConfigurationReloadTools
                 effectiveMcpPath: _effectiveMcpPath,
                 effectiveMcpPathSource: "runtime",
                 config: currentConfig,
-                tools: _registeredToolsProvider());
+                tools: _registeredToolsProvider(),
+                importSourceTracker: _importSourceTracker);
 
             return await Task.FromResult(DoctorService.BuildDoctorJson(report));
         }

@@ -137,7 +137,8 @@ internal static class DoctorService
             config: config,
             tools: tools,
             authConfig: authConfig,
-            allowConfigurationFileAccess: configurationLoaded);
+            allowConfigurationFileAccess: configurationLoaded,
+            importSourceTracker: importSourceTracker);
 
         report = report with
         {
@@ -220,7 +221,8 @@ internal static class DoctorService
         List<McpServerTool> tools,
         AuthenticationConfiguration? authConfig = null,
         System.Security.Claims.ClaimsPrincipal? currentIdentity = null,
-        bool allowConfigurationFileAccess = true)
+        bool allowConfigurationFileAccess = true,
+        IToolImportSourceTracker? importSourceTracker = null)
     {
         var discoveredToolNames = ConfigurationHelpers.GetDiscoveredToolNames(tools);
         var configuredFunctionStatus = BuildConfiguredFunctionStatus(config.GetEffectiveCommandNames(), discoveredToolNames);
@@ -294,7 +296,7 @@ internal static class DoctorService
             with
         {
             OutOfProcess = BuildOutOfProcessSection(config, configurationPath, Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance),
-            ModuleImports = BuildModuleImportsSection(config, tools, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance),
+            ModuleImports = BuildModuleImportsSection(config, tools, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, importSourceTracker),
         };
     }
 
