@@ -205,3 +205,27 @@ Ralph routed this to me, but the architectural review was already posted as a PR
 
 PRs #269 (Phase 1 ModuleDiscovery), #270 (Phase 2a DoctorService wiring), #271 (Phase 2b OOP wire-format parity) all merged to `main` on 2026-05-15. Issue #263 closed. #272 tracks per-tool source attribution refinement separately.
 
+
+### 2026-05-16 — PR #273 review (Leela — 4-part tutorial series, branch squad/docs-tutorial-series)
+
+**Verdict:** APPROVE. Posted via `gh pr comment` (#issuecomment-4467060959). Artifact: `artifacts/farnsworth-pr273-review.md`. Self-approval blocked under usepowershell identity — comment-form per #252/#269/#271 precedent.
+
+**What I cross-checked architecturally:**
+- `Authentication.Schemes.ApiKey.Keys` dictionary-key-IS-the-secret: matches `ApiKeyAuthenticationHandler.HandleAuthenticateAsync` `Options.Keys.TryGetValue(apiKey, ...)` at L32. Tutorial 3 calls this out explicitly — single most-misread part of the auth surface.
+- Role-claim minting chain: `foreach (var role in keyDef.Roles) claims.Add(new Claim(ClaimTypes.Role, role))` (L62-63) → `HasRequiredRoles` any-match (`requiredRoles.Any(r => user.IsInRole(r))`, AuthorizationHelpers L23). Tutorial 4 narrative matches and hedges the any-match drift risk explicitly.
+- `ToolListAuthorizationFilter.CanAccessTool` (L55-78): AllowAnonymous → RequireAuthentication → scope+role gates. Tutorial 4 step 6 reader-hides-admin-tool claim is structurally correct.
+- Base image contract: `/usr/local/share/powershell/Modules` and `/app/server/appsettings.json` match `examples/Dockerfile.user`; HTTP default matches `docker-entrypoint.sh` L9 (`POSHMCP_TRANSPORT:-http`). No invented paths.
+- `DefaultScheme = "Bearer"` default ([AuthenticationConfiguration.cs L8](PoshMcp.Server/Authentication/AuthenticationConfiguration.cs#L8)) — tutorials 3/4 override correctly to ApiKey but don't explain the override. Flagged as one-sentence ask.
+
+**Non-blocking asks routed to Cubert (NOT Leela — but lockout doesn't apply here, APPROVE verdict):**
+1. Add `poshmcp doctor` demo + `moduleImports` section walkthrough to tutorial 2 (spec 011 just shipped — this series is the canonical place to demonstrate the new doctor section).
+2. One-sentence `DefaultScheme` callout in tutorial 3.
+3. One-sentence `Modules` vs `CommandNames` callout in tutorial 2.
+4. Step-6a "no key at all" boundary beat in tutorial 4 (currently only happy paths shown).
+5. `examples/Dockerfile.user` drift note in tutorial 2 Dockerfile section.
+
+**Pattern noted (captured to decision drop):** Tutorials/walkthroughs touching `Modules` or `IncludePatterns` should always demonstrate `poshmcp doctor` and call out the v0.14.0 `moduleImports` section. Tutorial 4 step 8 already does this for the Authentication section — same pattern should propagate. Will flag in future doc reviews.
+
+**Pattern noted (review discipline):** For doc PRs that ground claims in code, the high-value review move is mapping each tutorial-named config property to its handler/options class and verifying the spelling and semantics line up. Caught the dictionary-key-IS-secret pattern, the role-claim minting loop, and the ToolList filter ordering as three places where Leela's prose is exactly faithful to code (not paraphrased). When tutorials get this right at code-grounded depth, the architectural review reduces to "does the progression and boundary coverage hold up?" — which here, it does.
+
+**Process discipline (from PR #252 lesson):** First move was `gh pr view 273 --json reviews,comments` to confirm no prior verdict in the queue. Comments and reviews both empty (Cubert running in parallel but hadn't posted yet). Clean to proceed.
