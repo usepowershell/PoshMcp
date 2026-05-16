@@ -33,3 +33,19 @@ Spec 009 (Test Suite Consistency and Fast Unit Tier) is functionally complete. F
 
 PRs #269 (Phase 1 ModuleDiscovery), #270 (Phase 2a DoctorService wiring), #271 (Phase 2b OOP wire-format parity) all merged to `main` on 2026-05-15. Issue #263 closed. #272 tracks per-tool source attribution refinement separately.
 
+## 2026-05-16 — PR #276 execution (import source tracker gap fix, issue #272)
+
+**Task assignment:** Fix `DoctorService` import tracker gap for PR #276 revision. Runtime doctor/report surfaces (`GetConfigurationStatus`, troubleshooting JSON) must thread the authoritative tracker, not fall back to `unknown` heuristic.
+
+**Execution:**
+1. Wired `IToolImportSourceTracker` through runtime doctor path: `ConfigurationReloadTools.GetConfigurationStatus()` and `McpToolSetupService.BuildConfigurationTroubleshootingJson()` now pass tracker to `DoctorService.BuildDoctorReportFromConfig()`, which forwards to `BuildModuleImportsSection()`.
+2. Added `ToolImportRuntimeParityTests` covering CLI doctor vs `get_configuration_status` / runtime troubleshooting parity on `moduleImports.tools[]` projections.
+3. Reset tracker per discovery cycle in `McpToolFactoryV2.GetToolsListAsync()` to prevent stale attribution on reloads.
+4. Updated all Spec 011 / issue #263 refs to issue #272 in test files and comments.
+5. Build clean, all 849 tests pass (0 failed, 0 skipped).
+
+**Architectural lesson:** shared per-discovery tracker owned by discovery layer (`McpToolFactoryV2`), injected into all report builders as read-only snapshot. Reset-at-cycle-start prevents stale attribution on reloads. This keeps `DoctorService` pure, avoids re-running discovery, and lets CLI + runtime surfaces share one authoritative contract.
+
+**Process note:** User directive recorded (Steven request) — all squad agents must include their name when posting GitHub comments.
+
+

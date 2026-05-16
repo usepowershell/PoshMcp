@@ -820,6 +820,64 @@ git push origin v0.13.0
 
 **Architectural takeaway:** The cold doc-emission path and the live MCP wire path now share the same FR-510 precedence default. Two-spec contract (010 FR-500/510/520/540) is uniformly applied across both code paths — no more "fix one, leave the twin" trap. This is the pattern I want to see propagated: when a default fallback embodies a spec contract, both call sites must share the same impl, and the impl should be a pure resolver that degrades safely on missing inputs.
 
+### 2026-05-16T17:51:27-05:00: User directive — agent names in comments
+**By:** Steven Murawski (via Copilot)
+**What:** All squad agents must include their agent name when posting comments on GitHub issues and PRs (e.g., "— Farnsworth" or "[Bender]").
+**Why:** User request — captured for team memory
+
+---
+
+### 2026-05-16: PR #276 review — provenance seams must reach all doctor builders
+**By:** Farnsworth (Lead / Architect), requested by Steven Murawski
+**Decision:** When doctor/report output is upgraded from heuristic attribution to authoritative provenance, the new tracker seam must be threaded through every production report builder, not only the CLI-oriented path. `BuildDoctorReportForCliAsync(...)` can carry tracker-backed attribution while `BuildDoctorReportFromConfig(...)` still emits `tools[].source = "unknown"`, producing contradictory doctor data across surfaces that are supposed to describe the same runtime state. In PoshMcp, that gap affects runtime-facing tools such as `get_configuration_status` and configuration troubleshooting.
+**Consequences:** Reviewers should reject provenance-tracker work that only updates the CLI/reporting entry point and leaves runtime report builders behind. Future changes in this area need explicit coverage for both CLI doctor generation and runtime report generation.
+
+---
+
+### 2026-05-16: Doctor source tracker must cover all report builders
+**By:** Farnsworth (Lead/Architect)
+**Decision:** Any change that upgrades doctor provenance from heuristic to authoritative data must thread through every production doctor/report builder, not only the CLI path. `BuildDoctorReportForCliAsync(...)` and `BuildDoctorReportFromConfig(...)` are both live report entry points. If only the CLI path receives the new provenance seam, runtime-facing surfaces like `get_configuration_status` and the configuration troubleshooting tool drift back to `unknown`, which breaks parity and teaches operators two different truths for the same configuration.
+**Consequences:** When adding provenance seams (description source, import source, future tracker-style enrichments), review both doctor entry points before approving. Runtime helpers that currently accept only `Func<List<McpServerTool>>` may need a richer report context if doctor sections depend on more than the final tool list. Tests should cover CLI doctor and runtime doctor/status surfaces together whenever the report contract changes.
+
+---
+
+### 2026-05-16: PR #276 fact-check — parity tests and tracker wiring verified
+**By:** Cubert (Fact Checker)
+**Verdict:** ✅ APPROVE (with conditions)
+**Verified claims:**
+- `IToolImportSourceTracker` mirrors `IToolDescriptionSourceTracker` seam — checked `IToolImportSourceTracker.cs` vs `IToolDescriptionSourceTracker.cs` on per-discovery lifecycle, thread-safe recording, snapshot access.
+- In-process implementation records without adding new discovery probes — confirmed no newly added `Get-Command` or `Get-Module` invocations in diff; new lines only call `_importSourceTracker?.RecordToolSource(...)` adjacent to existing calls.
+- OOP implementation reads `RemoteToolSchema.Source*` fields and supports older-host `unknown` fallback — verified at `McpToolFactoryV2.RecordRemoteImportSources` (L513-558) and `DoctorService` fallback (L1045-1056).
+- Cross-runtime parity coverage exists — `ToolImportParityTests.cs` checks mixed command/module/pattern discovery and pattern-only discovery byte-for-byte across `InProcess` and `OutOfProcess` via production wiring (`DiscoverToolsForCliAsync` → `BuildDoctorReportForCliAsync`).
+**Issues flagged:**
+- `BuildDoctorReportFromConfig` still calls `BuildModuleImportsSection` with no tracker at `DoctorService.cs:297`, affecting `GetConfigurationStatus` and troubleshooting output surfaces — they emit `moduleImports.tools[].source = "unknown"` not authoritative attribution.
+- PR description overclaims: "have `DoctorService` consume authoritative tracker data" is broader than implementation (only CLI path).
+- Full-solution `dotnet test` failed on unrelated `SubprocessTeardownTests.TeardownAsync_AfterShortLivedPwsh_LeavesNoOrphans` (one lingering pwsh PID).
+
+---
+
+### 2026-05-16: PR #276 re-review — tracker wiring now complete across all report builders
+**By:** Farnsworth (Lead / Architect), requested by Steven Murawski
+**Verdict:** ✅ APPROVE
+**What:** Accept `IToolImportSourceTracker` as the authoritative runtime seam for tool-import provenance. Production doctor/report builders now receive the live discovery-cycle tracker: `ConfigurationReloadTools.GetConfigurationStatus()` and `McpToolSetupService.BuildConfigurationTroubleshootingJson()` pass the shared tracker into `DoctorService.BuildDoctorReportFromConfig(...)`, which forwards it to `BuildModuleImportsSection(...)`. `McpToolFactoryV2.GetToolsListAsync()` owns tracker lifecycle and resets at discovery-cycle start.
+**Why:** Keeps provenance aligned with actual discovery pipeline, so CLI doctor and runtime report surfaces render the same `moduleImports.tools[].source` contract without duplicating PowerShell logic. Reset-at-cycle-start makes tracker safe to reuse across reloads.
+**Parity coverage:** `ToolImportRuntimeParityTests` covers CLI doctor vs `get_configuration_status` and runtime troubleshooting parity. All touched issue-272 test/comment refs now point to #272 (no stale Spec 011 refs).
+
+---
+
+### 2026-05-16: PR #276 final fact-check — all 849 tests pass, tracker parity confirmed
+**By:** Cubert (Fact Checker)
+**Verdict:** ✅ APPROVE
+**Verified:**
+- `DoctorService.BuildDoctorReportFromConfig(...)` now accepts `IToolImportSourceTracker` and passes it into `BuildModuleImportsSection(...)`.
+- Runtime callers thread the live tracker: `ConfigurationReloadTools.GetConfigurationStatus(...)` and `McpToolSetupService.BuildConfigurationTroubleshootingJson(...)`, with setup wiring in both stdio and HTTP tool registration paths.
+- `McpToolFactoryV2.GetToolsListAsync(...)` resets shared tracker before each discovery cycle, preventing stale carry-over on reloads.
+- `ToolImportParityTests` covers CLI doctor InProcess vs OutOfProcess parity; `ToolImportRuntimeParityTests` covers CLI doctor vs `get_configuration_status` / runtime troubleshooting parity.
+- All issue-272 tests/comments reference #272; no stale Spec 011 refs remain.
+**Test gate:** 849/0/0 pass/fail/skip, all tests green, build clean.
+
+---
+
 ### 2026-05-13: External PR merge protocol — squash via `gh pr merge`, never force-push contributor branches
 **By:** Hermes (PowerShell Engineer) on behalf of Steven
 **What:** When merging an external contributor's PR (no write access to their fork branch), the protocol is:

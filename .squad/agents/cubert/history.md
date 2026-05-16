@@ -1,6 +1,15 @@
 # Cubert — History
 
-## 2026-05-14 — Summarized (full text in history-archive.md, archived by Scribe 2026-05-16)
+## Recent Work Index (2026-05-14 → 2026-05-16)
+
+- **2026-05-16:** PR #276 fact-check (import source tracker) — v1 REJECT (gap identified), v2 APPROVE (all tests pass)
+- **2026-05-15:** Spec 011 fully shipped (Phase 1 + 2a/2b all merged)
+- **2026-05-15:** Fact-check wave (PR #269, #271, spec 010 baseline) — all APPROVE/VERIFY
+- **2026-05-14:** Spec 009 fact-check wave (6 PRs) — all APPROVE
+
+---
+
+## 2026-05-15 — Summarized (full text in history-archive.md, archived by Scribe 2026-05-16)
 
 Five fact-check verdicts (all APPROVE/PROCEED):
 - **PR #253 re-verify** (Leela TESTING.md, Fry revised): F1/F2 fixed; verdict ⚠️→✅. Lesson — when a doc cites another file, fetch it at the cited ref before approving.
@@ -64,4 +73,27 @@ PRs #269 (Phase 1 ModuleDiscovery), #270 (Phase 2a DoctorService wiring), #271 (
 ## 2026-05-16 — PR #273 merged (via Scribe)
 
 PR #273 squash-merged to `main`. Polish pass by Leela addressed Farnsworth's 5 non-blocking asks; re-verified clean (`artifacts/cubert-pr273-reverify.md`). No factual drift introduced.
+
+## Learnings
+
+### 2026-05-16T17:46:13.559-05:00 — PR #276 import source tracker
+- `BuildDoctorReportForCliAsync` is not the only doctor-report constructor. `BuildDoctorReportFromConfig` is also used by `McpToolSetupService` troubleshooting and `ConfigurationReloadTools.GetConfigurationStatus`; unless tracker data is threaded there too, those surfaces keep `moduleImports.tools[].source = "unknown"`.
+- Verification pattern: when a PR enriches `DoctorReport`, grep every `BuildDoctorReportFromConfig(` and `BuildModuleImportsSection(` call site, not just the CLI doctor path.
+- Validation split worth remembering: PR-local coverage (`DoctorToolImportSourceTests`, `ToolImportSourceTrackerTests`, `DoctorModuleImportsTests`, `DoctorModuleImportsOopPayloadTests`, `ToolImportParityTests`) can pass clean while full-solution `dotnet test .\PoshMcp.sln --nologo` still fails in unrelated integration smoke tests. Record both facts separately.
+
+### 2026-05-16T18:30:48.077-05:00 — PR #276 re-review
+- The runtime parity defect is fixed end-to-end: `DoctorService.BuildDoctorReportFromConfig(...)` now accepts `IToolImportSourceTracker` and both runtime callers thread the live tracker (`ConfigurationReloadTools.GetConfigurationStatus`, `McpToolSetupService.BuildConfigurationTroubleshootingJson`).
+- The shared `ToolImportSourceTracker` is reused across setup/reload and explicitly reset at `McpToolFactoryV2.GetToolsListAsync` entry, so discovery cycles do not leak stale attributions.
+- `ToolImportParityTests` validates CLI doctor parity across InProcess vs OutOfProcess, and `ToolImportRuntimeParityTests` validates CLI doctor parity against `get-configuration-status` and runtime troubleshooting on the relevant `moduleImports.tools[]` projections.
+- Re-review pattern: for doctor/report attribution bugs, verify both constructor signatures and setup-time wiring in `McpToolSetupService`, not just `DoctorService` unit coverage.
+
+## 2026-05-16 — Squad Scribe cross-pollinate (PR #276 multi-agent cycle)
+
+**Fact-check on import tracker fix (issue #272):**
+- v1 fact-check: identified tracker design sound but wiring incomplete (CLI path only, runtime surfaces still `unknown`). Recorded decision gate: all doctor builders must thread tracker, not just CLI.
+- v2 fact-check: verified tracker now threaded through all report builders (`GetConfigurationStatus`, troubleshooting JSON, CLI doctor). All issue-272 refs updated. Confirmed parity tests cover commitments (CLI doctor vs `get_configuration_status` vs troubleshooting JSON emit consistent `tools[].source` values). Full suite 849/0/0 pass/fail/skip.
+
+**Architectural lesson:** when doctor/report field is promoted from heuristic to authoritative, seam must be threaded through **all** production report builders. Otherwise runtime-facing surfaces degrade silently while CLI surface appears correct, breaking operator parity assumptions and teaching two different truths for same config.
+
+**Process note:** User directive recorded (Steven request) — all squad agents must include their name when posting GitHub comments.
 
