@@ -31,26 +31,24 @@
   - name: Session Management
     href: articles/session-management.md
     
-- name: Authentication & Security
-  items:
-  - name: Entra ID Authentication
-    href: articles/authentication.md
-  - name: Security Best Practices
-    href: articles/security.md
-    
-- name: Deployment
-  items:
-  - name: Docker Deployment
-    href: articles/docker.md
-  - name: Environment Customization
-    href: articles/environment.md
-  - name: Azure Integration
-    href: articles/azure-integration.md
-  - name: Application Insights
-    href: articles/application-insights.md
-    
 - name: Advanced Topics
   items:
+  - name: Authentication & Security
+    items:
+    - name: Entra ID Authentication
+      href: articles/authentication.md
+    - name: Security Best Practices
+      href: articles/security.md
+  - name: Deployment
+    items:
+    - name: Docker Deployment
+      href: articles/docker.md
+    - name: Environment Customization
+      href: articles/environment.md
+    - name: Azure Integration
+      href: articles/azure-integration.md
+    - name: Application Insights
+      href: articles/application-insights.md
   - name: Advanced Configuration
     href: articles/advanced.md
   - name: AI Assistant Integration
