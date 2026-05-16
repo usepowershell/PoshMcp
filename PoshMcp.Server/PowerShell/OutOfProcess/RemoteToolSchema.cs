@@ -66,8 +66,7 @@ public class RemoteToolSchema
     /// configured <c>Modules</c> list. <c>null</c> when attribution resolved
     /// to <c>commandName</c> or <c>pattern</c> instead, or when the OOP host
     /// predates spec 011 (older hosts omit this field; consumers MUST treat
-    /// missing/null as "unknown" and fall back to the in-process attribution
-    /// heuristic).
+    /// missing/null as <c>unknown</c> rather than inferring a source).
     /// </summary>
     public string? SourceModule { get; set; }
 
@@ -77,7 +76,7 @@ public class RemoteToolSchema
     /// priority. <c>null</c> when attribution resolved to <c>commandName</c>
     /// or <c>module</c> instead, or when the OOP host predates spec 011
     /// (older hosts omit this field; consumers MUST treat missing/null as
-    /// "unknown" and fall back to the in-process attribution heuristic).
+    /// <c>unknown</c> rather than inferring a source).
     /// </summary>
     public string? SourcePattern { get; set; }
 
@@ -88,7 +87,7 @@ public class RemoteToolSchema
     /// source is <c>module</c>, the configured pattern when source is
     /// <c>pattern</c>. <c>null</c> when the OOP host predates spec 011
     /// (older hosts omit this field; consumers MUST treat missing/null as
-    /// "unknown" and fall back to the in-process attribution heuristic).
+    /// <c>unknown</c> rather than inferring a source).
     /// </summary>
     public string? SourceDetail { get; set; }
 }

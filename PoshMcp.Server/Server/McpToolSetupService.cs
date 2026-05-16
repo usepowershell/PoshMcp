@@ -118,7 +118,8 @@ internal static class McpToolSetupService
         ILogger logger,
         string configurationPath,
         IToolMetadataSource? toolMetadataSource = null,
-        IToolDescriptionSourceTracker? descriptionSourceTracker = null)
+        IToolDescriptionSourceTracker? descriptionSourceTracker = null,
+        IToolImportSourceTracker? importSourceTracker = null)
     {
         logger.LogInformation("Discovering PowerShell tools...");
         // Spec 011 FR-263-2 / FR-263-10: clear any stale OOP module-imports
@@ -126,7 +127,7 @@ internal static class McpToolSetupService
         // a new lease, so a fresh discovery starts from a clean slate.
         OopModuleImportsCapture.Reset();
         await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger, configurationPath);
-        var toolFactory = CreateToolFactory(config, executorLease?.Executor, runspace: null, toolMetadataSource, descriptionSourceTracker);
+        var toolFactory = CreateToolFactory(config, executorLease?.Executor, runspace: null, toolMetadataSource, descriptionSourceTracker, importSourceTracker);
         var tools = await toolFactory.GetToolsListAsync(config, logger);
         // Spec 011 FR-263-2 / FR-263-10: capture the executor's
         // LastModuleImports payload BEFORE the lease disposes (the
@@ -157,18 +158,19 @@ internal static class McpToolSetupService
         ICommandExecutor? commandExecutor,
         IPowerShellRunspace? runspace = null,
         IToolMetadataSource? toolMetadataSource = null,
-        IToolDescriptionSourceTracker? descriptionSourceTracker = null)
+        IToolDescriptionSourceTracker? descriptionSourceTracker = null,
+        IToolImportSourceTracker? importSourceTracker = null)
     {
         if (config.RuntimeMode == RuntimeMode.OutOfProcess)
         {
             return commandExecutor is null
                 ? throw new InvalidOperationException("Out-of-process runtime mode requires a started command executor.")
-                : new McpToolFactoryV2(commandExecutor, toolMetadataSource, descriptionSourceTracker);
+                : new McpToolFactoryV2(commandExecutor, toolMetadataSource, descriptionSourceTracker, importSourceTracker);
         }
 
         return runspace is null
-            ? new McpToolFactoryV2(toolMetadataSource, descriptionSourceTracker)
-            : new McpToolFactoryV2(runspace, toolMetadataSource, descriptionSourceTracker);
+            ? new McpToolFactoryV2(toolMetadataSource, descriptionSourceTracker, importSourceTracker)
+            : new McpToolFactoryV2(runspace, toolMetadataSource, descriptionSourceTracker, importSourceTracker);
     }
 
     /// <summary>
@@ -717,8 +719,9 @@ internal static class McpToolSetupService
         ILogger logger,
         string configurationPath,
         IToolMetadataSource? toolMetadataSource,
-        IToolDescriptionSourceTracker? descriptionSourceTracker)
+        IToolDescriptionSourceTracker? descriptionSourceTracker,
+        IToolImportSourceTracker? importSourceTracker)
     {
-        return await DiscoverToolsAsync(config, loggerFactory, logger, configurationPath, toolMetadataSource, descriptionSourceTracker);
+        return await DiscoverToolsAsync(config, loggerFactory, logger, configurationPath, toolMetadataSource, descriptionSourceTracker, importSourceTracker);
     }
 }

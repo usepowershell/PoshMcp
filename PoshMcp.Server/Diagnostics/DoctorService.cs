@@ -30,7 +30,7 @@ internal static class DoctorService
     internal static async Task RunDoctorAsync(
         ResolvedCommandSettings settings,
         string format,
-        Func<PowerShellConfiguration, ILoggerFactory, ILogger, string, IToolMetadataSource?, IToolDescriptionSourceTracker?, Task<List<McpServerTool>>> discoverToolsFunc)
+        Func<PowerShellConfiguration, ILoggerFactory, ILogger, string, IToolMetadataSource?, IToolDescriptionSourceTracker?, IToolImportSourceTracker?, Task<List<McpServerTool>>> discoverToolsFunc)
     {
         var report = await BuildDoctorReportForCliAsync(settings, discoverToolsFunc);
 
@@ -49,7 +49,7 @@ internal static class DoctorService
     /// </summary>
     internal static async Task<DoctorReport> BuildDoctorReportForCliAsync(
         ResolvedCommandSettings settings,
-        Func<PowerShellConfiguration, ILoggerFactory, ILogger, string, IToolMetadataSource?, IToolDescriptionSourceTracker?, Task<List<McpServerTool>>> discoverToolsFunc)
+        Func<PowerShellConfiguration, ILoggerFactory, ILogger, string, IToolMetadataSource?, IToolDescriptionSourceTracker?, IToolImportSourceTracker?, Task<List<McpServerTool>>> discoverToolsFunc)
     {
         var parsedLogLevel = SettingsResolver.ParseLogLevel(settings.LogLevel.Value);
         using var loggerFactory = LoggingHelpers.CreateLoggerFactory(parsedLogLevel);
@@ -92,10 +92,11 @@ internal static class DoctorService
         // (the same one the live server wires via DI), so the doctor report shows
         // exactly what an MCP client will see.
         var descriptionSourceTracker = new ToolDescriptionSourceTracker();
+        var importSourceTracker = new ToolImportSourceTracker();
         var helpAwareSource = new HelpAwareToolMetadataSource();
         try
         {
-            tools = await discoverToolsFunc(config, loggerFactory, logger, settings.FinalConfigPath, helpAwareSource, descriptionSourceTracker);
+            tools = await discoverToolsFunc(config, loggerFactory, logger, settings.FinalConfigPath, helpAwareSource, descriptionSourceTracker, importSourceTracker);
         }
         catch (Exception ex)
         {
@@ -159,7 +160,7 @@ internal static class DoctorService
                 OopModulePaths = oopModulePaths,
             },
             OutOfProcess = BuildOutOfProcessSection(config, settings.FinalConfigPath, loggerFactory),
-            ModuleImports = BuildModuleImportsSection(config, tools, OopModuleImportsCapture.Current, logger),
+            ModuleImports = BuildModuleImportsSection(config, tools, OopModuleImportsCapture.Current, logger, importSourceTracker),
             ConfigurationErrors = [.. report.ConfigurationErrors, .. configurationErrors],
         };
 
@@ -788,9 +789,10 @@ internal static class DoctorService
     internal static ModuleImportsSection BuildModuleImportsSection(
         PowerShellConfiguration config,
         List<McpServerTool> tools,
-        ILogger logger)
+        ILogger logger,
+        IToolImportSourceTracker? importSourceTracker = null)
     {
-        return BuildModuleImportsSection(config, tools, oopPayload: null, logger);
+        return BuildModuleImportsSection(config, tools, oopPayload: null, logger, importSourceTracker);
     }
 
     /// <summary>
@@ -809,7 +811,8 @@ internal static class DoctorService
         PowerShellConfiguration config,
         List<McpServerTool> tools,
         RemoteModuleImportsPayload? oopPayload,
-        ILogger logger)
+        ILogger logger,
+        IToolImportSourceTracker? importSourceTracker = null)
     {
         if (config is null) throw new ArgumentNullException(nameof(config));
         if (tools is null) throw new ArgumentNullException(nameof(tools));
@@ -864,7 +867,7 @@ internal static class DoctorService
             probes = [];
         }
 
-        return BuildModuleImportsSection(config, tools, probes, logger);
+        return BuildModuleImportsSection(config, tools, probes, logger, importSourceTracker);
     }
 
     /// <summary>
@@ -875,7 +878,8 @@ internal static class DoctorService
         PowerShellConfiguration config,
         List<McpServerTool> tools,
         IReadOnlyList<ModuleProbeResult> moduleProbes,
-        ILogger logger)
+        ILogger logger,
+        IToolImportSourceTracker? importSourceTracker = null)
     {
         if (config is null) throw new ArgumentNullException(nameof(config));
         if (tools is null) throw new ArgumentNullException(nameof(tools));
@@ -886,7 +890,6 @@ internal static class DoctorService
         var includePatterns = config.IncludePatterns ?? [];
         var excludePatterns = config.ExcludePatterns ?? [];
         var commandNames = config.CommandNames ?? [];
-        var effectiveCommandNames = config.GetEffectiveCommandNames() ?? [];
         var hasModuleOrPattern = configuredModules.Count > 0
             || includePatterns.Count > 0
             || excludePatterns.Count > 0;
@@ -894,12 +897,9 @@ internal static class DoctorService
         if (!hasModuleOrPattern)
             return new ModuleImportsSection();
 
-        // Build per-tool attribution first (FR-263-9 source priority:
-        // commandName > module > pattern > unknown).
-        var commandNameSet = new HashSet<string>(commandNames, StringComparer.OrdinalIgnoreCase);
         var includePatternSet = includePatterns.ToList();
         var excludePatternSet = excludePatterns.ToList();
-        var moduleNameSet = new HashSet<string>(configuredModules, StringComparer.OrdinalIgnoreCase);
+        var trackedSources = importSourceTracker?.ToolSources;
 
         var toolEntries = new List<ToolImportEntry>(tools.Count);
         var moduleContributions = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -915,49 +915,21 @@ internal static class DoctorService
             if (string.IsNullOrWhiteSpace(toolName))
                 continue;
 
-            string source;
-            string sourceDetail;
-            if (!string.IsNullOrEmpty(commandName) && commandNameSet.Contains(commandName))
+            var recorded = ResolveToolImportSource(commandName, trackedSources);
+            var source = ToolImportSourceVocabulary.ToWireValue(recorded.Source);
+            var sourceDetail = recorded.SourceDetail;
+
+            if (recorded.Source == ToolImportSource.Module
+                && !string.IsNullOrEmpty(sourceDetail)
+                && moduleContributions.TryGetValue(sourceDetail, out var contributedTools))
             {
-                source = "commandName";
-                sourceDetail = commandName;
+                contributedTools.Add(toolName);
             }
-            else if (configuredModules.Count == 1)
+            else if (recorded.Source == ToolImportSource.Pattern
+                && !string.IsNullOrEmpty(sourceDetail)
+                && patternMatchCounts.ContainsKey(sourceDetail))
             {
-                // FR-263-9 + best-effort attribution: when exactly one module is
-                // configured and the tool is not a CommandNames hit, attribute
-                // it to that module. Multi-module attribution requires CommandInfo
-                // threading (Phase 2 — Hermes wires sourceModule on the wire format).
-                source = "module";
-                sourceDetail = configuredModules[0];
-                moduleContributions[configuredModules[0]].Add(toolName);
-            }
-            else if (configuredModules.Count > 1)
-            {
-                source = "unknown";
-                sourceDetail = string.Empty;
-            }
-            else if (includePatternSet.Count > 0)
-            {
-                // No modules configured — attribute to the first matching include pattern.
-                var matched = includePatternSet.FirstOrDefault(p =>
-                    !string.IsNullOrEmpty(commandName) && PatternMatches(p, commandName));
-                if (matched is not null)
-                {
-                    source = "pattern";
-                    sourceDetail = matched;
-                    patternMatchCounts[matched] = patternMatchCounts.GetValueOrDefault(matched) + 1;
-                }
-                else
-                {
-                    source = "unknown";
-                    sourceDetail = string.Empty;
-                }
-            }
-            else
-            {
-                source = "unknown";
-                sourceDetail = string.Empty;
+                patternMatchCounts[sourceDetail] = patternMatchCounts.GetValueOrDefault(sourceDetail) + 1;
             }
 
             toolEntries.Add(new ToolImportEntry
@@ -988,7 +960,7 @@ internal static class DoctorService
             else if (contributed.Count == 0)
             {
                 status = "warning";
-                diagnostic = $"Module '{LogSanitizer.Scrub(name)}' resolved but contributed no tools (filtered out, or attribution requires Phase 2 wire fields).";
+                diagnostic = $"Module '{LogSanitizer.Scrub(name)}' resolved but contributed no tools (filtered out, or no authoritative import source was recorded for exposed tools).";
             }
             else
             {
@@ -1068,6 +1040,20 @@ internal static class DoctorService
             Patterns = patternEntries,
             Tools = toolEntries,
         };
+    }
+
+    private static ToolImportSourceInfo ResolveToolImportSource(
+        string? commandName,
+        IReadOnlyDictionary<string, ToolImportSourceInfo>? trackedSources)
+    {
+        if (!string.IsNullOrWhiteSpace(commandName)
+            && trackedSources is not null
+            && trackedSources.TryGetValue(commandName, out var recorded))
+        {
+            return recorded;
+        }
+
+        return new ToolImportSourceInfo(ToolImportSource.Unknown, string.Empty);
     }
 
     /// <summary>

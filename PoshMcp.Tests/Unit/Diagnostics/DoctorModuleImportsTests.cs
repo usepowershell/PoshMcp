@@ -35,6 +35,17 @@ public class DoctorModuleImportsTests
     private static ModuleProbeResult NotFound(string name)
         => new(name, false, null, null);
 
+    private static ToolImportSourceTracker MakeTracker(params (string commandName, ToolImportSource source, string sourceDetail)[] entries)
+    {
+        var tracker = new ToolImportSourceTracker();
+        foreach (var (commandName, source, sourceDetail) in entries)
+        {
+            tracker.RecordToolSource(commandName, source, sourceDetail);
+        }
+
+        return tracker;
+    }
+
     // ── FR-263-12 case 1: known module that resolves and contributes tools ──
 
     [Fact]
@@ -47,8 +58,11 @@ public class DoctorModuleImportsTests
             MakeTool("get_az_context", "Get-AzContext"),
         };
         var probes = new List<ModuleProbeResult> { Found("Az.Accounts", "2.13.0", "C:\\Az.Accounts") };
+        var tracker = MakeTracker(
+            ("Connect-AzAccount", ToolImportSource.Module, "Az.Accounts"),
+            ("Get-AzContext", ToolImportSource.Module, "Az.Accounts"));
 
-        var section = DoctorService.BuildModuleImportsSection(config, tools, probes, NullLogger.Instance);
+        var section = DoctorService.BuildModuleImportsSection(config, tools, probes, NullLogger.Instance, tracker);
 
         var module = Assert.Single(section.Modules);
         Assert.Equal("Az.Accounts", module.Name);
@@ -94,8 +108,9 @@ public class DoctorModuleImportsTests
             MakeTool("get_az_context", "Get-AzContext"),
         };
         var probes = new List<ModuleProbeResult> { Found("Az.Accounts") };
+        var tracker = MakeTracker(("Get-AzContext", ToolImportSource.Module, "Az.Accounts"));
 
-        var section = DoctorService.BuildModuleImportsSection(config, tools, probes, NullLogger.Instance);
+        var section = DoctorService.BuildModuleImportsSection(config, tools, probes, NullLogger.Instance, tracker);
 
         var pattern = Assert.Single(section.Patterns);
         Assert.Equal("filter", pattern.Role);
@@ -118,8 +133,9 @@ public class DoctorModuleImportsTests
             MakeTool("get_thing", "Get-Thing"),
         };
         var probes = new List<ModuleProbeResult>();
+        var tracker = MakeTracker(("Get-Thing", ToolImportSource.Pattern, "Get-*"));
 
-        var section = DoctorService.BuildModuleImportsSection(config, tools, probes, NullLogger.Instance);
+        var section = DoctorService.BuildModuleImportsSection(config, tools, probes, NullLogger.Instance, tracker);
 
         var pattern = Assert.Single(section.Patterns);
         Assert.Equal("discovery", pattern.Role);
@@ -188,12 +204,15 @@ public class DoctorModuleImportsTests
         };
         var tools = new List<McpServerTool>
         {
-            MakeTool("get_date", "Get-Date"),         // → commandName
-            MakeTool("get_az_context", "Get-AzContext"), // → module (single-module heuristic)
+            MakeTool("get_date", "Get-Date"),
+            MakeTool("get_az_context", "Get-AzContext"),
         };
         var probes = new List<ModuleProbeResult> { Found("Az.Accounts") };
+        var tracker = MakeTracker(
+            ("Get-Date", ToolImportSource.CommandName, "Get-Date"),
+            ("Get-AzContext", ToolImportSource.Module, "Az.Accounts"));
 
-        var section = DoctorService.BuildModuleImportsSection(config, tools, probes, NullLogger.Instance);
+        var section = DoctorService.BuildModuleImportsSection(config, tools, probes, NullLogger.Instance, tracker);
 
         var byTool = section.Tools.ToDictionary(t => t.ToolName);
         Assert.Equal("commandName", byTool["get_date"].Source);

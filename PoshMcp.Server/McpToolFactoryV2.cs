@@ -42,6 +42,7 @@ public class McpToolFactoryV2
     private readonly ICommandExecutor? _commandExecutor;
     private readonly IToolMetadataSource _toolMetadataSource;
     private readonly IToolDescriptionSourceTracker? _descriptionSourceTracker;
+    private readonly IToolImportSourceTracker? _importSourceTracker;
     private readonly PowerShellHelpResolver _helpResolver = new();
     private static McpMetrics? _metrics;
 
@@ -136,11 +137,12 @@ public class McpToolFactoryV2
     /// <see cref="DefaultToolMetadataSource"/>.</param>
     /// <param name="descriptionSourceTracker">Optional tracker populated alongside
     /// description resolution. <c>null</c> disables tracking.</param>
-    public McpToolFactoryV2(IToolMetadataSource? metadataSource, IToolDescriptionSourceTracker? descriptionSourceTracker)
+    public McpToolFactoryV2(IToolMetadataSource? metadataSource, IToolDescriptionSourceTracker? descriptionSourceTracker, IToolImportSourceTracker? importSourceTracker = null)
     {
         _assemblyGenerator = new PowerShellAssemblyGenerator(new SingletonPowerShellRunspace());
         _toolMetadataSource = metadataSource ?? new HelpAwareToolMetadataSource();
         _descriptionSourceTracker = descriptionSourceTracker;
+        _importSourceTracker = importSourceTracker;
     }
 
     /// <summary>
@@ -169,11 +171,12 @@ public class McpToolFactoryV2
     /// Initializes a new instance with a specified runspace, an explicit metadata
     /// source, and an optional <see cref="IToolDescriptionSourceTracker"/>.
     /// </summary>
-    public McpToolFactoryV2(IPowerShellRunspace runspace, IToolMetadataSource? metadataSource, IToolDescriptionSourceTracker? descriptionSourceTracker)
+    public McpToolFactoryV2(IPowerShellRunspace runspace, IToolMetadataSource? metadataSource, IToolDescriptionSourceTracker? descriptionSourceTracker, IToolImportSourceTracker? importSourceTracker = null)
     {
         _assemblyGenerator = new PowerShellAssemblyGenerator(runspace);
         _toolMetadataSource = metadataSource ?? new HelpAwareToolMetadataSource();
         _descriptionSourceTracker = descriptionSourceTracker;
+        _importSourceTracker = importSourceTracker;
     }
 
     public McpToolFactoryV2(ICommandExecutor commandExecutor)
@@ -198,12 +201,13 @@ public class McpToolFactoryV2
     /// Initializes a new OOP-backed instance with an explicit metadata source and an
     /// optional <see cref="IToolDescriptionSourceTracker"/>.
     /// </summary>
-    public McpToolFactoryV2(ICommandExecutor commandExecutor, IToolMetadataSource? metadataSource, IToolDescriptionSourceTracker? descriptionSourceTracker)
+    public McpToolFactoryV2(ICommandExecutor commandExecutor, IToolMetadataSource? metadataSource, IToolDescriptionSourceTracker? descriptionSourceTracker, IToolImportSourceTracker? importSourceTracker = null)
     {
         _commandExecutor = commandExecutor ?? throw new ArgumentNullException(nameof(commandExecutor));
         _outOfProcessAssemblyGenerator = new OutOfProcessToolAssemblyGenerator(commandExecutor);
         _toolMetadataSource = metadataSource ?? new HelpAwareToolMetadataSource();
         _descriptionSourceTracker = descriptionSourceTracker;
+        _importSourceTracker = importSourceTracker;
     }
 
     /// <summary>
@@ -487,6 +491,7 @@ public class McpToolFactoryV2
             return new List<McpServerTool>();
         }
 
+        RecordRemoteImportSources(schemas, _importSourceTracker);
         var remoteParameterDescriptions = BuildRemoteParameterDescriptionMap(schemas, _toolMetadataSource, _descriptionSourceTracker);
         _outOfProcessAssemblyGenerator.GenerateAssembly(schemas, remoteParameterDescriptions, logger);
         var generatedInstance = _outOfProcessAssemblyGenerator.GetGeneratedInstance(logger);
@@ -503,6 +508,53 @@ public class McpToolFactoryV2
         logger.LogTrace("Tool factory configuration:");
         logger.LogTrace($"  Config type: {config.GetType().Name}");
         logger.LogTrace($"  Runtime mode: {config.RuntimeMode}");
+    }
+
+    private static void RecordRemoteImportSources(
+        IReadOnlyList<RemoteToolSchema> schemas,
+        IToolImportSourceTracker? importSourceTracker)
+    {
+        if (importSourceTracker is null)
+        {
+            return;
+        }
+
+        foreach (var schema in schemas)
+        {
+            if (schema is null || string.IsNullOrWhiteSpace(schema.Name))
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(schema.SourceModule))
+            {
+                importSourceTracker.RecordToolSource(
+                    schema.Name,
+                    ToolImportSource.Module,
+                    schema.SourceDetail ?? schema.SourceModule);
+            }
+            else if (!string.IsNullOrWhiteSpace(schema.SourcePattern))
+            {
+                importSourceTracker.RecordToolSource(
+                    schema.Name,
+                    ToolImportSource.Pattern,
+                    schema.SourceDetail ?? schema.SourcePattern);
+            }
+            else if (!string.IsNullOrWhiteSpace(schema.SourceDetail))
+            {
+                importSourceTracker.RecordToolSource(
+                    schema.Name,
+                    ToolImportSource.CommandName,
+                    schema.SourceDetail);
+            }
+            else
+            {
+                importSourceTracker.RecordToolSource(
+                    schema.Name,
+                    ToolImportSource.Unknown,
+                    string.Empty);
+            }
+        }
     }
 
     private List<CommandInfo> ValidateAndGetCommands(PowerShellConfiguration config, ILogger logger)
@@ -1090,6 +1142,7 @@ public class McpToolFactoryV2
                 if (cmdInfo != null)
                 {
                     commands.Add(cmdInfo);
+                    _importSourceTracker?.RecordToolSource(cmdInfo.Name, ToolImportSource.CommandName, cmdName);
                     logger.LogDebug($"Found command: {cmdName}");
                 }
                 else
@@ -1119,6 +1172,11 @@ public class McpToolFactoryV2
                 var moduleCommands = powerShell.Invoke<CommandInfo>();
                 powerShell.Commands.Clear();
 
+                foreach (var moduleCommand in moduleCommands)
+                {
+                    _importSourceTracker?.RecordToolSource(moduleCommand.Name, ToolImportSource.Module, module);
+                }
+
                 commands.AddRange(moduleCommands);
                 logger.LogDebug($"Found {moduleCommands.Count} commands in module '{module}'");
             }
@@ -1143,6 +1201,11 @@ public class McpToolFactoryV2
                 powerShell.AddCommand("Get-Command").AddParameter("Name", pattern).AddParameter("ErrorAction", "SilentlyContinue");
                 var patternCommands = powerShell.Invoke<CommandInfo>();
                 powerShell.Commands.Clear();
+
+                foreach (var patternCommand in patternCommands)
+                {
+                    _importSourceTracker?.RecordToolSource(patternCommand.Name, ToolImportSource.Pattern, pattern);
+                }
 
                 commands.AddRange(patternCommands);
                 logger.LogDebug($"Found {patternCommands.Count} commands matching pattern '{pattern}'");

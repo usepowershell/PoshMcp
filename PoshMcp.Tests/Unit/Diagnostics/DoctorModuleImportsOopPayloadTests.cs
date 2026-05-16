@@ -29,6 +29,17 @@ public class DoctorModuleImportsOopPayloadTests
         });
     }
 
+    private static ToolImportSourceTracker MakeTracker(params (string commandName, ToolImportSource source, string sourceDetail)[] entries)
+    {
+        var tracker = new ToolImportSourceTracker();
+        foreach (var (commandName, source, sourceDetail) in entries)
+        {
+            tracker.RecordToolSource(commandName, source, sourceDetail);
+        }
+
+        return tracker;
+    }
+
     [Fact]
     public void OopPayload_KnownModule_UsesPayloadProbeData_NotInProcessProbe()
     {
@@ -51,8 +62,11 @@ public class DoctorModuleImportsOopPayloadTests
                 },
             ],
         };
+        var tracker = MakeTracker(
+            ("Connect-AzAccount", ToolImportSource.Module, "Az.Accounts"),
+            ("Get-AzContext", ToolImportSource.Module, "Az.Accounts"));
 
-        var section = DoctorService.BuildModuleImportsSection(config, tools, payload, NullLogger.Instance);
+        var section = DoctorService.BuildModuleImportsSection(config, tools, payload, NullLogger.Instance, tracker);
 
         var module = Assert.Single(section.Modules);
         // OOP-provided values appear verbatim — proves the in-process probe was NOT run.
@@ -127,5 +141,34 @@ public class DoctorModuleImportsOopPayloadTests
         Assert.Empty(section.Modules);
         Assert.Empty(section.Patterns);
         Assert.Empty(section.Tools);
+    }
+
+    [Fact]
+    public void OopPayload_WithoutTrackedSources_ReportsUnknownToolAttribution()
+    {
+        var config = new PowerShellConfiguration { Modules = new() { "Az.Accounts" } };
+        var tools = new List<McpServerTool>
+        {
+            MakeTool("get_az_context", "Get-AzContext"),
+        };
+        var payload = new RemoteModuleImportsPayload
+        {
+            Modules =
+            [
+                new RemoteModuleProbe
+                {
+                    Name = "Az.Accounts",
+                    Found = true,
+                    Version = "9.9.9",
+                    Path = "C:\\OopProvided\\Az.Accounts.psd1",
+                },
+            ],
+        };
+
+        var section = DoctorService.BuildModuleImportsSection(config, tools, payload, NullLogger.Instance);
+
+        var tool = Assert.Single(section.Tools);
+        Assert.Equal("unknown", tool.Source);
+        Assert.Equal(string.Empty, tool.SourceDetail);
     }
 }
