@@ -9,7 +9,19 @@
   
 - name: Getting Started
   href: articles/getting-started.md
-  
+
+- name: Tutorials
+  href: articles/tutorials/index.md
+  items:
+  - name: 1. Local stdio MCP server
+    href: articles/tutorials/01-local-stdio-server.md
+  - name: 2. Docker HTTP with custom functions
+    href: articles/tutorials/02-docker-http-custom-functions.md
+  - name: 3. API key on selected commands
+    href: articles/tutorials/03-docker-api-key-per-command.md
+  - name: 4. API key with two roles
+    href: articles/tutorials/04-docker-api-key-multi-key-roles.md
+
 - name: User Guide
   items:
   - name: Configuration
