@@ -22,152 +22,19 @@
 
 **Process note (auth):** `gh auth status` precheck before posting confirmed `usepowershell` (keyring) was active vs. `stmuraws_microsoft` inactive. Mandatory per `.squad/decisions.md` L31-36 — without it, the approval comment would post under the wrong identity.
 
-## Learnings - 2026-05-13 - PR #247 review (issue #234, spec 010 step 11)
+## 2026-05-13 / 2026-05-14 — Summarized (full text in history-archive.md, archived by Scribe 2026-05-16)
 
-### Verdict
-APPROVE. Documentation for FR-500/FR-510 description precedence chains in docs/articles/exposing-tools.md plus README cross-link.
+Spec 009 review wave + #247 docs:
+- **PR #247** (Hermes, FR-500/510 description precedence docs) — APPROVE. Doc literals verified verbatim against `IToolDescriptionSourceTracker` (synopsis/description/syntax/name + helpParameter/helpMessage/validateSet/typeFallback). Lesson: for multi-step resolver docs, **table + tiny per-step example + literal wire vocabulary** beats prose.
+- **PR #253** (Leela, TESTING.md) — APPROVE with 2 non-blocking nits. Lesson: when a docs PR ships ahead of impl PRs, defer all *named* details to the source-of-truth file; commit only to the *contract*.
+- **PR #256** (Fry, class-level Category traits baseline) — REJECT (reassigned to Bender). Found Unit/OutOfProcess/* classes that spawn pwsh / bind ports / share temp. Lesson: **grep the file for forbidden patterns, never infer from folder.** Class-level trait MUST reflect the class''s most-resource-intensive method.
+- **PR #257** (Amy, flake-rate workflow) — APPROVE. Lesson: measurement vs gating semantics differ — flake measurement wants `set +e` + capture-then-decide, NOT production fail-fast.
+- **PR #258** (Hermes, TempDirectory helper) — APPROVE. Composes with PR #255 SubprocessTeardown (same `Shared/` IDisposable + best-effort + never-throw idiom). Audit hooks land #216 CI diagnostic seam.
+- **PR #252** (Amy, category-scoped phases) — APPROVE. Already complete from prior session — Ralph re-routed; lesson: **before doing review work, `gh pr view N --json reviews,comments` to check existing verdicts.**
+- **PR #259** (Fry, reclassify misfiled Unit/OutOfProcess, FR-414) — APPROVE. Cleanest possible reclassification (8 namespace flips, +1/-1 each, 98–99% similarity). The "grep, never infer from folder" rule applied for the third time.
+- **PR #260** (Fry, FR-416 Functional sweep, spec 009 closing PR) — APPROVE. Codified partial-class promotion policy: **any partial touching external resources → whole class promotes together.** Spec 009 closed.
 
-### What I cross-checked and what passed
-- **Vocabulary parity**: Doc literals (synopsis/description/syntax/name and helpParameter/helpMessage/validateSet/typeFallback) match IToolDescriptionSourceTracker.cs ToString() lines 152-165 verbatim. This is the property we want — doctor JSON, OTel `step` tag, and prose are all one phrase.
-- **Resolver behavior**: HelpAwareToolMetadataSource.cs ResolveToolDescription early-returns at each rung; the doc's "tries each step in order, stops at first non-empty" framing is structurally accurate.
-- **Step 3 string format**: Code emits `$"{CommandName} {ParameterSetSyntax}"`. Doc shows `"Get-FixtureBare [[-Anything] <string>] [<CommonParameters>]"` — matches.
-- **ValidateSet prefixes**: Code line 111 uses `"Each item is one of: "` vs `"One of: "` based on `ValidateSetAppliesToArrayElement`. Doc strings match verbatim, including punctuation/spacing.
-- **TypeFallback**: `$"Parameter of type {typeName}"` matches doc's `"Parameter of type System.String"`.
-- **Synopsis-equals-name filter**: The StringComparison.Ordinal guard in the code is correctly described as "not equal to the command name".
-- **#242 callout**: Honest framing — what works (resolver + doctor), what doesn't (inputSchema plumbing), tracking link, what authors should do today, what changes when fix ships. NO fix date promised.
-- **Cross-link**: README anchor `#description-precedence` resolves to `## Description Precedence` heading in both GitHub and DocFX renderers.
-- **HelpParityFixture mapping**: Every fixture function the doc references exists in HelpParityFixture.psm1 with the matching shape.
-
-### Doc review patterns worth keeping
-- For a multi-step resolver, **table + tiny per-step example** beats prose. Anchoring step names to the literal wire vocabulary makes the doc dual-purpose: human reading + searchability across doctor output and metrics.
-- **In-line "Known issue" callout** under the affected section (not at bottom) for partially-shipped features. Format: what works / what doesn't / link / today's guidance / what changes on fix. The "no module change required" line is what makes the callout safe to ship — authors aren't asked to wait.
-- **README defers to article**, doesn't restate the chain. Single-link cross-link from a one-line bullet is the right hook.
-- For doc PRs touching behavior I've reviewed code-side, cross-checking literal strings (prefixes, format strings, enum-to-wire names) catches drift faster than re-reading the prose.
-
-### Process note
-Worktree-local strategy meant I could `gh pr view` and read implementation files in the same session without cross-branch confusion. Resolved everything from c:\Users\stmuraws\source\github\usepowershell\poshmcp-234.
-### 2026-05-14 — Reviewed PR #253 (Leela — TESTING.md, branch squad/214-testing-md-commands)
-
-**Verdict:** APPROVE with two non-blocking nits. Posted via gh pr comment (#issuecomment-4453556321). Architectural review only; Cubert handles fact-check.
-
-**Strongest aspect:** Doc is authored against the spec FR contract, not against parallel-PR implementation choices. Default-bucket *name* deferred to PoshMcp.Tests/README.md (set by #212), CI phase order deferred to .github/workflows/ci.yml (set by #215). TESTING.md commits only to "default bucket is not Unit" and "category X reproduces phase X locally" — so it can merge in any order relative to #212/#215 without stranding a false reference. Reviewer notes call out the two re-verification points explicitly. This is the right authoring discipline for parallel work streams.
-
-**Location:** Repo root — correct. Joins README/CONTRIBUTING/SECURITY/DOCKER as a contributor-facing top-level doc. Burying under docs/ would have hidden it behind the DocFX site (which targets end-users, not contributors).
-
-**README integration:** Two-entry-point split (quick-start in README, deep-dive in TESTING.md) — same pattern as PR #210 OOP docs (configuration.md brief + advanced.md deep-dive). No category-table duplication. README diff also flips  + "--filter \"FullyQualifiedName~Unit\"" +  →  + "--filter \"Category=Unit\"" +  aligning the public surface to the trait contract.
-
-**FR coverage:** FR-408 ✓ explicit table. FR-413 ✓ documented in Azure caveats AND repeated in Troubleshooting (justified — Troubleshooting is where operators actually hit the symptom). FR-417 ✓ has its own section, defers bucket name correctly. Bonus coverage of FR-411/412/416/418 in caveats even though not strictly required.
-
-**Two non-blocking nits:** (1) Integration row "Spawns  + "pwsh" + : Yes (in-process runspaces)" — in-process runspaces don't spawn  + "pwsh.exe" + , parenthetical disambiguates but stricter reading is "No". (2) Flake-rate troubleshooting uses cmd  + "or /l" +  syntax — most contributors run PowerShell or bash; either show all three forms or pick bash to match the doc's other code fences.
-
-**Pattern noted:** When a docs PR ships AHEAD of (or in parallel with) the implementation PRs it documents, defer all *named* implementation details (bucket name, phase order, runner config) to the source-of-truth file owned by the implementation PR, and commit only to the *contract* in your doc. This keeps the doc correct under any landing order. Apply this to future docs-first PRs in multi-PR specs.
-
-### 2026-05-14 - Reviewed PR #256 (Fry - Spec 009 Category traits baseline)
-
-**Verdict:** REJECT (request changes). Posted via gh pr comment (#issuecomment-4453570148). Reassigned to **Bender** (NOT Fry - reviewer-rejection lockout).
-
-**Architectural framing:** Class-level [Trait("Category", "Unit")] IS a reclassification, not "honest tagging." It's an active claim that every method on the class satisfies FR-401 (no pwsh) / FR-402 (no port) / FR-403 (no shared temp). The PR's framing - "no test reclassification, deferred to #213" - falls apart for Unit/OutOfProcess/* because tagging those classes Unit is making the false claim NOW, not deferring it.
-
-**Spot-check method (the bit that found the problem):** When PR description says "honest tagging only" but applies traits by folder, audit the FOLDER the spec edge case explicitly names. Spec 009 names Unit/OutOfProcess/* and Unit/ProgramCli* by name. Three minutes of grep confirmed:
-- OutOfProcessCancellationTests constructs new OutOfProcessHost(pwshPath, ...) + StartAsync -> spawns pwsh (FR-401).
-- OutOfProcessHostConcurrencyTests runs new HttpListener() on 127.0.0.1 ephemeral port (FR-402).
-- OutOfProcessCommandExecutorTests has both StartAsync_ThenDisposeAsync_FullLifecycle (spawns pwsh) AND ResolveModulePaths_* using Path.Combine(Path.GetTempPath(), "PoshMcp-ResolveModulePaths") - non-Guid-unique shared temp (FR-403).
-
-**Class-level trait aggregation hazard:** xUnit class-level traits apply to every test method on the class. Even files where SOME methods are pure constructor-validation Unit tests (OutOfProcessHostTests, OutOfProcessSubprocessPoolTests first 2 each) cannot wear Unit if any sibling method violates FR-401/402/403. Class-level category MUST reflect the class's most-resource-intensive method. Fix: tag those classes OutOfProcess. Pure validation classes can stay Unit.
-
-**Downstream harm if shipped as-is:** PR's headline 'Unit 424' count includes the violators. Once that count is canonical, contributors and CI both treat it as the fast tier - but dotnet test --filter Category=Unit against that set will fail FR-404 (< 60s) and FR-405 (zero flakes across 5 runs) because pwsh-spawn / port-bind work is still inside the filter.
-
-**What's right (kept for context):** AssemblyInfo.cs FR-417 default = Integration (never Unit) - correct. Three pre-existing non-canonical class-level traits cleanly replaced (McpPrompts, McpResources, OutOfProcessModules). Method-level non-canonical traits explicitly deferred - good scope discipline. scripts/add-category-traits.ps1 is idempotent, partial-class aware, doc-comment stripping, refuses unmapped classes - right shape for a baseline tool. FR-415 determinism check (counts reproduced 3x) is the right gate for a metadata change. 92 files / +404 / -3 / draft - appropriately scoped.
-
-**Reassignment rationale:** Bender owns the OOP production code (Spec 004 Pool / cancellation work, PRs #200, #207). Bender is structurally immune to the folder-name-as-category trap - knows from writing the code which classes spawn pwsh and which don't. Hermes (Spec 004 PR #201) was the alternative, but Bender's PR #207 cancellation work is closer in time and scope to the audit needed.
-
-**Pattern noted (capture for TESTING.md / #214):** Class-level category traits on mixed-content test classes are a one-bit summary of an N-shape file. When the auditor (script OR human) only sees the folder, the bit defaults to "whatever the folder says." Corrective rule for #213: the class-level category MUST reflect the class's most-resource-intensive method, not the folder. If a class genuinely needs both Unit and OutOfProcess methods, split the class - don't compromise the trait.
-
-### 2026-05-14 — PR #258 review (Hermes, spec 009 / #219)
-- ✅ APPROVED. `TempDirectory : IDisposable` helper, prefix `poshmcp-test-` + `Guid:N`, best-effort recursive delete, never-throw-on-dispose contract verified (bare `catch { }` swallows all non-fatal exceptions; failed deletes route to `s_undeleted` for diagnostic `GetUndeletedDirectories()`).
-- Composes cleanly with `SubprocessTeardown` from PR #255 — same `Shared/` namespace, same `IDisposable` + best-effort + never-throw shape. Two helpers, one shared-helpers idiom.
-- Audit hooks land #216's CI diagnostic seam: `AuditLeftoverDirectories()` sweeps `poshmcp-test-*` from temp path; no further plumbing needed for phased-CI "leaked dirs?" check. Worth referencing in #216's design.
-- Coverage scope: 3 real audit hits (`ResolveModulePaths_DeduplicatesCaseInsensitively` from my PR #256 flag + 2 `ResolveConfigurationPath_*` cases writing bare appsettings.json/config.json into temp root) + 3 representative refactors. Whole-suite migration explicitly deferred — appropriate, mechanical churn against now-canonical pattern.
-- `OopTestPaths` left alone: defensible under FR-407 (serial execution prevents the fixed `OopE2EProbe` name from racing). Caveat for the record: if any consumer mutates state in that fixed dir and a later test expects clean slate, serial execution stops being sufficient cover. Flagged for whatever follow-up audits `OopTestPaths`.
-- Comment posted: https://github.com/usepowershell/PoshMcp/pull/258#issuecomment-4453765946
-
-### 2026-05-14 — PR #257 review (Amy, ci(009): flake-rate workflow)
-
-**Verdict: APPROVE.**
-
-- Separate workflow file (vs. extending ci.yml) is correct — different shape (loop+aggregate vs. single-pass), independent trigger surface (workflow_dispatch+nightly cron), independent runtime budget.
-- N=5 default with workflow_dispatch.inputs.runs override resolved via ${{ github.event.inputs.runs || '5' }}. Loop uses set +e + per-phase exit codes captured to exit-codes.txt; loop ends with explicit xit 0 so aggregator owns gating.
-- Phasing Unit→Integration→OOP→Http→Functional matches PR #252 one-for-one. Azure correctly excluded (no creds in scheduled runs, would only add noise). FR-407 no-parallelism invariant preserved (single job, sequential bash loop).
-- **Measurement vs. gating divergence is deliberate and correct.** Within an iteration, all phases run regardless of earlier failure — production CI halts on first failure, flake measurement wants max signal. A test that's "always green" only because production halts before reaching it is exactly the kind of flake this workflow surfaces.
-- Aggregator robustness verified: missing flake-runs/ → stub summary; corrupt TRX → try/catch+continue; missing exit-codes lines → - placeholder; iter sort uses [int] cast so run-10 sorts after run-9; if: always() on aggregator + uploads. XmlNamespaceManager bound to TeamTest 2010 schema (correct — TRX uses default namespace).
-- Aggregate flake rate definition (non-pass instances / total invocations) is correct: one test failing 3/5 weighs more than three tests each failing 1/5.
--  1MB cap only at risk in catastrophic worst case (every test flaked every iter), at which point the workflow has bigger problems.
-- TRX path collisions: none (per-iter subdir + stable phase filenames).
-- Idempotent on rerun (rebuilds summary from scratch each time).
-- Minor non-blocker: no concurrency: group set — overlapping manual+nightly would run in parallel. Low probability; flag for next touch.
-
-Reusable lessons:
-1. **Measurement vs. gating semantics differ.** Flake-rate workflows should NOT mirror production CI's fail-fast — they want max signal. Halting on first phase failure hides flakes in later phases. set +e + capture-then-decide is the right shape.
-2. **TRX parsing requires XmlNamespaceManager.** TRX uses default namespace http://microsoft.com/schemas/VisualStudio/TeamTest/2010; dotted-property access silently returns empty. Select-Xml / SelectNodes with namespace manager is correct.
-3. **Numeric directory sort.** 
-un-1, run-2, ..., run-10 sorts lexicographically wrong; Sort-Object { [int](.Name -replace '^run-','') } is the fix.
-4. **Per-iteration TRX subdirs prevent collision** without needing rename-after-write logic. Stable filenames inside per-iter dirs is cleaner than timestamped filenames.
-5. **if: always() on summary + upload steps** is non-negotiable for measurement workflows — you need the partial data when the run blew up, that's often where the signal is.
-
-### 2026-05-14 — PR #258 review (Hermes, spec 009 / #219)
-- ✅ APPROVED. `TempDirectory : IDisposable` helper, prefix `poshmcp-test-` + `Guid:N`, best-effort recursive delete, never-throw-on-dispose contract verified (bare `catch { }` swallows all non-fatal exceptions; failed deletes route to `s_undeleted` for diagnostic `GetUndeletedDirectories()`).
-- Composes cleanly with `SubprocessTeardown` from PR #255 — same `Shared/` namespace, same `IDisposable` + best-effort + never-throw shape. Two helpers, one shared-helpers idiom.
-- Audit hooks land #216's CI diagnostic seam: `AuditLeftoverDirectories()` sweeps `poshmcp-test-*` from temp path; no further plumbing needed for phased-CI "leaked dirs?" check. Worth referencing in #216's design.
-- Coverage scope: 3 real audit hits (`ResolveModulePaths_DeduplicatesCaseInsensitively` from my PR #256 flag + 2 `ResolveConfigurationPath_*` cases writing bare appsettings.json/config.json into temp root) + 3 representative refactors. Whole-suite migration explicitly deferred — appropriate, mechanical churn against now-canonical pattern.
-- `OopTestPaths` left alone: defensible under FR-407 (serial execution prevents the fixed `OopE2EProbe` name from racing). Caveat for the record: if any consumer mutates state in that fixed dir and a later test expects clean slate, serial execution stops being sufficient cover. Flagged for whatever follow-up audits `OopTestPaths`.
-- Comment posted: https://github.com/usepowershell/PoshMcp/pull/258#issuecomment-4453765946
-
-### 2026-05-14 — PR #252 review (Amy — ci(009): category-scoped phases) — already complete
-
-Ralph routed this to me, but the architectural review was already posted as a PR comment (artifacts/farnsworth-pr252-review.md from a prior session). Cubert's fact-check is also already on the PR. Verdict stands: APPROVE. Tried to formalize via gh pr review --approve to flip GitHub UI to a green review state but failed — usepowershell bot account authored the PR so it cannot self-approve. The comment-form approval is the team accepted pattern (matches PR #255 precedent). No new findings; nothing to redo. The PR is unblocked and ready for Amy to flip out of draft and merge.
-
-**Lesson:** Before doing review work, check the PR existing comments/reviews — Ralph queue can re-route work already done in a prior session. One `gh pr view 252 --json reviews,comments` would have caught this in the first 5 seconds. Make this the first move on any "review PR #N" task.
-
-### 2026-05-14 — Reviewed PR #259 (Fry — reclassify misfiled Unit/OutOfProcess tests, Spec 009 FR-414, closes #213)
-
-**Verdict:** APPROVE. Posted via gh pr comment (#issuecomment-4455131167). Artifact: `artifacts/farnsworth-pr259-review.md`.
-
-**Cleanest possible reclassification PR.** 8 files, +1/-1 each, single namespace line edit per file (`PoshMcp.Tests.Unit.OutOfProcess` → `PoshMcp.Tests.OutOfProcess`). `git mv` similarity 98–99%. Mechanically impossible to have changed assertions or test bodies given the +1/-1 shape — the review reduces to confirming the diff really is what the description claims it is.
-
-**Trait-vs-folder check applied (the PR #256 lesson).** Grepped each retained Unit file (`OAuthProxyEndpointsTests`, `WinPsCompatProxyTests`, `ProgramCliBuildCommandTests`, `ServerSessionAwarePowerShellRunspaceTests`) for the actual `[Trait("Category", ...)]` attribute rather than inferring from folder layout. All carry `[Trait("Category", "Unit")]` correctly. None match `Process.Start`, `ProcessStartInfo`, `TcpListener`, `HttpListener`, `"pwsh`, `GetTempPath`, or port-binding patterns. The misfiling really was directory-only — the metadata was already correct.
-
-**Audit table is accurate.** PR description's "files audited and confirmed compliant" section matches actual contents of `PoshMcp.Tests/Unit/` on the PR branch. Justifications hold up: NoOpEndpointRouteBuilder stub for OAuth (no real listener), in-process `Program.Main` invocation with `TemporaryDirectory` + `CurrentDirectoryScope` for ProgramCli (PR #258 isolation helpers), in-process `PowerShell.Create()` for WinPsCompat (runspace ≠ subprocess), pure mocks for ServerSessionAware.
-
-**Acceptance for #213 fully satisfied:** Unit category 0 process-spawning / 0 port-binding / 0 shared-temp; audit table present and accurate; no assertions modified.
-
-**Tier metrics align:** Unit 432/0 in 39s (well under 60s FR-405 budget), OOP 155/0/6 with first-run flake clean on rerun (matches the historical OOP-tier flakiness profile from PR #255 — pwsh subprocess spawn timing, not regression).
-
-**Non-blocking observation:** `PoshMcp.Tests/Unit/OutOfProcess/` directory should be empty post-merge — flagged as a hygiene check, not a gate.
-
-**Pattern to remember (codified in the review for future reclassification PRs):** When a PR carries the FR-414 "metadata-only" guarantee, review reduces to three mechanical checks — (1) `gh pr diff` shows only namespace/folder lines, no `+/-` outside import/namespace blocks; (2) audit table matches diff one-for-one; (3) retained files grep-clean for forbidden patterns under the new boundary, NEVER inferred from folder layout (PR #256 lesson). All three hold → PR is safe to land. This is the third Spec 009 PR (after #256 trait-tagging and #258 isolation helpers) where the "grep the file, never infer from folder" rule has been the deciding mechanic.
-
-### 2026-05-14 — Reviewed PR #260 (Fry — FR-416 sweep of Functional/, spec 009 closing PR, closes #220)
-
-**Verdict:** APPROVE. Posted via gh pr comment (#issuecomment-4455307819). Artifact: `artifacts/farnsworth-pr260-review.md`. This is the closing PR of spec 009.
-
-**Three-check playbook (from #259) applied cleanly:**
-1. `gh pr diff 260` — exactly four changes, all metadata or doc: two `[Trait]` flips, one `git mv` (98% similarity) + namespace + trait flip, one TESTING.md additive paragraph. No `[Fact]` bodies, `Assert.*`, ctor/setup, or fixtures touched. FR-414 clean.
-2. PR body audit table is one-for-one with the diff: three reclassifications listed, three trait changes in diff, one folder move listed, one `git mv` in diff.
-3. Grep against retained `Functional/*.cs` for FR-416 violation patterns (`File.*`, `Path.GetTempFileName`, `Process.Start`, `HttpClient`, `TcpListener`, `InProcessMcpServer`, `ExternalMcpClient`, `StartAsync(`) — every hit resolves to either a file already promoted in this PR or a TODO comment in `McpPromptsTests`/`McpResourcesTests` (placeholder facts).
-
-**Partial-class promotion policy decision codified.** When `[Trait("Category", ...)]` lives on a single declaration of a `partial class` and any partial touches external resources, the **whole class promotes together**. Three options were available: (1) promote the whole partial class, (2) split the partial into two separate classes, (3) per-method `[Trait]` overrides. Within the FR-414 metadata-only constraint, (1) is the only correct move — (2) is structural refactor (out of scope) and (3) relies on flaky xUnit per-method override semantics on partials. The over-classification of the no-IO partials in `SetupTests` (`ShouldFilterCorrectlyWithExcludePatternsTest`, `ShouldHandleNonExistentFunctionGracefullyTest`, `ShouldHaveEmptyDefaultValuesTest`, `ShouldReturnEmptyListWithEmptyConfigurationTest`, `ShouldReturnToolsWithValidConfigurationTest`, `ShouldWorkWithDefaultParameterlessOverloadTest`) is a known cost worth a follow-up issue if the team later wants surgical split, but **not blocking**. Recording as a team policy: see decisions inbox drop.
-
-**Borderline calls confirmed:**
-- `ShouldHandleGetChildItemCorrectlyTest` stays Functional. `Path.GetTempPath()` returns a string with zero filesystem access; the test is permanently `[Fact(Skip=...)]`. Skip-gated string ops do not cross the FR-416 boundary.
-- `McpPromptsTests`/`McpResourcesTests` stay Functional — the `InProcessMcpServer` references are `// TODO:` comments only; the actual facts are `Assert.True(true)` placeholders. Will need re-audit when the placeholders are filled in (and they likely flip to OutOfProcess at that time).
-- `StdioLoggingTests` move to `OutOfProcess/StdioLoggingTests.cs` — correct. Was already mistagged `Integration` on the `Functional/` path (existing folder/trait mismatch); subprocess spawn via `InProcessMcpServer` + `ExternalMcpClient` is textbook OutOfProcess shape, strictly more specific than Integration.
-
-**Patterns to remember:**
-- **Partial-class trait scope.** `[Trait]` on a `partial class` declaration applies to the whole class; xUnit will not let you per-method override that reliably across partials. When applying FR-416 to a partial class, the trigger is **any** partial touching external resources, and the result is **the whole class** moving together. Document this trade-off in the PR body so reviewers can verify the audit and the cost is explicit.
-- **Grep both raw IO and project-specific helpers.** First-pass grep on `Process.Start|pwsh` would have missed `StdioLoggingTests` because the codebase wraps subprocess spawning in `InProcessMcpServer`/`ExternalMcpClient`/`StartAsync`. Always sweep both raw IO patterns AND test-helper abstractions used in the codebase. Fry called this out independently in her #220 audit — worth elevating to a standing checklist for future Spec-009-style sweeps.
-- **TODO-comment grep hits are not violations.** `Select-String -Pattern 'InProcessMcpServer'` will hit comments. Always inspect context (`-Context 1,1`) before treating a hit as an FR-416 violation. McpPrompts/McpResources are the canonical example: real `InProcessMcpServer` use is in TODO blocks for facts that don't yet exist.
-- **Spec 009 closeout.** With #260 approved, all eight FR-416 / FR-414 reclassification PRs in the spec 009 wave are landed or under final review. The lessons accumulated across #213 / #253 / #255 / #256 / #259 / #260 — folder name is not the trait, partials promote together, grep both raw and helper IO patterns — should be migrated into a skill (`categorization-trait-review`) for the next wave.
-
+Standing patterns codified: (1) grep the file, never infer from folder; (2) partial classes promote whole-class; (3) always grep both raw IO AND test-helper abstractions (`InProcessMcpServer`/`ExternalMcpClient`); (4) check existing reviews before doing review work; (5) self-approval blocked under `usepowershell` identity — comment-form verdict + artifact file is the team accepted pattern.
 ## 2026-05-15: Team update (via Scribe)
 **Ralph round 1 — 3 PRs in-flight, may need your review:**
 - **PR #266** (Bender, issue #261): Doctor pool display sentinel — EffectiveProcessPoolSize / EffectiveMinHealthyForStartup promoted to `string`, returning `"n/a (<mode> mode)"` when inert. Files: `DoctorService.cs`, `DoctorReport.cs`, `DoctorTextRenderer.cs` + Unit tests.
@@ -206,26 +73,10 @@ Ralph routed this to me, but the architectural review was already posted as a PR
 PRs #269 (Phase 1 ModuleDiscovery), #270 (Phase 2a DoctorService wiring), #271 (Phase 2b OOP wire-format parity) all merged to `main` on 2026-05-15. Issue #263 closed. #272 tracks per-tool source attribution refinement separately.
 
 
-### 2026-05-16 — PR #273 review (Leela — 4-part tutorial series, branch squad/docs-tutorial-series)
+## 2026-05-16 — PR #273 review + merge (Leela — 4-part tutorial series)
 
-**Verdict:** APPROVE. Posted via `gh pr comment` (#issuecomment-4467060959). Artifact: `artifacts/farnsworth-pr273-review.md`. Self-approval blocked under usepowershell identity — comment-form per #252/#269/#271 precedent.
+**Verdict:** APPROVE → MERGED. Comment posted (#issuecomment-4467060959); full review text archived 2026-05-16.
 
-**What I cross-checked architecturally:**
-- `Authentication.Schemes.ApiKey.Keys` dictionary-key-IS-the-secret: matches `ApiKeyAuthenticationHandler.HandleAuthenticateAsync` `Options.Keys.TryGetValue(apiKey, ...)` at L32. Tutorial 3 calls this out explicitly — single most-misread part of the auth surface.
-- Role-claim minting chain: `foreach (var role in keyDef.Roles) claims.Add(new Claim(ClaimTypes.Role, role))` (L62-63) → `HasRequiredRoles` any-match (`requiredRoles.Any(r => user.IsInRole(r))`, AuthorizationHelpers L23). Tutorial 4 narrative matches and hedges the any-match drift risk explicitly.
-- `ToolListAuthorizationFilter.CanAccessTool` (L55-78): AllowAnonymous → RequireAuthentication → scope+role gates. Tutorial 4 step 6 reader-hides-admin-tool claim is structurally correct.
-- Base image contract: `/usr/local/share/powershell/Modules` and `/app/server/appsettings.json` match `examples/Dockerfile.user`; HTTP default matches `docker-entrypoint.sh` L9 (`POSHMCP_TRANSPORT:-http`). No invented paths.
-- `DefaultScheme = "Bearer"` default ([AuthenticationConfiguration.cs L8](PoshMcp.Server/Authentication/AuthenticationConfiguration.cs#L8)) — tutorials 3/4 override correctly to ApiKey but don't explain the override. Flagged as one-sentence ask.
+Code-grounded review passed: ApiKey dictionary-key-is-secret (`ApiKeyAuthenticationHandler.cs:32`), role-claim minting chain through `AuthorizationHelpers.HasRequiredRoles` any-match (L23), `ToolListAuthorizationFilter.CanAccessTool` ordering (L55-78), Docker base image contract (paths + `appuser` UID 1001), `DefaultScheme="Bearer"` default ([AuthenticationConfiguration.cs:8](PoshMcp.Server/Authentication/AuthenticationConfiguration.cs#L8)). All 5 non-blocking polish asks (doctor demo + DefaultScheme callout + Modules-vs-CommandNames callout + no-key boundary beat + Dockerfile.user drift note) landed by Leela in polish pass; Cubert re-verified clean. Squash-merged to ``main``.
 
-**Non-blocking asks routed to Cubert (NOT Leela — but lockout doesn't apply here, APPROVE verdict):**
-1. Add `poshmcp doctor` demo + `moduleImports` section walkthrough to tutorial 2 (spec 011 just shipped — this series is the canonical place to demonstrate the new doctor section).
-2. One-sentence `DefaultScheme` callout in tutorial 3.
-3. One-sentence `Modules` vs `CommandNames` callout in tutorial 2.
-4. Step-6a "no key at all" boundary beat in tutorial 4 (currently only happy paths shown).
-5. `examples/Dockerfile.user` drift note in tutorial 2 Dockerfile section.
-
-**Pattern noted (captured to decision drop):** Tutorials/walkthroughs touching `Modules` or `IncludePatterns` should always demonstrate `poshmcp doctor` and call out the v0.14.0 `moduleImports` section. Tutorial 4 step 8 already does this for the Authentication section — same pattern should propagate. Will flag in future doc reviews.
-
-**Pattern noted (review discipline):** For doc PRs that ground claims in code, the high-value review move is mapping each tutorial-named config property to its handler/options class and verifying the spelling and semantics line up. Caught the dictionary-key-IS-secret pattern, the role-claim minting loop, and the ToolList filter ordering as three places where Leela's prose is exactly faithful to code (not paraphrased). When tutorials get this right at code-grounded depth, the architectural review reduces to "does the progression and boundary coverage hold up?" — which here, it does.
-
-**Process discipline (from PR #252 lesson):** First move was `gh pr view 273 --json reviews,comments` to confirm no prior verdict in the queue. Comments and reviews both empty (Cubert running in parallel but hadn't posted yet). Clean to proceed.
+Patterns codified: (1) tutorials touching `Modules`/`IncludePatterns` should always demonstrate `poshmcp doctor` + v0.14.0 `moduleImports` section; (2) for code-grounded doc PRs, map each named config property to its handler/options class and verify spelling + semantics; (3) check `gh pr view N --json reviews,comments` first to avoid double-verdict races.

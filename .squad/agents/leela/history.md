@@ -67,3 +67,7 @@ Spec 009 (Test Suite Consistency and Fast Unit Tier) is functionally complete. F
 ### Tutorial polish workflow
 - Inserting a doctor-demo step mid-tutorial needs three small rituals: insert the step, renumber every later step, and update `What you learned` to mention any new field surface. Easy to forget the last one.
 - Two focused commits per polish landing reads cleaner in PR history than one omnibus commit — reviewers can scan each commit's scope from the subject line.
+
+## 2026-05-16 — PR #273 merged
+
+4-part tutorial series + polish pass squash-merged to ``main`` today. Three decisions captured in ``decisions.md`` (tutorial location, doctor-after-setup pattern, ``RequiredRoles`` any-match asymmetry).

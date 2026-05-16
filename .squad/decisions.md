@@ -3,6 +3,31 @@
 ## Recent Decisions
 > Older entries archived to `decisions-archive.md` (entries >7d removed when file >= 50KB).
 
+### 2026-05-16: Tutorial series location (PR #273)
+**By:** Leela (Developer Advocate), requested by Steven
+**What:** New `docs/articles/tutorials/` subdirectory hosts the 4-part progressive tutorial series. Series indexed at `tutorials/index.md`; navigation added under a new "Tutorials" section in `docs/toc.yml` between Getting Started and the User Guide. No `docfx.json` change needed — `articles/**/*.md` glob auto-picks-up the subdirectory.
+**Why:** Keeps tutorials grouped and easy to expand later (next series, e.g. OAuth/Entra ID end-to-end, can drop into the same folder). Sentence-case heading "Tutorials" matches the rest of the toc.
+
+---
+
+### 2026-05-16: Doc tutorials should demonstrate `poshmcp doctor` after setup steps
+**By:** Farnsworth (Lead/Architect) — captured during PR #273 review
+**What:** Tutorials, getting-started guides, and any prose docs that walk a reader through a working-config setup should include a `poshmcp doctor` (or `docker exec <container> poshmcp doctor`) verification step. Specifically: any tutorial that exercises `PowerShellConfiguration.Modules` or `IncludePatterns` should call out the `moduleImports` section of the doctor report (shipped in v0.14.0 / spec 011) as the canonical "did this actually work?" inspection.
+**Why:** Doctor is the only operator-facing surface that resolves config-as-written → effective behavior. Without it, tutorial readers learn the config shape but not the verification idiom — and when their config silently misbehaves (typo in module name, pattern that matches zero commands), they have no muscle memory for where to look. The new `moduleImports` section was built precisely to close this gap; doc series should reflect it.
+**Scope:** Applies to future doc PRs touching tutorials, getting-started, configuration-walkthrough articles. Reviewers (Farnsworth, Cubert) should flag missing doctor-verification steps in such PRs. Does NOT apply to API reference docs or pure conceptual articles.
+**Pair pattern:** Tutorial 4 in PR #273 already follows this pattern for the Authentication doctor section (`docker exec poshmcp-roles poshmcp doctor` → inspect Authentication section). Tutorials 2 and 3 should adopt the same pattern for the new `moduleImports` section.
+
+---
+
+### 2026-05-16: `RequiredRoles` is any-match; `RequiredScopes` is all-match (asymmetric)
+**By:** Cubert — verifying PR #273 tutorial 4
+**What:** `AuthorizationHelpers.HasRequiredRoles` uses `requiredRoles.Any(r => user.IsInRole(r))` — a caller satisfies the policy if they hold **any one** of the required roles. In contrast, `HasRequiredScopes` uses `requiredScopes.All(...)` — caller must hold **all** required scopes.
+**Why:** This asymmetry is intentional but easy to miss. Tutorial 4 documents the any-match behavior and recommends "split into multiple overrides" if all-of-N role semantics are needed. Future tutorials, examples, and reviewers should preserve this distinction explicitly when explaining authorization config.
+**Citation:** `PoshMcp.Server/Authentication/AuthorizationHelpers.cs:11-25`
+**Scope:** Team-wide. Affects any docs, examples, or features that talk about `RequiredRoles`/`RequiredScopes` semantics.
+
+---
+
 ### 2026-05-15: Spec 011 Phase 2 — OOP wire-format parity for moduleImports (PR #271, closes #268)
 **By:** Hermes (PowerShell Expert) — requested by Steven via Squad Coordinator
 **What:** Phase 2 extends the OOP discover wire format so the C# server can build the doctor `moduleImports` section from data the OOP host produced — achieving SC-263-3 (byte-identical JSON across `InProcess` and `OutOfProcess` modes) without re-running `Get-Module -ListAvailable` in the parent process. Additive wire fields: `RemoteToolSchema.SourceModule` / `SourcePattern` / `SourceDetail` (nullable strings, FR-263-9), plus a new top-level optional `RemoteModuleImportsPayload` on the discover response carrying per-module probe data and per-pattern match data. `oop-host.ps1` and `oop-host-pool.ps1` populate both. The pool wraps script-block return as `PSCustomObject {Schemas, ModuleImports}` with a defensive bare-array fallback.
