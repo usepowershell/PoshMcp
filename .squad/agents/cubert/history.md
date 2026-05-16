@@ -1,56 +1,15 @@
 # Cubert — History
 
-## 2026-05-14 — PR #253 re-verify (TESTING.md)
+## 2026-05-14 — Summarized (full text in history-archive.md, archived by Scribe 2026-05-16)
 
-- Fry pushed c12f26d addressing both findings.
-- F1 fixed: dead pointer to PoshMcp.Tests/README.md replaced with inline 'default bucket = Integration' citing PoshMcp.Tests/AssemblyInfo.cs. Verified against squad/212-category-traits-baseline — AssemblyInfo policy block matches verbatim.
-- F2 fixed: 'fast-fail logic' framing replaced with neutral 'Unit runs first ... ordering of remaining phases owned by .github/workflows/ci.yml'. Matches PR #252 actual order.
-- Verdict flipped ⚠️ → ✅. Lockout protocol respected (Leela locked, Fry revised — correct since he owns the AssemblyInfo policy in #256).
-- Lesson: when a doc cites another file, fetch that file at the cited ref before approving. AssemblyInfo on the right branch was the only way to confirm F1 was a real fix and not just a different incorrect citation.
+Five fact-check verdicts (all APPROVE/PROCEED):
+- **PR #253 re-verify** (Leela TESTING.md, Fry revised): F1/F2 fixed; verdict ⚠️→✅. Lesson — when a doc cites another file, fetch it at the cited ref before approving.
+- **PR #257** (Amy flake-rate workflow): added file 345/0; FR-418 satisfied; TRX parsing via TeamTest 2010 namespace.
+- **PR #258** (Hermes TempDirectory helper, spec 009/#219): contract verified; no new FR-403 violations; pattern — `_disposed` guard set BEFORE delete for idempotency.
+- **PR #259** (Fry reclassify Unit/OutOfProcess, #213): textbook FR-414 (8 renames, +8/-8); ProgramCli*Tests grep-clean (PR #256 rule applied again).
+- **PR #260** (Fry FR-416 Functional sweep, #220): 4 partials in SetupTests promote together — partial-class trait scope is whole-class; reproducibility Functional=107/0 in 4s.
 
-### 2026-05-14: Fact-check — PR #257 (Amy: ci(009) flake-rate workflow) — APPROVE
-- Pulled raw flake-rate.yml via gh api at ref squad/216-ci-flake-rate-measurement; re-validated with python yaml.safe_load (PARSED OK).
-- Verified workflow_dispatch input runs default '5' string, schedule cron '0 7 * * *' (nightly UTC), 5 phases (Unit/Integration/OutOfProcess/Http/Functional, no Azure).
-- Cross-checked phase filter syntax against PR #252's ci.yml diff: 'Category=X' strings match one-for-one.
-- Aggregator confirmed: TRX walked via SelectNodes('//t:UnitTestResult', ) under TeamTest 2010 namespace; Failed/NotExecuted/Other split per test; sorted by total non-pass desc.
-- Both artifacts present (flake-rate-summary, flake-runs-raw, both if: always()), GITHUB_STEP_SUMMARY mirror present. set +e + per-phase exit-codes.txt prevents iteration short-circuit.
-- Workflow is ADDED file (345/0); ci.yml not touched. FR-418 satisfied. Comment posted: #issuecomment-4453761687.
-
-### 2026-05-14 — PR #258 verification (Hermes, spec 009 / #219, TempDirectory helper)
-- ✅ PROCEED (with one wait condition). All substantive claims verified against `gh pr diff 258`.
-- Three real audit hits confirmed pre/post: `ResolveModulePaths_DeduplicatesCaseInsensitively` (Farnsworth's PR #256 flag — fixed `PoshMcp-ResolveModulePaths` name) + two `ProgramTests.ResolveConfigurationPath_*` cases (bare `Path.GetTempPath()` writes of `appsettings.json` / `config.json`).
-- Three representative refactors confirmed: `ModuleDiscoveryStartupOrderingTests` (field `_tempDirectory` preserved as `=> _tempDir.Path` view to keep diff small), `OutOfProcessIntegrationTests` (`_testTempDirHolder` companion), `OutOfProcessPoolHostIntegrationTests` (3 inline pool tests).
-- `OopTestPaths.cs` confirmed NOT in the 8-file diff. Intentional; documented in PR body.
-- `TempDirectory.cs` (+115) and `TempDirectoryTests.cs` (+97, 8 `[Fact]` methods, `[Trait("Category","Unit")]`) verified. Helper contract: `Prefix = "poshmcp-test-"` + `Guid:N`, optional label, `_disposed` guard set BEFORE delete attempt (covers the throwing-delete idempotency case), `s_undeleted` audit bag, `AuditLeftoverDirectories()` cross-run sweep.
-- Independent `Path.GetTempPath` audit across `PoshMcp.Tests/**`: NO newly discovered FR-403 violations. Remaining sites are already-unique GUID paths (eligible for the explicit follow-up sweep), `GetTempFileName()` (OS-unique), or read-only/synthesized paths.
-- Wait condition: `CI / build` job (run 25878951951) and CodeQL `Analyze (csharp)` were still IN_PROGRESS at review time. `Squad CI / test` was already SUCCESS — the strongest signal for a test-only change.
-- Build / test counts (`0 errors`, `64+29 pass`) marked ⚠️ author-attested — not independently re-run; consistent with green `Squad CI / test` but not granular enough to cite per-filter counts.
-- Verdict: `artifacts/cubert-pr258-verdict.md` · Comment: https://github.com/usepowershell/PoshMcp/pull/258#issuecomment-4453769035
-
-### 2026-05-14: Fact-check — PR #259 (Fry: reclassify misfiled Unit tests, Spec 009/#213) — APPROVE
-- Diff is textbook FR-414: 8 file renames (similarity 98–99%), each one line edit (namespace PoshMcp.Tests.Unit.OutOfProcess → PoshMcp.Tests.OutOfProcess). Zero touches to `[Trait]`, `[Fact]`, asserts, setup, fixtures. Aggregate +8/-8 confirms scope.
-- Verified all 8 listed files match the audit table 1:1. `git diff main --stat` on the worktree shows exactly the 8 `{Unit => }/OutOfProcess/` renames, nothing else.
-- Directory hygiene: `PoshMcp.Tests/Unit/OutOfProcess/` is GONE on the PR branch (Test-Path returns false). Farnsworth's hygiene flag clears.
-- Independently grepped retained Unit files for `Process.Start`, `ProcessStartInfo`, `TcpListener`, `HttpListener`, `"pwsh`, `BindAsync`, `Listen(`, `GetTempPath`: `OAuthProxyEndpointsTests`, `WinPsCompatProxyTests`, `ProgramCliBuildCommandTests`, `ServerSessionAwarePowerShellRunspaceTests` are all clean. `ProgramCliConfigCommandsTests` and `ProgramCliScaffoldCommandTests` (NOT named in PR body) hit `GetTempPath` — but inspected context: both wrap it in a nested `TemporaryDirectory` helper with `poshmcp-cli-tests-{Guid.NewGuid():N}` suffix. Matches the "safe pattern" Hermes documented in PR #258. Not a violation; candidate for the follow-up `TempDirectory` migration sweep.
-- Reproduced the Unit tier metric: `dotnet test --filter "Category=Unit"` ran 432/0 in 20s test-only (29.7s wall). Author claimed 432/0 in 39s — count exact, timing well under FR-405 budget (60s).
-- OOP tier metric (155/0/6 skipped) NOT independently re-run — too expensive in this verification window. CI `Squad CI / test` green on head SHA corroborates. Marked ⚠️ in verdict, not a blocker.
-- Verdict: APPROVE, ready to merge. Posted to PR #259.
-- Process learning: PR #256's "grep the file, never infer from folder" rule WORKED again here — Fry's PR body listed `ProgramCli*Tests.cs` collectively as compliant, but only named `ProgramCliBuildCommandTests`. The other two (Config, Scaffold) DO touch `GetTempPath`, just safely. Folder/PR-body claims are not a substitute for grep evidence on each file.
-
-### 2026-05-14: Fact-check — PR #260 (Fry: FR-416 sweep of Functional folder, closes #220) — APPROVE
-
-- All 6 Fry claims verified on branch `squad/220-functional-reclassify` @ `b430a9d` via the existing worktree at `C:\Users\stmuraws\source\github\usepowershell\poshmcp-220`.
-- C1 metadata-only diff: confirmed via `gh pr diff 260` — 2 single-line Trait flips, 1 git mv + namespace flip on the moved file (StdioLoggingTests), +5 lines in TESTING.md. Zero body/assert/setup/data edits.
-- C2 StdioLoggingTests OutOfProcess shape: confirmed lines 31, 35, 62, 67, 69, 70 use `InProcessMcpServer`/`ExternalMcpClient`/`StartAsync` — the OutOfProcess subprocess shape, strictly more specific than Integration.
-- C3 ConfigurationReloadTests real I/O: confirmed `Path.GetTempFileName()` (line 68), `File.WriteAllTextAsync` (line 82), `File.Delete` (line 110).
-- C4 SetupTests partial-class promotion: confirmed FOUR partials touch FS (ShouldParseJsonFileCorrectlyTest, ShouldThrowExceptionWithInvalidJsonTest, ShouldThrowExceptionWithMissingFileTest, ShouldWorkWithConfigurationToToolsListIntegrationTest), and the `[Trait]` lives on the shared declaration in `SetupTestsShared.cs`. Whole-partial promotion is correct per FR-416. Same pattern Fry used in #259.
-- C5 borderline `ShouldHandleGetChildItemCorrectly`: confirmed `[Fact(Skip = "...")]` at line 20 and `Path.GetTempPath()` at line 52 is string-only (variable assignment, no file ops). Leaving Functional is correct.
-- C6 TESTING.md: +5 lines accurately enumerate the 3 reclassifications and the in-process groups that remain Functional.
-- C7 reproducibility: `dotnet test --filter "Category=Functional"` locally returned `Passed: 107, Skipped: 1, Total: 108, Duration: 4 s`. The 1 skip is the borderline. Cheap (~4s) and proves Functional tier stays green after the sweep.
-- Did NOT re-run Unit tier (432/432) or the targeted 18/18 — Fry's PR description records them and they were visible in Steven's recent session terminal output. The clean Functional run + metadata-only diff give high confidence.
-- Lesson — partial-class promotion is the right shape for FR-416 even when it over-classifies a few clean partials. Auditing every partial individually would re-introduce case-by-case judgment, which is exactly what FR-416 forbids.
-- Lesson — when a worktree already exists for the PR, USE IT. Avoids `git checkout` on the main checkout, isolates the build artifacts, and keeps Steven's main checkout on `main`.
-- Posted neutral verdict via `gh pr comment 260 --body-file artifacts/cubert-pr260-verdict.md`. Strict lockout NOT triggered (verdict is APPROVE).
+Standing lessons accumulated: (1) grep the file, never infer category from folder; (2) for partial classes, whole class promotes together; (3) when worktree already exists for a PR, USE IT; (4) `gh pr review --approve` rejected for usepowershell-authored PRs — comment-form verdict IS the review.
 
 ## 2026-05-15: Team update (via Scribe)
 **Ralph round 1 — 3 PRs in-flight, may need your review:**
@@ -102,13 +61,7 @@ PRs #269 (Phase 1 ModuleDiscovery), #270 (Phase 2a DoctorService wiring), #271 (
 - Lesson: `CamelCaseToSnakeCase` lives in `PoshMcp.Server/PowerShell/PowerShellAssemblyGenerator.cs:74`. Use this file if a future tutorial needs to demonstrate non-obvious tool-naming (e.g., parameter set suffixes — line 109 appends `_` + snake_case(parameterSetName) for non-default param sets).
 - Lesson: Doctor section headers are owned by `DoctorTextRenderer.cs` (not the JSON DoctorReport). If a tutorial cites a heading exactly, verify against the renderer, not the data shape.
 
-## 2026-05-16 — PR #273 (tutorial series, Leela)
+## 2026-05-16 — PR #273 merged (via Scribe)
 
-- Verdict: proceed. 8 substantive code/contract claims + 8 surface/structural claims, all verified against source on squad/docs-tutorial-series. Comment posted (issuecomment-4467062499). Full verdict at artifacts/cubert-pr273-verdict.md.
-- Key fact dropped to decision inbox: `RequiredRoles` is **any-match** (`AuthorizationHelpers.cs:25`: `requiredRoles.Any(r => user.IsInRole(r))`), while `RequiredScopes` is **all-match** (line 16). Asymmetric and intentional. Tutorial 4 documents this correctly with the right workaround.
-- Verified Docker contract end-to-end: base `ghcr.io/usepowershell/poshmcp/poshmcp:latest` → runtime publishes to `/app/server` (Dockerfile:21,42) → entrypoint runs `/app/server/PoshMcp.dll` (docker-entrypoint.sh:8) → user images COPY to `/app/server/appsettings.json` (examples/Dockerfile.user:42). AllUsers PS module path `/usr/local/share/powershell/Modules` is the standard PowerShell-on-Linux location. `USER root` → COPY → `USER appuser` pattern is the canonical safe-COPY shape for the base image (appuser = UID 1001, nologin shell).
-- `CommandOverrides` is a `Dictionary<string, FunctionOverride>` with `StringComparer.OrdinalIgnoreCase` (PowerShellConfiguration.cs:113) — case-insensitive but NOT format-translating at config-binding time. The runtime `AuthorizationHelpers.GetToolOverride` does snake_case→PSName normalization, so auth checks tolerate either form, BUT `PowerShellAssemblyGenerator` (display properties) only queries by PSName. Universally-correct canonical form for `CommandOverrides` keys is the PowerShell command name. Tutorials get this right.
-- `FunctionOverride.{AllowAnonymous, RequiredScopes, RequiredRoles}` are all nullable (`bool?` / `List<string>?`). Null means "fall through to DefaultPolicy" (ToolAuthorizationFilter.cs:62-63, ToolListAuthorizationFilter.cs:71-72 use `override?.X ?? defaultPolicy.X`). Worth remembering: setting an override to `[]` (empty list, not null) means "policy says no roles required" — an explicit "allow anyone authenticated" override, NOT a fall-through. Subtle but important.
-- Lesson: `CamelCaseToSnakeCase` lives in `PoshMcp.Server/PowerShell/PowerShellAssemblyGenerator.cs:74`. If a future tutorial needs to demonstrate non-obvious tool-naming (parameter set suffixes — line 109 appends `_` + snake_case(parameterSetName) for non-default param sets), this is the file.
-- Lesson: Doctor section headers are owned by `DoctorTextRenderer.cs` (not the JSON `DoctorReport`). When a tutorial cites a heading exactly, verify against the renderer, not the data shape.
+PR #273 squash-merged to `main`. Polish pass by Leela addressed Farnsworth's 5 non-blocking asks; re-verified clean (`artifacts/cubert-pr273-reverify.md`). No factual drift introduced.
 
