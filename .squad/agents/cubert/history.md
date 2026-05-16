@@ -21,6 +21,15 @@ Five fact-check verdicts (all APPROVE/PROCEED):
 - **PR #259** (Fry reclassify Unit/OutOfProcess, #213): textbook FR-414 (8 renames, +8/-8); ProgramCli*Tests grep-clean (PR #256 rule applied again).
 - **PR #260** (Fry FR-416 Functional sweep, #220): 4 partials in SetupTests promote together — partial-class trait scope is whole-class; reproducibility Functional=107/0 in 4s.
 
+## 2026-05-14 — Summarized (full text in history-archive.md, archived by Scribe 2026-05-16)
+
+Five fact-check verdicts (all APPROVE/PROCEED):
+- **PR #253 re-verify** (Leela TESTING.md, Fry revised): F1/F2 fixed; verdict ⚠️→✅. Lesson — when a doc cites another file, fetch it at the cited ref before approving.
+- **PR #257** (Amy flake-rate workflow): added file 345/0; FR-418 satisfied; TRX parsing via TeamTest 2010 namespace.
+- **PR #258** (Hermes TempDirectory helper, spec 009/#219): contract verified; no new FR-403 violations; pattern — `_disposed` guard set BEFORE delete for idempotency.
+- **PR #259** (Fry reclassify Unit/OutOfProcess, #213): textbook FR-414 (8 renames, +8/-8); ProgramCli*Tests grep-clean (PR #256 rule applied again).
+- **PR #260** (Fry FR-416 Functional sweep, #220): 4 partials in SetupTests promote together — partial-class trait scope is whole-class; reproducibility Functional=107/0 in 4s.
+
 Standing lessons accumulated: (1) grep the file, never infer category from folder; (2) for partial classes, whole class promotes together; (3) when worktree already exists for a PR, USE IT; (4) `gh pr review --approve` rejected for usepowershell-authored PRs — comment-form verdict IS the review.
 
 ## 2026-05-15: Team update (via Scribe)
