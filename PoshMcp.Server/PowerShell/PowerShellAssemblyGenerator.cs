@@ -926,7 +926,7 @@ public class PowerShellAssemblyGenerator
                                         safeCommandName,
                                         safeInvocationId,
                                         LogSanitizer.Scrub(paramInfo.Name),
-                                        convertedValue?.GetType().Name,
+                                        LogSanitizer.Scrub(convertedValue?.GetType().Name),
                                         LogSanitizer.Scrub(convertedValue?.ToString()));
                                 }
                             }

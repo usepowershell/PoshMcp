@@ -47,6 +47,10 @@ Spec 009 (Test Suite Consistency and Fast Unit Tier) is functionally complete. F
 
 ## Learnings
 
+### 2026-05-17T08:25:00-05:00: PR #278 final log-forging cleanup
+- Fixed the remaining unsanitized structured log field in `PoshMcp.Server/PowerShell/PowerShellAssemblyGenerator.cs` by wrapping `convertedValue?.GetType().Name` for the `ValueType` field with `LogSanitizer.Scrub()`.
+- Pattern: every dynamic string flowing into `LogInformation`, `LogWarning`, `LogError`, `LogDebug`, or `LogTrace` must be scrubbed at the call site, even when it looks low-risk (like a runtime type name).
+
 ### 2026-05-16: Release v0.14.1
 - Version file: PoshMcp.Server/PoshMcp.csproj `<Version>` element
 - Release notes path: docs/release-notes/{version}.md
