@@ -49,6 +49,9 @@ PRs #269 (Phase 1 ModuleDiscovery), #270 (Phase 2a DoctorService wiring), #271 (
 
 **Process note:** User directive recorded (Steven request) — all squad agents must include their name when posting GitHub comments.
 
+## 2026-05-16 — v0.14.1 Release (via Scribe)
+
+Release v0.14.1 shipped successfully. Version bump, release notes, and GitHub release creation completed by Amy. Commit a2a89b3, tag v0.14.1 pushed to origin, release published.
 
 
 ## 2026-05-17T13:12:00Z: Cross-team update — Log-forging fix #277

@@ -87,3 +87,7 @@ GATE PASSED. 432 tests, 5/5 clean runs at 20.07-21.08s (mean 20.45s), ~65% headr
 - Measure-Command wrapper around `dotnet test --no-build` gives reliable wall-clock; dotnet's reported "Duration: 19s/20s" matches Measure-Command within ~1s
 - The 20 build warnings are all pre-existing (NU1510 package pruning + nullable CS8602/CS8604) — none introduced by Spec 009 work
 - After #213-#218 (test re-categorization, Unit/Functional/Integration split, OutOfProcess move out of Unit), Category=Unit is now a tight fast tier
+
+## 2026-05-16 — v0.14.1 Release (via Scribe)
+
+Release v0.14.1 shipped successfully. Version bump, release notes, and GitHub release creation completed by Amy. Commit a2a89b3, tag v0.14.1 pushed to origin, release published.

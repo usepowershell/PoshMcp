@@ -3,6 +3,25 @@
 ## Recent Decisions
 > Older entries archived to `decisions-archive.md` (entries >7d removed when file >= 50KB).
 
+### 2026-05-16: Issue #272 — Import source tracker shape (IToolImportSourceTracker contract)
+**By:** Bender (Backend Developer)
+**What:** Use a dedicated `IToolImportSourceTracker` that mirrors the spec-010 description tracker contract: thread-safe, per-discovery-cycle, first-writer-wins, and keyed by PowerShell command name.
+**Why:** Doctor needs authoritative per-tool attribution without re-running discovery. Recording the resolved source at the same discovery call sites keeps parity between InProcess and OutOfProcess modes and avoids any new `Get-Command` or `Get-Module` work on the doctor path.
+**Consequences:**
+- `McpToolFactoryV2` records in-process sources during `GetCommandsByName`, `GetCommandsByModule`, and `GetCommandsByPattern`.
+- OOP discovery records directly from `RemoteToolSchema.SourceModule` / `SourcePattern` / `SourceDetail`.
+- If an older OOP host omits `Source*` fields, doctor reports `tools[].source = "unknown"` instead of reviving the old heuristic.
+
+---
+
+### 2026-05-16: Issue #272 — Runtime import source tracker lifecycle
+**By:** Hermes (PowerShell Expert)
+**What:** Reuse the same `IToolImportSourceTracker` instance across runtime tool discovery and runtime doctor/report generation, and reset that tracker at the start of each discovery cycle.
+**Why:** The tracker already encodes first-writer-wins precedence (`commandName` > `module` > `pattern`). Resetting on each `GetToolsListAsync()` pass preserves correctness across reloads while letting runtime report builders stay byte-parity with CLI doctor without re-running attribution logic.
+**Implications:** Any future runtime surface that renders `moduleImports.tools[]` should accept the live tracker from discovery rather than reconstructing sources from config or tool names.
+
+---
+
 ### 2026-05-16: Tutorial series location (PR #273)
 **By:** Leela (Developer Advocate), requested by Steven
 **What:** New `docs/articles/tutorials/` subdirectory hosts the 4-part progressive tutorial series. Series indexed at `tutorials/index.md`; navigation added under a new "Tutorials" section in `docs/toc.yml` between Getting Started and the User Guide. No `docfx.json` change needed — `articles/**/*.md` glob auto-picks-up the subdirectory.

@@ -45,3 +45,8 @@ PoshMcp dynamically transforms PowerShell scripts, cmdlets, and modules into sec
 **Outcome:** PR #276 opened at https://github.com/usepowershell/PoshMcp/pull/276. Ready for review. Resolves issue #272 per Spec 010 interface-design pattern for per-tool source attribution.
 
 **Artifacts:** PR #276, branch `squad/272-import-source-tracker`
+
+## 2026-05-16 — v0.14.1 Release (via Scribe)
+
+Release v0.14.1 shipped successfully. Version bump, release notes, and GitHub release creation completed by Amy. Commit a2a89b3, tag v0.14.1 pushed to origin, release published.
+

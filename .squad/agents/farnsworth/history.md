@@ -46,3 +46,6 @@ Detailed entries archived to history-archive.md: Spec 009 review wave (6 PRs, cl
 ## 2026-05-17T13:12:00Z: Cross-team update — Log-forging fix #277
 
 Bender completed remediation of 24 CodeQL cs/log-forging alerts across PowerShellAssemblyGenerator.cs, AuthenticationServiceExtensions.cs, and LoggerExtensions.cs. Pattern: LogSanitizer.Scrub() applied to all untrusted sources (correlation IDs, JWT claims, config values) at structured log call sites. Build + tests pass. PR #278 open.
+## 2026-05-16 — v0.14.1 Release (via Scribe)
+
+Release v0.14.1 shipped successfully. Version bump, release notes, and GitHub release creation completed by Amy. Commit a2a89b3, tag v0.14.1 pushed to origin, release published.

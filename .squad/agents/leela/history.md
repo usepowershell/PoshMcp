@@ -71,3 +71,8 @@ Spec 009 (Test Suite Consistency and Fast Unit Tier) is functionally complete. F
 ## 2026-05-16 — PR #273 merged
 
 4-part tutorial series + polish pass squash-merged to ``main`` today. Three decisions captured in ``decisions.md`` (tutorial location, doctor-after-setup pattern, ``RequiredRoles`` any-match asymmetry).
+
+## 2026-05-16 — v0.14.1 Release (via Scribe)
+
+Release v0.14.1 shipped successfully. Version bump, release notes, and GitHub release creation completed by Amy. Commit a2a89b3, tag v0.14.1 pushed to origin, release published.
+

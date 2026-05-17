@@ -19,3 +19,8 @@ PoshMcp dynamically transforms PowerShell scripts, cmdlets, and modules into sec
 ## Learnings
 
 *Learnings from work will be recorded here automatically*
+
+## 2026-05-16 — v0.14.1 Release (via Scribe)
+
+Release v0.14.1 shipped successfully. Version bump, release notes, and GitHub release creation completed by Amy. Commit a2a89b3, tag v0.14.1 pushed to origin, release published.
+

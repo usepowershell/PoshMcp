@@ -76,4 +76,7 @@ Issue #272 "Per-tool import source attribution: introduce IToolImportSourceTrack
 - In `PoshMcp.Server/PowerShell/PowerShellAssemblyGenerator.cs`, `OperationContext.CorrelationId` must be treated as untrusted at log sinks; scrub once into `safeInvocationId` and reuse it for every `InvocationId` log argument.
 - In `PoshMcp.Server/Authentication/AuthenticationServiceExtensions.cs`, JWT diagnostics need call-site scrubbing for echoed config values (`Authority`, `ValidAudiences`, `ValidIssuers`) and token-derived data (`AllClaims`, `aud`, `scp`, `roles`, decoded `aud`/`iss`, challenge errors).
 - In `PoshMcp.Server/Observability/LoggerExtensions.cs`, structured logging scopes are also log-forging sinks, so `CorrelationId` needs the same `LogSanitizer.Scrub()` treatment as `OperationName`.
+## 2026-05-16 — v0.14.1 Release (via Scribe)
+
+Release v0.14.1 shipped successfully. Version bump, release notes, and GitHub release creation completed by Amy. Commit a2a89b3, tag v0.14.1 pushed to origin, release published.
 
