@@ -30,3 +30,19 @@ Detailed entries archived to history-archive.md: Spec 009 review wave (6 PRs, cl
 **Architectural lesson captured in decisions.md:** doctor provenance upgrades must thread through all report builders (BuildDoctorReportForCliAsync AND BuildDoctorReportFromConfig), not just CLI path. Shared per-discovery tracker owned by discovery layer, injected into report builders as read-only snapshot. Reset-at-cycle-start prevents stale attribution on reloads.
 
 **Process note:** User directive recorded (Steven request) — all squad agents must include their name when posting GitHub comments (e.g., "— Farnsworth" or "[Bender]").
+
+## Learnings
+
+### 2026-05-17T08:12:00-05:00 — PR #278 review (issue #277)
+
+**Verdict:** REJECT.
+
+**What I reviewed:** `main...squad/277-log-forging-fixes` for `AuthenticationServiceExtensions.cs`, `PowerShellAssemblyGenerator.cs`, and `LoggerExtensions.cs`, focusing on whether `LogSanitizer.Scrub()` was applied at user-controlled log sinks without needless spread into internal-only values.
+
+**Key observations:** The new scrubbing added in JWT diagnostics and correlation scope handling is directionally correct, and the call-site pattern matches the `LogSanitizer` contract. But `PowerShellAssemblyGenerator.cs` still leaves user-controlled values unsanitized at several log sinks, including `_MaxResults` validation (`commandName`), cache-output helpers (`property`, `filterScript`), and generation-time command-name/error logging. That means the fix is not yet a complete or sustainable logging-hardening pass for the touched file.
+
+**Review comment posted:** REJECT on PR #278 with the specific missed sinks called out for follow-up.
+
+## 2026-05-17T13:12:00Z: Cross-team update — Log-forging fix #277
+
+Bender completed remediation of 24 CodeQL cs/log-forging alerts across PowerShellAssemblyGenerator.cs, AuthenticationServiceExtensions.cs, and LoggerExtensions.cs. Pattern: LogSanitizer.Scrub() applied to all untrusted sources (correlation IDs, JWT claims, config values) at structured log call sites. Build + tests pass. PR #278 open.
