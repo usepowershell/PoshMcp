@@ -49,3 +49,7 @@ PRs #269 (Phase 1 ModuleDiscovery), #270 (Phase 2a DoctorService wiring), #271 (
 **Process note:** User directive recorded (Steven request) — all squad agents must include their name when posting GitHub comments.
 
 
+
+## 2026-05-17T13:12:00Z: Cross-team update — Log-forging fix #277
+
+Bender completed remediation of 24 CodeQL cs/log-forging alerts across PowerShellAssemblyGenerator.cs, AuthenticationServiceExtensions.cs, and LoggerExtensions.cs. Pattern: LogSanitizer.Scrub() applied to all untrusted sources (correlation IDs, JWT claims, config values) at structured log call sites. Build + tests pass. PR #278 open.
