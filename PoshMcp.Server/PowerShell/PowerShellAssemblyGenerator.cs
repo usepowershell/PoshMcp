@@ -803,19 +803,20 @@ public class PowerShellAssemblyGenerator
                 }
 
                 var invocationId = OperationContext.CorrelationId;
+                var safeInvocationId = LogSanitizer.Scrub(invocationId);
                 var parameterCount = parameterValues?.Length ?? 0;
 
                 logger.LogInformation(
                     "Tool invocation received: ToolName={ToolName}, InvocationId={InvocationId}, ParameterCount={ParameterCount}",
                     safeCommandName,
-                    invocationId,
+                    safeInvocationId,
                     parameterCount);
 
                 logger.LogDebug(
                     "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
                     "request_received",
                     safeCommandName,
-                    invocationId,
+                    safeInvocationId,
                     stopwatch.ElapsedMilliseconds);
 
                 var parameterSummary = FormatParameterSummary(parameterInfos, parameterValues);
@@ -823,7 +824,7 @@ public class PowerShellAssemblyGenerator
                     "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ParameterSummary={ParameterSummary}, ElapsedMs={ElapsedMs}",
                     "tool_resolved",
                     safeCommandName,
-                    invocationId,
+                    safeInvocationId,
                     LogSanitizer.Scrub(parameterSummary),
                     stopwatch.ElapsedMilliseconds);
 
@@ -847,7 +848,7 @@ public class PowerShellAssemblyGenerator
                         logger.LogDebug(
                             "Tool parameter detail: ToolName={ToolName}, InvocationId={InvocationId}, Index={Index}, Name={ParameterName}, Type={ParameterType}, Value={ParameterValue}",
                             safeCommandName,
-                            invocationId,
+                            safeInvocationId,
                             i,
                             LogSanitizer.Scrub(paramInfo.Name),
                             LogSanitizer.Scrub(paramInfo.Type.Name),
@@ -877,7 +878,7 @@ public class PowerShellAssemblyGenerator
                             "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
                             "pipeline_initialized",
                             safeCommandName,
-                            invocationId,
+                            safeInvocationId,
                             stopwatch.ElapsedMilliseconds);
 
                         // Add parameters
@@ -906,7 +907,7 @@ public class PowerShellAssemblyGenerator
                                         logger.LogDebug(
                                             "Bound switch parameter: ToolName={ToolName}, InvocationId={InvocationId}, ParameterName={ParameterName}, IsPresent={IsPresent}",
                                             safeCommandName,
-                                            invocationId,
+                                            safeInvocationId,
                                             LogSanitizer.Scrub(paramInfo.Name),
                                             switchParam.IsPresent);
                                     }
@@ -917,7 +918,7 @@ public class PowerShellAssemblyGenerator
                                     logger.LogDebug(
                                         "Bound parameter: ToolName={ToolName}, InvocationId={InvocationId}, ParameterName={ParameterName}, ValueType={ValueType}, Value={Value}",
                                         safeCommandName,
-                                        invocationId,
+                                        safeInvocationId,
                                         LogSanitizer.Scrub(paramInfo.Name),
                                         convertedValue?.GetType().Name,
                                         LogSanitizer.Scrub(convertedValue?.ToString()));
@@ -933,7 +934,7 @@ public class PowerShellAssemblyGenerator
                             "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
                             "parameters_bound_normalized",
                             safeCommandName,
-                            invocationId,
+                            safeInvocationId,
                             stopwatch.ElapsedMilliseconds);
 
                         // Build a single Select-Object stage so _MaxResults and property filtering compose consistently.
@@ -958,7 +959,7 @@ public class PowerShellAssemblyGenerator
                             logger.LogInformation(
                                 "Result shaping decision: ToolName={ToolName}, InvocationId={InvocationId}, ApplyPropertySelection={ApplyPropertySelection}, SelectedPropertyCount={SelectedPropertyCount}, MaxResults={MaxResults}",
                                 safeCommandName,
-                                invocationId,
+                                safeInvocationId,
                                 shouldApplyPropertySelection,
                                 selectedProperties?.Count ?? 0,
                                 frameworkOptions.MaxResults);
@@ -970,7 +971,7 @@ public class PowerShellAssemblyGenerator
                             "Result caching decision: ToolName={ToolName}, EnableCaching={EnableCaching}, InvocationId={InvocationId}",
                             safeCommandName,
                             enableCaching,
-                            invocationId);
+                            safeInvocationId);
                         if (enableCaching)
                         {
                             ps.AddCommand("Tee-Object")
@@ -980,7 +981,7 @@ public class PowerShellAssemblyGenerator
                         logger.LogInformation(
                             "PowerShell pipeline starting: ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
                             safeCommandName,
-                            invocationId,
+                            safeInvocationId,
                             stopwatch.ElapsedMilliseconds);
 
                         Collection<PSObject> results;
@@ -992,7 +993,7 @@ public class PowerShellAssemblyGenerator
                             logger.LogInformation(
                                 "PowerShell pipeline completed: ToolName={ToolName}, InvocationId={InvocationId}, ResultCount={ResultCount}, ElapsedMs={ElapsedMs}",
                                 safeCommandName,
-                                invocationId,
+                                safeInvocationId,
                                 results.Count,
                                 stopwatch.ElapsedMilliseconds);
                         }
@@ -1004,7 +1005,7 @@ public class PowerShellAssemblyGenerator
                                 cmdEx,
                                 "PowerShell command not found: ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
                                 safeCommandName,
-                                invocationId,
+                                safeInvocationId,
                                 stopwatch.ElapsedMilliseconds);
                             ps.Commands.Clear();
                             return Task.FromResult($"{{\"error\": \"The term '{commandName}' is not recognized as a name of a cmdlet, function, script file, or executable program.\"}}");
@@ -1017,7 +1018,7 @@ public class PowerShellAssemblyGenerator
                                 ex,
                                 "PowerShell pipeline failed: ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
                                 safeCommandName,
-                                invocationId,
+                                safeInvocationId,
                                 stopwatch.ElapsedMilliseconds);
                             ps.Commands.Clear();
                             return Task.FromResult($"{{\"error\": \"Command execution failed: {ex.Message}\"}}");
@@ -1033,7 +1034,7 @@ public class PowerShellAssemblyGenerator
                             logger.LogWarning(
                                 "PowerShell command completed with errors: ToolName={ToolName}, InvocationId={InvocationId}, ErrorCount={ErrorCount}, Errors={Errors}, ElapsedMs={ElapsedMs}",
                                 safeCommandName,
-                                invocationId,
+                                safeInvocationId,
                                 errors.Count,
                                 LogSanitizer.Scrub(errorMessage),
                                 stopwatch.ElapsedMilliseconds);
@@ -1048,7 +1049,7 @@ public class PowerShellAssemblyGenerator
                                 "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
                                 "result_shaping_empty",
                                 safeCommandName,
-                                invocationId,
+                                safeInvocationId,
                                 stopwatch.ElapsedMilliseconds);
                             ps.Commands.Clear();
                             return Task.FromResult("[]");
@@ -1060,7 +1061,7 @@ public class PowerShellAssemblyGenerator
                                 "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ResultCount={ResultCount}, ElapsedMs={ElapsedMs}",
                                 "result_shaping_started",
                                 safeCommandName,
-                                invocationId,
+                                safeInvocationId,
                                 results.Count,
                                 stopwatch.ElapsedMilliseconds);
 
@@ -1074,7 +1075,7 @@ public class PowerShellAssemblyGenerator
                                 "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, JsonLength={JsonLength}, ElapsedMs={ElapsedMs}",
                                 "result_shaping_completed",
                                 safeCommandName,
-                                invocationId,
+                                safeInvocationId,
                                 jsonOutput.Length,
                                 stopwatch.ElapsedMilliseconds);
                             return Task.FromResult(jsonOutput);
@@ -1087,7 +1088,7 @@ public class PowerShellAssemblyGenerator
                                 ex,
                                 "Result shaping failed: ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
                                 safeCommandName,
-                                invocationId,
+                                safeInvocationId,
                                 stopwatch.ElapsedMilliseconds);
                             ps.Commands.Clear();
                             return Task.FromResult($"{{\"error\": \"Failed to serialize results to JSON: {ex.Message}\"}}");
@@ -1102,7 +1103,7 @@ public class PowerShellAssemblyGenerator
                             "Tool invocation cancelled: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
                             "pipeline_execution",
                             safeCommandName,
-                            invocationId,
+                            safeInvocationId,
                             stopwatch.ElapsedMilliseconds);
                         ps.Commands.Clear();
                         throw;
@@ -1116,7 +1117,7 @@ public class PowerShellAssemblyGenerator
                             "Tool invocation timed out: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
                             "pipeline_execution",
                             safeCommandName,
-                            invocationId,
+                            safeInvocationId,
                             stopwatch.ElapsedMilliseconds);
                         ps.Commands.Clear();
                         throw;
@@ -1129,7 +1130,7 @@ public class PowerShellAssemblyGenerator
                             ex,
                             "Unexpected error during tool invocation: ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
                             safeCommandName,
-                            invocationId,
+                            safeInvocationId,
                             stopwatch.ElapsedMilliseconds);
                         ps.Commands.Clear();
                         return Task.FromResult($"{{\"error\": \"Unexpected error: {ex.Message}\"}}");

@@ -87,25 +87,34 @@ public static class AuthenticationServiceExtensions
                         }
                         options.TokenValidationParameters.ValidateIssuer = scheme.ValidIssuers.Count > 0;
 
+                        var safeSchemeName = LogSanitizer.Scrub(name);
+                        var safeAuthority = LogSanitizer.Scrub(options.Authority);
+                        var safeValidAudiences = LogSanitizer.Scrub(
+                            string.Join(",", options.TokenValidationParameters.ValidAudiences ?? []));
+                        var safeValidIssuers = LogSanitizer.Scrub(
+                            string.Join(",", options.TokenValidationParameters.ValidIssuers ?? []));
+
                         // Warn when Authority is Entra v1 but ValidIssuers references v2
                         if (!string.IsNullOrEmpty(options.Authority) &&
                             options.Authority.Contains("login.microsoftonline.com") &&
                             !options.Authority.TrimEnd('/').EndsWith("/v2.0") &&
                             options.TokenValidationParameters.ValidIssuers?.Any(i => i.Contains("/v2.0")) == true)
                         {
+                            var safeSuggestedAuthority = LogSanitizer.Scrub(
+                                $"{options.Authority.TrimEnd('/')}/v2.0");
                             Console.Error.WriteLine(
-                                $"[PoshMcp WARNING] JwtBearer scheme '{name}': Authority '{options.Authority}' uses the " +
+                                $"[PoshMcp WARNING] JwtBearer scheme '{safeSchemeName}': Authority '{safeAuthority}' uses the " +
                                 $"Entra v1.0 OIDC endpoint but ValidIssuers contains a v2.0 issuer. " +
                                 $"Access tokens obtained via the v2.0 endpoint will fail signature validation. " +
-                                $"Consider setting Authority to '{options.Authority.TrimEnd('/')}/v2.0'.");
+                                $"Consider setting Authority to '{safeSuggestedAuthority}'.");
                         }
 
                         // One-time startup diagnostic: log Authority and ValidAudiences so we can
                         // confirm the JWT config matches what the token issuer will produce.
                         Console.Error.WriteLine(
-                            $"[PoshMcp JWT] Scheme '{name}': Authority='{options.Authority}', " +
-                            $"ValidAudiences='{string.Join(",", options.TokenValidationParameters.ValidAudiences ?? [])}', " +
-                            $"ValidIssuers='{string.Join(",", options.TokenValidationParameters.ValidIssuers ?? [])}'");
+                            $"[PoshMcp JWT] Scheme '{safeSchemeName}': Authority='{safeAuthority}', " +
+                            $"ValidAudiences='{safeValidAudiences}', " +
+                            $"ValidIssuers='{safeValidIssuers}'");
 
                         // RFC 9728: inject resource_metadata into WWW-Authenticate so
                         // clients (e.g. VS Code) can discover the PRM and find the real
@@ -141,7 +150,7 @@ public static class AuthenticationServiceExtensions
                                     ?? Enumerable.Empty<string>();
                                 logger.LogInformation(
                                     "JWT OnTokenValidated: AllClaims=[{Claims}]",
-                                    string.Join(" | ", allClaims));
+                                    LogSanitizer.Scrub(string.Join(" | ", allClaims)));
 
                                 // Surface the auth-relevant claims at WARNING level so they're
                                 // easy to spot even when the rest of the log stream is noisy.
@@ -153,9 +162,9 @@ public static class AuthenticationServiceExtensions
                                     .Select(c => c.Value).ToArray() ?? [];
                                 logger.LogWarning(
                                     "JWT AUTHZ DIAG: aud=[{Aud}] scp=[{Scp}] roles=[{Roles}]",
-                                    string.Join(",", aud),
-                                    string.Join(",", scp),
-                                    string.Join(",", roles));
+                                    LogSanitizer.Scrub(string.Join(",", aud)),
+                                    LogSanitizer.Scrub(string.Join(",", scp)),
+                                    LogSanitizer.Scrub(string.Join(",", roles)));
                                 return Task.CompletedTask;
                             },
 
@@ -185,10 +194,10 @@ public static class AuthenticationServiceExtensions
 
                                 logger.LogWarning(
                                     "JWT OnAuthenticationFailed: {ExceptionType}: {Message} — token aud=[{TokenAud}] iss=[{TokenIss}]",
-                                    context.Exception.GetType().Name,
-                                    context.Exception.Message,
-                                    tokenAud ?? "(unable to decode)",
-                                    tokenIss ?? "(unable to decode)");
+                                    LogSanitizer.Scrub(context.Exception.GetType().Name),
+                                    LogSanitizer.Scrub(context.Exception.Message),
+                                    LogSanitizer.Scrub(tokenAud ?? "(unable to decode)"),
+                                    LogSanitizer.Scrub(tokenIss ?? "(unable to decode)"));
                                 return Task.CompletedTask;
                             },
 
@@ -198,7 +207,8 @@ public static class AuthenticationServiceExtensions
                                     .GetRequiredService<ILogger<JwtBearerHandler>>();
                                 logger.LogWarning(
                                     "JWT OnChallenge: Error={Error}, ErrorDescription={ErrorDescription}",
-                                    context.Error ?? "(none)", context.ErrorDescription ?? "(none)");
+                                    LogSanitizer.Scrub(context.Error ?? "(none)"),
+                                    LogSanitizer.Scrub(context.ErrorDescription ?? "(none)"));
 
                                 var cfg = context.HttpContext.RequestServices
                                     .GetRequiredService<IOptions<AuthenticationConfiguration>>();

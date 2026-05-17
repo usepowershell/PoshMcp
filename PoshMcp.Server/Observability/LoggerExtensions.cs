@@ -30,7 +30,7 @@ public static class LoggerExtensions
     {
         return logger.BeginScope(new Dictionary<string, object>
         {
-            ["CorrelationId"] = OperationContext.CorrelationId,
+            ["CorrelationId"] = LogSanitizer.Scrub(OperationContext.CorrelationId),
             // OperationName is derived from user-supplied tool/command names. Scrub
             // before it enters the logging scope to mitigate CWE-117 log forging.
             ["OperationName"] = LogSanitizer.Scrub(OperationContext.OperationName ?? "Unknown")

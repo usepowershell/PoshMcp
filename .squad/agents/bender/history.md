@@ -72,3 +72,8 @@ Issue #272 "Per-tool import source attribution: introduce IToolImportSourceTrack
 
 **Next:** Scope implementation approach for exact per-tool source resolution in doctor report.
 
+### 2026-05-17T08:03:00-05:00 — Issue #277 log forging fixes
+- In `PoshMcp.Server/PowerShell/PowerShellAssemblyGenerator.cs`, `OperationContext.CorrelationId` must be treated as untrusted at log sinks; scrub once into `safeInvocationId` and reuse it for every `InvocationId` log argument.
+- In `PoshMcp.Server/Authentication/AuthenticationServiceExtensions.cs`, JWT diagnostics need call-site scrubbing for echoed config values (`Authority`, `ValidAudiences`, `ValidIssuers`) and token-derived data (`AllClaims`, `aud`, `scp`, `roles`, decoded `aud`/`iss`, challenge errors).
+- In `PoshMcp.Server/Observability/LoggerExtensions.cs`, structured logging scopes are also log-forging sinks, so `CorrelationId` needs the same `LogSanitizer.Scrub()` treatment as `OperationName`.
+
