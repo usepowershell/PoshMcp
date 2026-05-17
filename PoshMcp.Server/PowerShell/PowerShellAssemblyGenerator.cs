@@ -259,13 +259,19 @@ public class PowerShellAssemblyGenerator
                         }
                         catch (Exception ex)
                         {
-                            logger.LogError(ex, $"Failed to generate method for command {command.Name}: {ex.Message}");
+                            logger.LogError(
+                                ex,
+                                "Failed to generate method for command {CommandName}: {Message}",
+                                LogSanitizer.Scrub(command.Name),
+                                LogSanitizer.Scrub(ex.Message));
                         }
                     }
 
                     if (!anyParameterSetGenerated)
                     {
-                        logger.LogWarning($"Skipping command '{command.Name}' — all parameter sets were skipped due to unserializable mandatory parameter types");
+                        logger.LogWarning(
+                            "Skipping command {CommandName} — all parameter sets were skipped due to unserializable mandatory parameter types",
+                            LogSanitizer.Scrub(command.Name));
                     }
                 }
 
@@ -1259,7 +1265,7 @@ public class PowerShellAssemblyGenerator
         {
             logger.LogWarning(
                 "Ignoring non-positive _MaxResults value for command {CommandName}: {MaxResults}",
-                commandName,
+                LogSanitizer.Scrub(commandName),
                 maxResults.Value);
             maxResults = null;
         }
@@ -1551,7 +1557,10 @@ public class PowerShellAssemblyGenerator
     {
         try
         {
-            logger.LogInformation($"Sorting cached output from last PowerShell command{(property != null ? $" by property '{property}'" : "")}{(descending ? " (descending)" : "")}");
+            logger.LogInformation(
+                "Sorting cached output from last PowerShell command: Property={Property}, Descending={Descending}",
+                LogSanitizer.Scrub(property),
+                descending);
 
             return await runspace.ExecuteThreadSafeAsync<string?>(async ps =>
             {
@@ -1626,7 +1635,10 @@ public class PowerShellAssemblyGenerator
 
         try
         {
-            logger.LogInformation($"Filtering cached output from last PowerShell command with script: {filterScript}{(updateCache ? " (updating cache)" : "")}");
+            logger.LogInformation(
+                "Filtering cached output from last PowerShell command: FilterScript={FilterScript}, UpdateCache={UpdateCache}",
+                LogSanitizer.Scrub(filterScript),
+                updateCache);
 
             return await runspace.ExecuteThreadSafeAsync<string?>(async ps =>
             {
@@ -1647,7 +1659,10 @@ public class PowerShellAssemblyGenerator
                 }
                 catch (Exception ex)
                 {
-                    logger.LogWarning($"Invalid filter script: {ex.Message}");
+                    logger.LogWarning(
+                        "Invalid filter script: FilterScript={FilterScript}, Message={Message}",
+                        LogSanitizer.Scrub(filterScript),
+                        LogSanitizer.Scrub(ex.Message));
                     ps.Commands.Clear();
                     return null;
                 }
@@ -1709,7 +1724,10 @@ public class PowerShellAssemblyGenerator
 
         try
         {
-            logger.LogInformation($"Grouping cached output from last PowerShell command by property '{property}'{(noElement ? " (no elements)" : "")}");
+            logger.LogInformation(
+                "Grouping cached output from last PowerShell command: Property={Property}, NoElement={NoElement}",
+                LogSanitizer.Scrub(property),
+                noElement);
 
             return await runspace.ExecuteThreadSafeAsync<string?>(async ps =>
             {
