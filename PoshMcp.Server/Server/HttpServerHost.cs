@@ -147,6 +147,7 @@ internal static class HttpServerHost
             .WithListPromptsHandler(httpPromptHandler.HandleListPromptsAsync)
             .WithGetPromptHandler(httpPromptHandler.HandleGetPromptAsync);
 
+        var resourceListLogger = bootstrapLoggerFactory.CreateLogger("ResourceList");
         if (nounHandler is not null)
         {
             var capturedNounHandler = nounHandler;
@@ -155,9 +156,21 @@ internal static class HttpServerHost
                 {
                     var staticResult = await resourceHandler.HandleListAsync(ctx, ct);
                     var nounResult = await capturedNounHandler.HandleListAsync(ctx, ct);
+                    var staticUris = staticResult.Resources
+                        .Select(r => r.Uri)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    var filteredNoun = nounResult.Resources
+                        .Where(r =>
+                        {
+                            if (!staticUris.Contains(r.Uri)) return true;
+                            resourceListLogger.LogWarning(
+                                "Duplicate resource URI {Uri}: static resource takes precedence over noun-derived resource.", r.Uri);
+                            return false;
+                        })
+                        .ToList();
                     return new ListResourcesResult
                     {
-                        Resources = staticResult.Resources.Concat(nounResult.Resources).ToList()
+                        Resources = staticResult.Resources.Concat(filteredNoun).ToList()
                     };
                 })
                 .WithReadResourceHandler(async (ctx, ct) =>
