@@ -76,6 +76,16 @@ public sealed record DoctorReport
     public ModuleImportsSection ModuleImports { get; init; } = new();
 
     /// <summary>
+    /// Spec 012 (OQ-4): noun-derived MCP resource diagnostics.
+    /// Present when <see cref="PowerShellConfiguration.EnableNounResources"/> is <c>true</c>;
+    /// reports registered noun resources, resource name conflicts, and suppressed nouns.
+    /// When the feature is disabled, <see cref="NounResourcesSection.Enabled"/> is <c>false</c>
+    /// and the remaining fields are empty defaults.
+    /// </summary>
+    [JsonPropertyName("nounResources")]
+    public NounResourcesSection NounResources { get; init; } = new();
+
+    /// <summary>
     /// Computes the overall health status from the diagnostic data.
     /// Returns <c>"errors"</c>, <c>"warnings"</c>, or <c>"healthy"</c>.
     /// </summary>
@@ -783,4 +793,81 @@ public sealed record ToolImportEntry
     /// <summary>Diagnostic message when <see cref="Disposition"/> is not <c>"exposed"</c>.</summary>
     [JsonPropertyName("diagnostic")]
     public string? Diagnostic { get; init; }
+}
+
+/// <summary>
+/// Spec 012 (OQ-4): noun-derived MCP resource diagnostics. Rendered as the
+/// <c>nounResources</c> JSON property on <see cref="DoctorReport"/>.
+/// The text renderer omits the section when <see cref="Enabled"/> is <c>false</c>.
+/// </summary>
+public sealed record NounResourcesSection
+{
+    /// <summary>
+    /// <c>true</c> when <see cref="PowerShellConfiguration.EnableNounResources"/> is
+    /// <c>true</c>; <c>false</c> when the feature is disabled.
+    /// </summary>
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; init; }
+
+    /// <summary>
+    /// Non-conflicted noun resources registered in the <see cref="NounRegistry"/>,
+    /// excluding any suppressed via <see cref="PowerShellConfiguration.NounResourceOverrides"/>.
+    /// </summary>
+    [JsonPropertyName("registeredResources")]
+    public List<NounResourceEntry> RegisteredResources { get; init; } = [];
+
+    /// <summary>
+    /// Resource name conflicts where two <c>Get-*</c> commands derive the same
+    /// snake_case resource name. The winner claimed the resource; the loser is
+    /// listed here with a diagnostic.
+    /// </summary>
+    [JsonPropertyName("conflicts")]
+    public List<NounResourceConflictEntry> Conflicts { get; init; } = [];
+
+    /// <summary>
+    /// Nouns that would have produced a resource but were suppressed via
+    /// <see cref="NounResourceOverride.Disabled"/> in
+    /// <see cref="PowerShellConfiguration.NounResourceOverrides"/>.
+    /// </summary>
+    [JsonPropertyName("suppressedNouns")]
+    public List<string> SuppressedNouns { get; init; } = [];
+}
+
+/// <summary>A single registered noun-derived MCP resource.</summary>
+public sealed record NounResourceEntry
+{
+    /// <summary>PascalCase PowerShell noun (e.g. <c>BamiTenantUser</c>).</summary>
+    [JsonPropertyName("noun")]
+    public string Noun { get; init; } = string.Empty;
+
+    /// <summary>Derived snake_case resource name (e.g. <c>bami_tenant_user</c>).</summary>
+    [JsonPropertyName("resourceName")]
+    public string ResourceName { get; init; } = string.Empty;
+
+    /// <summary>Full MCP resource URI (e.g. <c>poshmcp://resources/bami_tenant_user</c>).</summary>
+    [JsonPropertyName("uri")]
+    public string Uri { get; init; } = string.Empty;
+
+    /// <summary>Backing PowerShell command (e.g. <c>Get-BamiTenantUser</c>).</summary>
+    [JsonPropertyName("canonicalGetCommand")]
+    public string CanonicalGetCommand { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// A resource name conflict: two <c>Get-*</c> commands derived the same
+/// snake_case resource name; first-writer won.
+/// </summary>
+public sealed record NounResourceConflictEntry
+{
+    /// <summary>The conflicted snake_case resource name.</summary>
+    [JsonPropertyName("resourceName")]
+    public string ResourceName { get; init; } = string.Empty;
+
+    /// <summary>The command that won the resource name and produced the registered resource.</summary>
+    [JsonPropertyName("winnerCommand")]
+    public string WinnerCommand { get; init; } = string.Empty;
+
+    /// <summary>The command that lost the conflict and does not produce a resource.</summary>
+    [JsonPropertyName("loserCommand")]
+    public string LoserCommand { get; init; } = string.Empty;
 }

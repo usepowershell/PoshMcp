@@ -25,6 +25,9 @@ public static class DoctorTextRenderer
         if (HasModuleImports(report.ModuleImports))
             parts.Add(FormatSection("Module Imports", RenderModuleImports(report.ModuleImports)));
 
+        if (report.NounResources.Enabled)
+            parts.Add(FormatSection("Noun Resources", RenderNounResources(report.NounResources)));
+
         parts.Add(FormatSection("MCP Definitions", RenderMcpDefinitions(report.McpDefinitions)));
         parts.Add(FormatSection("Authentication", RenderAuthentication(report.Authentication, report.Identity)));
 
@@ -312,6 +315,37 @@ public static class DoctorTextRenderer
                 if (!string.IsNullOrEmpty(t.Diagnostic))
                     lines.Add($"      {t.Diagnostic}");
             }
+        }
+
+        return string.Join("\n", lines);
+    }
+
+    // ── Spec 012 — Noun Resources ────────────────────────────────────────────
+
+    private static string RenderNounResources(NounResourcesSection section)
+    {
+        var lines = new List<string>
+        {
+            $"  registered : {section.RegisteredResources.Count} resource(s)",
+        };
+
+        foreach (var r in section.RegisteredResources)
+            lines.Add($"  - {r.ResourceName} ({r.CanonicalGetCommand}) → {r.Uri}");
+
+        if (section.Conflicts.Count > 0)
+        {
+            lines.Add(string.Empty);
+            lines.Add($"  conflicts  : {section.Conflicts.Count} conflict(s)");
+            foreach (var c in section.Conflicts)
+                lines.Add($"  - {c.ResourceName} : {c.WinnerCommand} (winner) vs {c.LoserCommand} (skipped)");
+        }
+
+        if (section.SuppressedNouns.Count > 0)
+        {
+            lines.Add(string.Empty);
+            lines.Add($"  suppressed : {section.SuppressedNouns.Count} noun(s)");
+            foreach (var n in section.SuppressedNouns)
+                lines.Add($"  - {n}");
         }
 
         return string.Join("\n", lines);
