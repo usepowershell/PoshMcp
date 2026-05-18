@@ -349,15 +349,34 @@ public static class CommandHandlers
     {
         try
         {
-            var modules = context.ParseResult.GetValueForOption(CliDefinition.BuildModulesOption);
-            var type = context.ParseResult.GetValueForOption(CliDefinition.BuildTypeOption);
-            var tag = context.ParseResult.GetValueForOption(CliDefinition.BuildTagOption);
-            var dockerFile = context.ParseResult.GetValueForOption(CliDefinition.BuildDockerFileOption);
-            var sourceImage = context.ParseResult.GetValueForOption(CliDefinition.BuildSourceImageOption);
-            var sourceTag = context.ParseResult.GetValueForOption(CliDefinition.BuildSourceTagOption);
-            var generateDockerfile = context.ParseResult.GetValueForOption(CliDefinition.BuildGenerateDockerfileOption);
-            var dockerfileOutput = context.ParseResult.GetValueForOption(CliDefinition.BuildDockerfileOutputOption);
-            var appSettings = context.ParseResult.GetValueForOption(CliDefinition.BuildAppSettingsOption);
+            var buildModulesOption = CliDefinition.BuildModulesOption
+                ?? throw new InvalidOperationException("BuildModulesOption is not initialized.");
+            var buildTypeOption = CliDefinition.BuildTypeOption
+                ?? throw new InvalidOperationException("BuildTypeOption is not initialized.");
+            var buildTagOption = CliDefinition.BuildTagOption
+                ?? throw new InvalidOperationException("BuildTagOption is not initialized.");
+            var buildDockerFileOption = CliDefinition.BuildDockerFileOption
+                ?? throw new InvalidOperationException("BuildDockerFileOption is not initialized.");
+            var buildSourceImageOption = CliDefinition.BuildSourceImageOption
+                ?? throw new InvalidOperationException("BuildSourceImageOption is not initialized.");
+            var buildSourceTagOption = CliDefinition.BuildSourceTagOption
+                ?? throw new InvalidOperationException("BuildSourceTagOption is not initialized.");
+            var buildGenerateDockerfileOption = CliDefinition.BuildGenerateDockerfileOption
+                ?? throw new InvalidOperationException("BuildGenerateDockerfileOption is not initialized.");
+            var buildDockerfileOutputOption = CliDefinition.BuildDockerfileOutputOption
+                ?? throw new InvalidOperationException("BuildDockerfileOutputOption is not initialized.");
+            var buildAppSettingsOption = CliDefinition.BuildAppSettingsOption
+                ?? throw new InvalidOperationException("BuildAppSettingsOption is not initialized.");
+
+            var modules = context.ParseResult.GetValueForOption(buildModulesOption);
+            var type = context.ParseResult.GetValueForOption(buildTypeOption);
+            var tag = context.ParseResult.GetValueForOption(buildTagOption);
+            var dockerFile = context.ParseResult.GetValueForOption(buildDockerFileOption);
+            var sourceImage = context.ParseResult.GetValueForOption(buildSourceImageOption);
+            var sourceTag = context.ParseResult.GetValueForOption(buildSourceTagOption);
+            var generateDockerfile = context.ParseResult.GetValueForOption(buildGenerateDockerfileOption);
+            var dockerfileOutput = context.ParseResult.GetValueForOption(buildDockerfileOutputOption);
+            var appSettings = context.ParseResult.GetValueForOption(buildAppSettingsOption);
 
             var buildType = string.IsNullOrWhiteSpace(type)
                 ? "custom"
