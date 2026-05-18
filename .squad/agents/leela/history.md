@@ -76,3 +76,39 @@ Spec 009 (Test Suite Consistency and Fast Unit Tier) is functionally complete. F
 
 Release v0.14.1 shipped successfully. Version bump, release notes, and GitHub release creation completed by Amy. Commit a2a89b3, tag v0.14.1 pushed to origin, release published.
 
+## Learnings — 2026-05-18 — Logging and Metrics Documentation
+
+### Logging infrastructure architecture
+- **Two-provider strategy by transport:** HTTP mode uses the Microsoft console provider (all levels → stderr); stdio mode clears ALL providers on startup to protect the MCP JSON-RPC pipe. File logging (Serilog) is only available in stdio mode via `--log-file <path>`.
+- **`Logging.File.Path` in appsettings.json is inert** — it does not activate the Serilog file sink. The sink only activates via `--log-file` CLI flag. This is a potential source of user confusion and worth a docs callout.
+- Default levels: Default=Information, Microsoft.AspNetCore=Warning (suppressed), Microsoft.Hosting.Lifetime=Information.
+
+### Correlation ID and log scoping pattern
+- `OperationContext` uses `AsyncLocal<T>` for correlation ID + operation name, ensuring correct propagation through async continuations.
+- Format: `yyyyMMdd-HHmmss-xxxxxxxx` (timestamp + 8-char GUID fragment). Sortable and unique.
+- HTTP mode reads `X-Correlation-ID` request header and echoes it in the response. Stdio mode generates fresh IDs per operation.
+- `LoggerExtensions.BeginCorrelationScope()` is the recommended pattern for multi-statement methods; per-call convenience wrappers (`LogInformationWithCorrelation`, etc.) are marked with a performance warning in their XML docs.
+
+### OpenTelemetry metrics: what's active vs. reserved
+- Meter name: `PoshMcp`, version `1.0.0`.
+- **Active in code:** `mcp_tool_invocation_total` (recorded twice per invocation: start + end), `mcp_tool_execution_duration_seconds`, `mcp_tool_execution_errors_total`, `mcp_tool_usage_total`, `poshmcp.auth.tool_denials`, `poshmcp.tool_description.source`, `poshmcp.parameter_description.source`.
+- `poshmcp.auth.attempts` is defined but never recorded in production paths.
+- 9 additional metrics are defined for future AI/agent features (intent resolution, agent engagement, prompt success rate, etc.) — none are currently wired.
+- **Metrics charter:** instrumentation must never crash the application; all recording calls are wrapped in try/catch.
+
+### App Insights export suppression (FR-311/FR-312)
+- `UseAzureMonitor()` would export ILogger output to App Insights by default. The codebase explicitly adds a `LogLevel.None` filter on the `OpenTelemetry` logger provider to suppress this. Only traces and metrics reach App Insights.
+- `transport.mode` resource attribute (`stdio` or `http`) is attached to all App Insights telemetry.
+
+### Health checks
+- Health checks only exist in HTTP transport mode (`HttpServerHost.RegisterHealthChecks()`). Three checks: `powershell_runspace` (executes `1 + 1`, 500ms timeout), `assembly_generation` (executes `Get-Command -Name Get-Date`), `configuration` (validates `PowerShellConfiguration`).
+- `/health` always returns 200; `/health/ready` returns 503 on Degraded or Unhealthy.
+- Docker HEALTHCHECK baked into the base `Dockerfile` polls `/health` every 30s.
+
+### Diagnostic tools
+- `poshmcp doctor` outputs `DoctorReport` — 10+ sections covering runtime settings, environment variables, PowerShell info, configured functions, MCP definitions, authentication, identity, and out-of-process executor diagnostics.
+- `get-configuration-troubleshooting` MCP tool is gated by `EnableConfigurationTroubleshootingTool: true` in config. `get-configuration-guidance` is always registered.
+
+### Document created
+- `docs/logging-and-metrics.md` — comprehensive reference, ~29KB, 11 sections. Not committed (per task instructions).
+

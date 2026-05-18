@@ -33,6 +33,49 @@ Detailed entries archived to history-archive.md: Spec 009 review wave (6 PRs, cl
 
 ## Learnings
 
+### 2026-05-18T11:02:22-05:00 — Spec 012: milestone and issues created
+
+**Deliverable:** GitHub milestone #8 ("Spec 012: Noun-Derived MCP Resource Mapping") and 11 tracking issues created.
+
+**Issue numbers:**
+- #279 — NounRegistry: Build noun-to-command map at startup (squad:bender)
+- #280 — McpNounResourceHandler: Register and serve noun-derived resources (squad:bender)
+- #281 — ResourceLinkInjectorWrapper: Augment tool results with resourceLinkBlock (squad:bender)
+- #284 — Configuration: EnableNounResources and NounResourceOverrides in appsettings (squad:bender)
+- #282 — OOP mode support for NounRegistry and McpNounResourceHandler (squad:bender)
+- #283 — Static and noun-derived resources coexist in resources/list and resources/read (squad:bender)
+- #286 — Tests: NounRegistry unit tests (squad:fry)
+- #287 — Tests: McpNounResourceHandler integration tests (squad:fry)
+- #285 — Tests: ResourceLinkInjectorWrapper integration tests (squad:fry)
+- #289 — Investigate McpServerTool wrapping surface (OQ-1) (squad:hermes)
+- #288 — Doctor report: nounResources section (squad:bender)
+
+### 2026-05-18T10:50:47-05:00 — Spec 012: restructure and OQ resolutions
+
+**Deliverable:** `specs/noun-resource-mapping.md` restructured to `specs/012-noun-resource-mapping/spec.md`. Old file deleted. Decision file: `.squad/decisions/inbox/farnsworth-spec-012-oq-resolutions.md`.
+
+**Open questions resolved:**
+- **OQ-3:** Inject resourceLinkBlock for ALL commands with a resourceable noun, including Get-* verbs. No verb-based suppression. §5.2 and §7.2 updated; FR-NR-08A added.
+- **OQ-4:** Doctor integration planned — `poshmcp doctor` will include a `nounResources` section (follow-up spec). §8.3 updated.
+- **OQ-5:** `EmbeddedResource` content type (MCP spec 2024-11-05 `type: "resource"`) is the canonical approach. `TextContentBlock` has no `mimeType` field; the original draft was non-standard. Wire shape is `EmbeddedResource` wrapping `TextResourceContents` with `uri`, `mimeType = "application/json+mcp-resource-link"`, and `text` = JSON resourceLink. SDK v1.2.0 type name to verify at implementation time.
+
+**Spec 011 forward reference:** `specs/011-doctor-module-imports/` folder does not exist in the repo (was shipped as PRs #269–#271, no spec folder created). §8.3 reference kept as a forward reference note.
+
+### 2026-05-18T10:32:05-05:00 — Spec: noun-resource-mapping.md
+
+**Deliverable:** `specs/noun-resource-mapping.md` — design spec for dynamically derived MCP resources from PowerShell verb-noun naming. Decision file: `.squad/decisions/inbox/farnsworth-noun-resource-mapping.md`.
+
+**Key architectural decisions captured:**
+1. **Noun → resource name**: PascalCase noun from `Verb-Noun` → snake_case via upper-boundary insertion (`BamiTenantUser` → `bami_tenant_user`). Mechanical, no normalization dictionary.
+2. **Resourceable = has Get-{Noun}**: Only nouns with a `Get-*` backing command get a resource and `resourceLinkBlock`. Nouns with only mutating commands produce nothing — a resource without a read surface is misleading.
+3. **resourceLinkBlock = separate TextContent item**: `mimeType = "application/json+mcp-resource-link"`, appended last in `CallToolResult.Content`. Works for all result shapes (scalar, object, array). NOT embedded into primary JSON payload.
+4. **Opt-in**: `EnableNounResources` defaults `false`. Existing deployments are unaffected.
+5. **Parameterless URIs only**: `poshmcp://resources/{resource_name}` — no `/{id}` segment in this iteration. Parameterized read is OQ-2 (deferred).
+
+**Implementation shape**: `NounRegistry` (immutable, built post-discovery) + `McpNounResourceHandler` (composite with existing `McpResourceHandler`) + `ResourceLinkInjectorWrapper` (wraps `McpServerTool` per the SDK surface, OQ-1 is the key blocker to confirm). All wired in `McpToolSetupService` and `StdioServerHost`/`HttpServerHost`.
+
+**Open questions for team**: OQ-1 (McpServerTool wrapping), OQ-3 (should Get commands receive a resourceLinkBlock), OQ-5 (separate content item vs. embedded JSON — spec defaults to separate pending team confirmation).
+
 ### 2026-05-17T08:12:00-05:00 — PR #278 review (issue #277)
 
 **Verdict:** REJECT.

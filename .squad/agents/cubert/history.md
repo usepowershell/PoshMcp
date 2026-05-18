@@ -88,6 +88,20 @@ PR #273 squash-merged to `main`. Polish pass by Leela addressed Farnsworth's 5 n
 
 ## Learnings
 
+### 2026-05-18T07:51:29.406-05:00 — Fact-check: docs/logging-and-metrics.md (Leela)
+
+Systematic verification of the logging/metrics reference doc against source code (v0.14.2). 22+ sections checked.
+
+**Two findings requiring revision:**
+
+1. **`/health` endpoint status code claim (Section 7, line 385):** Doc says "Always returns HTTP 200; check `status` field." Code at `HttpServerHost.cs:186-189` uses default `HealthCheckOptions` without custom `ResultStatusCodes`. ASP.NET Core defaults return 200 for Healthy/Degraded but **503 for Unhealthy**. The claim is incorrect.
+
+2. **`get-configuration-guidance` availability (Section 8, line 489):** Doc says "Always registered." Code at `McpToolSetupService.cs:590-602` shows `AddConfigurationGuidanceToolToList` checks `config.EnableConfigurationTroubleshootingTool` and returns early if false. The tool is **gated**, not always registered.
+
+**Everything else verified clean:** Meter names, metric names, ActivitySource name/version, OperationContext format, LogSanitizer behavior (2048 chars, CWE-117 mitigation), LoggerExtensions methods, health check implementations (500ms timeout, `1+1` expression, `Get-Command -Name Get-Date`), Serilog file sink config (daily rolling, 7 retained, exact output template), CLI flags (--verbose/--debug→Debug, --trace→Trace), App Insights config (SamplingPercentage clamped 1-100, FR-311/312 log suppression, transport.mode resource attribute), X-Correlation-ID middleware, Dockerfile HEALTHCHECK, appsettings.json snippets.
+
+**Verdict: REVISE** — two factual errors need correction before merge. Per Reviewer Rejection Protocol, assigned to Fry (not Leela) for revision.
+
 ### 2026-05-16T17:46:13.559-05:00 — PR #276 import source tracker
 - `BuildDoctorReportForCliAsync` is not the only doctor-report constructor. `BuildDoctorReportFromConfig` is also used by `McpToolSetupService` troubleshooting and `ConfigurationReloadTools.GetConfigurationStatus`; unless tracker data is threaded there too, those surfaces keep `moduleImports.tools[].source = "unknown"`.
 - Verification pattern: when a PR enriches `DoctorReport`, grep every `BuildDoctorReportFromConfig(` and `BuildModuleImportsSection(` call site, not just the CLI doctor path.
