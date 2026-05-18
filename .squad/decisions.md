@@ -3,6 +3,95 @@
 ## Recent Decisions
 > Older entries archived to `decisions-archive.md` (entries >7d removed when file >= 50KB).
 
+### 2026-05-18: Noun-to-Resource Mapping — Key Architectural Choices (Spec 012)
+**By:** Farnsworth (Lead/Architect)
+**Spec:** `specs/noun-resource-mapping.md`
+**Status:** Proposed — awaiting team review
+
+#### Decision 1: Noun → Resource Name Convention
+**Choice:** PascalCase noun extracted from `Verb-Noun` command name, converted to snake_case via upper-boundary insertion (`BamiTenantUser` → `bami_tenant_user`).
+**Rationale:** Snake_case is the existing URI identifier pattern in PoshMcp resource configs (`poshmcp://resources/my-resource`). Underscore separation reads unambiguously for compound nouns with module prefixes (`BamiTenant` → `bami_tenant`), and the conversion is purely mechanical with no normalization dictionary needed.
+**Consequences:** Operators must use consistent and unique noun casing across modules. Two modules exposing `Get-User` conflict; first-discovered wins (logged warning, no crash).
+
+#### Decision 2: Resourceable = Has Get-{Noun}
+**Choice:** A noun is resourceable only when a `Get-{Noun}` command (exact, case-insensitive) is present in the discovered command set. Nouns without a Get command produce no resource and no `resourceLinkBlock`.
+**Rationale:** A resource that cannot be read is misleading. The `resources/read` contract requires a callable backing command. Nouns backed only by `Set-*`, `Remove-*`, etc. have no safe parameterless read surface.
+
+#### Decision 3: resourceLinkBlock as a Separate Content Item
+**Choice:** The `resourceLinkBlock` is appended as a separate `TextContent` item with `mimeType = "application/json+mcp-resource-link"` at the end of `CallToolResult.Content`. It is NOT embedded into the primary JSON payload.
+**Rationale:** A separate content item works for all result shapes (scalar string, JSON object, JSON array) without modifying the primary result. It is opt-in for MCP clients (they can filter by MIME type). Embedding into the primary JSON would require the tool output to always be a JSON object, which is not guaranteed.
+**Open:** OQ-5 in the spec records the team's open decision on this. The spec defaults to separate content item pending team confirmation.
+
+#### Decision 4: Feature is Opt-In via `EnableNounResources`
+**Choice:** `PowerShellConfiguration.EnableNounResources` defaults to `false`. The entire feature (noun registry construction, resource registration, tool wrapping) is skipped when `false`.
+**Rationale:** Existing deployments must not be affected. Noun resource derivation changes the `resources/list` surface and wraps every tool — both have observable effects. Requiring explicit opt-in respects the existing operator contract.
+
+#### Decision 5: Parameterless Resources Only (No URI Template)
+**Choice:** Noun-derived resource URIs are `poshmcp://resources/{resource_name}` with no `/{id}` segment. The backing `Get-{Noun}` command is invoked with no arguments.
+**Rationale:** PowerShell `Get-*` commands have heterogeneous parameter signatures. Encoding parameter values into URI segments requires a metadata mapping layer that is out of scope for this iteration. The parameterless read covers the "show current state / list all" use case, which is the dominant value delivered by this feature. A future parameterized URI extension (OQ-2) is explicitly deferred.
+
+---
+
+### 2026-05-18: Logging and Metrics Documentation — Fact-Check Results
+**By:** Cubert (Fact Checker)
+**Artifact:** `docs/logging-and-metrics.md`
+**Verdict:** REVISE — two factual errors, both straightforward fixes
+
+#### F1: `/health` endpoint does not always return HTTP 200
+**Doc claim (Section 7, line 385):** "Always returns HTTP 200; check `status` field."
+**Code reality:** `HttpServerHost.cs:186-189` maps `/health` with default `HealthCheckOptions` (no custom `ResultStatusCodes`). ASP.NET Core defaults:
+- Healthy → 200
+- Degraded → 200
+- Unhealthy → **503**
+
+The `/health` endpoint returns 503 when any check is Unhealthy. Only `/health/ready` has explicit status code mapping (which also uses 503 for Degraded/Unhealthy).
+**Fix:** Change to "Returns HTTP 200 for Healthy or Degraded; HTTP 503 for Unhealthy."
+
+#### F2: `get-configuration-guidance` is NOT always registered
+**Doc claim (Section 8, line 489):** "Always registered"
+**Code reality:** `McpToolSetupService.cs:590-602` — `AddConfigurationGuidanceToolToList` checks `config.EnableConfigurationTroubleshootingTool` and returns early if false. The guidance tool is gated by the same flag as the troubleshooting tool.
+**Fix:** Change to "Available when `EnableConfigurationTroubleshootingTool: true` in config" (same condition as `get-configuration-troubleshooting`).
+
+**Assigned to:** Fry per Reviewer Rejection Protocol (original author Leela cannot self-revise rejected claims).
+
+---
+
+### 2026-05-18: Logging and Metrics Documentation — Three Decision Items
+**By:** Leela (Developer Advocate)
+**Related document:** `docs/logging-and-metrics.md`
+
+#### Logging Decision 1: Document placement
+**Decision:** The logging and metrics reference document is placed at `docs/logging-and-metrics.md` (not under `docs/articles/`).
+**Rationale:** This is an operator/developer reference, not a tutorial. It is more closely analogous to `docs/entra-id-oauth-implementation-guide.md` than to the tutorial series under `docs/articles/tutorials/`. Placing it directly in `docs/` keeps the articles folder as tutorial/guide territory.
+**Action for docs toc:** If this document is to appear in the public DocFX site, a `toc.yml` entry should be added. Currently it is omitted from `toc.yml` pending team review of the docs navigation structure.
+
+#### Logging Decision 2: Honest callout for `Logging.File.Path` inert key
+**Decision:** The document explicitly calls out that the `Logging.File.Path` key present in `appsettings.json` does not activate the Serilog file sink. File logging requires the `--log-file` CLI flag.
+**Rationale:** This is a potential footgun for operators who set `Logging.File.Path` expecting it to work like other .NET logging providers. Surfacing it honestly in the reference prevents silent misconfiguration.
+**Recommendation to team:** Consider removing the `Logging.File.Path` key from the shipped `appsettings.json` if it has no effect, to reduce confusion. Alternatively, implement support for it as a file-sink configuration path.
+
+#### Logging Decision 3: "Not yet recorded" metrics table
+**Decision:** The document includes a table of metrics that are defined in `McpMetrics` but not yet wired to recording call sites, labelled explicitly as "Defined but Not Yet Recorded."
+**Rationale:** External consumers building dashboards or alerts need to know which metric names are reserved but not yet producing data. Omitting this table would lead to dashboards that appear silently empty.
+**Recommendation to team:** As AI/agent features ship, update `docs/logging-and-metrics.md` to move metrics from the "not yet recorded" table into the active metrics table.
+
+---
+
+### 2026-05-17: Log-Forging Revision — Additional Sinks Sanitization
+**By:** Hermes (PowerShell Expert)
+**Status:** Proposed
+**Related:** Issue #277, PR #278
+
+**Decision:** In `PoshMcp.Server\PowerShell\PowerShellAssemblyGenerator.cs`, every log sink that can receive user-controlled or environment-controlled string data must sanitize that value with `LogSanitizer.Scrub()` at the `ILogger` call site, and prefer structured logging over interpolated log strings.
+**Why:** Farnsworth's PR review found additional nearby sinks outside the original CodeQL alert set. The safe pattern is to treat command names, property names, filter scripts, and exception messages as untrusted at log sinks even when they are only helper diagnostics, because CodeQL closes `cs/log-forging` only when the sink arguments themselves are scrubbed.
+**Applied in this revision:**
+- generation-time command failure/skip logs
+- `_MaxResults` validation warning
+- cached output sort/filter/group helper diagnostics
+- invalid filter-script warning with scrubbed script and scrubbed exception message
+
+---
+
 ### 2026-05-16: Issue #272 — Import source tracker shape (IToolImportSourceTracker contract)
 **By:** Bender (Backend Developer)
 **What:** Use a dedicated `IToolImportSourceTracker` that mirrors the spec-010 description tracker contract: thread-safe, per-discovery-cycle, first-writer-wins, and keyed by PowerShell command name.
