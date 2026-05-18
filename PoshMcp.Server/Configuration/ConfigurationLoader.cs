@@ -51,6 +51,7 @@ internal static class ConfigurationLoader
         }
 
         LogConfigurationDetails(config, logger);
+        McpNounResourcesValidator.Validate(config, logger);
         return config;
     }
 

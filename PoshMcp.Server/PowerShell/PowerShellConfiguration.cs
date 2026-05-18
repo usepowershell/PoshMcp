@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Configuration;
+using PoshMcp.Server.McpResources;
 using PoshMcp.Server.PowerShell.OutOfProcess;
 
 namespace PoshMcp.Server.PowerShell;
@@ -142,6 +143,18 @@ public class PowerShellConfiguration
     /// Whether both CommandNames and FunctionNames have values (config conflict).
     /// </summary>
     public bool HasBothCommandAndFunctionNames => CommandNames.Count > 0 && FunctionNames.Count > 0;
+
+    /// <summary>
+    /// When true, automatically derives MCP resources from the nouns in configured command names
+    /// and augments tool results with a resourceLinkBlock. Default: false.
+    /// </summary>
+    public bool EnableNounResources { get; set; } = false;
+
+    /// <summary>
+    /// Per-noun overrides for noun-derived resource configuration. Keyed by default resource name
+    /// (snake_case derived from the noun). Any noun not present uses default derivation.
+    /// </summary>
+    public Dictionary<string, NounResourceOverride> NounResourceOverrides { get; set; } = new();
 
     /// <summary>
     /// Gets all function names from all configuration sources (deprecated — use GetEffectiveCommandNames())
