@@ -120,10 +120,11 @@ internal static class HttpServerHost
                 .Where(n => !string.IsNullOrWhiteSpace(n))
                 .Cast<string>();
             var nounRegistry = NounRegistry.Build(commandNames, bootstrapLoggerFactory.CreateLogger("NounRegistry"));
+            var nounExecutor = executorLease?.Executor;
             nounHandler = new McpNounResourceHandler(
                 nounRegistry,
-                sharedSessionRunspace,
-                executorLease?.Executor,
+                nounExecutor is null ? sharedSessionRunspace : null,
+                nounExecutor,
                 bootstrapLoggerFactory.CreateLogger<McpNounResourceHandler>());
             tools = ResourceLinkInjector.WrapToolsWithResourceLinks(
                 tools, nounRegistry, bootstrapLoggerFactory.CreateLogger("ResourceLinkInjector"));

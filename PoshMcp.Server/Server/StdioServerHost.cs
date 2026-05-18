@@ -279,7 +279,7 @@ internal static class StdioServerHost
             var nounRegistry = NounRegistry.Build(commandNames, loggerFactory.CreateLogger("NounRegistry"));
             nounHandler = new McpNounResourceHandler(
                 nounRegistry,
-                runspace,
+                commandExecutor is null ? runspace : null,
                 commandExecutor,
                 loggerFactory.CreateLogger<McpNounResourceHandler>());
             toolsToRegister = ResourceLinkInjector.WrapToolsWithResourceLinks(
