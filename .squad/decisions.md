@@ -996,3 +996,58 @@ git push origin v0.13.0
 5. Never use `--rebase` on `gh pr merge` for external PRs unless we've coordinated with the contributor — it can fail mid-merge if their branch has drift we didn't account for.
 **Why:** External contributors don't grant push access to their fork branches, so we can't `git push --force-with-lease` to update their PR. Squash-merge sidesteps the entire rewrite-history problem and keeps `main` history linear.
 
+
+
+### 2026-05-18: Spec 012 Open Question Resolutions
+**By:** Farnsworth (Lead/Architect)
+**Spec:** specs/012-noun-resource-mapping/spec.md`n**Status:** Resolved
+
+# Decision: Spec 012 Open Question Resolutions
+
+**By:** Farnsworth (Lead/Architect)
+**Date:** 2026-05-18
+**Spec:** `specs/012-noun-resource-mapping/spec.md`
+**Status:** Resolved
+
+---
+
+## OQ-3: Get commands receive resourceLinkBlock?
+
+**Resolution:** Inject the block always.
+
+All commands with a resourceable noun receive a `resourceLinkBlock` in their `CallToolResult`, including `Get-*` verbs. There is no verb-based suppression. A `Get-BamiTenantUser` result is augmented with the block pointing to `poshmcp://resources/bami_tenant_user`, just as `Assert-BamiTenantUser` is. The result already *is* the resource content, but the link provides clients a stable URI they can cache, reference, or re-read independently of the tool call. Making it consistent across all verbs avoids a special case in the injection wrapper and keeps the operator mental model simple.
+
+**Spec sections updated:** §5.2 (Which Tools Are Augmented) — explicit note added that Get-* verbs are included. §7.2 (Minimal Opt-In example) — removed prior caveat and updated to show Get-BamiTenantUser as augmented. FR-NR-08A added to acceptance criteria.
+
+---
+
+## OQ-4: Doctor report integration?
+
+**Resolution:** Yes, doctor should report the noun resources.
+
+`poshmcp doctor` will include a `nounResources` section listing discovered noun resources, conflicts, and suppressed nouns, following the `moduleImports` pattern introduced in spec 011. This is a planned follow-up spec item — not in scope for spec 012 implementation, but the doctor integration is committed. §8.3 updated to note this as planned.
+
+---
+
+## OQ-5: Wire shape — separate TextContent item with custom mimeType, or EmbeddedResource?
+
+**Resolution:** Use `EmbeddedResource` content type (MCP spec 2024-11-05 canonical approach).
+
+**Research findings:**
+
+- MCP SDK version in use: `ModelContextProtocol` v1.2.0 (from `PoshMcp.Server/PoshMcp.csproj`)
+- The SDK uses `TextContentBlock` for tool result text items; inspecting call sites (`ToolAuthorizationFilter.cs`, `McpPromptHandler.cs`) confirms `new TextContentBlock { Text = content }` — no `mimeType` property
+- `TextResourceContents` is confirmed present and used in `McpResourceHandler.cs` at line 123 for resource read responses
+- The MCP specification (2024-11-05) defines three content types for `CallToolResult.content`: `TextContent`, `ImageContent`, and `EmbeddedResource`
+- `EmbeddedResource` (`type: "resource"`) wraps a `TextResourceContents` or `BlobResourceContents`, and is the **canonical spec mechanism** for including a resource reference in a tool result
+- `TextContent` does NOT have a `mimeType` field in the spec — the original draft proposal was non-standard
+
+**Chosen wire shape:** `EmbeddedResource` content item in `CallToolResult.Content`, with inner `TextResourceContents` carrying:
+- `uri`: the `poshmcp://resources/{resource_name}` URI
+- `mimeType`: `"application/json+mcp-resource-link"` (PoshMcp convention for client detection)
+- `text`: JSON-encoded `resourceLink` object (uri, resourceName, noun, relationship, description)
+
+**Implementer note:** Verify the SDK v1.2.0 type name for the `EmbeddedResource` content block in the `ModelContextProtocol` package (`EmbeddedResourceBlock` or equivalent).
+
+**Spec sections updated:** §5.1 (Block Structure) — rewritten to use `EmbeddedResource` wire shape with rationale. §5.4 (Injection Mechanism) — updated to reference `EmbeddedResource` / `TextResourceContents`. FR-NR-08 — acceptance criteria updated to match `EmbeddedResource` wire shape.
+

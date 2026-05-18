@@ -1,9 +1,19 @@
-# Spec: Noun-Derived MCP Resource Mapping
+# Feature Specification: Noun-Derived MCP Resource Mapping
 
-**Status:** Draft  
-**Author:** Farnsworth (Lead/Architect)  
-**Date:** 2026-05-18  
-**Relates to:** `PowerShellConfiguration`, `McpResources`, `McpToolFactoryV2`
+**Spec Number**: 012
+**Feature Branch**: `012-noun-resource-mapping`
+**Created**: 2026-05-18
+**Revised**: 2026-05-18 (Farnsworth; addresses open question resolutions)
+**Status**: Draft
+**Input**: Automatically derive MCP resources and tool result resource-link annotations from the PowerShell verb-noun naming convention, so operators get structured, URI-addressable entity views without manual resource configuration.
+
+---
+
+## Background
+
+PoshMcp exposes PowerShell commands as MCP tools. PowerShell commands follow a `Verb-Noun` naming convention (e.g., `Get-BamiTenantUser`, `Set-BamiTenantUser`, `Remove-BamiTenantUser`). The nouns in those names identify coherent **entity types** in the domain.
+
+This feature automatically derives MCP **resources** from the nouns present in configured commands, where a resource is backed by the corresponding `Get-{Noun}` command. It also augments tool call results with a **`resourceLinkBlock`** — a well-known annotation that tells the MCP client how to fetch the canonical resource for the entity the tool just acted on.
 
 ---
 
@@ -29,7 +39,7 @@ This feature automatically derives MCP **resources** from the nouns present in c
 | **Resource name** | The snake_case identifier derived from a noun, used in the MCP resource URI. `BamiTenantUser` → `bami_tenant_user`. |
 | **Canonical Get command** | The `Get-{Noun}` command in the configured command set that backs a noun's resource. |
 | **Resourceable noun** | A noun for which a canonical `Get-{Noun}` command is present in the discovered command set. |
-| **resourceLinkBlock** | A JSON object appended as an extra `TextContent` item in a tool's `CallToolResult`, pointing the MCP client to the resource URI for the affected entity. |
+| **resourceLinkBlock** | An `EmbeddedResource` content item appended as the last entry in a tool's `CallToolResult.Content`, pointing the MCP client to the resource URI for the affected entity. |
 
 ---
 
@@ -201,17 +211,22 @@ If a `Get-{Noun}` command returns a single plain string, the serialized JSON wil
 
 ### 5.1 Block Structure
 
-When a tool whose noun is resourceable completes execution, an additional `TextContent` item is appended to the `CallToolResult.Content` array:
+The MCP specification (2024-11-05) defines `EmbeddedResource` as a first-class content type for `CallToolResult.content`, with `type: "resource"` and a nested `TextResourceContents` or `BlobResourceContents`. This is the canonical way to include a resource reference in a tool result, and it is the wire shape this spec adopts.
+
+When a tool whose noun is resourceable completes execution, an `EmbeddedResource` content item is appended as the **last** entry in `CallToolResult.Content`:
 
 ```json
 {
-  "type": "text",
-  "mimeType": "application/json+mcp-resource-link",
-  "text": "{\"resourceLink\":{\"uri\":\"poshmcp://resources/bami_tenant_user\",\"resourceName\":\"bami_tenant_user\",\"noun\":\"BamiTenantUser\",\"relationship\":\"subject\",\"description\":\"Read the current state of BamiTenantUser via Get-BamiTenantUser\"}}"
+  "type": "resource",
+  "resource": {
+    "uri": "poshmcp://resources/bami_tenant_user",
+    "mimeType": "application/json+mcp-resource-link",
+    "text": "{\"resourceLink\":{\"uri\":\"poshmcp://resources/bami_tenant_user\",\"resourceName\":\"bami_tenant_user\",\"noun\":\"BamiTenantUser\",\"relationship\":\"subject\",\"description\":\"Read the current state of BamiTenantUser via Get-BamiTenantUser\"}}"
+  }
 }
 ```
 
-Fields in the `resourceLink` object:
+Fields in the `resourceLink` JSON (carried in `resource.text`):
 
 | Field | Type | Description |
 |---|---|---|
@@ -221,7 +236,9 @@ Fields in the `resourceLink` object:
 | `relationship` | string | Always `"subject"` in this spec. Identifies this as the entity the tool operated on. |
 | `description` | string | Human-readable hint: `"Read the current state of {Noun} via Get-{Noun}"`. |
 
-The `mimeType` value `application/json+mcp-resource-link` is a PoshMcp convention that allows clients to detect and selectively parse this block without ambiguity.
+The `mimeType` value `application/json+mcp-resource-link` is a PoshMcp convention that allows clients to detect and selectively parse this block without ambiguity. The `uri` field of the inner `TextResourceContents` is the resource's canonical URI, usable directly in a `resources/read` call.
+
+**Wire shape rationale**: The MCP spec's `TextContent` type (`TextContentBlock` in the SDK) does not have a `mimeType` field. Using `EmbeddedResource` is the spec-sanctioned approach for embedding resource references in tool output — it naturally carries the resource URI in the `uri` field and supports per-resource `mimeType`. It composes cleanly for all result shapes (scalar, object, array) without modifying the primary result payload.
 
 ### 5.2 Which Tools Are Augmented
 
@@ -230,6 +247,8 @@ A tool result is augmented if and only if:
 2. The tool's command has a noun (verb-noun structure with a `-`).
 3. That noun is **resourceable** (a `Get-{Noun}` command exists in the discovered set).
 4. The noun's resource is **not disabled** via `NounResourceOverrides` (see §7).
+
+This includes `Get-*` verbs: a `Get-BamiTenantUser` result is augmented with the `resourceLinkBlock` pointing to `poshmcp://resources/bami_tenant_user`, just like any other command with the same noun. The result already *is* the resource content, but the link provides clients a stable URI they can cache, reference, or re-read independently of the tool call.
 
 Tools whose nouns have no canonical Get command (§3.2) do **not** receive a `resourceLinkBlock`.
 
@@ -243,8 +262,10 @@ The injection is implemented via a `ResourceLinkInjectorWrapper` that wraps each
 
 1. Calls the underlying tool's handler.
 2. Inspects the returned `CallToolResult`.
-3. If `IsError == false` and the noun is resourceable, appends the `resourceLinkBlock` content item.
+3. If `IsError == false` and the noun is resourceable, appends an `EmbeddedResource` content item (wrapping a `TextResourceContents`) to the content array.
 4. Returns the augmented result.
+
+The `EmbeddedResource` item is constructed using the `TextResourceContents` type already present in this codebase (confirmed in `McpResourceHandler.cs`). Implementer should verify the SDK v1.2.0 surface for the `EmbeddedResource` content block type name (`EmbeddedResourceBlock` or equivalent).
 
 This is a **post-execution decoration** pattern, analogous to how `EnableDynamicReloadTools` wraps/appends tools after the primary list is built.
 
@@ -254,7 +275,7 @@ This is a **post-execution decoration** pattern, analogous to how `EnableDynamic
 
 ### 6.1 New Component: `NounRegistry`
 
-**File:** `PoshMcp.Server/McpResources/NounRegistry.cs`  
+**File:** `PoshMcp.Server/McpResources/NounRegistry.cs`
 **Namespace:** `PoshMcp.Server.McpResources`
 
 ```csharp
@@ -287,7 +308,7 @@ public sealed record NounEntry(
 
 ### 6.2 New Component: `McpNounResourceHandler`
 
-**File:** `PoshMcp.Server/McpResources/McpNounResourceHandler.cs`  
+**File:** `PoshMcp.Server/McpResources/McpNounResourceHandler.cs`
 **Namespace:** `PoshMcp.Server.McpResources`
 
 Handles `resources/list` and `resources/read` for noun-derived resources. It composes with the existing `McpResourceHandler` (for statically configured resources) via a **composite handler** pattern.
@@ -304,9 +325,11 @@ The `McpNounResourceHandler.HandleReadAsync` implementation:
 
 For the OOP runtime mode, the read executes via the same `ICommandExecutor` used for tool execution.
 
+All commands with a resourceable noun — including `Get-*` verbs — have their tool results augmented with a `resourceLinkBlock`. There is no verb-based exclusion in this handler or in the injection wrapper.
+
 ### 6.3 New Component: `ResourceLinkInjectorWrapper`
 
-**File:** `PoshMcp.Server/McpResources/ResourceLinkInjectorWrapper.cs`  
+**File:** `PoshMcp.Server/McpResources/ResourceLinkInjectorWrapper.cs`
 **Namespace:** `PoshMcp.Server.McpResources`
 
 ```csharp
@@ -317,7 +340,7 @@ public static class ResourceLinkInjector
 }
 ```
 
-The wrapper checks whether the `McpServerTool`'s underlying command name has a resourceable noun. If yes, it produces a new `McpServerTool`-compatible instance that delegates to the original and appends the `resourceLinkBlock` content item on success.
+The wrapper checks whether the `McpServerTool`'s underlying command name has a resourceable noun. If yes, it produces a new `McpServerTool`-compatible instance that delegates to the original and appends the `EmbeddedResource` content item (wrapping `TextResourceContents`) on success.
 
 **Open question (OQ-1):** The `McpServerTool` class in the SDK may be sealed or have factory-only construction. If direct subclassing is not possible, the wrapper will use a decorator that constructs a new `McpServerTool` via `McpServerTool.Create(...)` with a lambda that wraps the original invocation. Implementer must verify the SDK surface.
 
@@ -418,7 +441,7 @@ This configuration will:
 - Create resource `poshmcp://resources/bami_tenant_user` (backed by `Get-BamiTenantUser`)
 - Create resource `poshmcp://resources/bami_tenant_context` (backed by `Get-BamiTenantContext`)
 - Augment `Assert-BamiTenantUser` results with a `resourceLinkBlock` pointing to `poshmcp://resources/bami_tenant_user`
-- Not augment `Get-BamiTenantUser` results (Get commands are not excluded, but there is no practical benefit — see OQ-3)
+- Augment `Get-BamiTenantUser` results with a `resourceLinkBlock` pointing to `poshmcp://resources/bami_tenant_user` (all commands with a resourceable noun are augmented, including `Get-*` verbs)
 
 ### 7.3 Example: Suppress One Noun
 
@@ -450,7 +473,7 @@ The `McpNounResourceHandler.HandleReadAsync` implementation wraps `Get-{Noun}` e
 
 ### 8.3 Conflicting Resource Names (Same Noun, Different Modules)
 
-First-writer-wins (§2.5). The losing command's noun is not resourceable. A warning-level log entry is emitted: `"Noun resource conflict: resource name '{resourceName}' claimed by '{winnerCommand}'; '{loserCommand}' will not generate a resource."` The doctor report (§6 of spec 011) should surface this warning in a future extension.
+First-writer-wins (§2.5). The losing command's noun is not resourceable. A warning-level log entry is emitted: `"Noun resource conflict: resource name '{resourceName}' claimed by '{winnerCommand}'; '{loserCommand}' will not generate a resource."` Doctor report integration is planned: `poshmcp doctor` will surface a `nounResources` section listing discovered noun resources, conflicts, and suppressed nouns, following the `moduleImports` pattern from spec 011. This is a follow-up spec item.
 
 ### 8.4 Same Noun, Different Module Prefixes
 
@@ -478,20 +501,17 @@ If configuration is reloaded while a `resources/read` request is in flight using
 
 ## 9. Open Questions
 
-**OQ-1 — McpServerTool wrapping surface:**  
+**OQ-1 — McpServerTool wrapping surface:**
 The `McpServerTool` type from `ModelContextProtocol.Server` may be sealed or factory-constructed. The `ResourceLinkInjectorWrapper` design (§6.3) depends on being able to produce a new `McpServerTool` that delegates to an existing one. Implementer must confirm whether `McpServerTool.Create(string name, Func<...> handler)` or a subclass approach is viable before coding the wrapper.
 
-**OQ-2 — Parameterized URI future:**  
+**OQ-2 — Parameterized URI future:**
 Should a future extension allow `poshmcp://resources/bami_tenant_user/{alias}` with the alias forwarded as a `-{Alias} <value>` argument to `Get-BamiTenantUser`? The URI template RFC 6570 approach would require parameter mapping metadata. This spec defers the question; no parameterized URIs in this iteration.
 
-**OQ-3 — Should Get commands receive a resourceLinkBlock?**  
-`Get-BamiTenantUser`'s result already *is* the resource content. Injecting a `resourceLinkBlock` pointing back to itself is technically redundant, but some clients use it for caching hints. Team should decide: (a) suppress for `Get` verbs, (b) inject always when resourceable, (c) make it configurable. Default assumption in this spec: inject for **all** commands with a resourceable noun, including `Get-*`.
+**Resolved questions:**
 
-**OQ-4 — Integration with doctor report:**  
-Should `poshmcp doctor` include a `nounResources` section listing discovered noun resources, conflicts, and suppressed nouns? This would be a natural extension of spec 011's `moduleImports` pattern. Deferred to a follow-up spec.
-
-**OQ-5 — Should resourceLinkBlock be a separate content item or embedded in the primary JSON?**  
-This spec proposes a separate `TextContent` item with a custom MIME type. An alternative is embedding `"_resourceLink": {...}` into the primary JSON object when the result is a JSON object. The separate content item approach is more composable (it doesn't break scalar or array results) but requires clients to scan the content array. Team should confirm the preferred wire shape before implementation.
+- **OQ-3 (Get commands get resourceLinkBlock?):** Resolved — inject the block always. All commands with a resourceable noun receive a `resourceLinkBlock`, including `Get-*` verbs. Spec §5.2 and §7.2 updated accordingly.
+- **OQ-4 (Doctor report integration?):** Resolved — yes, doctor should report the noun resources. §8.3 updated to note this as a planned follow-up spec item.
+- **OQ-5 (Wire shape — separate content item vs. embedded JSON?):** Resolved — use `EmbeddedResource` content type (MCP spec §2024-11-05), which is the canonical way to embed resource references in `CallToolResult.content`. `TextContent` (`TextContentBlock` in the SDK) has no `mimeType` field; the `EmbeddedResource` type naturally carries `uri` and `mimeType` on the inner `TextResourceContents`. Spec §5.1 and §5.4 updated to reflect this wire shape. Implementer should verify the SDK v1.2.0 type name for the `EmbeddedResource` content block (`EmbeddedResourceBlock` or equivalent).
 
 ---
 
@@ -500,72 +520,77 @@ This spec proposes a separate `TextContent` item with a custom MIME type. An alt
 These criteria are written to be directly testable by Fry.
 
 ### FR-NR-01 — Noun extraction
-Given command name `Get-BamiTenantUser`, `ExtractNounFromCommandName` returns `"BamiTenantUser"`.  
-Given command name `GetLocation` (no dash), `ExtractNounFromCommandName` returns `null`.  
+Given command name `Get-BamiTenantUser`, `ExtractNounFromCommandName` returns `"BamiTenantUser"`.
+Given command name `GetLocation` (no dash), `ExtractNounFromCommandName` returns `null`.
 Given command name `Get-`, `ExtractNounFromCommandName` returns `null` (empty noun after dash).
 
 ### FR-NR-02 — Resource name derivation
-Given noun `BamiTenantUser`, resource name is `bami_tenant_user`.  
-Given noun `Location`, resource name is `location`.  
-Given noun `HTMLParser`, resource name is `html_parser`.  
+Given noun `BamiTenantUser`, resource name is `bami_tenant_user`.
+Given noun `Location`, resource name is `location`.
+Given noun `HTMLParser`, resource name is `html_parser`.
 Given noun `BamiTenant`, resource name is `bami_tenant`.
 
 ### FR-NR-03 — NounRegistry: only resourceable nouns registered
-Given commands `["Get-BamiTenantUser", "Assert-BamiTenantUser", "Set-Foo"]` (no `Get-Foo`),  
-`NounRegistry.Build` produces one entry (`bami_tenant_user`) backed by `Get-BamiTenantUser`.  
+Given commands `["Get-BamiTenantUser", "Assert-BamiTenantUser", "Set-Foo"]` (no `Get-Foo`),
+`NounRegistry.Build` produces one entry (`bami_tenant_user`) backed by `Get-BamiTenantUser`.
 `Set-Foo`'s noun `Foo` has no entry because no `Get-Foo` is present.
 
 ### FR-NR-04 — NounRegistry: conflict detection
-Given commands `["ModuleA\Get-User", "ModuleB\Get-User"]` (or two separate unqualified `Get-User` entries),  
-`NounRegistry.Build` registers `user` for the first-discovered command and marks the second as conflicted.  
+Given commands `["ModuleA\Get-User", "ModuleB\Get-User"]` (or two separate unqualified `Get-User` entries),
+`NounRegistry.Build` registers `user` for the first-discovered command and marks the second as conflicted.
 A warning is logged.
 
 ### FR-NR-05 — Resource list includes noun-derived resources
-With `EnableNounResources = true` and commands including `Get-BamiTenantUser`,  
+With `EnableNounResources = true` and commands including `Get-BamiTenantUser`,
 `resources/list` includes a resource with URI `poshmcp://resources/bami_tenant_user` and `mimeType = "application/json"`.
 
 ### FR-NR-06 — Resource read executes Get command
-With `EnableNounResources = true`, a `resources/read` for `poshmcp://resources/bami_tenant_user`  
+With `EnableNounResources = true`, a `resources/read` for `poshmcp://resources/bami_tenant_user`
 executes `Get-BamiTenantUser` with no arguments and returns its JSON-serialized output as `TextResourceContents`.
 
 ### FR-NR-07 — Resource read for unknown URI returns ResourceNotFound
 A `resources/read` for `poshmcp://resources/does_not_exist` returns `McpErrorCode.ResourceNotFound`.
 
-### FR-NR-08 — resourceLinkBlock appended to non-Get tool result
-With `EnableNounResources = true`, a call to `Assert-BamiTenantUser` that succeeds  
-returns a `CallToolResult` whose `Content` array includes a final item with  
-`mimeType = "application/json+mcp-resource-link"` and a `text` field containing valid JSON with  
-`resourceLink.uri = "poshmcp://resources/bami_tenant_user"`.
+### FR-NR-08 — resourceLinkBlock appended to successful tool result
+With `EnableNounResources = true`, a call to `Assert-BamiTenantUser` that succeeds
+returns a `CallToolResult` whose `Content` array includes a final `EmbeddedResource` item with
+`resource.uri = "poshmcp://resources/bami_tenant_user"`,
+`resource.mimeType = "application/json+mcp-resource-link"`, and
+`resource.text` containing valid JSON with `resourceLink.uri = "poshmcp://resources/bami_tenant_user"`.
+
+### FR-NR-08A — resourceLinkBlock appended to Get command result
+With `EnableNounResources = true`, a call to `Get-BamiTenantUser` that succeeds
+returns a `CallToolResult` whose `Content` array includes a final `EmbeddedResource` item as described in FR-NR-08.
 
 ### FR-NR-09 — No resourceLinkBlock on error results
 When a tool call returns `IsError = true`, no `resourceLinkBlock` is appended.
 
 ### FR-NR-10 — No resourceLinkBlock for non-resourceable nouns
-When `EnableNounResources = true` and a command's noun has no `Get-{Noun}` counterpart,  
+When `EnableNounResources = true` and a command's noun has no `Get-{Noun}` counterpart,
 the tool result contains no `resourceLinkBlock` content item.
 
 ### FR-NR-11 — Feature is inert when disabled
-When `EnableNounResources = false` (the default),  
-`resources/list` returns only statically configured resources,  
+When `EnableNounResources = false` (the default),
+`resources/list` returns only statically configured resources,
 tool results contain no `resourceLinkBlock` items, and no `NounRegistry` is built.
 
 ### FR-NR-12 — NounResourceOverrides: Disabled suppresses resource and block
-Given `NounResourceOverrides: { "location": { "Disabled": true } }`,  
-`poshmcp://resources/location` does not appear in `resources/list`  
+Given `NounResourceOverrides: { "location": { "Disabled": true } }`,
+`poshmcp://resources/location` does not appear in `resources/list`
 and `Get-Location` results include no `resourceLinkBlock`.
 
 ### FR-NR-13 — NounResourceOverrides: custom URI
-Given `NounResourceOverrides: { "bami_tenant_user": { "Uri": "poshmcp://resources/tenant_user" } }`,  
-`resources/list` includes `poshmcp://resources/tenant_user` (not the default URI)  
+Given `NounResourceOverrides: { "bami_tenant_user": { "Uri": "poshmcp://resources/tenant_user" } }`,
+`resources/list` includes `poshmcp://resources/tenant_user` (not the default URI)
 and the `resourceLinkBlock` on `Assert-BamiTenantUser` contains `uri = "poshmcp://resources/tenant_user"`.
 
 ### FR-NR-14 — Static and noun-derived resources coexist
-When both `McpResources.Resources[]` and `EnableNounResources = true` are configured,  
-`resources/list` returns the union of both sets.  
+When both `McpResources.Resources[]` and `EnableNounResources = true` are configured,
+`resources/list` returns the union of both sets.
 `resources/read` resolves from the combined set without conflict.
 
 ### FR-NR-15 — OOP mode parity
-With `RuntimeMode = OutOfProcess` and `EnableNounResources = true`,  
-`NounRegistry.Build` uses command names from `RemoteToolSchema.Name` entries (OOP discovery output).  
-`resources/read` executes `Get-{Noun}` through `ICommandExecutor`.  
+With `RuntimeMode = OutOfProcess` and `EnableNounResources = true`,
+`NounRegistry.Build` uses command names from `RemoteToolSchema.Name` entries (OOP discovery output).
+`resources/read` executes `Get-{Noun}` through `ICommandExecutor`.
 FR-NR-05 through FR-NR-10 hold in OOP mode.
