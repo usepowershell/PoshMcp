@@ -3,6 +3,46 @@
 **Status:** 42.8 KB (checked 2026-05-11: within 90-day retention, no archival required)
 **Status:** 37.6 KB (checked 2026-05-03: within 90-day retention, no archival required)
 
+## 2026-05-18 — Issue #281 ResourceLinkInjectorWrapper
+
+### What I built
+`ResourceLinkInjector` static class + `ResourceLinkInjectorTool : DelegatingMcpServerTool` in `PoshMcp.Server/McpResources/ResourceLinkInjector.cs`. Wired into both `StdioServerHost.cs` and `HttpServerHost.cs` inside the `EnableNounResources` guard, immediately after `NounRegistry.Build`.
+
+### Key SDK gotchas
+
+1. **`CallToolResult.IsError` is `bool?`** — check as `result.IsError != true`, NOT `!result.IsError` (CS0266 otherwise).
+2. **`ContentBlock.Type` is `abstract string Type { get; }`** — read-only computed property. Do NOT include `Type = "resource"` in `EmbeddedResourceBlock` object initializers (CS0200). The class already overrides it to return `"resource"`.
+3. **`DelegatingMcpServerTool` constructor** — `protected DelegatingMcpServerTool(McpServerTool innerTool)`. Pass inner via `base(innerTool)`.
+4. **`InvokeAsync` return type** — must be `ValueTask<CallToolResult>`, not `Task<CallToolResult>`.
+5. **`tool.ProtocolTool.Title`** — use this (not `.Name`) to get the original PowerShell command name for noun extraction. `.Name` is snake_case MCP name.
+
+### Architecture notes
+- `WrapToolsWithResourceLinks` returns a new list; never mutates the input.
+- In `StdioServerHost`: introduced `var toolsToRegister = tools;` local so `.WithTools(toolsToRegister)` uses the wrapped list without shadowing the parameter.
+- In `HttpServerHost`: `tools` is a local `var`, so direct reassignment works.
+- Tools whose noun has no registry entry (or a conflicted entry) pass through unwrapped.
+
+## 2026-05-18 — Issue #280 McpNounResourceHandler
+
+### What I built
+`McpNounResourceHandler` in `PoshMcp.Server/McpResources/McpNounResourceHandler.cs` + wired into both server hosts.
+
+### Key decisions & learnings
+
+1. **Execution backend precedence**: OOP executor takes precedence over in-process runspace when both are non-null. Constructor accepts both as nullable; a guard throws `InvalidOperationException` if neither is provided. This matches how `McpResourceHandler` works for command resources (in-process only) vs the OOP invocation path.
+
+2. **ICommandExecutor.InvokeAsync returns pre-serialized JSON**: The OOP executor returns a `Task<string>` where the string is already JSON-serialized output from `output` field in the subprocess response. No further serialization needed for the OOP path — use it directly as `TextResourceContents.Text`.
+
+3. **Extracting discovered command names from tools list**: Use `tool.ProtocolTool.Title` (not `.Name`) — `Title` holds the original PowerShell command name (e.g. `Get-Process`); `Name` is the snake_case MCP tool name (e.g. `get_process`). Pattern: `tools.Select(t => { try { return t.ProtocolTool.Title; } catch { return null; } })`. Matches `ExtractToolIdentity` in `DoctorService.cs`.
+
+4. **Dispatch pattern for combined handlers**: The MCP SDK's `WithListResourcesHandler`/`WithReadResourceHandler` accept only one handler each. When `EnableNounResources == true`, replace both with async lambdas. For list: concatenate static + noun lists. For read: static wins when URI matches any entry in `McpResourcesConfiguration.Resources`; everything else routes to noun handler.
+
+5. **StdioServerHost threading**: `config` (PowerShellConfiguration) is in scope in `RunMcpServerAsync` but not passed through to `ConfigureServerServices`/`RegisterMcpServerServices`. Added optional `psConfig` and `commandExecutor` parameters to both private methods. Default-null keeps the existing call site from needing changes elsewhere.
+
+6. **NounRegistry.Build at startup**: Build immediately after `SetupMcpToolsAsync`/`SetupHttpMcpToolsAsync` returns, inside the registration helper. No need to store the registry as a service — it's captured by the dispatch lambda closure.
+
+7. **URI prefix stripping in HandleReadAsync**: Strip `poshmcp://resources/` prefix to get the resource name, then pass to `GetEntryByResourceName`. If the URI doesn't start with the prefix, use the raw URI as the key (defensive fallback matching static handler behavior).
+
 ## 2026-05-15: PR #266 - fix(doctor) #261 Pool-mode display
 
 ### What I fixed
@@ -56,6 +96,16 @@ PR #266 - https://github.com/usepowershell/PoshMcp/pull/266 - marked ready for r
 PRs #269 (Phase 1 ModuleDiscovery), #270 (Phase 2a DoctorService wiring), #271 (Phase 2b OOP wire-format parity) all merged to `main` on 2026-05-15. Issue #263 closed. #272 tracks per-tool source attribution refinement separately.
 
 ## Learnings
+
+### 2026-05-18 — Issue #279 NounRegistry (Spec 012)
+
+- **File:** `PoshMcp.Server/McpResources/NounRegistry.cs` — placed in McpResources namespace alongside `McpResourceHandler.cs` and `McpResourcesConfiguration.cs`.
+- **FrozenDictionary** (from `System.Collections.Frozen`) is available on net10.0 with no extra NuGet package. Use `collection.ToFrozenDictionary(keySelector, StringComparer.OrdinalIgnoreCase)` — clean and thread-safe immutable after `Build()`.
+- **Verb extraction for module-qualified commands** (`ModuleA\Get-User`): `commandName.Split('-')[0]` gives `ModuleA\Get`, NOT `Get`. Fix: extract `verbPart = commandName[..dashIndex]` then `verbPart[(lastBackslash+1)..]` to strip module prefix. Check `LastIndexOf('\\')`.
+- **Conflict tracking**: use a single `Dictionary<string, NounEntry>` keyed by resource_name for winners. Conflicted entries go into `allEntries` list but not into the dictionary. Build FrozenDictionaries from `claimedByResourceName.Values` only → `GetEntry` / `GetEntryByResourceName` return null for conflicted nouns automatically.
+- **AllEntries vs GetEntry**: `AllEntries` includes conflicted entries (for doctor reports); `GetEntry` / `GetEntryByResourceName` return null for conflicted nouns since they don't own a resource.
+- **Resource name regex**: `@"(?<=[a-z])([A-Z])|(?<=[A-Z])([A-Z][a-z])"` replace `"_$1$2"` → handles both camelBoundary and ACRONYMBoundary. Verified: `BamiTenantUser→bami_tenant_user`, `HTMLParser→html_parser`, `Location→location`.
+- **CanonicalGetCommand** is always stored as the simple `Get-{noun}` form (not module-qualified), matching spec examples.
 
 ### 2026-05-16T17:02:54.700-05:00 — Issue #272 import source tracker
 - `IToolImportSourceTracker` mirrors the spec-010 description tracker shape: per-command, thread-safe, first-writer-wins, and populated during discovery rather than reconstructed later.

@@ -10,13 +10,16 @@ using Serilog.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using PoshMcp.Server.McpPrompts;
 using PoshMcp.Server.McpResources;
 using PoshMcp.Server.PowerShell;
+using PoshMcp.Server.PowerShell.OutOfProcess;
 using PoshMcp.Server.Metrics;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
@@ -59,7 +62,7 @@ internal static class StdioServerHost
         var promptsConfig = ConfigurationLoader.LoadPromptsConfiguration(finalConfigPath);
         var configDirectory = Path.GetDirectoryName(finalConfigPath) ?? Directory.GetCurrentDirectory();
         var promptHandler = new McpPromptHandler(promptsConfig, configDirectory, loggerFactory.CreateLogger<McpPromptHandler>());
-        ConfigureServerServices(builder, tools, resourcesConfig, finalConfigPath, loggerFactory, promptHandler);
+        ConfigureServerServices(builder, tools, resourcesConfig, finalConfigPath, loggerFactory, promptHandler, config, executorLease?.Executor);
         await builder.Build().RunAsync();
     }
 
@@ -123,12 +126,14 @@ internal static class StdioServerHost
         McpResourcesConfiguration resourcesConfig,
         string configFilePath,
         ILoggerFactory loggerFactory,
-        McpPromptHandler promptHandler)
+        McpPromptHandler promptHandler,
+        PowerShellConfiguration? psConfig = null,
+        ICommandExecutor? commandExecutor = null)
     {
         ConfigureJsonSerializerOptions(builder);
         ConfigureOpenTelemetry(builder, isStdioMode: true);
         ConfigureApplicationInsights(builder.Services, builder.Configuration, isStdioMode: true);
-        RegisterMcpServerServices(builder, tools, resourcesConfig, configFilePath, loggerFactory, promptHandler);
+        RegisterMcpServerServices(builder, tools, resourcesConfig, configFilePath, loggerFactory, promptHandler, psConfig, commandExecutor);
         RegisterCleanupServices(builder);
     }
 
@@ -254,21 +259,70 @@ internal static class StdioServerHost
         McpResourcesConfiguration resourcesConfig,
         string configFilePath,
         ILoggerFactory loggerFactory,
-        McpPromptHandler promptHandler)
+        McpPromptHandler promptHandler,
+        PowerShellConfiguration? psConfig = null,
+        ICommandExecutor? commandExecutor = null)
     {
         var runspace = new SingletonPowerShellRunspace();
         var configDirectory = Path.GetDirectoryName(configFilePath) ?? ".";
         var resourceLogger = loggerFactory.CreateLogger<McpResourceHandler>();
         var resourceHandler = new McpResourceHandler(resourcesConfig, runspace, configDirectory, resourceLogger);
 
-        builder.Services
+        McpNounResourceHandler? nounHandler = null;
+        var toolsToRegister = tools;
+        if (psConfig?.EnableNounResources == true)
+        {
+            var commandNames = tools
+                .Select(t => { try { return t.ProtocolTool.Title; } catch { return null; } })
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Cast<string>();
+            var nounRegistry = NounRegistry.Build(commandNames, loggerFactory.CreateLogger("NounRegistry"));
+            nounHandler = new McpNounResourceHandler(
+                nounRegistry,
+                runspace,
+                commandExecutor,
+                loggerFactory.CreateLogger<McpNounResourceHandler>());
+            toolsToRegister = ResourceLinkInjector.WrapToolsWithResourceLinks(
+                tools, nounRegistry, loggerFactory.CreateLogger("ResourceLinkInjector"));
+        }
+
+        var mcpBuilder = builder.Services
             .AddMcpServer()
             .WithStdioServerTransport()
-            .WithTools(tools)
-            .WithListResourcesHandler(resourceHandler.HandleListAsync)
-            .WithReadResourceHandler(resourceHandler.HandleReadAsync)
+            .WithTools(toolsToRegister)
             .WithListPromptsHandler(promptHandler.HandleListPromptsAsync)
             .WithGetPromptHandler(promptHandler.HandleGetPromptAsync);
+
+        if (nounHandler is not null)
+        {
+            var capturedNounHandler = nounHandler;
+            mcpBuilder
+                .WithListResourcesHandler(async (ctx, ct) =>
+                {
+                    var staticResult = await resourceHandler.HandleListAsync(ctx, ct);
+                    var nounResult = await capturedNounHandler.HandleListAsync(ctx, ct);
+                    return new ListResourcesResult
+                    {
+                        Resources = staticResult.Resources.Concat(nounResult.Resources).ToList()
+                    };
+                })
+                .WithReadResourceHandler(async (ctx, ct) =>
+                {
+                    var uri = ctx.Params?.Uri ?? string.Empty;
+                    if (resourcesConfig.Resources.Any(r =>
+                            string.Equals(r.Uri, uri, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        return await resourceHandler.HandleReadAsync(ctx, ct);
+                    }
+                    return await capturedNounHandler.HandleReadAsync(ctx, ct);
+                });
+        }
+        else
+        {
+            mcpBuilder
+                .WithListResourcesHandler(resourceHandler.HandleListAsync)
+                .WithReadResourceHandler(resourceHandler.HandleReadAsync);
+        }
     }
 
     /// <summary>

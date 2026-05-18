@@ -16,6 +16,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using ModelContextProtocol.AspNetCore;
 using PoshMcp.Server.Authentication;
@@ -110,6 +111,24 @@ internal static class HttpServerHost
         var resourcesConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? ".";
         var resourceLogger = bootstrapLoggerFactory.CreateLogger<McpResourceHandler>();
         var resourceHandler = new McpResourceHandler(resourcesConfig, sharedSessionRunspace, resourcesConfigDirectory, resourceLogger);
+
+        McpNounResourceHandler? nounHandler = null;
+        if (config.EnableNounResources)
+        {
+            var commandNames = tools
+                .Select(t => { try { return t.ProtocolTool.Title; } catch { return null; } })
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Cast<string>();
+            var nounRegistry = NounRegistry.Build(commandNames, bootstrapLoggerFactory.CreateLogger("NounRegistry"));
+            nounHandler = new McpNounResourceHandler(
+                nounRegistry,
+                sharedSessionRunspace,
+                executorLease?.Executor,
+                bootstrapLoggerFactory.CreateLogger<McpNounResourceHandler>());
+            tools = ResourceLinkInjector.WrapToolsWithResourceLinks(
+                tools, nounRegistry, bootstrapLoggerFactory.CreateLogger("ResourceLinkInjector"));
+        }
+
         var authConfigValue = authRootConfig.GetSection("Authentication").Get<PoshMcp.Server.Authentication.AuthenticationConfiguration>() ?? new();
         var promptsConfig = ConfigurationLoader.LoadPromptsConfiguration(finalConfigPath);
         var httpConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? Directory.GetCurrentDirectory();
@@ -124,10 +143,39 @@ internal static class HttpServerHost
                 opts.IdleTimeout = TimeSpan.FromSeconds(mcpServerConfig.IdleSessionTimeoutSeconds);
             })
             .WithTools(tools)
-            .WithListResourcesHandler(resourceHandler.HandleListAsync)
-            .WithReadResourceHandler(resourceHandler.HandleReadAsync)
             .WithListPromptsHandler(httpPromptHandler.HandleListPromptsAsync)
             .WithGetPromptHandler(httpPromptHandler.HandleGetPromptAsync);
+
+        if (nounHandler is not null)
+        {
+            var capturedNounHandler = nounHandler;
+            mcpBuilder
+                .WithListResourcesHandler(async (ctx, ct) =>
+                {
+                    var staticResult = await resourceHandler.HandleListAsync(ctx, ct);
+                    var nounResult = await capturedNounHandler.HandleListAsync(ctx, ct);
+                    return new ListResourcesResult
+                    {
+                        Resources = staticResult.Resources.Concat(nounResult.Resources).ToList()
+                    };
+                })
+                .WithReadResourceHandler(async (ctx, ct) =>
+                {
+                    var uri = ctx.Params?.Uri ?? string.Empty;
+                    if (resourcesConfig.Resources.Any(r =>
+                            string.Equals(r.Uri, uri, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        return await resourceHandler.HandleReadAsync(ctx, ct);
+                    }
+                    return await capturedNounHandler.HandleReadAsync(ctx, ct);
+                });
+        }
+        else
+        {
+            mcpBuilder
+                .WithListResourcesHandler(resourceHandler.HandleListAsync)
+                .WithReadResourceHandler(resourceHandler.HandleReadAsync);
+        }
 
         ToolAuthorizationFilter? callToolFilter = null;
         ToolListAuthorizationFilter? listToolFilter = null;
