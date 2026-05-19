@@ -67,6 +67,42 @@ poshmcp update-config --add-module Az.Resources
 
 Install/import behavior and module search paths are configured in `appsettings.json` under `PowerShellConfiguration.Environment`.
 
+### Noun-Derived Resources
+
+Enable noun-derived resources when you want PoshMcp to expose parameterless `Get-*` nouns through `resources/list` and `resources/read`, and to append MCP resource links to successful tool results for the same noun.
+
+Edit `appsettings.json`:
+
+```json
+{
+  "PowerShellConfiguration": {
+    "CommandNames": [
+      "Get-NounResourceFixture",
+      "Assert-NounResourceFixture"
+    ],
+    "EnableNounResources": true,
+    "NounResourceOverrides": {
+      "noun_resource_fixture": {
+        "ResourceName": "fixture_override",
+        "Uri": "poshmcp://resources/fixture_override",
+        "DisableResourceLinkBlock": false
+      }
+    }
+  }
+}
+```
+
+Behavior:
+
+- `EnableNounResources` defaults to `false`.
+- A noun is resourceable only when the discovered command set contains a matching `Get-{Noun}` command.
+- The default resource name is the noun converted to snake_case, and the default URI is `poshmcp://resources/{resource_name}`.
+- `NounResourceOverrides` is keyed by the default derived resource name.
+- `Disabled: true` suppresses the derived resource and skips tool-result resource links for that noun.
+- `DisableResourceLinkBlock: true` keeps the resource available in `resources/list` and `resources/read`, but skips the appended `application/json+mcp-resource-link` block on tool results.
+
+Use `poshmcp doctor` to verify the effective noun-resource surface. When the feature is enabled, doctor reports registered resources, conflicts, and suppressed nouns in the `Noun Resources` section.
+
 ## appsettings.json Reference
 
 Full configuration structure:

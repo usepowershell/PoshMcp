@@ -78,6 +78,67 @@ Add resources to `appsettings.json`:
 | `Path` | string | If Source="file" | File path (relative to appsettings.json directory, or absolute) |
 | `Command` | string | If Source="command" | PowerShell command to execute |
 
+### Noun-Derived Resources
+
+When `PowerShellConfiguration.EnableNounResources` is `true`, PoshMcp can derive additional MCP resources from the discovered PowerShell command set.
+
+A noun becomes resourceable only when a matching `Get-{Noun}` command exists. When that happens, PoshMcp:
+
+- derives a snake_case resource name from the noun
+- registers a `poshmcp://resources/{resource_name}` resource in `resources/list`
+- serves `application/json` from `resources/read` by invoking the backing `Get-{Noun}` command with no arguments
+
+For example, `Get-NounResourceFixture` produces a resource named `noun_resource_fixture` at `poshmcp://resources/noun_resource_fixture`.
+
+If a noun does not have a matching `Get-*` command, PoshMcp does not list or read a derived resource for it.
+
+Configure the feature in `appsettings.json`:
+
+```json
+{
+  "PowerShellConfiguration": {
+    "EnableNounResources": true,
+    "NounResourceOverrides": {
+      "noun_resource_fixture": {
+        "ResourceName": "fixture_override",
+        "Uri": "poshmcp://resources/fixture_override",
+        "Description": "Fixture resource exposed through noun derivation"
+      }
+    }
+  }
+}
+```
+
+Override keys use the default derived resource name. Each override can:
+
+- set `Disabled` to suppress the resource entirely
+- change `ResourceName`, `Uri`, or `Description`
+- set `DisableResourceLinkBlock` to keep the resource readable but skip tool-result link injection
+
+### Resource Link Blocks
+
+When noun-derived resources are enabled, successful tool results for the same noun get an extra content block appended at the end of the MCP result. The block points the client at the readable MCP resource for that noun.
+
+The appended block uses the `application/json+mcp-resource-link` MIME type:
+
+```json
+{
+  "type": "resource",
+  "resource": {
+    "uri": "poshmcp://resources/noun_resource_fixture",
+    "mimeType": "application/json+mcp-resource-link",
+    "text": "{\"resourceLink\":{\"uri\":\"poshmcp://resources/noun_resource_fixture\",\"resourceName\":\"noun_resource_fixture\",\"noun\":\"NounResourceFixture\",\"relationship\":\"subject\",\"description\":\"...\"}}"
+  }
+}
+```
+
+This block is not appended when:
+
+- noun resources are disabled
+- the noun override sets `Disabled: true`
+- the noun override sets `DisableResourceLinkBlock: true`
+- the tool result is returned with `isError: true`
+
 ### Example: File-Based Resources
 
 Expose documentation files for AI context:
@@ -489,6 +550,19 @@ Doctor checks include:
 - Required arguments are documented
 - PowerShell command syntax is valid
 - Variable references in commands match argument names
+
+**Noun resources:**
+- Whether noun-derived resources are enabled
+- Registered noun-derived resources and their backing `Get-*` commands
+- Resource name conflicts
+- Suppressed nouns from `NounResourceOverrides`
+
+When noun resources are enabled, the text report includes a `Noun Resources` section that lists registered resources as:
+
+```text
+registered : 1 resource(s)
+- noun_resource_fixture (Get-NounResourceFixture) -> poshmcp://resources/noun_resource_fixture
+```
 
 **Output:**
 ```
