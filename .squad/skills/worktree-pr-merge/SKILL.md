@@ -1,6 +1,6 @@
 ---
 name: "worktree-pr-merge"
-description: "Patterns for merging PRs sequentially from git worktrees, including rebase timing, dotnet restore requirements, exit code interpretation, and branch push configuration."
+description: "Manage sequential PR merges from git worktrees — covering rebase timing, dotnet restore on cold checkouts, gh pr merge exit code interpretation, and force-push configuration. WHEN: merging PRs from git worktrees, debugging NETSDK1004 on worktree test runs, interpreting non-zero exit from gh pr merge, or resolving worktree branch push failures."
 domain: "git-workflow"
 confidence: "medium"
 source: "observed"

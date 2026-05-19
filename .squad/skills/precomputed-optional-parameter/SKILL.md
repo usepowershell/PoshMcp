@@ -1,6 +1,6 @@
 ---
 name: "precomputed-optional-parameter"
-description: "Avoid redundant expensive computations by passing pre-computed results as optional parameters to delegation methods, maintaining backward compatibility."
+description: "Avoid redundant expensive computations — especially IsolatedPowerShellRunspace setup — by passing pre-computed results as optional nullable parameters to private delegation methods, with null-coalescing fallback for callers that don't pre-compute. WHEN: a public method computes expensive data then calls a private helper that recomputes the same data, or when runspace/session initialization is executing twice."
 domain: "performance"
 confidence: "medium"
 source: "earned"

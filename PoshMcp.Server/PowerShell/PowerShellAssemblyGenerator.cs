@@ -163,6 +163,7 @@ public class PowerShellAssemblyGenerator
 
         // Layer 3: Config per-function override
         if (_powerShellConfig?.TryGetCommandOverride(commandName, out var funcOverride) == true
+            && funcOverride is not null
             && funcOverride.EnableResultCaching.HasValue)
         {
             return funcOverride.EnableResultCaching.Value;
@@ -1286,14 +1287,20 @@ public class PowerShellAssemblyGenerator
         }
 
         if (_powerShellConfig?.TryGetCommandOverride(commandName, out var functionOverride) == true
+            && functionOverride is not null
             && functionOverride.DefaultProperties != null)
         {
             return functionOverride.DefaultProperties;
         }
 
-        var useDefaultDisplayProperties = (_powerShellConfig?.TryGetCommandOverride(commandName, out functionOverride) == true
-            ? functionOverride.UseDefaultDisplayProperties
-            : null)
+        bool? commandDefaultDisplayProperties = null;
+        if (_powerShellConfig?.TryGetCommandOverride(commandName, out var displayFunctionOverride) == true
+            && displayFunctionOverride is not null)
+        {
+            commandDefaultDisplayProperties = displayFunctionOverride.UseDefaultDisplayProperties;
+        }
+
+        var useDefaultDisplayProperties = commandDefaultDisplayProperties
             ?? _powerShellConfig?.Performance.UseDefaultDisplayProperties
             ?? true;
 

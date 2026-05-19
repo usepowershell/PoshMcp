@@ -1,6 +1,6 @@
 ---
 name: "release-process"
-description: "Repo release workflow: version bump, changelog, quality gates (format+test), Leela-owned release notes, commit/push, CI gate, then tag and push tags"
+description: "Execute the full release workflow: bump version, update changelog, run dotnet format and dotnet test quality gates, prepare release notes, commit and push to main, wait for CI green, then create and push the annotated tag. WHEN: shipping a new release, bumping version in the repo, creating a git tag, or running pre-release quality gates."
 domain: "release-management"
 confidence: "high"
 source: "manual"

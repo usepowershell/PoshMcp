@@ -162,6 +162,7 @@ internal static class DoctorService
             },
             OutOfProcess = BuildOutOfProcessSection(config, settings.FinalConfigPath, loggerFactory),
             ModuleImports = BuildModuleImportsSection(config, tools, OopModuleImportsCapture.Current, logger, importSourceTracker),
+            NounResources = BuildNounResourcesSection(config, null),
             ConfigurationErrors = [.. report.ConfigurationErrors, .. configurationErrors],
         };
 
@@ -222,7 +223,8 @@ internal static class DoctorService
         AuthenticationConfiguration? authConfig = null,
         System.Security.Claims.ClaimsPrincipal? currentIdentity = null,
         bool allowConfigurationFileAccess = true,
-        IToolImportSourceTracker? importSourceTracker = null)
+        IToolImportSourceTracker? importSourceTracker = null,
+        NounRegistry? nounRegistry = null)
     {
         var discoveredToolNames = ConfigurationHelpers.GetDiscoveredToolNames(tools);
         var configuredFunctionStatus = BuildConfiguredFunctionStatus(config.GetEffectiveCommandNames(), discoveredToolNames);
@@ -297,6 +299,7 @@ internal static class DoctorService
         {
             OutOfProcess = BuildOutOfProcessSection(config, configurationPath, Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance),
             ModuleImports = BuildModuleImportsSection(config, tools, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, importSourceTracker),
+            NounResources = BuildNounResourcesSection(config, nounRegistry),
         };
     }
 
@@ -776,7 +779,88 @@ internal static class DoctorService
 
     private static string EscapeForPowerShell(string value) => "'" + value.Replace("'", "''") + "'";
 
-    // ── Spec 011 — Module Imports ────────────────────────────────────────────
+    // ── Spec 012 — Noun Resources ────────────────────────────────────────────
+
+    /// <summary>
+    /// Spec 012 (OQ-4): builds the <see cref="NounResourcesSection"/> from the active
+    /// configuration and a pre-built <see cref="NounRegistry"/> snapshot.
+    /// Returns a disabled section when <see cref="PowerShellConfiguration.EnableNounResources"/>
+    /// is <c>false</c>. When <paramref name="nounRegistry"/> is <c>null</c> and the feature
+    /// is enabled, builds a registry on the spot from
+    /// <see cref="PowerShellConfiguration.GetEffectiveCommandNames"/> so the section is
+    /// always populated in the CLI doctor path without requiring a pre-built snapshot.
+    /// </summary>
+    internal static NounResourcesSection BuildNounResourcesSection(
+        PowerShellConfiguration config,
+        NounRegistry? nounRegistry)
+    {
+        if (config is null) throw new ArgumentNullException(nameof(config));
+
+        if (!config.EnableNounResources)
+            return new NounResourcesSection { Enabled = false };
+
+        nounRegistry ??= NounRegistry.Build(
+            config.GetEffectiveCommandNames(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+
+        var overrides = config.NounResourceOverrides
+                        ?? new System.Collections.Generic.Dictionary<string, NounResourceOverride>();
+        var effectiveRegistry = EffectiveNounResourceRegistry.Build(nounRegistry, overrides);
+
+        // Separate winners from losers so we can pair them up for conflict entries.
+        var winnersByResourceName = new System.Collections.Generic.Dictionary<string, NounEntry>(
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in nounRegistry.AllEntries)
+        {
+            if (!entry.IsConflicted)
+                winnersByResourceName[entry.ResourceName] = entry;
+        }
+
+        var registeredResources = effectiveRegistry.AllEntries
+            .Select(entry => new NounResourceEntry
+            {
+                Noun = entry.Noun,
+                ResourceName = entry.ResourceName,
+                Uri = entry.Uri,
+                CanonicalGetCommand = entry.CanonicalGetCommand,
+            })
+            .ToList();
+        var suppressedNouns = new List<string>();
+        var conflicts = new List<NounResourceConflictEntry>();
+
+        foreach (var entry in nounRegistry.AllEntries)
+        {
+            if (entry.IsConflicted)
+            {
+                // Pair each loser with its winner.
+                if (winnersByResourceName.TryGetValue(entry.ResourceName, out var winner))
+                {
+                    conflicts.Add(new NounResourceConflictEntry
+                    {
+                        ResourceName = entry.ResourceName,
+                        WinnerCommand = winner.CanonicalGetCommand,
+                        LoserCommand = entry.CanonicalGetCommand,
+                    });
+                }
+                continue;
+            }
+
+            // Non-conflicted entry: check for suppression override.
+            if (NounResourceResolution.GetOverride(entry, overrides)?.Disabled == true)
+            {
+                suppressedNouns.Add(entry.Noun);
+                continue;
+            }
+        }
+
+        return new NounResourcesSection
+        {
+            Enabled = true,
+            RegisteredResources = registeredResources.OrderBy(r => r.ResourceName, StringComparer.Ordinal).ToList(),
+            Conflicts = conflicts.OrderBy(c => c.ResourceName, StringComparer.Ordinal).ToList(),
+            SuppressedNouns = suppressedNouns.OrderBy(n => n, StringComparer.Ordinal).ToList(),
+        };
+    }
 
     /// <summary>
     /// Spec 011 (FR-263-1, FR-263-7, FR-263-9, FR-263-10): build the

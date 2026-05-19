@@ -1,6 +1,6 @@
 ---
 name: "unserializable-type-handling"
-description: "Handle PowerShell commands with parameters whose types cannot be serialized to JSON by gracefully skipping parameters or parameter sets in MCP tool schema generation."
+description: "Handle PowerShell commands whose parameter types cannot be JSON-serialized by applying three-tier graceful fallback: skip optional parameters, skip unviable parameter sets, or skip entire commands — preserving server startup. WHEN: adding MCP tool schema generation, encountering PSObject/ScriptBlock/Stream parameters, debugging server startup failures due to unserializable types, or extending IsUnserializableType checks."
 domain: "api-design"
 confidence: "high"
 source: "earned"

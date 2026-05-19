@@ -17,11 +17,11 @@ namespace PoshMcp.Server.McpResources;
 /// <summary>
 /// Handles MCP resources/list and resources/read for noun-derived resources backed by Get-{Noun} commands.
 /// </summary>
-public class McpNounResourceHandler
+internal class McpNounResourceHandler
 {
     private const string UriPrefix = "poshmcp://resources/";
 
-    private readonly NounRegistry _nounRegistry;
+    private readonly EffectiveNounResourceRegistry _nounRegistry;
     private readonly IPowerShellRunspace? _runspace;
     private readonly ICommandExecutor? _commandExecutor;
     private readonly ILogger<McpNounResourceHandler> _logger;
@@ -34,7 +34,7 @@ public class McpNounResourceHandler
     /// <param name="commandExecutor">Out-of-process executor; takes precedence over runspace when non-null.</param>
     /// <param name="logger">Logger for diagnostics.</param>
     public McpNounResourceHandler(
-        NounRegistry nounRegistry,
+        EffectiveNounResourceRegistry nounRegistry,
         IPowerShellRunspace? runspace,
         ICommandExecutor? commandExecutor,
         ILogger<McpNounResourceHandler> logger)
@@ -55,12 +55,11 @@ public class McpNounResourceHandler
         CancellationToken cancellationToken)
     {
         var resources = _nounRegistry.AllEntries
-            .Where(e => !e.IsConflicted)
             .Select(e => new Resource
             {
                 Uri = e.Uri,
                 Name = e.ResourceName,
-                Description = $"Noun-derived resource backed by {e.CanonicalGetCommand}",
+                Description = e.Description,
                 MimeType = "application/json",
             })
             .ToList();
@@ -83,11 +82,15 @@ public class McpNounResourceHandler
             throw new McpProtocolException("resources/read requires a non-empty uri parameter", McpErrorCode.InvalidParams);
         }
 
-        var resourceName = uri.StartsWith(UriPrefix, StringComparison.OrdinalIgnoreCase)
-            ? uri[UriPrefix.Length..]
-            : uri;
+        var entry = _nounRegistry.GetEntryByUri(uri);
+        if (entry is null)
+        {
+            var resourceName = uri.StartsWith(UriPrefix, StringComparison.OrdinalIgnoreCase)
+                ? uri[UriPrefix.Length..]
+                : uri;
+            entry = _nounRegistry.GetEntryByResourceName(resourceName);
+        }
 
-        var entry = _nounRegistry.GetEntryByResourceName(resourceName);
         if (entry is null)
         {
             throw new McpProtocolException($"Resource not found: {uri}", McpErrorCode.ResourceNotFound);
@@ -147,7 +150,7 @@ public class McpNounResourceHandler
             {
                 new TextResourceContents
                 {
-                    Uri = uri,
+                    Uri = entry.Uri,
                     MimeType = "application/json",
                     Text = json,
                 }

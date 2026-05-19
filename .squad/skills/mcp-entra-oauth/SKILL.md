@@ -1,3 +1,11 @@
+---
+name: "mcp-entra-oauth"
+description: "Implement OAuth 2.1 + Entra ID authentication for an MCP server using a lightweight AS metadata proxy — handling RFC 9728 protected resource metadata, RFC 8414 AS metadata, and a /register endpoint that eliminates client_id prompts for all MCP clients. WHEN: adding OAuth to an MCP server, MCP clients ask users to paste a client_id, authorization redirects go to the wrong endpoint, or debugging Entra DCR limitations."
+domain: "security-authentication"
+confidence: "high"
+source: "earned"
+---
+
 # Skill: MCP OAuth + Entra ID Integration
 
 ## When to invoke

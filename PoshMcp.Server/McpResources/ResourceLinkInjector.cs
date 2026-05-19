@@ -14,7 +14,7 @@ namespace PoshMcp.Server.McpResources;
 /// successful tool call results with an <see cref="EmbeddedResourceBlock"/> that points to the
 /// noun-derived MCP resource for the tool's noun.
 /// </summary>
-public static class ResourceLinkInjector
+internal static class ResourceLinkInjector
 {
     /// <summary>
     /// Wraps tools in the list with resource link injection for any tool whose noun has a
@@ -26,7 +26,7 @@ public static class ResourceLinkInjector
     /// <param name="logger">Logger for diagnostics.</param>
     public static List<McpServerTool> WrapToolsWithResourceLinks(
         List<McpServerTool> tools,
-        NounRegistry registry,
+        EffectiveNounResourceRegistry registry,
         ILogger logger)
     {
         ArgumentNullException.ThrowIfNull(tools);
@@ -82,9 +82,9 @@ public static class ResourceLinkInjector
 /// </summary>
 internal sealed class ResourceLinkInjectorTool : DelegatingMcpServerTool
 {
-    private readonly NounEntry _nounEntry;
+    private readonly EffectiveNounResourceEntry _nounEntry;
 
-    public ResourceLinkInjectorTool(McpServerTool innerTool, NounEntry nounEntry)
+    public ResourceLinkInjectorTool(McpServerTool innerTool, EffectiveNounResourceEntry nounEntry)
         : base(innerTool)
     {
         _nounEntry = nounEntry ?? throw new ArgumentNullException(nameof(nounEntry));
@@ -96,18 +96,24 @@ internal sealed class ResourceLinkInjectorTool : DelegatingMcpServerTool
     {
         var result = await base.InvokeAsync(request, cancellationToken);
 
-        if (result.IsError != true)
+        if (result.IsError != true && !_nounEntry.DisableResourceLinkBlock)
         {
             result.Content.Add(new EmbeddedResourceBlock
             {
                 Resource = new TextResourceContents
                 {
                     Uri = _nounEntry.Uri,
-                    MimeType = "application/json",
+                    MimeType = "application/json+mcp-resource-link",
                     Text = JsonSerializer.Serialize(new
                     {
-                        resourceUri = _nounEntry.Uri,
-                        resourceName = _nounEntry.ResourceName,
+                        resourceLink = new
+                        {
+                            uri = _nounEntry.Uri,
+                            resourceName = _nounEntry.ResourceName,
+                            noun = _nounEntry.Noun,
+                            relationship = "subject",
+                            description = _nounEntry.Description,
+                        }
                     })
                 }
             });

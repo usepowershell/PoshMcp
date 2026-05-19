@@ -87,7 +87,9 @@ public class WinPsCompatProxyMethodGenerationTests : PowerShellTestBase
         // Verify tools have descriptions (indicates successful metadata generation)
         foreach (var tool in tools.Take(5))
         {
-            Assert.NotEmpty(tool.ProtocolTool.Description);
+            var description = tool.ProtocolTool.Description;
+            Assert.NotNull(description);
+            Assert.NotEmpty(description);
         }
 
         // Verify delegate caching: regenerating same commands should produce same tools

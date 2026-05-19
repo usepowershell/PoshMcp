@@ -1,6 +1,6 @@
 ---
 name: "discovery-source-tracker"
-description: "Mirror an existing provenance tracker pattern to capture discovery-source attribution during tool enumeration."
+description: "Implement discovery-source attribution tracking for MCP tool enumeration by creating a dedicated tracker interface with first-writer-wins semantics, recording at discovery call sites (not in the doctor/reporter), and wiring both in-process and OOP paths to agree on provenance. WHEN: the doctor or a reporting surface infers tool source heuristically, adding source attribution to a new discovery path, or aligning in-process and OOP discovery provenance."
 domain: "api-design"
 confidence: "high"
 source: "earned"

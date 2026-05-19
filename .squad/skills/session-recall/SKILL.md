@@ -1,9 +1,13 @@
 ---
 name: "session-recall"
-description: "Use the session-recall CLI to recover working context at coordinator startup after crashes, compaction, or new sessions"
+description: "Recover coordinator working context at startup using the session-recall CLI — reconstructing in-flight files, last checkpoint, and session summary before spawning agents. Falls back to direct SQL when CLI is unavailable. WHEN: coordinator startup after a crash or compaction, now.md shows active work, suspected session interruption, or searching for prior work on a topic."
 domain: "workflow-recovery"
 confidence: "high"
 source: "manual"
+invokes:
+  - "powershell (session-recall CLI commands)"
+  - "sql (fallback via session_store database)"
+for_single_operations: "Use `session-recall list --json --limit 5` directly for a quick recent-sessions check."
 tools:
   - name: "powershell"
     description: "Run session-recall CLI commands to query session history"

@@ -577,15 +577,22 @@ public class McpToolFactoryV2
         logger.LogDebug("  - Review include/exclude patterns");
     }
 
+    private PowerShellAssemblyGenerator GetAssemblyGeneratorOrThrow()
+    {
+        return _assemblyGenerator
+            ?? throw new InvalidOperationException("In-process runtime mode requires a PowerShell-runspace-backed McpToolFactoryV2 instance.");
+    }
+
     private (Assembly assembly, object instance, Dictionary<string, MethodInfo> methods) GenerateAssemblyAndMethods(List<CommandInfo> commands, IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> parameterDescriptions, ILogger logger)
     {
         logger.LogInformation($"Found {commands.Count} PowerShell commands");
         logger.LogTrace($"Commands to process: [{string.Join(", ", commands.Select(c => c.Name))}]");
 
         logger.LogDebug("Generating dynamic assembly for PowerShell commands...");
-        var generatedAssembly = _assemblyGenerator.GenerateAssembly(commands, parameterDescriptions, logger);
-        var generatedInstance = _assemblyGenerator.GetGeneratedInstance(logger);
-        var generatedMethods = _assemblyGenerator.GetGeneratedMethods();
+        var assemblyGenerator = GetAssemblyGeneratorOrThrow();
+        var generatedAssembly = assemblyGenerator.GenerateAssembly(commands, parameterDescriptions, logger);
+        var generatedInstance = assemblyGenerator.GetGeneratedInstance(logger);
+        var generatedMethods = assemblyGenerator.GetGeneratedMethods();
 
         LogGeneratedAssemblyDetails(generatedMethods, logger);
         return (generatedAssembly, generatedInstance, generatedMethods);
@@ -697,7 +704,7 @@ public class McpToolFactoryV2
     {
         var methodToCommandMap = new Dictionary<string, PowerShellCommandMetadata>();
         // Use the injected runspace instance instead of the singleton to support session-aware runspaces
-        var powerShell = _assemblyGenerator.PowerShellRunspace.Instance;
+        var powerShell = GetAssemblyGeneratorOrThrow().PowerShellRunspace.Instance;
 
         foreach (var command in commands)
         {
@@ -1025,7 +1032,7 @@ public class McpToolFactoryV2
     private (List<CommandInfo> commands, Dictionary<string, PowerShellCommandMetadata> metadata) GetAvailableCommandsWithMetadata(PowerShellConfiguration config, ILogger logger)
     {
         // Use the injected runspace instance instead of the singleton to support session-aware runspaces
-        var powerShell = _assemblyGenerator.PowerShellRunspace.Instance;
+        var powerShell = GetAssemblyGeneratorOrThrow().PowerShellRunspace.Instance;
         var commands = new List<CommandInfo>();
         var metadata = new Dictionary<string, PowerShellCommandMetadata>();
 
@@ -1467,6 +1474,11 @@ public class McpToolFactoryV2
     {
         try
         {
+            if (_assemblyGenerator == null)
+            {
+                return "No assembly has been generated yet";
+            }
+
             var generatedAssembly = _assemblyGenerator.GeneratedAssembly;
             if (generatedAssembly == null)
             {
@@ -1506,6 +1518,10 @@ public class McpToolFactoryV2
     {
         try
         {
+            if (_assemblyGenerator == null)
+            {
+                return "Assembly has not been generated yet";
+            }
 
             var generatedMethods = _assemblyGenerator.GetGeneratedMethods();
             var generatedInstance = _assemblyGenerator.GetGeneratedInstance(logger);
