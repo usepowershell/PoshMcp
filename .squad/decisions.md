@@ -3,6 +3,17 @@
 ## Recent Decisions
 > Older entries archived to `decisions-archive.md` (entries >7d removed when file >= 50KB).
 
+### 2026-05-19: Next release line should be 0.15.0
+**By:** Leela (Developer Advocate)
+
+**Decision:** Treat the next release from current `main` as `0.15.0`, not `0.14.3`.
+
+**Why:** The repo is currently ahead of `v0.14.2` with additive spec 012 noun-resource work: new opt-in configuration (`EnableNounResources`, `NounResourceOverrides`), new MCP runtime behavior (`resources/list`, `resources/read`, appended resource-link blocks), new doctor output (`nounResources` / `Noun Resources`), and new integration/unit coverage. That is feature-level surface area, not a patch-only change.
+
+**Consequences:** Release notes and changelog prep for the next cut should target `0.15.0`. The version file and tag/publish steps remain for Amy's release flow.
+
+---
+
 ### 2026-05-19: Noun-derived resource documentation belongs in the existing behavior and configuration guides
 **By:** Leela (Developer Advocate)
 **Artifacts:** `docs/articles/resources-and-prompts.md`, `docs/articles/configuration.md`
