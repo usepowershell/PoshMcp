@@ -2,6 +2,27 @@
 
 ## Recent Work (2026-05-02)
 
+## 2026-05-18 — Issue #286: NounRegistry Unit Tests
+
+Created `PoshMcp.Tests/Unit/McpResources/NounRegistryTests.cs` — 46 unit tests for `NounRegistry` (Spec 012 §2/§3).
+
+### Coverage
+- **Build/registration**: single Get, Get+Set+Remove, Set-only, empty list
+- **Resource name derivation**: DeriveResourceName (internal static) + via Build for BamiTenantUser, User, HTMLParser, HTTPSProxy, MyService
+- **Noun extraction**: ExtractNounFromCommandName direct calls + module-qualified, no-hyphen, trailing-dash
+- **Conflict resolution**: first-writer-wins, AllEntries includes both winner + conflicted, GetEntry/GetEntryByResourceName return winner, CapturingLogger verifies warning
+- **Lookup methods**: GetEntry + GetEntryByResourceName — known, unknown, case-insensitive
+- **URI format**: poshmcp://resources/{resource_name} prefix + suffix theories
+
+### Key Learnings
+- `NounRegistry` internal statics (`ExtractNounFromCommandName`, `DeriveResourceName`) are directly callable in tests due to `[InternalsVisibleTo("PoshMcp.Tests")]`
+- `CapturingLogger : ILogger` inline fake: `BeginScope` must return `IDisposable?` with `where TState : notnull` to avoid CS8633 warning
+- Conflict test: `Build(["Get-Foo", "Get-Foo"], ...)` — both commands have the same resource name, triggering the first-writer-wins path; `AllEntries` has 2 entries, `GetEntry("Foo")` returns the winner (non-conflicted only)
+- `[Trait("Category", "Unit")]` — all 46 tests run in <1s with no subprocess/port dependencies
+
+### Result
+46/46 passing. Commented on GitHub issue #286.
+
 ### 2026-05-07: v0.11.0 release shipped (cross-agent note from Scribe)
 Your work landed in v0.11.0 (csproj 0.10.0 → 0.11.0, CHANGELOG entry, release notes at docs/release-notes/0.11.0.md). The release narrative credits the OOP maturity wave: Pool default flip (#196/#208), cancellation propagation across all modes (#207), benchmarks harness + findings (#193/#194/#195/#205), OOP host extraction (#190/#198), bug fixes (#203/#189), CWE-117 log-injection hardening, minimum workflow permissions, and SECURITY.md. Tag/push deferred to Steven.
 **Existing test files updated (T022):**

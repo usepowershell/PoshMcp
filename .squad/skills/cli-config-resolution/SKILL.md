@@ -1,3 +1,11 @@
+---
+name: "cli-config-resolution"
+description: "Resolve configuration file paths in CLI commands using the same shared pipeline as the doctor/diagnostics so all commands target the same effective config file. WHEN: adding a new CLI command that reads or writes config, debugging a command that mutates a different config file than doctor reports, or implementing config-aware CLI behavior in a multi-location config environment."
+domain: "cli-design"
+confidence: "medium"
+source: "earned"
+---
+
 # Skill: CLI Config Resolution Parity
 
 ## Pattern

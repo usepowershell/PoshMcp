@@ -1,6 +1,6 @@
 ---
 name: "cli-bool-flag-pattern"
-description: "Pattern for adding boolean configuration flags to the update-config CLI command in Program.cs using helper methods and JSON mutation."
+description: "Add boolean configuration flags to the update-config CLI command using TryParseRequiredBoolean() for argument parsing and GetOrCreateObject() for JSON section navigation, following the three-step flow and nesting conventions established across PRs #85, #86, and #92. WHEN: adding a new --flag to update-config, nesting a config value under a JSON section, or writing unit tests for CLI config flag parsing."
 domain: "cli-design"
 confidence: "medium"
 source: "observed"

@@ -3,6 +3,41 @@
 **Status:** 42.8 KB (checked 2026-05-11: within 90-day retention, no archival required)
 **Status:** 37.6 KB (checked 2026-05-03: within 90-day retention, no archival required)
 
+## 2026-05-18 — Issue #283 Static and noun-derived resources coexist
+
+### What I verified / fixed
+
+**AC-283-1 (violated — fixed):** Both `StdioServerHost.cs` and `HttpServerHost.cs` merged static + noun resource lists with `Concat` but no deduplication. If a static resource and a noun-derived resource shared the same URI, both appeared in `resources/list`. Fixed by filtering noun resources whose URI already appears in the static list (static wins), logging a `Warning` for each collision.
+
+**AC-283-2 (already correct):** Read routing checks `resourcesConfig.Resources.Any(r => URI match)` first → static handler; fallthrough → noun handler; noun handler throws `McpProtocolException(ResourceNotFound)` when its registry has no match. No change needed.
+
+**AC-283-3 (already correct):** `else` branch wires only `resourceHandler.HandleListAsync` / `HandleReadAsync`. No change needed.
+
+### Key gotcha
+
+`Resource` is ambiguous between `ModelContextProtocol.Protocol.Resource` and `OpenTelemetry.Resources.Resource` in both host files. Avoid `new List<Resource>()` — use `.Where(...).ToList()` on the typed `nounResult.Resources` so the compiler infers `ModelContextProtocol.Protocol.Resource` without any explicit mention of the short name.
+
+### Files touched
+- `PoshMcp.Server/Server/StdioServerHost.cs` — deduplication in `RegisterMcpServerServices`
+- `PoshMcp.Server/Server/HttpServerHost.cs` — same pattern
+
+## 2026-05-18 — Issue #282 OOP mode support audit for NounRegistry / McpNounResourceHandler
+
+### What I verified / fixed
+
+**Verified correct:**
+- `McpNounResourceHandler.HandleReadAsync` OOP path calls `_commandExecutor.InvokeAsync(canonicalCommand, emptyDict, ct)`. Returns `Task<string>` (pre-serialized JSON from subprocess `output` field). Used directly as `TextResourceContents.Text`. ✅
+- `ResourceLinkInjector` only intercepts `CallToolResult` output to append `EmbeddedResourceBlock`. Never touches the underlying execution path. Works in both modes without changes. ✅
+
+**Fixed:**
+1. **Constructor guard** — `McpNounResourceHandler` now throws `InvalidOperationException` at construction if both `runspace` and `commandExecutor` are null. Previously the error only surfaced at first `HandleReadAsync` call.
+2. **StdioServerHost wiring** — Changed `McpNounResourceHandler` construction to `commandExecutor is null ? runspace : null` for the runspace argument, enforcing exactly-one-non-null contract.
+3. **HttpServerHost wiring** — Same fix; introduced `nounExecutor` local to avoid double-evaluating `executorLease?.Executor`, then `nounExecutor is null ? sharedSessionRunspace : null`.
+
+### Key learnings
+- The "executor takes precedence" pattern in HandleReadAsync was correct but masked the wiring bug. The constructor guard catches it much earlier.
+- `executorLease?.Executor` should be materialized to a local before conditionals that evaluate it twice (avoids subtle null reference if the lease disposes between evaluations, and keeps intent clear).
+
 ## 2026-05-18 — Issue #281 ResourceLinkInjectorWrapper
 
 ### What I built

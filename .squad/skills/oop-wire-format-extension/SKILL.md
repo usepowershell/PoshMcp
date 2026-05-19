@@ -1,7 +1,9 @@
 ---
-name: oop-wire-format-extension
-description: Safe pattern for extending the PoshMcp OOP discover wire format (RemoteToolSchema + parallel payload) without breaking older OOP hosts or older C# servers. Use when adding new fields to OOP discover responses, threading per-command metadata across the JSON-RPC boundary, or adding new top-level optional payload objects to the discover response.
-confidence: medium
+name: "oop-wire-format-extension"
+description: "Extend the PoshMcp OOP discover wire format (RemoteToolSchema + parallel payload) safely without breaking backward compatibility with older OOP hosts or C# servers. WHEN: adding new fields to OOP discover responses, threading per-command metadata across the JSON-RPC boundary, or adding new top-level optional payload objects to the discover response."
+domain: "api-design"
+confidence: "medium"
+source: "earned"
 captured-by: hermes
 captured: 2026-05-15
 ---
@@ -28,15 +30,7 @@ This means the safe extension pattern is **always additive, always nullable / de
 
 ### 1. Add nullable fields to `RemoteToolSchema` (per-command data)
 
-```csharp
-public class RemoteToolSchema
-{
-    // existing fields...
-
-    [JsonProperty("sourceModule", NullValueHandling = NullValueHandling.Ignore)]
-    public string? SourceModule { get; set; }
-}
-```
+> Code: see `REFERENCE.md` § "C# Field Addition"
 
 - Make the field **nullable**.
 - Use `NullValueHandling.Ignore` so newer hosts don't bloat older C# server's deserialization with empty fields they don't read.
@@ -45,17 +39,9 @@ public class RemoteToolSchema
 
 ### 2. Add a parallel top-level payload (request-scoped data)
 
-For data that doesn't belong on every command (per-module probe results, per-pattern statistics, environment fingerprints), add a new top-level optional object after the schemas array:
+For data that doesn't belong on every command (per-module probe results, per-pattern statistics, environment fingerprints), add a new top-level optional object after the schemas array.
 
-```jsonc
-{
-    "id": "...",
-    "result": {
-        "tools": [ /* RemoteToolSchema[] */ ],
-        "moduleImports": { /* RemoteModuleImportsPayload */ }   // optional
-    }
-}
-```
+> Code: see `REFERENCE.md` § "Parallel Top-Level Payload"
 
 - Define a top-level POCO (`RemoteModuleImportsPayload`) with collections that initialize to empty in the constructor.
 - Parse defensively in `OutOfProcessCommandExecutor` and `OutOfProcessSubprocessPool` — both must handle the field being absent (older host).
@@ -65,19 +51,7 @@ For data that doesn't belong on every command (per-module probe results, per-pat
 `oop-host.ps1` (single-host) and `oop-host-pool.ps1` (runspace pool) **must both** be updated. The pool variant runs discovery inside a script block, so:
 
 - Wrap the script-block return as `[pscustomobject]@{ Schemas = $schemas; ModuleImports = $payload }`.
-- In the outer handler, unwrap with a defensive fallback:
-
-```powershell
-$result = & $scriptBlock @args
-if ($result -is [pscustomobject] -and $result.PSObject.Properties.Match('Schemas').Count -gt 0) {
-    $schemas = $result.Schemas
-    $moduleImports = $result.ModuleImports
-} else {
-    # legacy bare-array shape
-    $schemas = $result
-    $moduleImports = $null
-}
-```
+- In the outer handler, unwrap with a defensive fallback (see `REFERENCE.md` § "OOP Host Pool Defensive Unwrap").
 
 This way any alternate script-block invocation that returns the bare array still works.
 
@@ -91,30 +65,7 @@ For data that flows OOP → C# but is consumed somewhere disconnected from the d
 
 ## Source-attribution priority
 
-When deriving per-command source data on the host side, follow first-writer-wins enumeration order to encode priority deterministically:
-
-```powershell
-$sourceMap = @{}
-foreach ($cmdName in $config.CommandNames) {
-    if (-not $sourceMap.ContainsKey($cmdName)) {
-        $sourceMap[$cmdName] = @{ Source = 'commandName'; Detail = $cmdName }
-    }
-}
-foreach ($mod in $config.Modules) {
-    foreach ($cmdName in (Get-Command -Module $mod).Name) {
-        if (-not $sourceMap.ContainsKey($cmdName)) {
-            $sourceMap[$cmdName] = @{ Source = 'module'; Detail = $mod }
-        }
-    }
-}
-foreach ($pattern in $config.IncludePatterns) {
-    foreach ($cmdName in (Get-Command -Name $pattern).Name) {
-        if (-not $sourceMap.ContainsKey($cmdName)) {
-            $sourceMap[$cmdName] = @{ Source = 'pattern'; Detail = $pattern }
-        }
-    }
-}
-```
+When deriving per-command source data on the host side, follow first-writer-wins enumeration order to encode priority deterministically. See `REFERENCE.md` § "Source-Attribution Priority" for the full loop.
 
 No post-merge resolution needed — the enumeration order encodes the priority.
 

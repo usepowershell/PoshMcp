@@ -71,7 +71,7 @@ public class NounResourceCoexistIntegrationTests : PowerShellTestBase, IAsyncLif
     }
 
     /// <summary>
-        /// FR-NR-14: resources/list includes the noun-derived resource (Get-Random → random).
+    /// FR-NR-14: resources/list includes the noun-derived resource (Get-Random → random).
     /// </summary>
     [Fact]
     public async Task ResourcesList_BothSetsConfigured_IncludesNounDerivedResource()

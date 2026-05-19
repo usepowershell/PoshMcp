@@ -33,6 +33,16 @@ Detailed entries archived to history-archive.md: Spec 009 review wave (6 PRs, cl
 
 ## Learnings
 
+### 2026-05-18 — Issue #284: Configuration schema for EnableNounResources and NounResourceOverrides
+
+**Deliverable:** Four files changed/created for the Spec 012 §7 config layer:
+- `PoshMcp.Server/McpResources/NounResourceOverride.cs` — new POCO in the `McpResources` namespace (not `PowerShell`), so it lives adjacent to its consumer components rather than in the configuration class hierarchy.
+- `PoshMcp.Server/PowerShell/PowerShellConfiguration.cs` — `EnableNounResources` (bool, default false) and `NounResourceOverrides` (Dictionary<string, NounResourceOverride>) added. Dictionary key is the **default** snake_case resource name, not the noun itself — consistent with how `CommandOverrides` is keyed by command name.
+- `PoshMcp.Server/McpResources/McpNounResourcesValidator.cs` — static validator + `McpNounResourcesDiagnostics` record following the `McpResourcesValidator` / `McpResourcesDiagnostics` pattern exactly.
+- `PoshMcp.Server/Configuration/ConfigurationLoader.cs` — validator called in `LoadPowerShellConfiguration` after binding. This differs from where `McpResourcesValidator` is called (`ValidateResourcesAndPrompts`) because the noun validator takes an `ILogger` which is only available in `LoadPowerShellConfiguration`. The logger-taking variant is therefore wired at load time, not at the separate validate step.
+
+**Design choice recorded:** NounResourceOverride in McpResources namespace (not PowerShell namespace) because it is a resource-layer concern. The PowerShellConfiguration just holds the dictionary; the resource subsystem owns the type.
+
 ### 2026-05-18T11:02:22-05:00 — Spec 012: milestone and issues created
 
 **Deliverable:** GitHub milestone #8 ("Spec 012: Noun-Derived MCP Resource Mapping") and 11 tracking issues created.
