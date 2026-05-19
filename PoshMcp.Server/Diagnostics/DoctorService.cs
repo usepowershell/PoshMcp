@@ -805,6 +805,7 @@ internal static class DoctorService
 
         var overrides = config.NounResourceOverrides
                         ?? new System.Collections.Generic.Dictionary<string, NounResourceOverride>();
+        var effectiveRegistry = EffectiveNounResourceRegistry.Build(nounRegistry, overrides);
 
         // Separate winners from losers so we can pair them up for conflict entries.
         var winnersByResourceName = new System.Collections.Generic.Dictionary<string, NounEntry>(
@@ -815,7 +816,15 @@ internal static class DoctorService
                 winnersByResourceName[entry.ResourceName] = entry;
         }
 
-        var registeredResources = new List<NounResourceEntry>();
+        var registeredResources = effectiveRegistry.AllEntries
+            .Select(entry => new NounResourceEntry
+            {
+                Noun = entry.Noun,
+                ResourceName = entry.ResourceName,
+                Uri = entry.Uri,
+                CanonicalGetCommand = entry.CanonicalGetCommand,
+            })
+            .ToList();
         var suppressedNouns = new List<string>();
         var conflicts = new List<NounResourceConflictEntry>();
 
@@ -837,19 +846,11 @@ internal static class DoctorService
             }
 
             // Non-conflicted entry: check for suppression override.
-            if (overrides.TryGetValue(entry.ResourceName, out var ov) && ov.Disabled)
+            if (NounResourceResolution.GetOverride(entry, overrides)?.Disabled == true)
             {
                 suppressedNouns.Add(entry.Noun);
                 continue;
             }
-
-            registeredResources.Add(new NounResourceEntry
-            {
-                Noun = entry.Noun,
-                ResourceName = entry.ResourceName,
-                Uri = entry.Uri,
-                CanonicalGetCommand = entry.CanonicalGetCommand,
-            });
         }
 
         return new NounResourcesSection

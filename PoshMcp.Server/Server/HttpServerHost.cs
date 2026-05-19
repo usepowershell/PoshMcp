@@ -120,14 +120,15 @@ internal static class HttpServerHost
                 .Where(n => !string.IsNullOrWhiteSpace(n))
                 .Cast<string>();
             var nounRegistry = NounRegistry.Build(commandNames, bootstrapLoggerFactory.CreateLogger("NounRegistry"));
+            var effectiveNounRegistry = EffectiveNounResourceRegistry.Build(nounRegistry, config.NounResourceOverrides);
             var nounExecutor = executorLease?.Executor;
             nounHandler = new McpNounResourceHandler(
-                nounRegistry,
+                effectiveNounRegistry,
                 nounExecutor is null ? sharedSessionRunspace : null,
                 nounExecutor,
                 bootstrapLoggerFactory.CreateLogger<McpNounResourceHandler>());
             tools = ResourceLinkInjector.WrapToolsWithResourceLinks(
-                tools, nounRegistry, bootstrapLoggerFactory.CreateLogger("ResourceLinkInjector"));
+                tools, effectiveNounRegistry, bootstrapLoggerFactory.CreateLogger("ResourceLinkInjector"));
         }
 
         var authConfigValue = authRootConfig.GetSection("Authentication").Get<PoshMcp.Server.Authentication.AuthenticationConfiguration>() ?? new();

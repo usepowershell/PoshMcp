@@ -23,6 +23,8 @@ namespace PoshMcp.Tests.Integration;
 public class NounResourceHandlerAndLinkIntegrationTests : PowerShellTestBase, IAsyncLifetime
 {
     private const string FixtureResourceUri = "poshmcp://resources/noun_resource_fixture";
+    private const string OverrideFixtureResourceName = "fixture_override";
+    private const string OverrideFixtureResourceUri = "poshmcp://resources/fixture_override";
     private const string MissingResourceUri = "poshmcp://resources/does_not_exist";
 
     private InProcessMcpServer? _server;
@@ -119,7 +121,7 @@ public class NounResourceHandlerAndLinkIntegrationTests : PowerShellTestBase, IA
 
         var content = response["result"]?["content"] as JArray;
         Assert.NotNull(content);
-        Assert.True(HasResourceLinkBlock(content!, FixtureResourceUri));
+        AssertHasExactResourceLinkBlock(content!, FixtureResourceUri, "noun_resource_fixture");
     }
 
     [Fact]
@@ -135,7 +137,7 @@ public class NounResourceHandlerAndLinkIntegrationTests : PowerShellTestBase, IA
 
         var content = response["result"]?["content"] as JArray;
         Assert.NotNull(content);
-        Assert.True(HasResourceLinkBlock(content!, FixtureResourceUri));
+        AssertHasExactResourceLinkBlock(content!, FixtureResourceUri, "noun_resource_fixture");
     }
 
     [Fact]
@@ -161,7 +163,10 @@ public class NounResourceHandlerAndLinkIntegrationTests : PowerShellTestBase, IA
 
         // Current implementation for this fixture path reports a non-error result
         // containing error text; injector behavior follows IsError strictly.
-        Assert.True(HasResourceLinkBlock(content!, "poshmcp://resources/noun_resource_fixture_error"));
+        AssertHasExactResourceLinkBlock(
+            content!,
+            "poshmcp://resources/noun_resource_fixture_error",
+            "noun_resource_fixture_error");
     }
 
     [Fact]
@@ -180,6 +185,123 @@ public class NounResourceHandlerAndLinkIntegrationTests : PowerShellTestBase, IA
         Assert.False(HasAnyResourceLinkBlock(content!),
             $"Non-resourceable noun should not include resource-link block. Response: {response}");
     }
+
+        [Fact]
+        public async Task FeatureDisabled_DoesNotListOrReadDerivedResources_AndDoesNotInjectResourceLinks()
+        {
+                using var fixture = new NounResourceFixtureConfig(enableNounResources: false);
+
+                await ExecuteWithFixtureAsync(fixture, async client =>
+                {
+                        var listResponse = await client.SendListResourcesAsync();
+
+                        Assert.Null(listResponse["error"]);
+                        var resources = listResponse["result"]?["resources"] as JArray;
+                        Assert.NotNull(resources);
+                        Assert.Null(FindResourceByUri(resources!, FixtureResourceUri));
+
+                        var readResponse = await client.SendReadResourceAsync(FixtureResourceUri);
+                        var readError = readResponse["error"] as JObject;
+                        Assert.NotNull(readError);
+                        Assert.Contains("Resource not found", readError!["message"]?.ToString() ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+
+                        var toolName = await ResolveToolNameAsync(client, "Assert-NounResourceFixture");
+                        var toolResponse = await client.SendToolCallAsync(toolName, new { });
+
+                        Assert.Null(toolResponse["error"]);
+                        var content = toolResponse["result"]?["content"] as JArray;
+                        Assert.NotNull(content);
+                        Assert.False(HasAnyResourceLinkBlock(content!),
+                                $"Feature-disabled tool result should not include resource-link block. Response: {toolResponse}");
+                });
+        }
+
+        [Fact]
+        public async Task DisabledOverride_SuppressesListedAndReadableResource_AndSkipsResourceLinkInjection()
+        {
+                const string disabledOverrideJson = """
+{
+    "noun_resource_fixture": {
+        "Disabled": true
+    }
+}
+""";
+
+                using var fixture = new NounResourceFixtureConfig(nounResourceOverridesJson: disabledOverrideJson);
+
+                await ExecuteWithFixtureAsync(fixture, async client =>
+                {
+                        var listResponse = await client.SendListResourcesAsync();
+
+                        Assert.Null(listResponse["error"]);
+                        var resources = listResponse["result"]?["resources"] as JArray;
+                        Assert.NotNull(resources);
+                        Assert.Null(FindResourceByUri(resources!, FixtureResourceUri));
+
+                        var readResponse = await client.SendReadResourceAsync(FixtureResourceUri);
+                        var readError = readResponse["error"] as JObject;
+                        Assert.NotNull(readError);
+                        Assert.Contains("Resource not found", readError!["message"]?.ToString() ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+
+                        var toolName = await ResolveToolNameAsync(client, "Assert-NounResourceFixture");
+                        var toolResponse = await client.SendToolCallAsync(toolName, new { });
+
+                        Assert.Null(toolResponse["error"]);
+                        var content = toolResponse["result"]?["content"] as JArray;
+                        Assert.NotNull(content);
+                        Assert.False(HasAnyResourceLinkBlock(content!),
+                                $"Disabled noun override should suppress resource-link block. Response: {toolResponse}");
+                });
+        }
+
+        [Fact]
+        public async Task OverrideResourceNameAndUri_AreExposedThroughListReadAndResourceLinkInjection()
+        {
+                const string overrideJson = """
+{
+    "noun_resource_fixture": {
+        "ResourceName": "fixture_override",
+        "Uri": "poshmcp://resources/fixture_override"
+    }
+}
+""";
+
+                using var fixture = new NounResourceFixtureConfig(nounResourceOverridesJson: overrideJson);
+
+                await ExecuteWithFixtureAsync(fixture, async client =>
+                {
+                        var listResponse = await client.SendListResourcesAsync();
+
+                        Assert.Null(listResponse["error"]);
+                        var resources = listResponse["result"]?["resources"] as JArray;
+                        Assert.NotNull(resources);
+
+                        var overriddenResource = FindResourceByUri(resources!, OverrideFixtureResourceUri);
+                        Assert.NotNull(overriddenResource);
+                        Assert.Equal(OverrideFixtureResourceName, overriddenResource!["name"]?.ToString());
+                        Assert.Null(FindResourceByUri(resources!, FixtureResourceUri));
+
+                        var readResponse = await client.SendReadResourceAsync(OverrideFixtureResourceUri);
+                        Assert.Null(readResponse["error"]);
+                        var contents = readResponse["result"]?["contents"] as JArray;
+                        Assert.NotNull(contents);
+                        Assert.True(contents!.Count > 0);
+
+                        var payload = contents[0]?["text"]?.ToString();
+                        Assert.False(string.IsNullOrWhiteSpace(payload));
+                        var json = JObject.Parse(payload!);
+                        Assert.Equal("NounResourceFixture", json["Name"]?.ToString());
+                        Assert.Equal(42, json["Value"]?.Value<int>());
+
+                        var toolName = await ResolveToolNameAsync(client, "Assert-NounResourceFixture");
+                        var toolResponse = await client.SendToolCallAsync(toolName, new { });
+
+                        Assert.Null(toolResponse["error"]);
+                        var content = toolResponse["result"]?["content"] as JArray;
+                        Assert.NotNull(content);
+                        AssertHasExactResourceLinkBlock(content!, OverrideFixtureResourceUri, OverrideFixtureResourceName);
+                });
+        }
 
     private static JToken? FindResourceByUri(JArray resources, string uri)
     {
@@ -210,39 +332,52 @@ public class NounResourceHandlerAndLinkIntegrationTests : PowerShellTestBase, IA
         return false;
     }
 
-    private static bool HasResourceLinkBlock(JArray content, string expectedUri)
+    private static void AssertHasExactResourceLinkBlock(JArray content, string expectedUri, string expectedResourceName)
     {
-        foreach (var block in content.OfType<JObject>())
+        Assert.True(content.Count > 0, "Expected tool result to contain at least one content block.");
+
+        var lastBlock = content[^1] as JObject;
+        Assert.NotNull(lastBlock);
+        Assert.Equal("resource", lastBlock!["type"]?.ToString());
+
+        var resource = lastBlock["resource"] as JObject;
+        Assert.NotNull(resource);
+        Assert.Equal(expectedUri, resource!["uri"]?.ToString());
+        Assert.Equal("application/json+mcp-resource-link", resource["mimeType"]?.ToString());
+
+        var text = resource["text"]?.ToString();
+        Assert.False(string.IsNullOrWhiteSpace(text), "resource.text should contain the serialized resourceLink payload.");
+
+        var parsed = JObject.Parse(text!);
+        var resourceLink = parsed["resourceLink"] as JObject;
+        Assert.NotNull(resourceLink);
+        Assert.Equal(expectedUri, resourceLink!["uri"]?.ToString());
+        Assert.Equal(expectedResourceName, resourceLink["resourceName"]?.ToString());
+        Assert.False(string.IsNullOrWhiteSpace(resourceLink["noun"]?.ToString()));
+        Assert.Equal("subject", resourceLink["relationship"]?.ToString());
+        Assert.False(string.IsNullOrWhiteSpace(resourceLink["description"]?.ToString()));
+    }
+
+    private async Task ExecuteWithFixtureAsync(NounResourceFixtureConfig fixture, Func<ExternalMcpClient, Task> assertion)
+    {
+        InProcessMcpServer? server = null;
+        ExternalMcpClient? client = null;
+
+        try
         {
-            if (!string.Equals(block["type"]?.ToString(), "resource", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
+            server = new InProcessMcpServer(Logger, explicitConfigPath: fixture.ConfigPath);
+            await server.StartAsync();
 
-            var resource = block["resource"] as JObject;
-            if (resource is null)
-            {
-                continue;
-            }
+            client = new ExternalMcpClient(Logger, server);
+            await client.StartAsync();
 
-            var uri = resource["uri"]?.ToString();
-            if (!string.Equals(uri, expectedUri, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var text = resource["text"]?.ToString();
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                return false;
-            }
-
-            var parsed = JObject.Parse(text);
-            var resourceUri = parsed["resourceUri"]?.ToString();
-            return string.Equals(resourceUri, expectedUri, StringComparison.OrdinalIgnoreCase);
+            await assertion(client);
         }
-
-        return false;
+        finally
+        {
+            client?.Dispose();
+            server?.Dispose();
+        }
     }
 
     private static async Task<string> ResolveToolNameAsync(ExternalMcpClient client, string commandTitle)
@@ -276,7 +411,7 @@ public class NounResourceHandlerAndLinkIntegrationTests : PowerShellTestBase, IA
         private readonly string _configDir;
         private readonly string? _previousModulePath;
 
-        public NounResourceFixtureConfig()
+        public NounResourceFixtureConfig(bool enableNounResources = true, string? nounResourceOverridesJson = null)
         {
             var repoRoot = ResolveWorkspaceRoot();
             var moduleRoot = Path.Combine(repoRoot, "PoshMcp.Tests", "Fixtures", "Modules");
@@ -296,6 +431,10 @@ public class NounResourceHandlerAndLinkIntegrationTests : PowerShellTestBase, IA
                 : moduleRoot + Path.PathSeparator + _previousModulePath;
             Environment.SetEnvironmentVariable("PSModulePath", updatedModulePath);
 
+            var nounResourceOverridesBlock = string.IsNullOrWhiteSpace(nounResourceOverridesJson)
+                ? string.Empty
+                : $",\n    \"NounResourceOverrides\": {nounResourceOverridesJson}";
+
             var json = $$"""
 {
   "PowerShellConfiguration": {
@@ -308,7 +447,7 @@ public class NounResourceHandlerAndLinkIntegrationTests : PowerShellTestBase, IA
     "Modules": ["NounResourceFixture"],
     "IncludePatterns": [],
     "ExcludePatterns": [],
-    "EnableNounResources": true
+        "EnableNounResources": {{enableNounResources.ToString().ToLowerInvariant()}}{{nounResourceOverridesBlock}}
   },
   "Authentication": {
     "Enabled": false,

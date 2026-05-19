@@ -277,13 +277,14 @@ internal static class StdioServerHost
                 .Where(n => !string.IsNullOrWhiteSpace(n))
                 .Cast<string>();
             var nounRegistry = NounRegistry.Build(commandNames, loggerFactory.CreateLogger("NounRegistry"));
+            var effectiveNounRegistry = EffectiveNounResourceRegistry.Build(nounRegistry, psConfig.NounResourceOverrides);
             nounHandler = new McpNounResourceHandler(
-                nounRegistry,
+                effectiveNounRegistry,
                 commandExecutor is null ? runspace : null,
                 commandExecutor,
                 loggerFactory.CreateLogger<McpNounResourceHandler>());
             toolsToRegister = ResourceLinkInjector.WrapToolsWithResourceLinks(
-                tools, nounRegistry, loggerFactory.CreateLogger("ResourceLinkInjector"));
+                tools, effectiveNounRegistry, loggerFactory.CreateLogger("ResourceLinkInjector"));
         }
 
         var mcpBuilder = builder.Services
