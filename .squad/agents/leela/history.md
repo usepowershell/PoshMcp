@@ -10,7 +10,7 @@
 
 # Leela — History
 
-**Status:** 35.9 KB (checked 2026-05-03: within 90-day retention, no archival required)
+**Status:** 15.4 KB (checked 2026-05-19: exceeds the 15 KB gate, but no entries are older than 90 days, so no archival was performed)
 
 
 
@@ -77,6 +77,16 @@ Spec 009 (Test Suite Consistency and Fast Unit Tier) is functionally complete. F
 Release v0.14.1 shipped successfully. Version bump, release notes, and GitHub release creation completed by Amy. Commit a2a89b3, tag v0.14.1 pushed to origin, release published.
 
 ## Learnings — 2026-05-18 — Logging and Metrics Documentation
+
+## Learnings — 2026-05-19 — Noun-derived resource documentation
+
+- When a docs-only feature changes both runtime behavior and enablement knobs, split the narrative between the behavior guide and the configuration guide instead of creating a standalone feature article. For noun-derived resources that meant `docs/articles/resources-and-prompts.md` plus `docs/articles/configuration.md`, with README left alone to avoid duplicate navigation.
+- The strongest grounding source for noun-resource docs was the integration test behavior, not just the spec prose. The tests pin the user-visible details worth documenting: opt-in enablement, `application/json` resource reads, appended `application/json+mcp-resource-link` blocks, suppression when no matching `Get-*` command exists, override-driven rename/disable behavior, and verification via the doctor `Noun Resources` section.
+
+### Doc placement: behavior guide plus config guide beats README duplication
+- For a feature that changes `resources/list`, `resources/read`, and tool-result payloads, the minimal user-facing surface is the existing behavior guide plus the configuration guide. In this case that meant `docs/articles/resources-and-prompts.md` for the runtime behavior and `docs/articles/configuration.md` for `EnableNounResources` and `NounResourceOverrides`.
+- README did not need another feature bullet or cross-link because it already points readers at the resources guide. Repeating the same explanation there would create a second place to drift.
+- The strongest grounding source for docs was the integration test fixture, not the spec prose. The tests gave exact user-visible facts to document: opt-in enablement, `application/json` for derived reads, `application/json+mcp-resource-link` for appended tool-result blocks, suppression when no `Get-*` command exists, and override-driven rename/disable behavior.
 
 ### Logging infrastructure architecture
 - **Two-provider strategy by transport:** HTTP mode uses the Microsoft console provider (all levels → stderr); stdio mode clears ALL providers on startup to protect the MCP JSON-RPC pipe. File logging (Serilog) is only available in stdio mode via `--log-file <path>`.

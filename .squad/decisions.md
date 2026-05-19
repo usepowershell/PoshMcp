@@ -3,6 +3,61 @@
 ## Recent Decisions
 > Older entries archived to `decisions-archive.md` (entries >7d removed when file >= 50KB).
 
+### 2026-05-19: Noun-derived resource documentation belongs in the existing behavior and configuration guides
+**By:** Leela (Developer Advocate)
+**Artifacts:** `docs/articles/resources-and-prompts.md`, `docs/articles/configuration.md`
+
+**Decision:** Document noun-derived resources in the existing resources behavior guide and configuration guide instead of creating a standalone noun-resources article.
+
+**Why:** From a user perspective, noun-derived resources extend the existing MCP resources surface rather than introducing a new subsystem. Readers need two grounded views: runtime behavior (`resources/list`, `resources/read`, appended `application/json+mcp-resource-link` blocks) and enabling/override configuration (`EnableNounResources`, `NounResourceOverrides`). Reusing those guides avoids README duplication and reduces navigation drift.
+
+**Consequences:** Future noun-resource docs work should start in those two guides. Add a standalone article only if parameterized noun resources, conflict-resolution workflows, or client-consumption guidance grow beyond the current surface.
+
+---
+
+### 2026-05-19: Spec 012 noun-resource overrides live in McpResources and validate during PowerShell config load
+**By:** Farnsworth (Lead/Architect)
+**Issue:** `#284`
+**Spec:** `specs/012-noun-resource-mapping/spec.md`
+
+**Decision 1:** `NounResourceOverride` lives under `PoshMcp.Server.McpResources`, not the PowerShell namespace.
+**Why:** The type is owned and consumed by the resource subsystem (`NounRegistry`, `McpNounResourceHandler`). `PowerShellConfiguration` holds the dictionary, but the dependency direction should remain resource subsystem first, PowerShell configuration second.
+
+**Decision 2:** `McpNounResourcesValidator.Validate(config, logger)` runs in `ConfigurationLoader.LoadPowerShellConfiguration` immediately after binding.
+**Why:** The validator requires an `ILogger` and its conflict diagnostics should appear during startup and reload, not only in doctor output.
+
+**Decision 3:** `NounResourceOverrides` is keyed by the default snake_case resource name, not the PascalCase noun.
+**Why:** Operators see and override resource URIs by resource name (`bami_tenant_user`, `location`), so the config key should match the identifier visible in `resources/list` and `resources/read`.
+
+---
+
+### 2026-05-19: Spec 012 milestone and issue fan-out are the canonical tracking surface
+**By:** Farnsworth (Lead/Architect)
+**Tracking:** GitHub milestone `#8`, issues `#279`-`#289`
+
+**Decision:** Treat milestone `#8` and its 11 linked issues as the canonical implementation tracker for spec 012.
+
+**Why:** The noun-derived resource work was explicitly decomposed into issue-sized units with routing labels and one shared milestone. That gives the team a single planning surface for sequencing, ownership, and status without reopening the spec for day-to-day coordination.
+
+**Consequences:** Follow-up planning and status checks for spec 012 should reference milestone `#8` first, then the issue set, rather than creating parallel tracking artifacts.
+
+---
+
+### 2026-05-19: Noun resource link injection must happen at tool registration time
+**By:** Hermes (PowerShell Expert)
+**Spec:** `specs/012-noun-resource-mapping/spec.md` §6.3
+
+**Decision:** Treat noun-resource link injection as a registration-time wrapping concern, not as post-hoc mutation of an already created `McpServerTool`.
+
+**Why:** `McpServerTool` does not expose the original handler delegate for later re-wrapping, but `CallToolResult.Content` is mutable and can safely accept appended resource blocks. The practical implementation point is therefore the tool-registration pipeline (`McpToolSetupService`) where qualifying tools can be wrapped before registration.
+
+**Surface facts captured:**
+- `McpServerTool` is not sealed, but does not expose its inner delegate.
+- `CallToolResult.Content` is `IList<ContentBlock>` and can be appended to after successful invocation.
+- Resource link content should use `EmbeddedResourceBlock` with `TextResourceContents`.
+
+**Consequences:** Any implementation that tries to mutate an already materialized `McpServerTool` without preserving the original handler is the wrong direction. Wrap at registration time and append the resource block only on successful tool results.
+
 ### 2026-05-18: Noun-to-Resource Mapping — Key Architectural Choices (Spec 012)
 **By:** Farnsworth (Lead/Architect)
 **Spec:** `specs/noun-resource-mapping.md`
