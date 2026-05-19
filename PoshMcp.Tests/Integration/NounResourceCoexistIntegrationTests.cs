@@ -71,7 +71,7 @@ public class NounResourceCoexistIntegrationTests : PowerShellTestBase, IAsyncLif
     }
 
     /// <summary>
-    /// FR-NR-14: resources/list includes the noun-derived resource (Get-Process → process).
+        /// FR-NR-14: resources/list includes the noun-derived resource (Get-Random → random).
     /// </summary>
     [Fact]
     public async Task ResourcesList_BothSetsConfigured_IncludesNounDerivedResource()
@@ -84,7 +84,7 @@ public class NounResourceCoexistIntegrationTests : PowerShellTestBase, IAsyncLif
         var resources = response["result"]?["resources"] as JArray;
         Assert.NotNull(resources);
 
-        var found = FindResourceByUri(resources!, NounCoexistTestFixture.ProcessNounResourceUri);
+        var found = FindResourceByUri(resources!, NounCoexistTestFixture.RandomNounResourceUri);
         Assert.NotNull(found);
     }
 
@@ -102,7 +102,7 @@ public class NounResourceCoexistIntegrationTests : PowerShellTestBase, IAsyncLif
         var resources = response["result"]?["resources"] as JArray;
         Assert.NotNull(resources);
 
-        // At minimum: the static-only resource + the process noun resource
+        // At minimum: the static-only resource + the random noun resource
         Assert.True(resources!.Count >= 2,
             $"Expected at least 2 resources (static + noun), got {resources.Count}. Response: {response}");
     }
@@ -184,7 +184,7 @@ public class NounResourceCoexistIntegrationTests : PowerShellTestBase, IAsyncLif
     {
         var client = _client ?? throw new InvalidOperationException("Client not initialized");
 
-        var response = await client.SendReadResourceAsync(NounCoexistTestFixture.ProcessNounResourceUri);
+        var response = await client.SendReadResourceAsync(NounCoexistTestFixture.RandomNounResourceUri);
 
         Assert.Null(response["error"]);
         var contents = response["result"]?["contents"] as JArray;
@@ -192,7 +192,7 @@ public class NounResourceCoexistIntegrationTests : PowerShellTestBase, IAsyncLif
         Assert.True(contents!.Count > 0);
 
         var text = contents[0]?["text"]?.ToString();
-        Assert.False(string.IsNullOrWhiteSpace(text), "Noun-derived resource (Get-Process) should return non-empty content");
+        Assert.False(string.IsNullOrWhiteSpace(text), "Noun-derived resource (Get-Random) should return non-empty content");
     }
 
     // ── resources/read — conflict resolution (static wins) ───────────────────
@@ -234,8 +234,8 @@ public class NounResourceCoexistIntegrationTests : PowerShellTestBase, IAsyncLif
     /// Creates the temporary configuration used by the noun-coexist integration tests.
     ///
     /// Config layout:
-    ///   - CommandNames: ["Get-Date", "Get-Process"], EnableNounResources: true
-    ///     → noun resources: poshmcp://resources/date, poshmcp://resources/process
+    ///   - CommandNames: ["Get-Date", "Get-Random"], EnableNounResources: true
+    ///     → noun resources: poshmcp://resources/date, poshmcp://resources/random
     ///   - Static resources:
     ///       poshmcp://resources/static-coexist-only  (no conflict, unique to static set)
     ///       poshmcp://resources/date                 (same URI as Get-Date noun — static wins)
@@ -252,8 +252,8 @@ public class NounResourceCoexistIntegrationTests : PowerShellTestBase, IAsyncLif
         public const string ConflictedStaticResourceName = "Date (Static Override)";
         public const string ConflictedStaticContent = "STATIC_DATE_OVERRIDE";
 
-        // Noun-derived resource for Get-Process (not conflicted)
-        public const string ProcessNounResourceUri = "poshmcp://resources/process";
+        // Noun-derived resource for Get-Random (not conflicted)
+        public const string RandomNounResourceUri = "poshmcp://resources/random";
 
         public string ConfigPath { get; }
 
@@ -269,7 +269,7 @@ public class NounResourceCoexistIntegrationTests : PowerShellTestBase, IAsyncLif
             var json = $$"""
 {
   "PowerShellConfiguration": {
-    "CommandNames": ["Get-Date", "Get-Process"],
+    "CommandNames": ["Get-Date", "Get-Random"],
     "Modules": [],
     "IncludePatterns": [],
     "ExcludePatterns": [],
