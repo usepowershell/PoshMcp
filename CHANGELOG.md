@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented here.
 
+## [0.15.0] - 2026-05-19
+
+### Added
+- **Noun-derived MCP resources (spec 012)** — PoshMcp can now derive MCP resources from discovered PowerShell nouns when `PowerShellConfiguration.EnableNounResources` is enabled. Any noun with a matching `Get-{Noun}` command is exposed through `resources/list` and `resources/read` as `poshmcp://resources/{resource_name}` with `application/json` content. Added `NounRegistry`, `EffectiveNounResourceRegistry`, and `McpNounResourceHandler` to build, resolve, and serve the derived resources in both stdio and HTTP hosts. (#281, #283, #288, #290)
+- **Per-noun resource overrides** — `PowerShellConfiguration` now supports `NounResourceOverrides`, keyed by the default derived snake_case resource name. Overrides can disable a derived resource, rename the resource, replace its URI or description, or suppress tool-result link injection via `DisableResourceLinkBlock`. Startup validation now checks override conflicts during PowerShell configuration load. (#279, #280)
+- **Tool-result resource link blocks** — Successful tool results can now append an MCP resource link block with `application/json+mcp-resource-link`, pointing clients at the readable noun-derived resource for the same noun. This behavior is opt-in with noun resources and respects per-noun override suppression. (#281)
+- **Doctor: `nounResources` section** — `poshmcp doctor` now reports noun-resource enablement, registered resources, conflicts, and suppressed nouns, with a matching text-rendered `Noun Resources` section. This gives operators a grounded verification surface for spec 012 configuration and runtime behavior. (#288, #290)
+
+### Fixed
+- **Combined `resources/list` de-duplication for static and noun-derived collisions** — When a static MCP resource and a noun-derived resource resolve to the same URI, the combined list is now de-duplicated instead of surfacing duplicate entries. (#283)
+- **OOP noun-resource execution backend guard** — Noun-derived resource reads now enforce the intended exactly-one-backend rule in out-of-process mode instead of allowing ambiguous execution wiring. (#289)
+
+### Documentation
+- **Resources and prompts guide** — Documented noun-derived resource behavior, the `application/json+mcp-resource-link` payload shape, override behavior, suppression cases, and the opt-in enablement model in the existing resources guide. (#291)
+- **Configuration guide** — Added configuration coverage for `EnableNounResources` and `NounResourceOverrides`, keeping behavior and enablement guidance aligned. (#291)
+
+### Tests
+- Added integration coverage for noun-derived `resources/list`, `resources/read`, link-injection behavior, override handling, suppression, collisions, and doctor reporting.
+- Added unit coverage for `NounRegistry` and doctor noun-resource rendering.
+
+### Breaking
+- None.
+
+### Upgrade Notes
+- **Opt-in feature.** Existing deployments are unchanged unless `PowerShellConfiguration.EnableNounResources` is set to `true`.
+- After enabling the feature, run `poshmcp doctor` and inspect the `nounResources` / `Noun Resources` section to verify the effective registry, conflicts, and suppressed nouns.
+
 ## [0.14.0] - 2026-05-15
 
 ### Added
@@ -10,6 +37,28 @@ All notable changes to this project will be documented here.
 
 ### Breaking
 - **Doctor: `summary.status` flips `healthy → errors` when configured modules fail to resolve, and `healthy → warnings` when modules resolve without contributing tools or include patterns match nothing.** Existing `CommandNames`-only configurations are unaffected — the new `moduleImports` section is omitted and `summary.status` is computed as before (SC-263-4). Operators relying on `summary.status === "healthy"` as a proxy for "everything is fine" should now also tolerate `warnings`/`errors` driven by misconfigured `Modules`/`IncludePatterns`/`ExcludePatterns`. (#267, #270)
+
+## [0.14.2] - 2026-05-17
+
+### Fixed
+- **Security: log forging hardening across remaining sinks** — Applied `LogSanitizer.Scrub()` to the remaining user-controlled and environment-controlled log sink inputs across the server, including `PowerShellAssemblyGenerator.cs`, `AuthenticationServiceExtensions.cs`, and logger helper paths. The hardening pass also scrubbed adjacent diagnostic sinks that followed the same CWE-117 pattern even when they were not part of the original CodeQL alert set. (#277, #278)
+
+### Upgrade Notes
+- **Drop-in upgrade.** No configuration changes required. Sanitized log output now escapes control characters instead of emitting raw user-controlled values.
+
+## [0.14.1] - 2026-05-16
+
+### Added
+- **Per-tool import source tracking across runtime diagnostics** — Added `IToolImportSourceTracker` threading so runtime diagnostics surfaces preserve the same `commandName | module | pattern | unknown` import-source attribution already used during discovery. Runtime `get_configuration_status` and troubleshooting output now stay aligned with doctor/report generation instead of falling back to `unknown`. (#272, #276)
+
+### Tests
+- Added coverage to verify import-source attribution is preserved across CLI doctor, runtime status, and configuration-troubleshooting paths.
+
+### Documentation
+- Published the tutorial series covering local stdio, Docker HTTP, and API key authorization scenarios. (#273, #274, #275)
+
+### Upgrade Notes
+- **Drop-in upgrade.** No configuration changes required.
 
 ## [0.13.1] - 2026-05-15
 
