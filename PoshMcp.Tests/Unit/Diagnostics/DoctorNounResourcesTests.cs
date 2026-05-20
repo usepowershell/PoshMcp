@@ -83,6 +83,43 @@ public class DoctorNounResourcesTests
         Assert.DoesNotContain("noun_resource_fixture (Get-NounResourceFixture)", output);
     }
 
+    [Fact]
+    public void BuildDoctorReportFromConfig_UsesSuppliedNounRegistry_ForEligibilityAwareParity()
+    {
+        var config = new PowerShellConfiguration
+        {
+            EnableNounResources = true,
+            CommandNames = new()
+            {
+                "Get-FixtureEligible",
+                "Get-FixtureNeedsId"
+            }
+        };
+
+        var suppliedRegistry = NounRegistry.Build(["Get-FixtureEligible"], NullLogger.Instance);
+
+        var report = DoctorService.BuildDoctorReportFromConfig(
+            configurationPath: "/test/path",
+            configurationPathSource: "test",
+            effectiveLogLevel: "Information",
+            effectiveLogLevelSource: "test",
+            effectiveTransport: "stdio",
+            effectiveTransportSource: "test",
+            effectiveSessionMode: null,
+            effectiveSessionModeSource: "test",
+            effectiveRuntimeMode: "InProcess",
+            effectiveRuntimeModeSource: "test",
+            effectiveMcpPath: null,
+            effectiveMcpPathSource: "test",
+            config: config,
+            tools: [],
+            nounRegistry: suppliedRegistry);
+
+        var registered = Assert.Single(report.NounResources.RegisteredResources);
+        Assert.Equal("FixtureEligible", registered.Noun);
+        Assert.DoesNotContain(report.NounResources.RegisteredResources, entry => entry.Noun == "FixtureNeedsId");
+    }
+
     private static DoctorReport BuildMinimalReport() =>
         new()
         {

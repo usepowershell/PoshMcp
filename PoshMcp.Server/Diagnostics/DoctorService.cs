@@ -96,6 +96,7 @@ internal static class DoctorService
         var helpAwareSource = new HelpAwareToolMetadataSource();
         try
         {
+            DiscoveredNounRegistryCapture.Reset();
             tools = await discoverToolsFunc(config, loggerFactory, logger, settings.FinalConfigPath, helpAwareSource, descriptionSourceTracker, importSourceTracker);
         }
         catch (Exception ex)
@@ -138,7 +139,8 @@ internal static class DoctorService
             tools: tools,
             authConfig: authConfig,
             allowConfigurationFileAccess: configurationLoaded,
-            importSourceTracker: importSourceTracker);
+            importSourceTracker: importSourceTracker,
+            nounRegistry: DiscoveredNounRegistryCapture.Current);
 
         report = report with
         {
@@ -162,7 +164,7 @@ internal static class DoctorService
             },
             OutOfProcess = BuildOutOfProcessSection(config, settings.FinalConfigPath, loggerFactory),
             ModuleImports = BuildModuleImportsSection(config, tools, OopModuleImportsCapture.Current, logger, importSourceTracker),
-            NounResources = BuildNounResourcesSection(config, null),
+            NounResources = BuildNounResourcesSection(config, DiscoveredNounRegistryCapture.Current),
             ConfigurationErrors = [.. report.ConfigurationErrors, .. configurationErrors],
         };
 

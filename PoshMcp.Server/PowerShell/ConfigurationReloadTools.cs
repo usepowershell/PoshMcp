@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
+using PoshMcp.Server.McpResources;
 
 namespace PoshMcp.Server.PowerShell;
 
@@ -22,6 +23,7 @@ public class ConfigurationReloadTools
     private readonly string? _effectiveMcpPath;
     private readonly Func<List<McpServerTool>> _registeredToolsProvider;
     private readonly IToolImportSourceTracker? _importSourceTracker;
+    private readonly Func<NounRegistry?>? _nounRegistryProvider;
     private readonly ILogger<ConfigurationReloadTools> _logger;
 
     public ConfigurationReloadTools(
@@ -37,7 +39,8 @@ public class ConfigurationReloadTools
             null,
             static () => new List<McpServerTool>(),
             logger,
-            importSourceTracker: null)
+                importSourceTracker: null,
+                nounRegistryProvider: null)
     {
     }
 
@@ -51,7 +54,8 @@ public class ConfigurationReloadTools
         string? effectiveMcpPath,
         Func<List<McpServerTool>> registeredToolsProvider,
         ILogger<ConfigurationReloadTools> logger,
-        IToolImportSourceTracker? importSourceTracker = null)
+        IToolImportSourceTracker? importSourceTracker = null,
+        Func<NounRegistry?>? nounRegistryProvider = null)
     {
         _reloadService = reloadService ?? throw new ArgumentNullException(nameof(reloadService));
         _configurationPath = configurationPath ?? string.Empty;
@@ -62,6 +66,7 @@ public class ConfigurationReloadTools
         _effectiveMcpPath = effectiveMcpPath;
         _registeredToolsProvider = registeredToolsProvider ?? throw new ArgumentNullException(nameof(registeredToolsProvider));
         _importSourceTracker = importSourceTracker;
+        _nounRegistryProvider = nounRegistryProvider;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -214,7 +219,8 @@ public class ConfigurationReloadTools
                 effectiveMcpPathSource: "runtime",
                 config: currentConfig,
                 tools: _registeredToolsProvider(),
-                importSourceTracker: _importSourceTracker);
+                importSourceTracker: _importSourceTracker,
+                nounRegistry: _nounRegistryProvider?.Invoke());
 
             return await Task.FromResult(DoctorService.BuildDoctorJson(report));
         }

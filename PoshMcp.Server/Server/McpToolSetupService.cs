@@ -65,7 +65,7 @@ internal static class McpToolSetupService
         logger.LogInformation("Registered set-result-caching tool (always enabled)");
 
         AddConfigurationGuidanceToolToList(tools, config, finalConfigPath, "stdio", config.RuntimeMode.ToString(), null, loggerFactory);
-        AddConfigurationTroubleshootingToolToList(tools, config, finalConfigPath, "stdio", null, config.RuntimeMode.ToString(), null, logger, importSourceTracker: importSourceTracker);
+        AddConfigurationTroubleshootingToolToList(tools, config, finalConfigPath, "stdio", null, config.RuntimeMode.ToString(), null, logger, importSourceTracker: importSourceTracker, nounRegistryProvider: () => toolFactory.LastDiscoveredNounRegistry);
 
         var effectiveNounRegistry = BuildEffectiveNounResourceRegistry(toolFactory, config, loggerFactory);
         var effectiveCommandOverrides = config.GetEffectiveCommandOverrides();
@@ -123,7 +123,7 @@ internal static class McpToolSetupService
         logger.LogInformation("Registered set-result-caching tool (always enabled)");
 
         AddConfigurationGuidanceToolToList(tools, config, finalConfigPath, "http", config.RuntimeMode.ToString(), null, loggerFactory);
-        AddConfigurationTroubleshootingToolToList(tools, config, finalConfigPath, "http", null, config.RuntimeMode.ToString(), null, logger, httpContextAccessor, importSourceTracker);
+        AddConfigurationTroubleshootingToolToList(tools, config, finalConfigPath, "http", null, config.RuntimeMode.ToString(), null, logger, httpContextAccessor, importSourceTracker, () => toolFactory.LastDiscoveredNounRegistry);
 
         var effectiveNounRegistry = BuildEffectiveNounResourceRegistry(toolFactory, config, loggerFactory);
         var effectiveCommandOverrides = config.GetEffectiveCommandOverrides();
@@ -159,9 +159,11 @@ internal static class McpToolSetupService
         // capture from a prior discovery in this async flow before starting
         // a new lease, so a fresh discovery starts from a clean slate.
         OopModuleImportsCapture.Reset();
+        DiscoveredNounRegistryCapture.Reset();
         await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger, configurationPath);
         var toolFactory = CreateToolFactory(config, executorLease?.Executor, runspace: null, toolMetadataSource, descriptionSourceTracker, importSourceTracker);
         var tools = await toolFactory.GetToolsListAsync(config, logger);
+        DiscoveredNounRegistryCapture.Set(toolFactory.LastDiscoveredNounRegistry);
         // Spec 011 FR-263-2 / FR-263-10: capture the executor's
         // LastModuleImports payload BEFORE the lease disposes (the
         // executor is gone after this method returns). DoctorService
@@ -171,7 +173,7 @@ internal static class McpToolSetupService
             OopModuleImportsCapture.Set(executorLease.Executor.LastModuleImports);
         }
         AddConfigurationGuidanceToolToList(tools, config, configurationPath, "stdio", config.RuntimeMode.ToString(), null, loggerFactory);
-        AddConfigurationTroubleshootingToolToList(tools, config, configurationPath, "stdio", null, config.RuntimeMode.ToString(), null, logger);
+        AddConfigurationTroubleshootingToolToList(tools, config, configurationPath, "stdio", null, config.RuntimeMode.ToString(), null, logger, nounRegistryProvider: () => toolFactory.LastDiscoveredNounRegistry);
         return tools;
     }
 
@@ -354,7 +356,8 @@ internal static class McpToolSetupService
             effectiveMcpPath,
             registeredToolsProvider,
             reloadToolsLogger,
-            importSourceTracker);
+            importSourceTracker,
+            nounRegistryProvider: () => toolFactory.LastDiscoveredNounRegistry);
     }
 
     /// <summary>
@@ -447,7 +450,8 @@ internal static class McpToolSetupService
         ILogger logger,
         AuthenticationConfiguration? authConfig = null,
         Func<System.Security.Claims.ClaimsPrincipal?>? identityProvider = null,
-        IToolImportSourceTracker? importSourceTracker = null)
+        IToolImportSourceTracker? importSourceTracker = null,
+        Func<NounRegistry?>? nounRegistryProvider = null)
     {
         try
         {
@@ -493,7 +497,8 @@ internal static class McpToolSetupService
                 authConfig: authConfig,
                 currentIdentity: identityProvider?.Invoke(),
                 allowConfigurationFileAccess: false,
-                importSourceTracker: importSourceTracker);
+                importSourceTracker: importSourceTracker,
+                nounRegistry: nounRegistryProvider?.Invoke());
 
             if (configurationErrors.Count > 0)
             {
@@ -535,7 +540,8 @@ internal static class McpToolSetupService
         ILogger logger,
         AuthenticationConfiguration? authConfig = null,
         Func<System.Security.Claims.ClaimsPrincipal?>? identityProvider = null,
-        IToolImportSourceTracker? importSourceTracker = null)
+        IToolImportSourceTracker? importSourceTracker = null,
+        Func<NounRegistry?>? nounRegistryProvider = null)
     {
         Func<CancellationToken, Task<string>> troubleshootingDelegate = cancellationToken =>
             Task.FromResult(BuildConfigurationTroubleshootingJson(
@@ -548,7 +554,8 @@ internal static class McpToolSetupService
                 logger,
                 authConfig,
                 identityProvider,
-                importSourceTracker));
+                importSourceTracker,
+                nounRegistryProvider));
 
         return McpServerTool.Create(troubleshootingDelegate, new McpServerToolCreateOptions
         {
@@ -576,7 +583,8 @@ internal static class McpToolSetupService
         string? effectiveMcpPath,
         ILogger logger,
         IHttpContextAccessor? httpContextAccessor = null,
-        IToolImportSourceTracker? importSourceTracker = null)
+        IToolImportSourceTracker? importSourceTracker = null,
+        Func<NounRegistry?>? nounRegistryProvider = null)
     {
         if (!config.EnableConfigurationTroubleshootingTool)
         {
@@ -596,7 +604,8 @@ internal static class McpToolSetupService
             logger,
             authConfig: null,
             identityProvider: identityProvider,
-            importSourceTracker: importSourceTracker));
+            importSourceTracker: importSourceTracker,
+            nounRegistryProvider: nounRegistryProvider));
     }
 
     /// <summary>
