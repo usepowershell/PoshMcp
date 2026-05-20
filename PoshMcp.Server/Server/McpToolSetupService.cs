@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using PoshMcp.Server.Authentication;
+using PoshMcp.Server.McpResources;
 using PoshMcp.Server.PowerShell;
 using PoshMcp.Server.PowerShell.OutOfProcess;
 
@@ -20,11 +21,15 @@ namespace PoshMcp;
 /// </summary>
 internal static class McpToolSetupService
 {
+    internal sealed record ToolSetupResult(
+        List<McpServerTool> Tools,
+        EffectiveNounResourceRegistry? EffectiveNounResourceRegistry);
+
     /// <summary>
     /// Sets up MCP tools for Stdio transport mode.
     /// Creates tool factory, discovers tools, and sets up configuration management tools.
     /// </summary>
-    internal static async Task<List<McpServerTool>> SetupMcpToolsAsync(
+    internal static async Task<ToolSetupResult> SetupMcpToolsAsync(
         ILoggerFactory loggerFactory,
         PowerShellConfiguration config,
         ILogger logger,
@@ -60,16 +65,29 @@ internal static class McpToolSetupService
         logger.LogInformation("Registered set-result-caching tool (always enabled)");
 
         AddConfigurationGuidanceToolToList(tools, config, finalConfigPath, "stdio", config.RuntimeMode.ToString(), null, loggerFactory);
-        AddConfigurationTroubleshootingToolToList(tools, config, finalConfigPath, "stdio", null, config.RuntimeMode.ToString(), null, logger, importSourceTracker: importSourceTracker);
+        AddConfigurationTroubleshootingToolToList(tools, config, finalConfigPath, "stdio", null, config.RuntimeMode.ToString(), null, logger, importSourceTracker: importSourceTracker, nounRegistryProvider: () => toolFactory.LastDiscoveredNounRegistry);
 
-        return tools;
+        var effectiveNounRegistry = BuildEffectiveNounResourceRegistry(toolFactory, config, loggerFactory);
+        var effectiveCommandOverrides = config.GetEffectiveCommandOverrides();
+        if (effectiveNounRegistry is not null || effectiveCommandOverrides.Values.Any(o => !string.IsNullOrWhiteSpace(o.AssociatedResourceUri)))
+        {
+            var resourcesConfig = ConfigurationLoader.LoadMcpResourcesConfiguration(finalConfigPath, logger);
+            tools = ResourceLinkInjector.WrapToolsWithResourceLinks(
+                tools,
+                effectiveNounRegistry,
+                effectiveCommandOverrides,
+                resourcesConfig,
+                loggerFactory.CreateLogger("ResourceLinkInjector"));
+        }
+
+        return new ToolSetupResult(tools, effectiveNounRegistry);
     }
 
     /// <summary>
     /// Sets up MCP tools for HTTP transport mode.
     /// Similar to SetupMcpToolsAsync but with session-aware runspace and HTTP context support.
     /// </summary>
-    internal static async Task<List<McpServerTool>> SetupHttpMcpToolsAsync(
+    internal static async Task<ToolSetupResult> SetupHttpMcpToolsAsync(
         ILoggerFactory loggerFactory,
         PowerShellConfiguration config,
         ILogger logger,
@@ -105,9 +123,22 @@ internal static class McpToolSetupService
         logger.LogInformation("Registered set-result-caching tool (always enabled)");
 
         AddConfigurationGuidanceToolToList(tools, config, finalConfigPath, "http", config.RuntimeMode.ToString(), null, loggerFactory);
-        AddConfigurationTroubleshootingToolToList(tools, config, finalConfigPath, "http", null, config.RuntimeMode.ToString(), null, logger, httpContextAccessor, importSourceTracker);
+        AddConfigurationTroubleshootingToolToList(tools, config, finalConfigPath, "http", null, config.RuntimeMode.ToString(), null, logger, httpContextAccessor, importSourceTracker, () => toolFactory.LastDiscoveredNounRegistry);
 
-        return tools;
+        var effectiveNounRegistry = BuildEffectiveNounResourceRegistry(toolFactory, config, loggerFactory);
+        var effectiveCommandOverrides = config.GetEffectiveCommandOverrides();
+        if (effectiveNounRegistry is not null || effectiveCommandOverrides.Values.Any(o => !string.IsNullOrWhiteSpace(o.AssociatedResourceUri)))
+        {
+            var resourcesConfig = ConfigurationLoader.LoadMcpResourcesConfiguration(finalConfigPath, logger);
+            tools = ResourceLinkInjector.WrapToolsWithResourceLinks(
+                tools,
+                effectiveNounRegistry,
+                effectiveCommandOverrides,
+                resourcesConfig,
+                loggerFactory.CreateLogger("ResourceLinkInjector"));
+        }
+
+        return new ToolSetupResult(tools, effectiveNounRegistry);
     }
 
     /// <summary>
@@ -128,9 +159,11 @@ internal static class McpToolSetupService
         // capture from a prior discovery in this async flow before starting
         // a new lease, so a fresh discovery starts from a clean slate.
         OopModuleImportsCapture.Reset();
+        DiscoveredNounRegistryCapture.Reset();
         await using var executorLease = await StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger, configurationPath);
         var toolFactory = CreateToolFactory(config, executorLease?.Executor, runspace: null, toolMetadataSource, descriptionSourceTracker, importSourceTracker);
         var tools = await toolFactory.GetToolsListAsync(config, logger);
+        DiscoveredNounRegistryCapture.Set(toolFactory.LastDiscoveredNounRegistry);
         // Spec 011 FR-263-2 / FR-263-10: capture the executor's
         // LastModuleImports payload BEFORE the lease disposes (the
         // executor is gone after this method returns). DoctorService
@@ -140,8 +173,24 @@ internal static class McpToolSetupService
             OopModuleImportsCapture.Set(executorLease.Executor.LastModuleImports);
         }
         AddConfigurationGuidanceToolToList(tools, config, configurationPath, "stdio", config.RuntimeMode.ToString(), null, loggerFactory);
-        AddConfigurationTroubleshootingToolToList(tools, config, configurationPath, "stdio", null, config.RuntimeMode.ToString(), null, logger);
+        AddConfigurationTroubleshootingToolToList(tools, config, configurationPath, "stdio", null, config.RuntimeMode.ToString(), null, logger, nounRegistryProvider: () => toolFactory.LastDiscoveredNounRegistry);
         return tools;
+    }
+
+    private static EffectiveNounResourceRegistry? BuildEffectiveNounResourceRegistry(
+        McpToolFactoryV2 toolFactory,
+        PowerShellConfiguration config,
+        ILoggerFactory loggerFactory)
+    {
+        if (!config.EnableNounResources)
+        {
+            return null;
+        }
+
+        var nounRegistry = toolFactory.LastDiscoveredNounRegistry
+            ?? NounRegistry.Build(Array.Empty<string>(), loggerFactory.CreateLogger("NounRegistry"));
+
+        return EffectiveNounResourceRegistry.Build(nounRegistry, config.NounResourceOverrides);
     }
 
     /// <summary>
@@ -307,7 +356,8 @@ internal static class McpToolSetupService
             effectiveMcpPath,
             registeredToolsProvider,
             reloadToolsLogger,
-            importSourceTracker);
+            importSourceTracker,
+            nounRegistryProvider: () => toolFactory.LastDiscoveredNounRegistry);
     }
 
     /// <summary>
@@ -400,7 +450,8 @@ internal static class McpToolSetupService
         ILogger logger,
         AuthenticationConfiguration? authConfig = null,
         Func<System.Security.Claims.ClaimsPrincipal?>? identityProvider = null,
-        IToolImportSourceTracker? importSourceTracker = null)
+        IToolImportSourceTracker? importSourceTracker = null,
+        Func<NounRegistry?>? nounRegistryProvider = null)
     {
         try
         {
@@ -446,7 +497,8 @@ internal static class McpToolSetupService
                 authConfig: authConfig,
                 currentIdentity: identityProvider?.Invoke(),
                 allowConfigurationFileAccess: false,
-                importSourceTracker: importSourceTracker);
+                importSourceTracker: importSourceTracker,
+                nounRegistry: nounRegistryProvider?.Invoke());
 
             if (configurationErrors.Count > 0)
             {
@@ -488,7 +540,8 @@ internal static class McpToolSetupService
         ILogger logger,
         AuthenticationConfiguration? authConfig = null,
         Func<System.Security.Claims.ClaimsPrincipal?>? identityProvider = null,
-        IToolImportSourceTracker? importSourceTracker = null)
+        IToolImportSourceTracker? importSourceTracker = null,
+        Func<NounRegistry?>? nounRegistryProvider = null)
     {
         Func<CancellationToken, Task<string>> troubleshootingDelegate = cancellationToken =>
             Task.FromResult(BuildConfigurationTroubleshootingJson(
@@ -501,7 +554,8 @@ internal static class McpToolSetupService
                 logger,
                 authConfig,
                 identityProvider,
-                importSourceTracker));
+                importSourceTracker,
+                nounRegistryProvider));
 
         return McpServerTool.Create(troubleshootingDelegate, new McpServerToolCreateOptions
         {
@@ -529,7 +583,8 @@ internal static class McpToolSetupService
         string? effectiveMcpPath,
         ILogger logger,
         IHttpContextAccessor? httpContextAccessor = null,
-        IToolImportSourceTracker? importSourceTracker = null)
+        IToolImportSourceTracker? importSourceTracker = null,
+        Func<NounRegistry?>? nounRegistryProvider = null)
     {
         if (!config.EnableConfigurationTroubleshootingTool)
         {
@@ -549,7 +604,8 @@ internal static class McpToolSetupService
             logger,
             authConfig: null,
             identityProvider: identityProvider,
-            importSourceTracker: importSourceTracker));
+            importSourceTracker: importSourceTracker,
+            nounRegistryProvider: nounRegistryProvider));
     }
 
     /// <summary>

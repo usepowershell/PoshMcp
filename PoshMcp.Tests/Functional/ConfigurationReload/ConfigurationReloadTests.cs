@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using PoshMcp.Server.McpResources;
 using PoshMcp.Server.PowerShell;
 using Xunit;
 using Xunit.Abstractions;
@@ -255,6 +258,51 @@ public class ConfigurationReloadTests : PowerShellTestBase
         Assert.Equal(SettingsResolver.EnvSource, resultObj["runtimeSettings"]?["configurationPath"]?["source"]?.GetValue<string>());
         Assert.Equal("environment-only", resultObj["runtimeSettings"]?["configurationMode"]?["value"]?.GetValue<string>());
         Assert.Equal(SettingsResolver.EnvSource, resultObj["runtimeSettings"]?["configurationMode"]?["source"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task ConfigurationReloadTools_GetStatus_UsesProvidedNounRegistry_ForNounResourcesParity()
+    {
+        var config = new PowerShellConfiguration
+        {
+            EnableNounResources = true,
+            FunctionNames = new List<string> { "Get-FixtureEligible", "Get-FixtureNeedsId" }
+        };
+
+        var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Information));
+        var serviceLogger = loggerFactory.CreateLogger<PowerShellConfigurationReloadService>();
+        var toolFactory = new McpToolFactoryV2();
+        var reloadService = new PowerShellConfigurationReloadService(serviceLogger, toolFactory, config, "/test/path");
+
+        var suppliedRegistry = NounRegistry.Build(["Get-FixtureEligible"], NullLogger.Instance);
+        var toolsLogger = loggerFactory.CreateLogger<ConfigurationReloadTools>();
+        var reloadTools = new ConfigurationReloadTools(
+            reloadService,
+            "/test/path",
+            SettingsResolver.CwdSource,
+            "stdio",
+            null,
+            config.RuntimeMode.ToString(),
+            null,
+            static () => new List<ModelContextProtocol.Server.McpServerTool>(),
+            toolsLogger,
+            nounRegistryProvider: () => suppliedRegistry);
+
+        var result = await reloadTools.GetConfigurationStatus(CancellationToken.None);
+
+        var resultObj = JsonNode.Parse(result)?.AsObject();
+        Assert.NotNull(resultObj);
+        var registeredResources = resultObj!["nounResources"]?["registeredResources"]?.AsArray();
+        Assert.NotNull(registeredResources);
+        var nouns = registeredResources!
+            .Select(node => node?["noun"]?.GetValue<string>())
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Cast<string>()
+            .ToArray();
+
+        Assert.Single(nouns);
+        Assert.Contains("FixtureEligible", nouns);
+        Assert.DoesNotContain("FixtureNeedsId", nouns);
     }
 
     [Fact]

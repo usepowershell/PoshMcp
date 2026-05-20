@@ -42,14 +42,40 @@ public sealed class NounRegistry
     /// <param name="logger">Logger; receives a warning for each resource name conflict.</param>
     public static NounRegistry Build(IEnumerable<string> discoveredCommandNames, ILogger logger)
     {
-        var commands = discoveredCommandNames.ToList();
+        ArgumentNullException.ThrowIfNull(discoveredCommandNames);
+
+        return Build(
+            discoveredCommandNames.Select(commandName => new NounCommandCandidate(commandName, CanInvokeWithoutRequiredUserParameters: true)),
+            logger);
+    }
+
+    /// <summary>
+    /// Builds an immutable <see cref="NounRegistry"/> from the given discovered command candidates.
+    /// Commands must be supplied in discovery order; first-writer-wins for resource name conflicts.
+    /// A derived noun resource is created only when the backing <c>Get-*</c> command can be
+    /// invoked without required user parameters.
+    /// </summary>
+    /// <param name="discoveredCommands">
+    /// Full list of discovered PowerShell commands in priority order with noun-resource eligibility metadata.
+    /// </param>
+    /// <param name="logger">Logger; receives a warning for each resource name conflict.</param>
+    public static NounRegistry Build(IEnumerable<NounCommandCandidate> discoveredCommands, ILogger logger)
+    {
+        ArgumentNullException.ThrowIfNull(discoveredCommands);
+        ArgumentNullException.ThrowIfNull(logger);
+
+        var commands = discoveredCommands.ToList();
 
         // resource_name → winning (non-conflicted) NounEntry
         var claimedByResourceName = new Dictionary<string, NounEntry>(StringComparer.OrdinalIgnoreCase);
         var allEntries = new List<NounEntry>();
 
-        foreach (var cmd in commands)
+        foreach (var command in commands)
         {
+            if (!command.CanInvokeWithoutRequiredUserParameters)
+                continue;
+
+            var cmd = command.CommandName;
             var noun = ExtractNounFromCommandName(cmd);
             if (noun is null)
                 continue;
@@ -158,3 +184,14 @@ public sealed record NounEntry(
     string Uri,
     string CanonicalGetCommand,
     bool IsConflicted);
+
+/// <summary>
+/// Metadata for a discovered PowerShell command relevant to noun-resource derivation.
+/// </summary>
+/// <param name="CommandName">The discovered PowerShell command name.</param>
+/// <param name="CanInvokeWithoutRequiredUserParameters">
+/// <c>true</c> when at least one parameter set can be invoked without required user parameters.
+/// </param>
+public sealed record NounCommandCandidate(
+    string CommandName,
+    bool CanInvokeWithoutRequiredUserParameters);

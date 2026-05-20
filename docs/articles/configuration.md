@@ -95,11 +95,29 @@ Edit `appsettings.json`:
 Behavior:
 
 - `EnableNounResources` defaults to `false`.
-- A noun is resourceable only when the discovered command set contains a matching `Get-{Noun}` command.
+- A noun is resourceable only when the discovered command set contains a matching `Get-{Noun}` command and that command has at least one parameter set with no required user parameters.
 - The default resource name is the noun converted to snake_case, and the default URI is `poshmcp://resources/{resource_name}`.
 - `NounResourceOverrides` is keyed by the default derived resource name.
 - `Disabled: true` suppresses the derived resource and skips tool-result resource links for that noun.
 - `DisableResourceLinkBlock: true` keeps the resource available in `resources/list` and `resources/read`, but skips the appended `application/json+mcp-resource-link` block on tool results.
+- `PowerShellConfiguration.CommandOverrides.<Command>.AssociatedResourceUri` (or legacy `FunctionOverrides.<Command>.AssociatedResourceUri`) overrides the implicit noun-derived link target for that command when the URI resolves to an exposed MCP resource.
+- `CommandOverrides` still take precedence over legacy `FunctionOverrides` when both define `AssociatedResourceUri` for the same command.
+- Explicit `AssociatedResourceUri` links are appended with `relationship: "context"` and are not suppressed by `DisableResourceLinkBlock`; that flag only suppresses the implicit noun-derived fallback.
+- If `AssociatedResourceUri` is absent or does not resolve for a discovered command override during tool setup, PoshMcp falls back to the existing implicit noun-derived link behavior when available. In that case, PoshMcp logs a warning and continues; it does not perform generic configuration-load validation for `AssociatedResourceUri` values.
+
+Example:
+
+```json
+{
+  "PowerShellConfiguration": {
+    "CommandOverrides": {
+      "Invoke-Deployment": {
+        "AssociatedResourceUri": "poshmcp://resources/deployment-guide"
+      }
+    }
+  }
+}
+```
 
 Use `poshmcp doctor` to verify the effective noun-resource surface. When the feature is enabled, doctor reports registered resources, conflicts, and suppressed nouns in the `Noun Resources` section.
 

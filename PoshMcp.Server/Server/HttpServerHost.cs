@@ -106,29 +106,22 @@ internal static class HttpServerHost
 
         logger.LogInformation("Using configuration source: {ConfigurationPath}", ConfigurationHelpers.DescribeConfigurationPath(finalConfigPath));
 
-        var tools = await McpToolSetupService.SetupHttpMcpToolsAsync(bootstrapLoggerFactory, config, logger, finalConfigPath, configurationPathSource, sharedSessionRunspace, executorLease?.Executor, sharedHttpContextAccessor);
+        var toolSetup = await McpToolSetupService.SetupHttpMcpToolsAsync(bootstrapLoggerFactory, config, logger, finalConfigPath, configurationPathSource, sharedSessionRunspace, executorLease?.Executor, sharedHttpContextAccessor);
+        var tools = toolSetup.Tools;
         var resourcesConfig = ConfigurationLoader.LoadMcpResourcesConfiguration(finalConfigPath, logger);
         var resourcesConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? ".";
         var resourceLogger = bootstrapLoggerFactory.CreateLogger<McpResourceHandler>();
         var resourceHandler = new McpResourceHandler(resourcesConfig, sharedSessionRunspace, resourcesConfigDirectory, resourceLogger);
 
         McpNounResourceHandler? nounHandler = null;
-        if (config.EnableNounResources)
+        if (toolSetup.EffectiveNounResourceRegistry is not null)
         {
-            var commandNames = tools
-                .Select(t => { try { return t.ProtocolTool.Title; } catch { return null; } })
-                .Where(n => !string.IsNullOrWhiteSpace(n))
-                .Cast<string>();
-            var nounRegistry = NounRegistry.Build(commandNames, bootstrapLoggerFactory.CreateLogger("NounRegistry"));
-            var effectiveNounRegistry = EffectiveNounResourceRegistry.Build(nounRegistry, config.NounResourceOverrides);
             var nounExecutor = executorLease?.Executor;
             nounHandler = new McpNounResourceHandler(
-                effectiveNounRegistry,
+                toolSetup.EffectiveNounResourceRegistry,
                 nounExecutor is null ? sharedSessionRunspace : null,
                 nounExecutor,
                 bootstrapLoggerFactory.CreateLogger<McpNounResourceHandler>());
-            tools = ResourceLinkInjector.WrapToolsWithResourceLinks(
-                tools, effectiveNounRegistry, bootstrapLoggerFactory.CreateLogger("ResourceLinkInjector"));
         }
 
         var authConfigValue = authRootConfig.GetSection("Authentication").Get<PoshMcp.Server.Authentication.AuthenticationConfiguration>() ?? new();

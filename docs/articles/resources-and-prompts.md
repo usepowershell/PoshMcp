@@ -82,7 +82,7 @@ Add resources to `appsettings.json`:
 
 When `PowerShellConfiguration.EnableNounResources` is `true`, PoshMcp can derive additional MCP resources from the discovered PowerShell command set.
 
-A noun becomes resourceable only when a matching `Get-{Noun}` command exists. When that happens, PoshMcp:
+A noun becomes resourceable only when a matching `Get-{Noun}` command exists and at least one of its parameter sets can run without required user parameters. When that happens, PoshMcp:
 
 - derives a snake_case resource name from the noun
 - registers a `poshmcp://resources/{resource_name}` resource in `resources/list`
@@ -90,7 +90,7 @@ A noun becomes resourceable only when a matching `Get-{Noun}` command exists. Wh
 
 For example, `Get-NounResourceFixture` produces a resource named `noun_resource_fixture` at `poshmcp://resources/noun_resource_fixture`.
 
-If a noun does not have a matching `Get-*` command, PoshMcp does not list or read a derived resource for it.
+If a noun does not have a matching `Get-*` command, or the matching `Get-*` command requires user input for every parameter set, PoshMcp does not list or read a derived resource for it.
 
 Configure the feature in `appsettings.json`:
 
@@ -115,6 +115,11 @@ Override keys use the default derived resource name. Each override can:
 - change `ResourceName`, `Uri`, or `Description`
 - set `DisableResourceLinkBlock` to keep the resource readable but skip tool-result link injection
 
+You can also associate a specific exposed MCP resource with an individual command result through `PowerShellConfiguration.CommandOverrides.<Command>.AssociatedResourceUri` (or legacy `FunctionOverrides`). This association can point at either:
+
+- a static/custom resource from `McpResources.Resources`
+- a noun-derived resource exposed through `EnableNounResources`
+
 ### Resource Link Blocks
 
 When noun-derived resources are enabled, successful tool results for the same noun get an extra content block appended at the end of the MCP result. The block points the client at the readable MCP resource for that noun.
@@ -138,6 +143,36 @@ This block is not appended when:
 - the noun override sets `Disabled: true`
 - the noun override sets `DisableResourceLinkBlock: true`
 - the tool result is returned with `isError: true`
+
+When `AssociatedResourceUri` is set on a command override, PoshMcp first tries to resolve that URI against the exposed resource surface. If it resolves, PoshMcp appends exactly one `application/json+mcp-resource-link` block for that target with `relationship: "context"`, even when the noun override has `DisableResourceLinkBlock: true`.
+
+If `AssociatedResourceUri` is missing or does not resolve to an exposed resource for a discovered command override during tool setup, PoshMcp falls back to the implicit noun-derived behavior above. That unresolved override path logs a warning and is otherwise ignored; PoshMcp does not perform generic startup validation of `AssociatedResourceUri` values.
+
+Example:
+
+```json
+{
+  "PowerShellConfiguration": {
+    "CommandOverrides": {
+      "Invoke-Deployment": {
+        "AssociatedResourceUri": "poshmcp://resources/deployment-guide"
+      }
+    }
+  },
+  "McpResources": {
+    "Resources": [
+      {
+        "Uri": "poshmcp://resources/deployment-guide",
+        "Name": "Deployment Guide",
+        "Description": "Operator runbook for deployment workflows",
+        "MimeType": "text/markdown",
+        "Source": "file",
+        "Path": "docs/DEPLOYMENT.md"
+      }
+    ]
+  }
+}
+```
 
 ### Example: File-Based Resources
 

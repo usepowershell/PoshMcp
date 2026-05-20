@@ -30,6 +30,12 @@ public class PerformanceConfiguration
 public class FunctionOverride
 {
     /// <summary>
+    /// Explicit MCP resource URI to associate with successful results for this command.
+    /// When null or empty, noun-derived link injection behavior is used.
+    /// </summary>
+    public string? AssociatedResourceUri { get; set; }
+
+    /// <summary>
     /// Explicit list of property names to select. Takes priority over DefaultDisplayPropertySet.
     /// When null, the type's DefaultDisplayPropertySet is used (if UseDefaultDisplayProperties is true).
     /// </summary>

@@ -1,4 +1,7 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using ModelContextProtocol.Server;
+using PoshMcp.Server.McpResources;
 using PoshMcp.Server.PowerShell;
 using PoshMcp.Tests.Shared;
 using System;
@@ -288,6 +291,48 @@ public class ProgramTests : PowerShellTestBase
             {
                 File.Delete(tempConfig);
             }
+        }
+    }
+
+    [Fact]
+    public async Task BuildDoctorReportForCliAsync_UsesCapturedNounRegistry_ForNounResourcesParity()
+    {
+        var tempFile = Path.GetTempFileName();
+        var configJson = @"{
+  ""PowerShellConfiguration"": {
+    ""EnableNounResources"": true,
+    ""FunctionNames"": [""Get-FixtureEligible"", ""Get-FixtureNeedsId""]
+  }
+}";
+        File.WriteAllText(tempFile, configJson);
+
+        try
+        {
+            var settings = new ResolvedCommandSettings(
+                new ResolvedSetting(tempFile, "test"),
+                tempFile,
+                new ResolvedSetting("Information", "test"),
+                new ResolvedSetting("stdio", "test"),
+                new ResolvedSetting(null, "test"),
+                new ResolvedSetting("InProcess", "test"),
+                new ResolvedSetting(null, "test"));
+
+            var report = await DoctorService.BuildDoctorReportForCliAsync(
+                settings,
+                static (_, _, _, _, _, _, _) =>
+                {
+                    DiscoveredNounRegistryCapture.Set(NounRegistry.Build(["Get-FixtureEligible"], NullLogger.Instance));
+                    return Task.FromResult(new List<McpServerTool>());
+                });
+
+            var registered = Assert.Single(report.NounResources.RegisteredResources);
+            Assert.Equal("FixtureEligible", registered.Noun);
+            Assert.DoesNotContain(report.NounResources.RegisteredResources, entry => entry.Noun == "FixtureNeedsId");
+        }
+        finally
+        {
+            DiscoveredNounRegistryCapture.Reset();
+            File.Delete(tempFile);
         }
     }
 

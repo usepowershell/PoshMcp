@@ -300,6 +300,7 @@ public class PerformanceConfigurationTests : PowerShellTestBase
     "PowerShellConfiguration": {
         "FunctionOverrides": {
             "Get-Process": {
+                "AssociatedResourceUri": "poshmcp://resources/legacy-process",
                 "RequiredRoles": ["legacy"]
             }
         }
@@ -314,6 +315,7 @@ public class PerformanceConfigurationTests : PowerShellTestBase
 
         var effectiveOverrides = powerShellConfig.GetEffectiveCommandOverrides();
         Assert.True(effectiveOverrides.ContainsKey("Get-Process"));
+        Assert.Equal("poshmcp://resources/legacy-process", effectiveOverrides["Get-Process"].AssociatedResourceUri);
         Assert.Equal("legacy", effectiveOverrides["Get-Process"].RequiredRoles![0]);
     }
 
@@ -325,11 +327,13 @@ public class PerformanceConfigurationTests : PowerShellTestBase
     "PowerShellConfiguration": {
         "FunctionOverrides": {
             "Get-Process": {
+                "AssociatedResourceUri": "poshmcp://resources/legacy-process",
                 "RequiredRoles": ["legacy"]
             }
         },
         "CommandOverrides": {
             "Get-Process": {
+                "AssociatedResourceUri": "poshmcp://resources/command-process",
                 "RequiredRoles": ["command"]
             }
         }
@@ -344,6 +348,7 @@ public class PerformanceConfigurationTests : PowerShellTestBase
 
         var effectiveOverrides = powerShellConfig.GetEffectiveCommandOverrides();
         Assert.True(effectiveOverrides.ContainsKey("Get-Process"));
+        Assert.Equal("poshmcp://resources/command-process", effectiveOverrides["Get-Process"].AssociatedResourceUri);
         Assert.Equal("command", effectiveOverrides["Get-Process"].RequiredRoles![0]);
     }
 }

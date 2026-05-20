@@ -12,6 +12,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
+using PoshMcp.Server.McpResources;
 using PoshMcp.Server.Observability;
 using PoshMcp.Server.PowerShell;
 using PoshMcp.Server.PowerShell.OutOfProcess;
@@ -45,6 +46,8 @@ public class McpToolFactoryV2
     private readonly IToolImportSourceTracker? _importSourceTracker;
     private readonly PowerShellHelpResolver _helpResolver = new();
     private static McpMetrics? _metrics;
+
+    internal NounRegistry? LastDiscoveredNounRegistry { get; private set; }
 
     /// <summary>
     /// Sets the metrics instance for OpenTelemetry instrumentation
@@ -450,6 +453,7 @@ public class McpToolFactoryV2
                 logger.LogInformationWithCorrelation("Starting MCP tools generation using dynamic assembly approach");
                 LogToolGenerationStart(logger, config);
                 _importSourceTracker?.Reset();
+                LastDiscoveredNounRegistry = null;
 
                 if (config.RuntimeMode == RuntimeMode.OutOfProcess)
                 {
@@ -457,6 +461,7 @@ public class McpToolFactoryV2
                 }
 
                 var commands = ValidateAndGetCommands(config, logger);
+                LastDiscoveredNounRegistry = BuildNounRegistry(commands, logger);
                 if (!commands.Any()) return new List<McpServerTool>();
 
                 // Resolve Get-Help once per command (FR-570) so both the command-level
@@ -489,10 +494,12 @@ public class McpToolFactoryV2
         if (schemas.Count == 0)
         {
             logger.LogWarning("Out-of-process discovery returned no tool schemas");
+            LastDiscoveredNounRegistry = BuildNounRegistry(schemas, logger);
             return new List<McpServerTool>();
         }
 
         RecordRemoteImportSources(schemas, _importSourceTracker);
+        LastDiscoveredNounRegistry = BuildNounRegistry(schemas, logger);
         var remoteParameterDescriptions = BuildRemoteParameterDescriptionMap(schemas, _toolMetadataSource, _descriptionSourceTracker);
         _outOfProcessAssemblyGenerator.GenerateAssembly(schemas, remoteParameterDescriptions, logger);
         var generatedInstance = _outOfProcessAssemblyGenerator.GetGeneratedInstance(logger);
@@ -501,6 +508,56 @@ public class McpToolFactoryV2
         var tools = CreateMcpToolsFromMethods(generatedMethods, generatedInstance, methodToCommandMap, logger);
         LogToolGenerationResults(tools, logger);
         return tools;
+    }
+
+    private static NounRegistry BuildNounRegistry(IEnumerable<CommandInfo> commands, ILogger logger)
+    {
+        return NounRegistry.Build(
+            commands.Select(command => new NounCommandCandidate(
+                command.Name,
+                CanInvokeWithoutRequiredUserParameters(command))),
+            logger);
+    }
+
+    private static NounRegistry BuildNounRegistry(IReadOnlyList<RemoteToolSchema> schemas, ILogger logger)
+    {
+        return NounRegistry.Build(
+            schemas
+                .Where(schema => schema is not null && !string.IsNullOrWhiteSpace(schema.Name))
+                .GroupBy(schema => schema.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(group => new NounCommandCandidate(
+                    group.Key,
+                    group.Any(CanInvokeWithoutRequiredUserParameters))),
+            logger);
+    }
+
+    private static bool CanInvokeWithoutRequiredUserParameters(CommandInfo command)
+    {
+        if (command.ParameterSets is { Count: > 0 })
+        {
+            return command.ParameterSets.Any(CanInvokeWithoutRequiredUserParameters);
+        }
+
+        return !command.Parameters
+            .Where(parameter => !PowerShellParameterUtils.IsCommonParameter(parameter.Key))
+            .Any(parameter => parameter.Value.Attributes
+                .OfType<ParameterAttribute>()
+                .Any(attribute => attribute.Mandatory));
+    }
+
+    private static bool CanInvokeWithoutRequiredUserParameters(CommandParameterSetInfo parameterSet)
+    {
+        return !parameterSet.Parameters
+            .Where(parameter => !PowerShellParameterUtils.IsCommonParameter(parameter.Name))
+            .Any(parameter => parameter.IsMandatory);
+    }
+
+    private static bool CanInvokeWithoutRequiredUserParameters(RemoteToolSchema schema)
+    {
+        return schema.Parameters is null
+            || !schema.Parameters
+                .Where(parameter => !PowerShellParameterUtils.IsCommonParameter(parameter.Name))
+                .Any(parameter => parameter.IsMandatory);
     }
 
     private static void LogToolGenerationStart(ILogger logger, PowerShellConfiguration config)
