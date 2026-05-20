@@ -112,3 +112,8 @@ GATE PASSED. 432 tests, 5/5 clean runs at 20.07-21.08s (mean 20.45s), ~65% headr
 ## 2026-05-16 — v0.14.1 Release (via Scribe)
 
 Release v0.14.1 shipped successfully. Version bump, release notes, and GitHub release creation completed by Amy. Commit a2a89b3, tag v0.14.1 pushed to origin, release published.
+
+## 2026-05-20: Noun-resource tightening combined-slice validation
+
+- Independently validated the combined noun-resource tightening and `AssociatedResourceUri` slice with 65 focused tests passing.
+- Validation covered the tightened noun-resource eligibility path together with the focused binding and link-injection behaviors exercised in the implementation worktree.

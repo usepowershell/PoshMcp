@@ -3,6 +3,36 @@
 ## Recent Decisions
 > Older entries archived to `decisions-archive.md` (entries >7d removed when file >= 50KB).
 
+### 2026-05-20: AssociatedResourceUri belongs on command overrides and resolves against the exposed resource surface
+**By:** Hermes (PowerShell Expert), Bender (Backend Developer)
+
+**Decision:** Add `AssociatedResourceUri` to per-command overrides (`CommandOverrides`, with legacy `FunctionOverrides` binding preserved) and resolve it at tool-registration time against the effective exposed resource surface.
+
+**Why:** The association is command-specific behavior, not resource definition. Command overrides already own per-command precedence, while `McpResources.Resources[]` already owns static/custom resource definitions. Registration-time resolution in `McpToolSetupService` via `ResourceLinkInjector` keeps the behavior transport-agnostic and lets explicit command-linked resources work even when `EnableNounResources` is `false`.
+
+**Resolution rules:**
+- The explicit `AssociatedResourceUri` target overrides the implicit noun-derived link for that command.
+- Resolution order is static/custom resources first, then noun-derived resources when noun resources are enabled.
+- If the configured URI does not resolve, log a warning and fall back to implicit noun-derived injection when available.
+- `DisableResourceLinkBlock` continues to suppress only the implicit noun-derived link and does not suppress an explicit `AssociatedResourceUri`.
+
+**Consequences:** This workstream stays on the existing `ResourceLinkInjector` seam and does not introduce a second resource-definition surface. Command-specific associated links remain a single-link override-with-fallback model rather than composing multiple link blocks by default.
+
+---
+
+### 2026-05-20: Noun-derived resources require a zero-required-parameter `Get-*` path
+**By:** Bender (Backend Developer)
+
+**Decision:** Treat a noun as resourceable only when the discovered matching `Get-{Noun}` command has at least one parameter set that can be invoked without required user parameters. Common/framework parameters do not disqualify the command.
+
+**Why:** `resources/read` invokes the backing `Get-*` with no user arguments. If every parameter set requires user input, deriving the noun resource violates the read contract and also causes incorrect resource-link injection on sibling tools.
+
+**Implementation note:** Use discovered command metadata rather than tool-title inference. In-process evaluation should inspect `CommandInfo.ParameterSets`; out-of-process evaluation should inspect discovered parameter metadata (`RemoteToolSchema.Parameters[].IsMandatory`).
+
+**Consequences:** Noun-resource tightening now excludes `Get-*` commands that cannot be read parameterlessly, which keeps `resources/list`, `resources/read`, and link injection aligned with the actual callable surface.
+
+---
+
 ### 2026-05-19: Next release line should be 0.15.0
 **By:** Leela (Developer Advocate)
 

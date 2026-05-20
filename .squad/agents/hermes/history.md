@@ -58,3 +58,9 @@ Release v0.14.1 shipped successfully. Version bump, release notes, and GitHub re
 ## 2026-05-17T13:12:00Z: Cross-team update — Log-forging fix #277
 
 Bender completed remediation of 24 CodeQL cs/log-forging alerts across PowerShellAssemblyGenerator.cs, AuthenticationServiceExtensions.cs, and LoggerExtensions.cs. Pattern: LogSanitizer.Scrub() applied to all untrusted sources (correlation IDs, JWT claims, config values) at structured log call sites. Build + tests pass. PR #278 open.
+
+## 2026-05-20: AssociatedResourceUri design note merged
+
+- Recommended `AssociatedResourceUri` as a nullable string on per-command overrides, not on `McpResources` or noun overrides.
+- Kept explicit command-associated resource links as an override-with-fallback model resolved against the merged exposed resource surface at registration time.
+- Captured the non-breaking failure mode: unresolved URIs warn and fall back instead of failing config load.

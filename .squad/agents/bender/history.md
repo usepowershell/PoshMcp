@@ -165,3 +165,8 @@ Issue #272 "Per-tool import source attribution: introduce IToolImportSourceTrack
 
 Release v0.14.1 shipped successfully. Version bump, release notes, and GitHub release creation completed by Amy. Commit a2a89b3, tag v0.14.1 pushed to origin, release published.
 
+## 2026-05-20: Noun-resource tightening and AssociatedResourceUri follow-through
+
+- Tightened noun-derived resource eligibility to require a zero-required-parameter `Get-{Noun}` path so `resources/read` and link injection only target parameterless reads.
+- Implemented the `AssociatedResourceUri` slice in the worktree and validated focused binding and link-injection tests covering command override precedence and explicit resource-link behavior.
+

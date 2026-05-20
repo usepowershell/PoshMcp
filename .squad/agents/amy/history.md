@@ -60,3 +60,19 @@ Spec 009 (Test Suite Consistency and Fast Unit Tier) is functionally complete. F
 ## 2026-05-17T13:12:00Z: Cross-team update — Log-forging fix #277
 
 Bender completed remediation of 24 CodeQL cs/log-forging alerts across PowerShellAssemblyGenerator.cs, AuthenticationServiceExtensions.cs, and LoggerExtensions.cs. Pattern: LogSanitizer.Scrub() applied to all untrusted sources (correlation IDs, JWT claims, config values) at structured log call sites. Build + tests pass. PR #278 open.
+
+## 2026-05-19: Release v0.15.0 prep pushed, awaiting final CI gate
+- Cut release prep from local `main` after Leela's release-notes gate work.
+- Added the final version bump in `PoshMcp.Server/PoshMcp.csproj` (`0.14.2` -> `0.15.0`) and finalized `docs/release-notes/0.15.0.md` release date.
+- Kept the release-prep commit scoped to release artifacts only: `PoshMcp.Server/PoshMcp.csproj`, `CHANGELOG.md`, `docs/release-notes/0.15.0.md`, `docs/toc.yml`.
+- Explicitly excluded unrelated local changes from the release commit: `.squad/agents/leela/history.md`, `docs/release-notes/0.14.1.md`, and untracked `docs/logging-and-metrics.md`.
+- Local quality gates passed before push: `dotnet format PoshMcp.sln --verify-no-changes` and `dotnet test PoshMcp.sln` (`914` passed, `0` failed).
+- Release-prep commit: `a9f262a` (`chore(release): v0.15.0`), pushed to `origin/main`.
+- Remote checks observed green for `submit-nuget`, CodeQL analyzers, `release`, preview package publish, and docs deploy. Tag creation was intentionally withheld while the main `CI` workflow's `build` job remained in progress on GitHub (integration stage still running at handoff).
+
+## 2026-05-19: Release v0.15.0 shipped
+- Verified release-prep commit `a9f262a` was already on `origin/main` and that the release artifact set included `docs/release-notes/0.15.0.md`, `CHANGELOG.md`, `PoshMcp.Server/PoshMcp.csproj`, and `docs/toc.yml` before tag publication.
+- Waited for the final required GitHub Actions gate on commit `a9f262a891afb50e977e132f003588e0f2ef4758`. Final check set: `submit-nuget`, `Analyze (csharp)`, `Analyze (python)`, `Analyze (actions)`, `deploy`, `build`, `release`, and `Build & Publish Preview NuGet Package` all completed with `success`.
+- Created annotated tag `v0.15.0` on commit `a9f262a891afb50e977e132f003588e0f2ef4758` and pushed it to `origin`.
+- Verified the remote annotated tag object exists at `refs/tags/v0.15.0` and dereferences via `refs/tags/v0.15.0^{}` to the intended release commit `a9f262a891afb50e977e132f003588e0f2ef4758`.
+- Observed a non-blocking GitHub Actions annotation during CI completion: Node.js 20 deprecation warning for marketplace actions (`actions/checkout@v4`, `actions/setup-dotnet@v4`, `actions/upload-artifact@v4`). Release still shipped successfully; workflow maintenance follow-up is separate from the release cut.

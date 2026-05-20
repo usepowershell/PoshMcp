@@ -122,3 +122,5 @@ Release v0.14.1 shipped successfully. Version bump, release notes, and GitHub re
 ### Document created
 - `docs/logging-and-metrics.md` — comprehensive reference, ~29KB, 11 sections. Not committed (per task instructions).
 
+- **20260519T000000Z**: ✓ Release-notes gate prep for next cut — determined next version is `0.15.0` from repo state (`v0.14.2` is latest tag; `main` is ahead with spec 012 noun-resource feature work), drafted `docs/release-notes/0.15.0.md`, backfilled `CHANGELOG.md` entries for `0.14.1` and `0.14.2`, corrected the inaccurate `0.14.1` release note import-source wording, and updated `docs/toc.yml` so the latest release notes are navigable.
+

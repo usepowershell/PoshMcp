@@ -35,6 +35,7 @@ PoshMcp dynamically transforms PowerShell scripts, cmdlets, and modules into sec
 - 2026-05-19: When `decisions.md` is still above the 50 KB gate, check whether any entries older than the retention cutoff actually remain before attempting a second archive pass. If only recent entries are left, merge the inbox, clear it, and record that no additional archival candidates existed.
 - 2026-05-19: If release agents already updated their own history files and those files are dirty, do not reopen them during Scribe closeout. Add only new squad artifacts in clean files, then commit a path-scoped `.squad/` slice.
 - 2026-05-02: Cut release v0.9.17 following release process principles: clean build verified, version updated in PoshMcp.csproj, committed with context (token diagnostics and idle session timeout), tagged, and pushed. Remote accepted both commit and tag successfully.
+- 2026-05-20: For noun-resource closeout batches, merge overlapping design and implementation inbox notes into one canonical decision entry when they describe the same behavior slice, then clear the processed inbox files and record the validator evidence in the session log.
 
 ## 2026-05-16: Issue #272 spawn — IToolImportSourceTracker implementation
 
@@ -51,4 +52,8 @@ PoshMcp dynamically transforms PowerShell scripts, cmdlets, and modules into sec
 ## 2026-05-16 — v0.14.1 Release (via Scribe)
 
 Release v0.14.1 shipped successfully. Version bump, release notes, and GitHub release creation completed by Amy. Commit a2a89b3, tag v0.14.1 pushed to origin, release published.
+
+## 2026-05-20 — Noun-resource tightening closeout
+
+Merged three decision inbox notes into two canonical ledger entries covering `AssociatedResourceUri` behavior and zero-required-parameter noun-resource gating. Recorded one session log, one orchestration log, updated relevant agent histories, and moved squad focus from idle to noun-resource closeout.
 
