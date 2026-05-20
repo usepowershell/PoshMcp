@@ -67,9 +67,21 @@ public class NounRegistryTests
     }
 
     [Fact]
+    public void Build_WithGetCommandRequiringUserParameters_DoesNotRegisterEntry()
+    {
+        var registry = NounRegistry.Build(
+            [new NounCommandCandidate("Get-Foo", CanInvokeWithoutRequiredUserParameters: false)],
+            NullLogger.Instance);
+
+        Assert.Empty(registry.AllEntries);
+        Assert.Null(registry.GetEntry("Foo"));
+        Assert.Null(registry.GetEntryByResourceName("foo"));
+    }
+
+    [Fact]
     public void Build_WithEmptyCommandList_ReturnsEmptyRegistry()
     {
-        var registry = NounRegistry.Build([], NullLogger.Instance);
+        var registry = NounRegistry.Build(Array.Empty<string>(), NullLogger.Instance);
 
         Assert.Empty(registry.AllEntries);
         Assert.Null(registry.GetEntry("Foo"));

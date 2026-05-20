@@ -9,6 +9,8 @@
         'Get-NounResourceFixture',
         'Assert-NounResourceFixture',
         'Get-NounResourceFixtureError',
+        'Get-RequiredFixture',
+        'Assert-RequiredFixture',
         'Assert-NoGetFixture'
     )
     CmdletsToExport   = @()

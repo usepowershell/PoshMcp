@@ -46,6 +46,34 @@ function Get-NounResourceFixtureError {
 
 <#
 .SYNOPSIS
+Get command with a required user parameter; exercises noun-resource tightening so
+RequiredFixture does not become a derived resource.
+#>
+function Get-RequiredFixture {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Name
+    )
+    [pscustomobject]@{ Name = $Name; Status = 'required' }
+}
+
+<#
+.SYNOPSIS
+Non-Get sibling command for the RequiredFixture noun; exercises the no-link path
+when the matching Get-* command requires user parameters.
+#>
+function Assert-RequiredFixture {
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [string]$InputValue = 'default'
+    )
+    [pscustomobject]@{ Value = $InputValue; Status = 'asserted' }
+}
+
+<#
+.SYNOPSIS
 Non-Get command whose noun (NoGetFixture) has no Get-NoGetFixture counterpart
 in the configured command set; exercises FR-NR-10 (non-resourceable noun
 receives no resourceLinkBlock).
@@ -63,4 +91,6 @@ Export-ModuleMember -Function `
     Get-NounResourceFixture, `
     Assert-NounResourceFixture, `
     Get-NounResourceFixtureError, `
+    Get-RequiredFixture, `
+    Assert-RequiredFixture, `
     Assert-NoGetFixture

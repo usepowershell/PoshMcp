@@ -58,11 +58,12 @@ internal static class StdioServerHost
         var config = ConfigurationLoader.LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
         var resourcesConfig = ConfigurationLoader.LoadMcpResourcesConfiguration(finalConfigPath, logger);
         await using var executorLease = await McpToolSetupService.StartOutOfProcessExecutorIfNeededAsync(config, loggerFactory, logger, finalConfigPath);
-        var tools = await McpToolSetupService.SetupMcpToolsAsync(loggerFactory, config, logger, finalConfigPath, configurationPathSource ?? McpToolSetupService.InferConfigurationPathSource(finalConfigPath), executorLease?.Executor);
+        var toolSetup = await McpToolSetupService.SetupMcpToolsAsync(loggerFactory, config, logger, finalConfigPath, configurationPathSource ?? McpToolSetupService.InferConfigurationPathSource(finalConfigPath), executorLease?.Executor);
+        var tools = toolSetup.Tools;
         var promptsConfig = ConfigurationLoader.LoadPromptsConfiguration(finalConfigPath);
         var configDirectory = Path.GetDirectoryName(finalConfigPath) ?? Directory.GetCurrentDirectory();
         var promptHandler = new McpPromptHandler(promptsConfig, configDirectory, loggerFactory.CreateLogger<McpPromptHandler>());
-        ConfigureServerServices(builder, tools, resourcesConfig, finalConfigPath, loggerFactory, promptHandler, config, executorLease?.Executor);
+        ConfigureServerServices(builder, tools, resourcesConfig, finalConfigPath, loggerFactory, promptHandler, config, executorLease?.Executor, toolSetup.EffectiveNounResourceRegistry);
         await builder.Build().RunAsync();
     }
 
@@ -128,12 +129,13 @@ internal static class StdioServerHost
         ILoggerFactory loggerFactory,
         McpPromptHandler promptHandler,
         PowerShellConfiguration? psConfig = null,
-        ICommandExecutor? commandExecutor = null)
+        ICommandExecutor? commandExecutor = null,
+        EffectiveNounResourceRegistry? effectiveNounResourceRegistry = null)
     {
         ConfigureJsonSerializerOptions(builder);
         ConfigureOpenTelemetry(builder, isStdioMode: true);
         ConfigureApplicationInsights(builder.Services, builder.Configuration, isStdioMode: true);
-        RegisterMcpServerServices(builder, tools, resourcesConfig, configFilePath, loggerFactory, promptHandler, psConfig, commandExecutor);
+        RegisterMcpServerServices(builder, tools, resourcesConfig, configFilePath, loggerFactory, promptHandler, psConfig, commandExecutor, effectiveNounResourceRegistry);
         RegisterCleanupServices(builder);
     }
 
@@ -261,7 +263,8 @@ internal static class StdioServerHost
         ILoggerFactory loggerFactory,
         McpPromptHandler promptHandler,
         PowerShellConfiguration? psConfig = null,
-        ICommandExecutor? commandExecutor = null)
+        ICommandExecutor? commandExecutor = null,
+        EffectiveNounResourceRegistry? effectiveNounResourceRegistry = null)
     {
         var runspace = new SingletonPowerShellRunspace();
         var configDirectory = Path.GetDirectoryName(configFilePath) ?? ".";
@@ -270,21 +273,13 @@ internal static class StdioServerHost
 
         McpNounResourceHandler? nounHandler = null;
         var toolsToRegister = tools;
-        if (psConfig?.EnableNounResources == true)
+        if (psConfig?.EnableNounResources == true && effectiveNounResourceRegistry is not null)
         {
-            var commandNames = tools
-                .Select(t => { try { return t.ProtocolTool.Title; } catch { return null; } })
-                .Where(n => !string.IsNullOrWhiteSpace(n))
-                .Cast<string>();
-            var nounRegistry = NounRegistry.Build(commandNames, loggerFactory.CreateLogger("NounRegistry"));
-            var effectiveNounRegistry = EffectiveNounResourceRegistry.Build(nounRegistry, psConfig.NounResourceOverrides);
             nounHandler = new McpNounResourceHandler(
-                effectiveNounRegistry,
+            effectiveNounResourceRegistry,
                 commandExecutor is null ? runspace : null,
                 commandExecutor,
                 loggerFactory.CreateLogger<McpNounResourceHandler>());
-            toolsToRegister = ResourceLinkInjector.WrapToolsWithResourceLinks(
-                tools, effectiveNounRegistry, loggerFactory.CreateLogger("ResourceLinkInjector"));
         }
 
         var mcpBuilder = builder.Services

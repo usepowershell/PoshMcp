@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using PoshMcp.Server.Authentication;
+using PoshMcp.Server.McpResources;
 using PoshMcp.Server.PowerShell;
 using PoshMcp.Server.PowerShell.OutOfProcess;
 
@@ -20,11 +21,15 @@ namespace PoshMcp;
 /// </summary>
 internal static class McpToolSetupService
 {
+    internal sealed record ToolSetupResult(
+        List<McpServerTool> Tools,
+        EffectiveNounResourceRegistry? EffectiveNounResourceRegistry);
+
     /// <summary>
     /// Sets up MCP tools for Stdio transport mode.
     /// Creates tool factory, discovers tools, and sets up configuration management tools.
     /// </summary>
-    internal static async Task<List<McpServerTool>> SetupMcpToolsAsync(
+    internal static async Task<ToolSetupResult> SetupMcpToolsAsync(
         ILoggerFactory loggerFactory,
         PowerShellConfiguration config,
         ILogger logger,
@@ -62,14 +67,27 @@ internal static class McpToolSetupService
         AddConfigurationGuidanceToolToList(tools, config, finalConfigPath, "stdio", config.RuntimeMode.ToString(), null, loggerFactory);
         AddConfigurationTroubleshootingToolToList(tools, config, finalConfigPath, "stdio", null, config.RuntimeMode.ToString(), null, logger, importSourceTracker: importSourceTracker);
 
-        return tools;
+        var effectiveNounRegistry = BuildEffectiveNounResourceRegistry(toolFactory, config, loggerFactory);
+        var effectiveCommandOverrides = config.GetEffectiveCommandOverrides();
+        if (effectiveNounRegistry is not null || effectiveCommandOverrides.Values.Any(o => !string.IsNullOrWhiteSpace(o.AssociatedResourceUri)))
+        {
+            var resourcesConfig = ConfigurationLoader.LoadMcpResourcesConfiguration(finalConfigPath, logger);
+            tools = ResourceLinkInjector.WrapToolsWithResourceLinks(
+                tools,
+                effectiveNounRegistry,
+                effectiveCommandOverrides,
+                resourcesConfig,
+                loggerFactory.CreateLogger("ResourceLinkInjector"));
+        }
+
+        return new ToolSetupResult(tools, effectiveNounRegistry);
     }
 
     /// <summary>
     /// Sets up MCP tools for HTTP transport mode.
     /// Similar to SetupMcpToolsAsync but with session-aware runspace and HTTP context support.
     /// </summary>
-    internal static async Task<List<McpServerTool>> SetupHttpMcpToolsAsync(
+    internal static async Task<ToolSetupResult> SetupHttpMcpToolsAsync(
         ILoggerFactory loggerFactory,
         PowerShellConfiguration config,
         ILogger logger,
@@ -107,7 +125,20 @@ internal static class McpToolSetupService
         AddConfigurationGuidanceToolToList(tools, config, finalConfigPath, "http", config.RuntimeMode.ToString(), null, loggerFactory);
         AddConfigurationTroubleshootingToolToList(tools, config, finalConfigPath, "http", null, config.RuntimeMode.ToString(), null, logger, httpContextAccessor, importSourceTracker);
 
-        return tools;
+        var effectiveNounRegistry = BuildEffectiveNounResourceRegistry(toolFactory, config, loggerFactory);
+        var effectiveCommandOverrides = config.GetEffectiveCommandOverrides();
+        if (effectiveNounRegistry is not null || effectiveCommandOverrides.Values.Any(o => !string.IsNullOrWhiteSpace(o.AssociatedResourceUri)))
+        {
+            var resourcesConfig = ConfigurationLoader.LoadMcpResourcesConfiguration(finalConfigPath, logger);
+            tools = ResourceLinkInjector.WrapToolsWithResourceLinks(
+                tools,
+                effectiveNounRegistry,
+                effectiveCommandOverrides,
+                resourcesConfig,
+                loggerFactory.CreateLogger("ResourceLinkInjector"));
+        }
+
+        return new ToolSetupResult(tools, effectiveNounRegistry);
     }
 
     /// <summary>
@@ -142,6 +173,22 @@ internal static class McpToolSetupService
         AddConfigurationGuidanceToolToList(tools, config, configurationPath, "stdio", config.RuntimeMode.ToString(), null, loggerFactory);
         AddConfigurationTroubleshootingToolToList(tools, config, configurationPath, "stdio", null, config.RuntimeMode.ToString(), null, logger);
         return tools;
+    }
+
+    private static EffectiveNounResourceRegistry? BuildEffectiveNounResourceRegistry(
+        McpToolFactoryV2 toolFactory,
+        PowerShellConfiguration config,
+        ILoggerFactory loggerFactory)
+    {
+        if (!config.EnableNounResources)
+        {
+            return null;
+        }
+
+        var nounRegistry = toolFactory.LastDiscoveredNounRegistry
+            ?? NounRegistry.Build(Array.Empty<string>(), loggerFactory.CreateLogger("NounRegistry"));
+
+        return EffectiveNounResourceRegistry.Build(nounRegistry, config.NounResourceOverrides);
     }
 
     /// <summary>
