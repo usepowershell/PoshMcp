@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented here.
 
+## [0.15.1] - 2026-05-20
+
+### Added
+- **Explicit `AssociatedResourceUri` command override links** — `PowerShellConfiguration.CommandOverrides` can now set `AssociatedResourceUri` to attach a successful tool result to an explicitly chosen MCP resource instead of relying only on the implicit noun-derived link. Resolution happens against the exposed resource surface during tool registration, prefers static/custom resources before noun-derived resources, preserves legacy `FunctionOverrides` binding, and falls back to the implicit noun-derived link when the configured URI does not resolve. (#292)
+
+### Fixed
+- **Noun-derived resource eligibility tightening** — Noun-derived resources are now registered only when the matching `Get-{Noun}` command has at least one parameter set that can run without required user parameters. This keeps `resources/list`, `resources/read`, and tool-result link injection aligned with the actual readable runtime surface. (#292)
+- **Doctor and configuration-status noun-resource parity** — Diagnostic surfaces now reuse the same eligibility-aware noun registry captured during discovery, so doctor and runtime configuration status match the effective runtime noun-resource registry, including overrides and suppressed nouns. (#292)
+
+### Documentation
+- Updated the configuration guide and resources guide to document explicit associated-resource links, resolution precedence, and noun-resource fallback behavior. (#292)
+
+### Tests
+- Added coverage for explicit associated-resource links, eligibility-aware noun-resource registration, and doctor/config-status parity. (#292)
+
+### Breaking
+- None.
+
+### Upgrade Notes
+- **Drop-in upgrade.** No configuration changes are required. If noun-derived resources were enabled in `0.15.0`, resources backed only by `Get-*` commands with required parameters will no longer be advertised.
+
 ## [0.15.0] - 2026-05-19
 
 ### Added

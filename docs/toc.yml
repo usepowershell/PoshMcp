@@ -63,6 +63,8 @@
 
 - name: Release Notes
   items:
+  - name: v0.15.1
+    href: release-notes/0.15.1.md
   - name: v0.15.0
     href: release-notes/0.15.0.md
   - name: v0.14.2
