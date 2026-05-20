@@ -136,3 +136,7 @@ Release v0.14.1 shipped successfully. Version bump, release notes, and GitHub re
 **Handoff to Farnsworth:** Gap analysis forwarded for prioritized roadmap development.
 
 **Note:** Decisions.md updated with Hermes log-forging revision (2026-05-17T08:15:00).
+## 2026-05-20: Noun-resource tightening combined-slice validation
+
+- Independently validated the combined noun-resource tightening and `AssociatedResourceUri` slice with 65 focused tests passing.
+- Validation covered the tightened noun-resource eligibility path together with the focused binding and link-injection behaviors exercised in the implementation worktree.
