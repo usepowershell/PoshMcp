@@ -146,7 +146,7 @@ This block is not appended when:
 
 When `AssociatedResourceUri` is set on a command override, PoshMcp first tries to resolve that URI against the exposed resource surface. If it resolves, PoshMcp appends exactly one `application/json+mcp-resource-link` block for that target with `relationship: "context"`, even when the noun override has `DisableResourceLinkBlock: true`.
 
-If `AssociatedResourceUri` is missing or does not resolve to an exposed resource, PoshMcp falls back to the implicit noun-derived behavior above. Invalid or unresolvable URIs produce a startup warning and are otherwise ignored.
+If `AssociatedResourceUri` is missing or does not resolve to an exposed resource for a discovered command override during tool setup, PoshMcp falls back to the implicit noun-derived behavior above. That unresolved override path logs a warning and is otherwise ignored; PoshMcp does not perform generic startup validation of `AssociatedResourceUri` values.
 
 Example:
 

@@ -103,7 +103,7 @@ Behavior:
 - `PowerShellConfiguration.CommandOverrides.<Command>.AssociatedResourceUri` (or legacy `FunctionOverrides.<Command>.AssociatedResourceUri`) overrides the implicit noun-derived link target for that command when the URI resolves to an exposed MCP resource.
 - `CommandOverrides` still take precedence over legacy `FunctionOverrides` when both define `AssociatedResourceUri` for the same command.
 - Explicit `AssociatedResourceUri` links are appended with `relationship: "context"` and are not suppressed by `DisableResourceLinkBlock`; that flag only suppresses the implicit noun-derived fallback.
-- If `AssociatedResourceUri` is absent or invalid, PoshMcp falls back to the existing implicit noun-derived link behavior when available. Invalid or unresolvable URIs log a warning during startup and do not fail configuration load.
+- If `AssociatedResourceUri` is absent or does not resolve for a discovered command override during tool setup, PoshMcp falls back to the existing implicit noun-derived link behavior when available. In that case, PoshMcp logs a warning and continues; it does not perform generic configuration-load validation for `AssociatedResourceUri` values.
 
 Example:
 
