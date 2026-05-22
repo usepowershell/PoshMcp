@@ -10,6 +10,7 @@ namespace PoshMcp.Tests.Unit;
 public sealed class PropertySetDiscoveryTests
 {
     private const string KnownCommand = "Get-Process";
+    private const string MissingCommand = "Not-A-Real-Command-XYZ";
 
     public PropertySetDiscoveryTests()
     {
@@ -53,13 +54,13 @@ public sealed class PropertySetDiscoveryTests
     [Fact]
     public void DiscoverDefaultDisplayProperties_NonexistentCommand_ReturnsNull()
     {
-        var result = PropertySetDiscovery.DiscoverDefaultDisplayProperties("Not-A-Real-Command-XYZ");
+        var result = PropertySetDiscovery.DiscoverDefaultDisplayProperties(MissingCommand);
 
         Assert.Null(result);
     }
 
     [Fact]
-    public void ClearCache_ThenReDiscover_ReturnsResult()
+    public void ClearCache_ThenReDiscover_ReturnsNewResult()
     {
         var first = PropertySetDiscovery.DiscoverDefaultDisplayProperties(KnownCommand);
 
@@ -69,6 +70,7 @@ public sealed class PropertySetDiscoveryTests
 
         Assert.NotNull(first);
         Assert.NotNull(second);
+        Assert.NotSame(first, second);
         Assert.Contains("Id", second, StringComparer.OrdinalIgnoreCase);
         Assert.Contains("Name", second, StringComparer.OrdinalIgnoreCase);
     }
@@ -110,6 +112,15 @@ public sealed class PropertySetDiscoveryTests
 
         var properties = Assert.IsAssignableFrom<IReadOnlyList<string>>(batch[KnownCommand]);
         Assert.Same(properties, cached);
+    }
+
+    [Fact]
+    public void DiscoverAll_NonexistentCommand_CachesNullEntry()
+    {
+        var result = PropertySetDiscovery.DiscoverAll(new[] { KnownCommand, MissingCommand });
+
+        Assert.True(result.ContainsKey(MissingCommand));
+        Assert.Null(result[MissingCommand]);
     }
 
     [Fact]
