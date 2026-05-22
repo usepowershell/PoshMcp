@@ -55,7 +55,7 @@ public sealed class McpToolSetupServiceDecisionTests
         using var configFile = new TemporaryConfigFile();
         var config = CreateConfig(enableDynamicReloadTools: false, enableConfigurationTroubleshootingTool: false);
 
-        var tools = await McpToolSetupService.SetupMcpToolsAsync(
+        var toolSetupResult = await McpToolSetupService.SetupMcpToolsAsync(
             NullLoggerFactory.Instance,
             config,
             NullLogger.Instance,
@@ -63,7 +63,7 @@ public sealed class McpToolSetupServiceDecisionTests
             "runtime",
             commandExecutor: null);
 
-        var toolNames = GetToolNames(tools);
+        var toolNames = GetToolNames(toolSetupResult.Tools);
 
         Assert.Contains("set-result-caching", toolNames);
         Assert.DoesNotContain("reload-configuration-from-file", toolNames);
@@ -79,7 +79,7 @@ public sealed class McpToolSetupServiceDecisionTests
         using var configFile = new TemporaryConfigFile();
         var config = CreateConfig(enableDynamicReloadTools: true, enableConfigurationTroubleshootingTool: false);
 
-        var tools = await McpToolSetupService.SetupMcpToolsAsync(
+        var toolSetupResult = await McpToolSetupService.SetupMcpToolsAsync(
             NullLoggerFactory.Instance,
             config,
             NullLogger.Instance,
@@ -87,7 +87,7 @@ public sealed class McpToolSetupServiceDecisionTests
             "runtime",
             commandExecutor: null);
 
-        var toolNames = GetToolNames(tools);
+        var toolNames = GetToolNames(toolSetupResult.Tools);
 
         Assert.Contains("reload-configuration-from-file", toolNames);
         Assert.Contains("update-configuration", toolNames);
@@ -103,7 +103,7 @@ public sealed class McpToolSetupServiceDecisionTests
         using var configFile = new TemporaryConfigFile();
         var config = CreateConfig(enableDynamicReloadTools: false, enableConfigurationTroubleshootingTool: true);
 
-        var tools = await McpToolSetupService.SetupMcpToolsAsync(
+        var toolSetupResult = await McpToolSetupService.SetupMcpToolsAsync(
             NullLoggerFactory.Instance,
             config,
             NullLogger.Instance,
@@ -111,7 +111,7 @@ public sealed class McpToolSetupServiceDecisionTests
             "runtime",
             commandExecutor: null);
 
-        var toolNames = GetToolNames(tools);
+        var toolNames = GetToolNames(toolSetupResult.Tools);
 
         Assert.Contains("get-configuration-guidance", toolNames);
         Assert.Contains("get-configuration-troubleshooting", toolNames);
