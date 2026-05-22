@@ -140,3 +140,20 @@ Release v0.14.1 shipped successfully. Version bump, release notes, and GitHub re
 
 - Independently validated the combined noun-resource tightening and `AssociatedResourceUri` slice with 65 focused tests passing.
 - Validation covered the tightened noun-resource eligibility path together with the focused binding and link-injection behaviors exercised in the implementation worktree.
+## 2026-05-22T05:40:02 — Unit Test Confidence Review
+
+**Session:** Unit test review and gap identification (background mode, coordinated with Farnsworth)
+
+**Task:** Comprehensive assessment of current unit test coverage across all test tiers.
+
+**Outcome:** 412 tests found across 51 files. Medium confidence overall. 6 critical gaps identified:
+- ConvertParameterValue: Core type-mapping logic untested
+- HealthCheck stubs: Placeholder functions need implementation tests
+- Auth filters: JWT/API-key filter chains not comprehensively covered
+- ObjectSerializer: JSON object/array/primitive mapping not validated
+- SchemaGenerator: Type-to-JSON-schema translation gaps
+- ToolFactory core: McpToolFactoryV2 factory patterns need test density
+
+**Handoff to Farnsworth:** Gap analysis forwarded for prioritized roadmap development.
+
+**Note:** Decisions.md updated with Hermes log-forging revision (2026-05-17T08:15:00).
