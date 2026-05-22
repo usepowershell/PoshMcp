@@ -108,3 +108,14 @@ Use the **existing user-assigned managed identity** (`poshmcp-identity`) on the 
 **By:** Steven Murawski (via Copilot)
 **What:** When you need to shell out to run a command, prefer `pwsh` to `powershell` unless you need a PowerShell command or module that is not supported under pwsh (PowerShell 7).
 **Why:** User request — captured for team memory
+
+### 2026-05-17T08:15:00-05:00: Hermes — log-forging revision
+**By:** Hermes
+**Status:** Proposed
+**Related:** #277, PR #278
+**Decision:** In `PoshMcp.Server\PowerShell\PowerShellAssemblyGenerator.cs`, every log sink that can receive user-controlled or environment-controlled string data must sanitize that value with `LogSanitizer.Scrub()` at the `ILogger` call site, and prefer structured logging over interpolated log strings.
+**Applied in this revision:**
+- generation-time command failure/skip logs
+- `_MaxResults` validation warning
+- cached output sort/filter/group helper diagnostics
+- invalid filter-script warning with scrubbed script and scrubbed exception message
