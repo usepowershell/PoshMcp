@@ -41,28 +41,19 @@ public class AssemblyGenerationHealthCheck : IHealthCheck
             // Check if we can introspect PowerShell commands (basic functionality)
             var canIntrospect = await Task.Run(() =>
             {
-                try
+                return _runspace.ExecuteThreadSafe(ps =>
                 {
-                    var commandInfo = _runspace.ExecuteThreadSafe(ps =>
+                    ps.Commands.Clear();
+                    ps.AddCommand("Get-Command").AddParameter("Name", "Get-Date");
+                    var results = ps.Invoke();
+
+                    if (ps.HadErrors)
                     {
-                        ps.Commands.Clear();
-                        ps.AddCommand("Get-Command").AddParameter("Name", "Get-Date");
-                        var results = ps.Invoke();
+                        return false;
+                    }
 
-                        if (ps.HadErrors)
-                        {
-                            return false;
-                        }
-
-                        return results.Count > 0;
-                    });
-
-                    return commandInfo;
-                }
-                catch
-                {
-                    return false;
-                }
+                    return results.Count > 0;
+                });
             }, cancellationToken);
 
             if (canIntrospect)
