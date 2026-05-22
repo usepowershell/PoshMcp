@@ -117,12 +117,13 @@ public sealed class PropertySetDiscoveryTests
     [Fact]
     public void DiscoverAll_NonexistentCommand_CachesNullEntry()
     {
-        var result = PropertySetDiscovery.DiscoverAll(new[] { KnownCommand, MissingCommand });
-        var cached = PropertySetDiscovery.DiscoverDefaultDisplayProperties(MissingCommand);
+        Assert.False(PropertySetDiscovery.CacheContainsKey(MissingCommand));
 
+        var result = PropertySetDiscovery.DiscoverAll(new[] { KnownCommand, MissingCommand });
+
+        Assert.True(PropertySetDiscovery.CacheContainsKey(MissingCommand));
         Assert.True(result.ContainsKey(MissingCommand));
         Assert.Null(result[MissingCommand]);
-        Assert.Null(cached);
     }
 
     [Fact]

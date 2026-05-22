@@ -104,6 +104,11 @@ public static class PropertySetDiscovery
         _cache.Clear();
     }
 
+    internal static bool CacheContainsKey(string commandName)
+    {
+        return _cache.ContainsKey(commandName);
+    }
+
     private static IReadOnlyList<string>? DiscoverDefaultDisplayPropertiesCore(string commandName)
     {
         try
