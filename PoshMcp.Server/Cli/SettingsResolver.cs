@@ -60,6 +60,8 @@ internal static class SettingsResolver
             "warn" => LogLevel.Warning,
             "warning" => LogLevel.Warning,
             "error" => LogLevel.Error,
+            "critical" => LogLevel.Critical,
+            "none" => LogLevel.None,
             _ => LogLevel.Information
         };
     }
