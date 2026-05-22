@@ -90,6 +90,7 @@ Detailed prior history (2026-03-27 through 2026-04-07) archived to `history-arch
     4. OOP `setup` handler imports `config.Modules` (the top-level discovery list), not just `Environment.ImportModules`. So a module listed in top-level `Modules` is implicitly imported in OOP but not in-process. Another in-process/OOP asymmetry to document.
   - Tool-count delta in the baseline (in-process 133 vs OOP 144) is itself an existing parity artifact, captured as-is. Spec 010 explicitly does not close it (FR-551 keeps tool names stable; descriptions are what spec 010 normalizes).
   - JSON shape: persisted the full JSON-RPC envelope rather than just the tools array so the regression test can also verify `id`/`jsonrpc` framing if needed. Tests should project to `result.tools[]` for parity assertions.
+- 2026-05-22T05:50:13.171-05:00: `PowerShellParameterUtils` unit coverage can stay pure C# — `ParameterMetadata` is directly constructible and its `Attributes` collection accepts `ParameterAttribute`, so `ProcessParameter` mandatory/optional branches and `CreateParameterArray` reflection scenarios do not need a PowerShell runspace. Also capture PowerShell-style boolean literals (`$true` / `$false`) in `ConvertParameterValue` theory data; they are part of the real argument surface and worth keeping as regressions.
 
 ### 2026-05-14: v0.13.0 released from main (tag pending CI)
 **By:** Scribe (cross-agent note from coordinator)
