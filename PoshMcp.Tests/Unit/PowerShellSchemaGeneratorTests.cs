@@ -19,6 +19,20 @@ public class PowerShellSchemaGeneratorTests
 
     private sealed class CustomType { }
 
+    private sealed class RecordingToolMetadataSource : IToolMetadataSource
+    {
+        public ParameterDescriptionRequest? LastParameterRequest { get; private set; }
+
+        public ToolDescriptionResult ResolveToolDescription(in ToolDescriptionRequest request)
+            => new(request.CommandName, ToolDescriptionSource.Name);
+
+        public ParameterDescriptionResult ResolveParameterDescription(in ParameterDescriptionRequest request)
+        {
+            LastParameterRequest = request;
+            return new ParameterDescriptionResult("Custom metadata description", ParameterDescriptionSource.HelpMessage);
+        }
+    }
+
     [Fact]
     public void StringType_MapsToString()
     {
@@ -145,6 +159,37 @@ public class PowerShellSchemaGeneratorTests
         var schema = CreateSchema(typeof(int));
 
         Assert.Equal("Parameter of type Int32", schema["description"]);
+    }
+
+    [Fact]
+    public void Description_FromValidateSet_MentionsValidValues()
+    {
+        var metadata = new ParameterMetadata("Status", typeof(string));
+        metadata.Attributes.Add(new ValidateSetAttribute("Active", "Inactive", "Pending"));
+
+        var schema = Assert.IsType<Dictionary<string, object>>(
+            PowerShellSchemaGenerator.CreateParameterSchema(metadata, "Test-Command", "Status", null));
+
+        var description = Assert.IsType<string>(schema["description"]);
+        Assert.Contains("Active", description);
+        Assert.Contains("Inactive", description);
+        Assert.Contains("Pending", description);
+    }
+
+    [Fact]
+    public void Description_UsesCustomMetadataSource()
+    {
+        var metadata = CreateParameterMetadata(typeof(string));
+        var metadataSource = new RecordingToolMetadataSource();
+
+        var schema = Assert.IsType<Dictionary<string, object>>(
+            PowerShellSchemaGenerator.CreateParameterSchema(metadata, "Test-Command", metadata.Name, metadataSource));
+
+        Assert.Equal("Custom metadata description", schema["description"]);
+        Assert.True(metadataSource.LastParameterRequest.HasValue);
+        var request = metadataSource.LastParameterRequest.Value;
+        Assert.Equal("Test-Command", request.CommandName);
+        Assert.Equal(metadata.Name, request.ParameterName);
     }
 
     [Fact]
