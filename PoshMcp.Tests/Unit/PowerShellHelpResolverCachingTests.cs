@@ -7,6 +7,9 @@ namespace PoshMcp.Tests.Unit;
 [Trait("Category", "Unit")]
 public sealed class PowerShellHelpResolverCachingTests
 {
+    // Individual Get-Help-backed cases stay under the issue's 500ms per-test budget, so this
+    // coverage remains in Unit/ even though the filtered suite's cumulative runtime is higher.
+
     [Fact]
     public void Resolve_SecondCall_ReturnsCachedResult()
     {
@@ -21,21 +24,28 @@ public sealed class PowerShellHelpResolverCachingTests
     }
 
     [Fact]
-    public void ClearCache_ThenResolve_InvokesGetHelpAgain()
+    public void ClearCache_ThenTwoResolves_ReusesSinglePostClearLookup()
     {
         using var powerShell = PSPowerShell.Create();
         var resolver = new PowerShellHelpResolver();
 
-        var first = resolver.Resolve("Get-Date", powerShell, NullLogger.Instance);
+        var beforeClear = resolver.Resolve("Get-Date", powerShell, NullLogger.Instance);
         resolver.ClearCache();
-        var second = resolver.Resolve("Get-Date", powerShell, NullLogger.Instance);
 
-        Assert.NotSame(CommandHelpInfo.Empty, first);
-        Assert.NotSame(CommandHelpInfo.Empty, second);
-        Assert.NotSame(first, second);
-        Assert.Equal(first.Synopsis, second.Synopsis);
-        Assert.Equal(first.LongDescription, second.LongDescription);
-        Assert.Equal(first.ParameterDescriptions, second.ParameterDescriptions);
+        var firstAfterClear = resolver.Resolve("Get-Date", powerShell, NullLogger.Instance);
+        var secondAfterClear = resolver.Resolve("Get-Date", powerShell, NullLogger.Instance);
+
+        Assert.NotSame(CommandHelpInfo.Empty, beforeClear);
+        Assert.NotSame(CommandHelpInfo.Empty, firstAfterClear);
+        Assert.NotSame(beforeClear, firstAfterClear);
+        Assert.Equal(beforeClear.Synopsis, firstAfterClear.Synopsis);
+        Assert.Equal(beforeClear.LongDescription, firstAfterClear.LongDescription);
+        Assert.Equal(beforeClear.ParameterDescriptions, firstAfterClear.ParameterDescriptions);
+
+        // Resolve uses ConcurrentDictionary.GetOrAdd, so returning the exact same cached instance
+        // on the second post-clear call proves the value factory (ResolveCore/Get-Help) did not
+        // run a second time for that command after ClearCache.
+        Assert.Same(firstAfterClear, secondAfterClear);
     }
 
     [Fact]
@@ -114,19 +124,6 @@ public sealed class PowerShellHelpResolverCachingTests
             !string.IsNullOrWhiteSpace(result.LongDescription) ||
             result.ParameterDescriptions.Count > 0,
             "Expected Get-Date help to include a synopsis, description, or parameter help.");
-    }
-
-    [Fact]
-    public void CachingContract_OneGetHelpInvocation()
-    {
-        using var powerShell = PSPowerShell.Create();
-        var resolver = new PowerShellHelpResolver();
-
-        var first = resolver.Resolve("Get-Process", powerShell, NullLogger.Instance);
-        var second = resolver.Resolve("Get-Process", powerShell, NullLogger.Instance);
-
-        Assert.NotSame(CommandHelpInfo.Empty, first);
-        Assert.Same(first, second);
     }
 
     private static PSPowerShell CreateDisposedPowerShell()
