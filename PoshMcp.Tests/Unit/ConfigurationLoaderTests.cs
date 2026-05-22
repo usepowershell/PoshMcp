@@ -11,6 +11,7 @@ using Xunit;
 
 namespace PoshMcp.Tests.Unit;
 
+[Collection("TransportSelectionTests")]
 [Trait("Category", "Unit")]
 public sealed class ConfigurationLoaderTests
 {
@@ -32,36 +33,66 @@ public sealed class ConfigurationLoaderTests
     [Fact]
     public void BuildRootConfiguration_WithNullPath_StillBuilds()
     {
-        using var envVar = new EnvironmentVariableScope("ConfigurationLoaderTests__BuildRoot__NullPath", "env-value");
+        const string environmentVariableName = "ConfigurationLoaderTests__BuildRoot__NullPath";
+        string? originalValue = Environment.GetEnvironmentVariable(environmentVariableName);
 
-        IConfigurationRoot configuration = ConfigurationLoader.BuildRootConfiguration(null, reloadOnChange: false);
+        try
+        {
+            Environment.SetEnvironmentVariable(environmentVariableName, "env-value");
 
-        Assert.NotNull(configuration);
-        Assert.Equal("env-value", configuration["ConfigurationLoaderTests:BuildRoot:NullPath"]);
+            IConfigurationRoot configuration = ConfigurationLoader.BuildRootConfiguration(null, reloadOnChange: false);
+
+            Assert.NotNull(configuration);
+            Assert.Equal("env-value", configuration["ConfigurationLoaderTests:BuildRoot:NullPath"]);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(environmentVariableName, originalValue);
+        }
     }
 
     [Fact]
     public void BuildRootConfiguration_WithNonexistentFile_StillBuilds()
     {
         using var tempDirectory = new TempDirectory("config-loader-missing");
-        using var envVar = new EnvironmentVariableScope("ConfigurationLoaderTests__BuildRoot__MissingPath", "env-value");
+        const string environmentVariableName = "ConfigurationLoaderTests__BuildRoot__MissingPath";
+        string? originalValue = Environment.GetEnvironmentVariable(environmentVariableName);
         var configPath = tempDirectory.Combine("missing.json");
 
-        IConfigurationRoot configuration = ConfigurationLoader.BuildRootConfiguration(configPath, reloadOnChange: false);
+        try
+        {
+            Environment.SetEnvironmentVariable(environmentVariableName, "env-value");
 
-        Assert.NotNull(configuration);
-        Assert.Equal("env-value", configuration["ConfigurationLoaderTests:BuildRoot:MissingPath"]);
+            IConfigurationRoot configuration = ConfigurationLoader.BuildRootConfiguration(configPath, reloadOnChange: false);
+
+            Assert.NotNull(configuration);
+            Assert.Equal("env-value", configuration["ConfigurationLoaderTests:BuildRoot:MissingPath"]);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(environmentVariableName, originalValue);
+        }
     }
 
     [Fact]
     public void BuildRootConfiguration_WithEmptyPath_StillBuilds()
     {
-        using var envVar = new EnvironmentVariableScope("ConfigurationLoaderTests__BuildRoot__EmptyPath", "env-value");
+        const string environmentVariableName = "ConfigurationLoaderTests__BuildRoot__EmptyPath";
+        string? originalValue = Environment.GetEnvironmentVariable(environmentVariableName);
 
-        IConfigurationRoot configuration = ConfigurationLoader.BuildRootConfiguration("   ", reloadOnChange: false);
+        try
+        {
+            Environment.SetEnvironmentVariable(environmentVariableName, "env-value");
 
-        Assert.NotNull(configuration);
-        Assert.Equal("env-value", configuration["ConfigurationLoaderTests:BuildRoot:EmptyPath"]);
+            IConfigurationRoot configuration = ConfigurationLoader.BuildRootConfiguration("   ", reloadOnChange: false);
+
+            Assert.NotNull(configuration);
+            Assert.Equal("env-value", configuration["ConfigurationLoaderTests:BuildRoot:EmptyPath"]);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(environmentVariableName, originalValue);
+        }
     }
 
     [Fact]
@@ -151,7 +182,7 @@ public sealed class ConfigurationLoaderTests
     public void LoadPowerShellConfiguration_EnvVarOverridesConfigTroubleshootingTool()
     {
         using var tempDirectory = new TempDirectory("config-loader-env-override");
-        using var envVar = new EnvironmentVariableScope(ConfigurationLoader.ConfigurationTroubleshootingToolEnvVar, "true");
+        string? originalValue = Environment.GetEnvironmentVariable(ConfigurationLoader.ConfigurationTroubleshootingToolEnvVar);
         var configPath = WriteConfigFile(tempDirectory, "appsettings.json", """
         {
           "PowerShellConfiguration": {
@@ -161,9 +192,18 @@ public sealed class ConfigurationLoaderTests
         }
         """);
 
-        PowerShellConfiguration configuration = ConfigurationLoader.LoadPowerShellConfiguration(configPath, NullLogger.Instance, runtimeModeOverride: null);
+        try
+        {
+            Environment.SetEnvironmentVariable(ConfigurationLoader.ConfigurationTroubleshootingToolEnvVar, "true");
 
-        Assert.True(configuration.EnableConfigurationTroubleshootingTool);
+            PowerShellConfiguration configuration = ConfigurationLoader.LoadPowerShellConfiguration(configPath, NullLogger.Instance, runtimeModeOverride: null);
+
+            Assert.True(configuration.EnableConfigurationTroubleshootingTool);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(ConfigurationLoader.ConfigurationTroubleshootingToolEnvVar, originalValue);
+        }
     }
 
     [Fact]
@@ -213,21 +253,4 @@ public sealed class ConfigurationLoaderTests
         Assert.Empty(diagnostics.Warnings);
     }
 
-    private sealed class EnvironmentVariableScope : IDisposable
-    {
-        private readonly string _name;
-        private readonly string? _originalValue;
-
-        public EnvironmentVariableScope(string name, string? value)
-        {
-            _name = name;
-            _originalValue = Environment.GetEnvironmentVariable(name);
-            Environment.SetEnvironmentVariable(name, value);
-        }
-
-        public void Dispose()
-        {
-            Environment.SetEnvironmentVariable(_name, _originalValue);
-        }
-    }
 }
