@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using PoshMcp.Tests.Shared;
 using Xunit;
 
 namespace PoshMcp.Tests.Unit;
@@ -22,7 +23,7 @@ public sealed class InfrastructureScaffolderTests
     [Fact]
     public async Task ScaffoldAzureInfrastructureAsync_WithEmptyDirectory_WritesAllExpectedFiles()
     {
-        using var tempDirectory = new TemporaryProjectDirectory();
+        using var tempDirectory = new TempDirectory();
 
         var result = await global::PoshMcp.InfrastructureScaffolder.ScaffoldAzureInfrastructureAsync(tempDirectory.Path, force: false);
 
@@ -34,7 +35,7 @@ public sealed class InfrastructureScaffolderTests
     [Fact]
     public async Task ScaffoldAzureInfrastructureAsync_CreatesInfraAzureSubdirectory()
     {
-        using var tempDirectory = new TemporaryProjectDirectory();
+        using var tempDirectory = new TempDirectory();
         Directory.Delete(tempDirectory.Path, recursive: true);
 
         await global::PoshMcp.InfrastructureScaffolder.ScaffoldAzureInfrastructureAsync(tempDirectory.Path, force: false);
@@ -45,14 +46,14 @@ public sealed class InfrastructureScaffolderTests
     [Fact]
     public async Task ScaffoldAzureInfrastructureAsync_WithForceTrue_OverwritesExistingFiles()
     {
-        using var tempDirectory = new TemporaryProjectDirectory();
+        using var tempDirectory = new TempDirectory();
         var existingFilePath = Path.Combine(tempDirectory.Path, ExpectedRelativePaths[0]);
         Directory.CreateDirectory(Path.GetDirectoryName(existingFilePath)!);
         await File.WriteAllTextAsync(existingFilePath, "custom-content");
 
         var result = await global::PoshMcp.InfrastructureScaffolder.ScaffoldAzureInfrastructureAsync(tempDirectory.Path, force: true);
 
-        Assert.True(result.FilesOverwritten > 0);
+        Assert.Equal(1, result.FilesOverwritten);
         Assert.Equal(7, result.FilesWritten);
         Assert.NotEqual("custom-content", await File.ReadAllTextAsync(existingFilePath));
     }
@@ -60,7 +61,7 @@ public sealed class InfrastructureScaffolderTests
     [Fact]
     public async Task ScaffoldAzureInfrastructureAsync_WithForceFalse_ThrowsIOException_WhenFileExists()
     {
-        using var tempDirectory = new TemporaryProjectDirectory();
+        using var tempDirectory = new TempDirectory();
         var existingFilePath = Path.Combine(tempDirectory.Path, ExpectedRelativePaths[0]);
         Directory.CreateDirectory(Path.GetDirectoryName(existingFilePath)!);
         await File.WriteAllTextAsync(existingFilePath, "custom-content");
@@ -90,9 +91,9 @@ public sealed class InfrastructureScaffolderTests
     }
 
     [Fact]
-    public async Task ScaffoldAzureInfrastructureAsync_ReturnsAbsoluteProjectPath()
+    public async Task ScaffoldAzureInfrastructureAsync_ReturnsAbsoluteProjectPathForPathWithDotSegment()
     {
-        using var tempRoot = new TemporaryProjectDirectory();
+        using var tempRoot = new TempDirectory();
         var relativeProjectPath = Path.Combine(tempRoot.Path, ".", "sample-project");
 
         var result = await global::PoshMcp.InfrastructureScaffolder.ScaffoldAzureInfrastructureAsync(relativeProjectPath, force: false);
@@ -103,7 +104,7 @@ public sealed class InfrastructureScaffolderTests
     [Fact]
     public async Task ScaffoldAzureInfrastructureAsync_ReturnsRelativeInfraPath()
     {
-        using var tempDirectory = new TemporaryProjectDirectory();
+        using var tempDirectory = new TempDirectory();
 
         var result = await global::PoshMcp.InfrastructureScaffolder.ScaffoldAzureInfrastructureAsync(tempDirectory.Path, force: false);
 
@@ -113,7 +114,7 @@ public sealed class InfrastructureScaffolderTests
     [Fact]
     public async Task ScaffoldAzureInfrastructureAsync_WritesNonEmptyFiles()
     {
-        using var tempDirectory = new TemporaryProjectDirectory();
+        using var tempDirectory = new TempDirectory();
 
         await global::PoshMcp.InfrastructureScaffolder.ScaffoldAzureInfrastructureAsync(tempDirectory.Path, force: false);
 
@@ -125,7 +126,7 @@ public sealed class InfrastructureScaffolderTests
     [InlineData(true)]
     public async Task ScaffoldAzureInfrastructureAsync_ReflectsForceFlagInResult(bool force)
     {
-        using var tempDirectory = new TemporaryProjectDirectory();
+        using var tempDirectory = new TempDirectory();
 
         if (force)
         {
@@ -139,22 +140,4 @@ public sealed class InfrastructureScaffolderTests
         Assert.Equal(force, result.Force);
     }
 
-    private sealed class TemporaryProjectDirectory : IDisposable
-    {
-        public string Path { get; }
-
-        public TemporaryProjectDirectory()
-        {
-            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.IO.Path.GetRandomFileName());
-            Directory.CreateDirectory(Path);
-        }
-
-        public void Dispose()
-        {
-            if (Directory.Exists(Path))
-            {
-                Directory.Delete(Path, recursive: true);
-            }
-        }
-    }
 }
