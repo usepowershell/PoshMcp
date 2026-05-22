@@ -251,3 +251,20 @@ PRs #269 (Phase 1 ModuleDiscovery), #270 (Phase 2a DoctorService wiring), #271 (
 Code-grounded review passed: ApiKey dictionary-key-is-secret (`ApiKeyAuthenticationHandler.cs:32`), role-claim minting chain through `AuthorizationHelpers.HasRequiredRoles` any-match (L23), `ToolListAuthorizationFilter.CanAccessTool` ordering (L55-78), Docker base image contract (paths + `appuser` UID 1001), `DefaultScheme="Bearer"` default ([AuthenticationConfiguration.cs:8](PoshMcp.Server/Authentication/AuthenticationConfiguration.cs#L8)). All 5 non-blocking polish asks (doctor demo + DefaultScheme callout + Modules-vs-CommandNames callout + no-key boundary beat + Dockerfile.user drift note) landed by Leela in polish pass; Cubert re-verified clean. Squash-merged to ``main``.
 
 Patterns codified: (1) tutorials touching `Modules`/`IncludePatterns` should always demonstrate `poshmcp doctor` + v0.14.0 `moduleImports` section; (2) for code-grounded doc PRs, map each named config property to its handler/options class and verify spelling + semantics; (3) check `gh pr view N --json reviews,comments` first to avoid double-verdict races.
+
+## 2026-05-22T05:40:02 — Unit Test Gap-Fill Plan Development
+
+**Session:** Unit test review and remediation roadmap (background mode, coordinated with Fry)
+
+**Task:** Develop prioritized remediation plan based on Fry's confidence review and gap analysis.
+
+**Approach:** Phased roadmap prioritized for risk/effort trade-off:
+- **Phase 1 (8 quick wins):** No refactoring required — immediate coverage wins on straightforward code paths
+- **Phase 2 (6 items):** Minor mock/seam additions — leverage existing test patterns with minimal setup
+- **Phase 3 (2 items):** Interface extraction investments — well-scoped subsystems worthy of seam patterns
+
+**Input from Fry:** 412 tests across 51 files, Medium confidence, 6 critical gaps (ConvertParameterValue, HealthCheck, Auth filters, ObjectSerializer, SchemaGenerator, ToolFactory).
+
+**Outcome:** Roadmap ready for execution. Phase 1 establishes solid foundation with no architectural risk.
+
+**Note:** Decisions.md updated with Hermes log-forging revision (2026-05-17T08:15:00).
