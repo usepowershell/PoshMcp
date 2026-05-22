@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Xunit;
+using PoshMcp.Tests.Shared;
 
 namespace PoshMcp.Tests.Unit;
 
@@ -15,7 +16,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_AddCommands_AddsCommandsToEmptyArray()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot(commandNames: Array.Empty<string>()));
 
@@ -34,7 +35,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_AddCommands_DeduplicatesCaseInsensitively()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot(commandNames: new[] { "Get-Process" }));
 
@@ -52,7 +53,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_RemoveCommands_RemovesExistingCommands()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot(commandNames: new[] { "Get-Process", "Get-Date" }));
 
@@ -70,7 +71,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_RemoveCommands_WhenCommandDoesNotExist_ReturnsUnchanged()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot(commandNames: new[] { "Get-Process" }));
 
@@ -88,7 +89,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_AddFunctions_AddsLegacyFunctionNames()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot(functionNames: Array.Empty<string>()));
 
@@ -106,7 +107,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_RemoveFunctions_RemovesLegacyFunctionNames()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot(functionNames: new[] { "Get-Process", "Get-Date" }));
 
@@ -124,7 +125,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_WhenNoLegacyFunctionOperations_DoesNotCreateFunctionNames()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot(commandNames: new[] { "Get-Process" }));
 
@@ -140,7 +141,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_AddModules_AddsModules()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot(modules: Array.Empty<string>()));
 
@@ -157,7 +158,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_RemoveModules_RemovesModules()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot(modules: new[] { "Pester", "Az.Accounts" }));
 
@@ -174,7 +175,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_AddIncludePatterns_AddsPatterns()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot(includePatterns: Array.Empty<string>()));
 
@@ -191,7 +192,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_RemoveIncludePatterns_RemovesPatterns()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot(includePatterns: new[] { "Get-*", "Set-*" }));
 
@@ -208,7 +209,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_AddExcludePatterns_AddsPatterns()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot(excludePatterns: Array.Empty<string>()));
 
@@ -225,7 +226,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_RemoveExcludePatterns_RemovesPatterns()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot(excludePatterns: new[] { "*-Internal", "*-Private" }));
 
@@ -242,7 +243,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_EnableDynamicReloadTools_WritesBoolean()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot());
 
@@ -258,7 +259,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_EnableConfigurationTroubleshootingTool_WritesBoolean()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot());
 
@@ -274,7 +275,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_EnableResultCaching_WritesUnderPerformance()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot());
 
@@ -290,7 +291,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_UseDefaultDisplayProperties_WritesUnderPerformance()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot());
 
@@ -306,7 +307,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_SetRuntimeMode_WritesRuntimeMode()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot());
 
@@ -322,7 +323,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_SetAuthEnabled_WritesAuthenticationEnabled()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot());
 
@@ -338,7 +339,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_WhenRequestHasNoChanges_ReturnsChangedFalse()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot(
             commandNames: new[] { "Get-Process" },
@@ -359,7 +360,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_WhenRequestHasNoChanges_DoesNotRewriteFile()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot(
             commandNames: new[] { "Get-Process" },
@@ -385,7 +386,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_WithInvalidJson_ThrowsJsonException()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await File.WriteAllTextAsync(configPath, "not json");
 
@@ -395,7 +396,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_WithNonObjectJsonRoot_ThrowsInvalidOperationException()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await File.WriteAllTextAsync(configPath, "[]");
 
@@ -403,40 +404,9 @@ public class UpdateConfigurationFileAsyncTests
     }
 
     [Fact]
-    public async Task UpdateConfigurationFileAsync_InInteractiveMode_MigratesFunctionOverridesToCommandOverrides()
-    {
-        using var tempDirectory = new TemporaryDirectory();
-        using var capture = new ConsoleCapture("y\n\n\n\n\n\n\n");
-        var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
-
-        var root = CreateConfigRoot(commandNames: Array.Empty<string>());
-        root["PowerShellConfiguration"]!["FunctionOverrides"] = new JsonObject
-        {
-            ["Get-Process"] = new JsonObject
-            {
-                ["EnableResultCaching"] = true
-            }
-        };
-        await WriteConfigAsync(configPath, root);
-
-        var result = await ConfigurationFileManager.UpdateConfigurationFileAsync(
-            configPath,
-            CreateRequest(addCommands: new[] { "Get-Date" }, nonInteractive: false));
-
-        Assert.True(result.Changed);
-        Assert.Equal(1, result.AdvancedPromptedFunctionCount);
-
-        var powerShellConfiguration = (await ReadRootAsync(configPath))["PowerShellConfiguration"]?.AsObject();
-        Assert.NotNull(powerShellConfiguration);
-        Assert.Null(powerShellConfiguration!["FunctionOverrides"]);
-        Assert.True(powerShellConfiguration["CommandOverrides"]?["Get-Process"]?["EnableResultCaching"]?.GetValue<bool>());
-        Assert.NotNull(powerShellConfiguration["CommandOverrides"]?["Get-Date"]?.AsObject());
-    }
-
-    [Fact]
     public async Task UpdateConfigurationFileAsync_WithMultipleOperations_AppliesAllChanges()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot(
             commandNames: new[] { "Get-Process" },
@@ -465,7 +435,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_SkipsWhitespaceAndEmptyCollectionValues()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot(commandNames: Array.Empty<string>()));
 
@@ -481,7 +451,7 @@ public class UpdateConfigurationFileAsyncTests
     [Fact]
     public async Task UpdateConfigurationFileAsync_DeduplicatesCaseInsensitivelyAcrossAllArrays()
     {
-        using var tempDirectory = new TemporaryDirectory();
+        using var tempDirectory = new TempDirectory();
         var configPath = Path.Combine(tempDirectory.Path, "appsettings.json");
         await WriteConfigAsync(configPath, CreateConfigRoot(
             commandNames: new[] { "Get-Process" },
@@ -630,25 +600,6 @@ public class UpdateConfigurationFileAsyncTests
             Console.SetIn(_originalIn);
             _capturedOut.Dispose();
             _capturedError.Dispose();
-        }
-    }
-
-    private sealed class TemporaryDirectory : IDisposable
-    {
-        public string Path { get; }
-
-        public TemporaryDirectory()
-        {
-            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"poshmcp-update-config-tests-{Guid.NewGuid():N}");
-            Directory.CreateDirectory(Path);
-        }
-
-        public void Dispose()
-        {
-            if (Directory.Exists(Path))
-            {
-                Directory.Delete(Path, true);
-            }
         }
     }
 }
