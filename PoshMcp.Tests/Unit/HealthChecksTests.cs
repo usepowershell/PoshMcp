@@ -1,335 +1,172 @@
-using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Microsoft.Extensions.Logging;
-using PoshMcp.Server.PowerShell;
 using System;
+using System.Management.Automation;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Logging;
+using Moq;
+using PoshMcp.Server.Health;
+using PoshMcp.Server.PowerShell;
 using Xunit;
-using Xunit.Abstractions;
+using PSPowerShell = System.Management.Automation.PowerShell;
 
 namespace PoshMcp.Tests.Unit;
 
-/// <summary>
-/// Unit tests for health check functionality.
-/// 
-/// These tests validate that the health check implementation correctly reports the status
-/// of the PowerShell runspace and overall system health according to ASP.NET Core 
-/// IHealthCheck contract.
-/// 
-/// Expected behaviors:
-/// - Returns Healthy when PowerShell runspace is operational and responsive
-/// - Returns Unhealthy when PowerShell runspace initialization fails
-/// - Returns Degraded when PowerShell runspace has recoverable errors
-/// - Health checks complete within 500ms (suitable for K8s probes)
-/// - Health check results include meaningful diagnostic data
-/// </summary>
 [Trait("Category", "Unit")]
-public class HealthChecksTests : PowerShellTestBase
+public class HealthChecksTests
 {
-    public HealthChecksTests(ITestOutputHelper output) : base(output) { }
-
-    #region Healthy Status Tests
-
     [Fact]
-    public async Task CheckHealthAsync_WithOperationalRunspace_ReturnsHealthy()
+    public async Task AssemblyGenerationHealthCheck_Healthy_WhenRunspaceReturnsTrue()
     {
-        // Arrange
-        // TODO: Once PowerShellRunspaceHealthCheck is implemented, instantiate it here
-        // var healthCheck = new PowerShellRunspaceHealthCheck(PowerShellRunspace, Logger);
-        // var context = new HealthCheckContext();
-        // var cancellationToken = CancellationToken.None;
+        var runspace = new Mock<IPowerShellRunspace>();
+        runspace.Setup(r => r.ExecuteThreadSafe(It.IsAny<Func<PSPowerShell, bool>>())).Returns(true);
+        var healthCheck = new AssemblyGenerationHealthCheck(runspace.Object, Mock.Of<ILogger<AssemblyGenerationHealthCheck>>());
 
-        // Act
-        // var result = await healthCheck.CheckHealthAsync(context, cancellationToken);
+        var result = await healthCheck.CheckHealthAsync(new HealthCheckContext());
 
-        // Assert
-        // Assert.Equal(HealthStatus.Healthy, result.Status);
-        // Assert.NotNull(result.Description);
-        // Assert.Contains("operational", result.Description.ToLowerInvariant());
-
-        // Placeholder assertion until implementation exists
-        await Task.CompletedTask;
-        Assert.True(true, "Test stub - will be implemented after PowerShellRunspaceHealthCheck is created");
+        Assert.Equal(HealthStatus.Healthy, result.Status);
+        Assert.Equal("Assembly generation ready", result.Description);
     }
 
     [Fact]
-    public async Task CheckHealthAsync_WithHealthyRunspace_CompletesQuickly()
+    public async Task AssemblyGenerationHealthCheck_Degraded_WhenRunspaceReturnsFalse()
     {
-        // Arrange
-        // This test validates that health checks meet the <500ms requirement for K8s probes
-        // TODO: Implement once PowerShellRunspaceHealthCheck exists
-        // var healthCheck = new PowerShellRunspaceHealthCheck(PowerShellRunspace, Logger);
-        // var context = new HealthCheckContext();
-        // var cancellationToken = CancellationToken.None;
+        var runspace = new Mock<IPowerShellRunspace>();
+        runspace.Setup(r => r.ExecuteThreadSafe(It.IsAny<Func<PSPowerShell, bool>>())).Returns(false);
+        var healthCheck = new AssemblyGenerationHealthCheck(runspace.Object, Mock.Of<ILogger<AssemblyGenerationHealthCheck>>());
 
-        // Act
-        // var startTime = DateTime.UtcNow;
-        // var result = await healthCheck.CheckHealthAsync(context, cancellationToken);
-        // var elapsed = DateTime.UtcNow - startTime;
+        var result = await healthCheck.CheckHealthAsync(new HealthCheckContext());
 
-        // Assert
-        // Assert.Equal(HealthStatus.Healthy, result.Status);
-        // Assert.True(elapsed.TotalMilliseconds < 500, 
-        //     $"Health check took {elapsed.TotalMilliseconds}ms, should be < 500ms");
-
-        await Task.CompletedTask;
-        Assert.True(true, "Test stub - will validate <500ms response time requirement");
+        Assert.Equal(HealthStatus.Degraded, result.Status);
+        Assert.Equal("Cannot introspect PowerShell commands", result.Description);
     }
 
     [Fact]
-    public async Task CheckHealthAsync_WithHealthyRunspace_IncludesDiagnosticData()
+    public async Task AssemblyGenerationHealthCheck_Unhealthy_WhenRunspaceThrows()
     {
-        // Arrange
-        // Health check results should include useful diagnostic information for troubleshooting
-        // Expected data: runspace state, last operation timestamp, error count, etc.
-        // TODO: Implement once PowerShellRunspaceHealthCheck exists
-        // var healthCheck = new PowerShellRunspaceHealthCheck(PowerShellRunspace, Logger);
-        // var context = new HealthCheckContext();
+        var runspace = new Mock<IPowerShellRunspace>();
+        runspace.Setup(r => r.ExecuteThreadSafe(It.IsAny<Func<PSPowerShell, bool>>())).Throws(new InvalidOperationException("assembly failure"));
+        var healthCheck = new AssemblyGenerationHealthCheck(runspace.Object, Mock.Of<ILogger<AssemblyGenerationHealthCheck>>());
 
-        // Act
-        // var result = await healthCheck.CheckHealthAsync(context, CancellationToken.None);
+        var result = await healthCheck.CheckHealthAsync(new HealthCheckContext());
 
-        // Assert
-        // Assert.Equal(HealthStatus.Healthy, result.Status);
-        // Assert.NotNull(result.Data);
-        // Assert.True(result.Data.ContainsKey("runspaceState"), "Should include runspace state");
-        // Assert.True(result.Data.ContainsKey("lastCheckTime"), "Should include timestamp");
-
-        await Task.CompletedTask;
-        Assert.True(true, "Test stub - will validate diagnostic data in health check response");
-    }
-
-    #endregion
-
-    #region Unhealthy Status Tests
-
-    [Fact]
-    public async Task CheckHealthAsync_WithFailedRunspaceInitialization_ReturnsUnhealthy()
-    {
-        // Arrange
-        // When PowerShell runspace fails to initialize (e.g., missing modules, policy restrictions),
-        // health check should return Unhealthy status
-        // TODO: Create a mock or test double that simulates failed initialization
-        // var failedRunspace = new FailedInitializationRunspaceMock();
-        // var healthCheck = new PowerShellRunspaceHealthCheck(failedRunspace, Logger);
-        // var context = new HealthCheckContext();
-
-        // Act
-        // var result = await healthCheck.CheckHealthAsync(context, CancellationToken.None);
-
-        // Assert
-        // Assert.Equal(HealthStatus.Unhealthy, result.Status);
-        // Assert.NotNull(result.Description);
-        // Assert.NotNull(result.Exception);
-        // Assert.Contains("initialization", result.Description.ToLowerInvariant());
-
-        await Task.CompletedTask;
-        Assert.True(true, "Test stub - will test Unhealthy status for failed initialization");
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+        Assert.IsType<InvalidOperationException>(result.Exception);
     }
 
     [Fact]
-    public async Task CheckHealthAsync_WithUnresponsiveRunspace_ReturnsUnhealthy()
+    public async Task AssemblyGenerationHealthCheck_Unhealthy_ContainsExceptionMessage()
     {
-        // Arrange
-        // If runspace doesn't respond to a simple test command within timeout,
-        // it should be considered unhealthy
-        // TODO: Create test scenario with unresponsive runspace
-        // var unresponsiveRunspace = new UnresponsiveRunspaceMock();
-        // var healthCheck = new PowerShellRunspaceHealthCheck(unresponsiveRunspace, Logger);
-        // var context = new HealthCheckContext();
+        var runspace = new Mock<IPowerShellRunspace>();
+        runspace.Setup(r => r.ExecuteThreadSafe(It.IsAny<Func<PSPowerShell, bool>>())).Throws(new InvalidOperationException("assembly failure"));
+        var healthCheck = new AssemblyGenerationHealthCheck(runspace.Object, Mock.Of<ILogger<AssemblyGenerationHealthCheck>>());
 
-        // Act
-        // var result = await healthCheck.CheckHealthAsync(context, CancellationToken.None);
+        var result = await healthCheck.CheckHealthAsync(new HealthCheckContext());
 
-        // Assert
-        // Assert.Equal(HealthStatus.Unhealthy, result.Status);
-        // Assert.Contains("unresponsive", result.Description.ToLowerInvariant());
-
-        await Task.CompletedTask;
-        Assert.True(true, "Test stub - will test Unhealthy status for unresponsive runspace");
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+        Assert.Contains("assembly failure", result.Description, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task CheckHealthAsync_WithCriticalError_IncludesExceptionDetails()
+    public void AssemblyGenerationHealthCheck_NullRunspace_ThrowsArgumentNullException()
     {
-        // Arrange
-        // When health check encounters a critical error, the exception should be included
-        // in the health check result for diagnostics
-        // TODO: Simulate a critical error condition
-        // var faultyRunspace = new FaultyRunspaceMock();
-        // var healthCheck = new PowerShellRunspaceHealthCheck(faultyRunspace, Logger);
-        // var context = new HealthCheckContext();
+        var exception = Assert.Throws<ArgumentNullException>(() => new AssemblyGenerationHealthCheck(null!, Mock.Of<ILogger<AssemblyGenerationHealthCheck>>()));
 
-        // Act
-        // var result = await healthCheck.CheckHealthAsync(context, CancellationToken.None);
-
-        // Assert
-        // Assert.Equal(HealthStatus.Unhealthy, result.Status);
-        // Assert.NotNull(result.Exception);
-        // Assert.IsType<ExpectedExceptionType>(result.Exception);
-
-        await Task.CompletedTask;
-        Assert.True(true, "Test stub - will validate exception details in Unhealthy results");
-    }
-
-    #endregion
-
-    #region Degraded Status Tests
-
-    [Fact]
-    public async Task CheckHealthAsync_WithRecoverableErrors_ReturnsDegraded()
-    {
-        // Arrange
-        // Degraded status indicates the system is working but not optimally
-        // Examples: high error rate, slow response times, but still functional
-        // TODO: Create scenario with recoverable errors (e.g., some commands fail but runspace is alive)
-        // var degradedRunspace = new DegradedRunspaceMock();
-        // var healthCheck = new PowerShellRunspaceHealthCheck(degradedRunspace, Logger);
-        // var context = new HealthCheckContext();
-
-        // Act
-        // var result = await healthCheck.CheckHealthAsync(context, CancellationToken.None);
-
-        // Assert
-        // Assert.Equal(HealthStatus.Degraded, result.Status);
-        // Assert.NotNull(result.Description);
-        // Assert.Contains("degraded", result.Description.ToLowerInvariant());
-
-        await Task.CompletedTask;
-        Assert.True(true, "Test stub - will test Degraded status for recoverable errors");
+        Assert.Equal("runspace", exception.ParamName);
     }
 
     [Fact]
-    public async Task CheckHealthAsync_WithSlowButFunctionalRunspace_ReturnsDegraded()
+    public void AssemblyGenerationHealthCheck_NullLogger_ThrowsArgumentNullException()
     {
-        // Arrange
-        // If runspace is responding but slower than expected thresholds,
-        // it should return Degraded (not Unhealthy, since it still works)
-        // TODO: Create test with artificially slow runspace
-        // var slowRunspace = new SlowRunspaceMock();
-        // var healthCheck = new PowerShellRunspaceHealthCheck(slowRunspace, Logger);
-        // var context = new HealthCheckContext();
+        var runspace = new Mock<IPowerShellRunspace>();
 
-        // Act
-        // var result = await healthCheck.CheckHealthAsync(context, CancellationToken.None);
+        var exception = Assert.Throws<ArgumentNullException>(() => new AssemblyGenerationHealthCheck(runspace.Object, null!));
 
-        // Assert
-        // Assert.Equal(HealthStatus.Degraded, result.Status);
-        // Assert.Contains("slow", result.Description.ToLowerInvariant());
-
-        await Task.CompletedTask;
-        Assert.True(true, "Test stub - will test Degraded status for slow performance");
-    }
-
-    #endregion
-
-    #region Cancellation and Timeout Tests
-
-    [Fact]
-    public async Task CheckHealthAsync_WithCancellationToken_RespectsCancellation()
-    {
-        // Arrange
-        // Health check should respect cancellation tokens
-        // var healthCheck = new PowerShellRunspaceHealthCheck(PowerShellRunspace, Logger);
-        // var context = new HealthCheckContext();
-        // var cts = new CancellationTokenSource();
-        // cts.Cancel(); // Cancel immediately
-
-        // Act & Assert
-        // await Assert.ThrowsAsync<OperationCanceledException>(async () =>
-        // {
-        //     await healthCheck.CheckHealthAsync(context, cts.Token);
-        // });
-
-        await Task.CompletedTask;
-        Assert.True(true, "Test stub - will validate cancellation token handling");
+        Assert.Equal("logger", exception.ParamName);
     }
 
     [Fact]
-    public async Task CheckHealthAsync_DoesNotBlockIndefinitely()
+    public async Task PowerShellRunspaceHealthCheck_Healthy_WhenRunspaceResponds()
     {
-        // Arrange
-        // Even without explicit cancellation, health check should have internal timeout
-        // to prevent indefinite blocking (critical for K8s probes)
-        // var healthCheck = new PowerShellRunspaceHealthCheck(PowerShellRunspace, Logger);
-        // var context = new HealthCheckContext();
+        var runspace = new Mock<IPowerShellRunspace>();
+        runspace.Setup(r => r.ExecuteThreadSafe(It.IsAny<Func<PSPowerShell, (bool, string)>>())).Returns((true, "responsive"));
+        var healthCheck = new PowerShellRunspaceHealthCheck(runspace.Object, Mock.Of<ILogger<PowerShellRunspaceHealthCheck>>());
 
-        // Act
-        // var timeout = Task.Delay(TimeSpan.FromSeconds(10)); // Safety timeout for test itself
-        // var healthCheckTask = healthCheck.CheckHealthAsync(context, CancellationToken.None);
-        // var completedTask = await Task.WhenAny(healthCheckTask, timeout);
+        var result = await healthCheck.CheckHealthAsync(new HealthCheckContext());
 
-        // Assert
-        // Assert.Same(healthCheckTask, completedTask, "Health check should complete before test timeout");
-
-        await Task.CompletedTask;
-        Assert.True(true, "Test stub - will ensure health check doesn't block indefinitely");
-    }
-
-    #endregion
-
-    #region Concurrent Access Tests
-
-    [Fact]
-    public async Task CheckHealthAsync_WithConcurrentCalls_HandlesThreadSafely()
-    {
-        // Arrange
-        // Multiple health check calls may happen concurrently
-        // All should complete successfully without race conditions
-        // var healthCheck = new PowerShellRunspaceHealthCheck(PowerShellRunspace, Logger);
-        // var context = new HealthCheckContext();
-
-        // Act
-        // var tasks = Enumerable.Range(0, 10).Select(_ =>
-        //     healthCheck.CheckHealthAsync(context, CancellationToken.None)
-        // );
-        // var results = await Task.WhenAll(tasks);
-
-        // Assert
-        // Assert.All(results, result => Assert.NotNull(result));
-        // Assert.All(results, result => Assert.NotEqual(HealthStatus.Unhealthy, result.Status));
-
-        await Task.CompletedTask;
-        Assert.True(true, "Test stub - will test thread-safe concurrent health checks");
-    }
-
-    #endregion
-
-    #region Integration with Health Check Context
-
-    [Fact]
-    public async Task CheckHealthAsync_WithRegistration_UsesCorrectHealthCheckName()
-    {
-        // Arrange
-        // When registering health check with ASP.NET Core, the name should be meaningful
-        // and match conventions (e.g., "powershell_runspace")
-        // TODO: This test may belong more in integration tests, but documents the requirement
-
-        // Expected registration:
-        // services.AddHealthChecks()
-        //     .AddCheck<PowerShellRunspaceHealthCheck>("powershell_runspace");
-
-        await Task.CompletedTask;
-        Assert.True(true, "Test stub - documents health check naming convention");
+        Assert.Equal(HealthStatus.Healthy, result.Status);
+        Assert.Equal("responsive", result.Description);
     }
 
     [Fact]
-    public async Task CheckHealthAsync_SupportsHealthCheckTags()
+    public async Task PowerShellRunspaceHealthCheck_Unhealthy_WhenRunspaceErrors()
     {
-        // Arrange
-        // Health checks should support tags for filtering (e.g., "ready", "live")
-        // Per K8s conventions:
-        // - "ready" tag for readiness probes (/health/ready)
-        // - "live" tag for liveness probes (/health/live)
+        var runspace = new Mock<IPowerShellRunspace>();
+        runspace.Setup(r => r.ExecuteThreadSafe(It.IsAny<Func<PSPowerShell, (bool, string)>>())).Returns((false, "errors"));
+        var healthCheck = new PowerShellRunspaceHealthCheck(runspace.Object, Mock.Of<ILogger<PowerShellRunspaceHealthCheck>>());
 
-        // Expected registration with tags:
-        // services.AddHealthChecks()
-        //     .AddCheck<PowerShellRunspaceHealthCheck>("powershell_runspace", 
-        //         tags: new[] { "ready", "live" });
+        var result = await healthCheck.CheckHealthAsync(new HealthCheckContext());
 
-        await Task.CompletedTask;
-        Assert.True(true, "Test stub - documents health check tagging for K8s probes");
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+        Assert.Equal("errors", result.Description);
     }
 
-    #endregion
+    [Fact]
+    public async Task PowerShellRunspaceHealthCheck_Unhealthy_WhenRunspaceThrows()
+    {
+        var runspace = new Mock<IPowerShellRunspace>();
+        runspace.Setup(r => r.ExecuteThreadSafe(It.IsAny<Func<PSPowerShell, (bool, string)>>())).Throws(new InvalidOperationException("runspace failure"));
+        var healthCheck = new PowerShellRunspaceHealthCheck(runspace.Object, Mock.Of<ILogger<PowerShellRunspaceHealthCheck>>());
+
+        var result = await healthCheck.CheckHealthAsync(new HealthCheckContext());
+
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+        Assert.Contains("runspace failure", result.Description, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PowerShellRunspaceHealthCheck_Unhealthy_ContainsDescription()
+    {
+        var runspace = new Mock<IPowerShellRunspace>();
+        runspace.Setup(r => r.ExecuteThreadSafe(It.IsAny<Func<PSPowerShell, (bool, string)>>())).Returns((false, "custom description"));
+        var healthCheck = new PowerShellRunspaceHealthCheck(runspace.Object, Mock.Of<ILogger<PowerShellRunspaceHealthCheck>>());
+
+        var result = await healthCheck.CheckHealthAsync(new HealthCheckContext());
+
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+        Assert.Contains("custom description", result.Description, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PowerShellRunspaceHealthCheck_NullRunspace_ThrowsArgumentNullException()
+    {
+        var exception = Assert.Throws<ArgumentNullException>(() => new PowerShellRunspaceHealthCheck(null!, Mock.Of<ILogger<PowerShellRunspaceHealthCheck>>()));
+
+        Assert.Equal("runspace", exception.ParamName);
+    }
+
+    [Fact]
+    public void PowerShellRunspaceHealthCheck_NullLogger_ThrowsArgumentNullException()
+    {
+        var runspace = new Mock<IPowerShellRunspace>();
+
+        var exception = Assert.Throws<ArgumentNullException>(() => new PowerShellRunspaceHealthCheck(runspace.Object, null!));
+
+        Assert.Equal("logger", exception.ParamName);
+    }
+
+    [Fact]
+    public async Task PowerShellRunspaceHealthCheck_Unhealthy_WhenCancelled()
+    {
+        var runspace = new Mock<IPowerShellRunspace>();
+        var healthCheck = new PowerShellRunspaceHealthCheck(runspace.Object, Mock.Of<ILogger<PowerShellRunspaceHealthCheck>>());
+        using var cancellationSource = new CancellationTokenSource();
+        cancellationSource.Cancel();
+
+        var result = await healthCheck.CheckHealthAsync(new HealthCheckContext(), cancellationSource.Token);
+
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+        Assert.Equal("Health check cancelled or timed out", result.Description);
+        runspace.Verify(r => r.ExecuteThreadSafe(It.IsAny<Func<PSPowerShell, (bool, string)>>()), Times.Never);
+    }
 }
