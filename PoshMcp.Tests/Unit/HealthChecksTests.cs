@@ -156,6 +156,24 @@ public class HealthChecksTests
     }
 
     [Fact]
+    public async Task PowerShellRunspaceHealthCheck_Unhealthy_WhenRunspaceHealthCheckTimesOut()
+    {
+        var runspace = new Mock<IPowerShellRunspace>();
+        runspace.Setup(r => r.ExecuteThreadSafe(It.IsAny<Func<PSPowerShell, (bool, string)>>()))
+            .Returns(() =>
+            {
+                Thread.Sleep(1000);
+                return (true, "delayed");
+            });
+        var healthCheck = new PowerShellRunspaceHealthCheck(runspace.Object, Mock.Of<ILogger<PowerShellRunspaceHealthCheck>>());
+
+        var result = await healthCheck.CheckHealthAsync(new HealthCheckContext());
+
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+        Assert.Contains("timeout", result.Description, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task PowerShellRunspaceHealthCheck_Unhealthy_WhenCancelled()
     {
         var runspace = new Mock<IPowerShellRunspace>();
