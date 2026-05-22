@@ -65,8 +65,8 @@ public static class PowerShellParameterUtils
                 // Try common boolean representations
                 return rawString?.ToLower() switch
                 {
-                    "1" or "yes" or "y" or "true" or "on" => true,
-                    "0" or "no" or "n" or "false" or "off" => false,
+                    "1" or "yes" or "y" or "true" or "on" or "$true" => true,
+                    "0" or "no" or "n" or "false" or "off" or "$false" => false,
                     _ => throw new ArgumentException($"Cannot convert '{rawString}' to boolean for parameter {parameterName}")
                 };
             }
