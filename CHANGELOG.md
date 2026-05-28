@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented here.
 
+## [0.16.0] - 2026-05-28
+
+### Added
+- **Prompt template rendering for both prompt sources** — `prompts/get` now renders template placeholders in content returned from both `Source: "file"` and `Source: "command"`, with support for preferred `{{argName}}` syntax and backward-compatible `{argName}` syntax.
+
+### Fixed
+- **Required prompt argument enforcement at runtime** — `prompts/get` now returns `InvalidParams` when required prompt arguments are missing, null, or whitespace.
+- **Prompt metadata stability across retrieval** — prompt retrieval no longer mutates prompt metadata surfaced by `prompts/list`.
+
+### Documentation
+- Updated prompt documentation in `README.md` and the resources/prompts guide to reflect source-aware prompt behavior, runtime required-argument enforcement, and supported placeholder syntax.
+
+### Tests
+- Added integration coverage for file and command prompt template rendering, required-argument validation behavior, and `prompts/list` metadata stability.
+
 ## [0.15.1] - 2026-05-20
 
 ### Added

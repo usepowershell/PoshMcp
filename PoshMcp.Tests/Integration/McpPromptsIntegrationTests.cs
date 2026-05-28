@@ -105,6 +105,30 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
         Assert.NotNull(cmdPrompt);
     }
 
+    [Fact]
+    public async Task PromptsList_Metadata_RemainsStable_AfterPromptsGet()
+    {
+        // prompts/list metadata should be stable and unaffected by prompts/get execution.
+        var client = _client ?? throw new InvalidOperationException("Client not initialized");
+
+        var beforeResponse = await client.SendListPromptsAsync();
+        var beforePrompts = beforeResponse["result"]?["prompts"] as JArray;
+        Assert.NotNull(beforePrompts);
+
+        var getResponse = await client.SendGetPromptAsync(
+          PromptsTestFixture.FilePromptName,
+          new Dictionary<string, string> { ["serviceName"] = "wuauserv" });
+        Assert.Null(getResponse["error"]);
+
+        var afterResponse = await client.SendListPromptsAsync();
+        var afterPrompts = afterResponse["result"]?["prompts"] as JArray;
+        Assert.NotNull(afterPrompts);
+
+        Assert.True(
+          JToken.DeepEquals(beforePrompts, afterPrompts),
+          $"Expected prompts/list metadata to remain stable across prompts/get. Before: {beforePrompts}; After: {afterPrompts}");
+    }
+
     // ── prompts/get - file source ─────────────────────────────────────────────
 
     [Fact]
@@ -114,7 +138,9 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
         // prompts/get for a file-backed prompt returns the file content as a user-role message.
         var client = _client ?? throw new InvalidOperationException("Client not initialized");
 
-        var response = await client.SendGetPromptAsync(PromptsTestFixture.FilePromptName);
+        var response = await client.SendGetPromptAsync(
+          PromptsTestFixture.FilePromptName,
+          new Dictionary<string, string> { ["serviceName"] = "wuauserv" });
 
         Assert.NotNull(response);
         Assert.Null(response["error"]);
@@ -129,13 +155,15 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
         var textContent = firstMessage["content"]?["text"]?.ToString();
         Assert.False(string.IsNullOrWhiteSpace(textContent));
         Assert.Contains(PromptsTestFixture.FilePromptExpectedContent, textContent, StringComparison.Ordinal);
+        Assert.Contains("wuauserv", textContent, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("{{serviceName}}", textContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("{serviceName}", textContent, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task PromptsGet_FileSource_WithNoArguments_ReturnsRawContent()
+    public async Task PromptsGet_FileSource_MissingRequiredArgument_ReturnsInvalidParamsError()
     {
-        // User Story 3, Acceptance Scenario 4 (FR-024):
-        // prompts/get with no arguments returns raw file content without substitution errors.
+        // Required prompt arguments are validated at prompts/get time.
         var client = _client ?? throw new InvalidOperationException("Client not initialized");
 
         var response = await client.SendGetPromptAsync(
@@ -143,11 +171,55 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
             new { }); // empty arguments
 
         Assert.NotNull(response);
-        Assert.Null(response["error"]);
+        var error = response["error"];
+        Assert.NotNull(error);
 
-        var messages = response["result"]?["messages"] as JArray;
-        Assert.NotNull(messages);
-        Assert.True(messages!.Count > 0);
+        var errorCode = error!["code"]?.Value<int>();
+        Assert.Equal(-32602, errorCode);
+
+        var message = error["message"]?.ToString();
+        Assert.NotNull(message);
+        Assert.Contains("serviceName", message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PromptsGet_FileSource_WhitespaceRequiredArgument_ReturnsInvalidParamsError()
+    {
+        // Required prompt arguments should reject whitespace-only values.
+        var client = _client ?? throw new InvalidOperationException("Client not initialized");
+
+        var response = await client.SendGetPromptAsync(
+          PromptsTestFixture.FilePromptName,
+          new Dictionary<string, string> { ["serviceName"] = "   " });
+
+        Assert.NotNull(response);
+        var error = response["error"];
+        Assert.NotNull(error);
+        Assert.Equal(-32602, error!["code"]?.Value<int>());
+
+        var message = error["message"]?.ToString();
+        Assert.NotNull(message);
+        Assert.Contains("serviceName", message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PromptsGet_FileSource_NullRequiredArgument_ReturnsInvalidParamsError()
+    {
+        // Required prompt arguments should reject explicit null values.
+        var client = _client ?? throw new InvalidOperationException("Client not initialized");
+
+        var response = await client.SendGetPromptAsync(
+          PromptsTestFixture.FilePromptName,
+          new Dictionary<string, string?> { ["serviceName"] = null });
+
+        Assert.NotNull(response);
+        var error = response["error"];
+        Assert.NotNull(error);
+        Assert.Equal(-32602, error!["code"]?.Value<int>());
+
+        var message = error["message"]?.ToString();
+        Assert.NotNull(message);
+        Assert.Contains("serviceName", message, StringComparison.OrdinalIgnoreCase);
     }
 
     // ── prompts/get - command source ──────────────────────────────────────────
@@ -200,6 +272,29 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
     }
 
     [Fact]
+    public async Task PromptsGet_CommandSource_RendersTemplateVariablesInCommandOutput()
+    {
+        // Command output also supports string-based template variable replacement.
+        var client = _client ?? throw new InvalidOperationException("Client not initialized");
+
+        var response = await client.SendGetPromptAsync(
+            PromptsTestFixture.TemplateCommandPromptName,
+            new Dictionary<string, string> { ["serviceName"] = "wuauserv" });
+
+        Assert.NotNull(response);
+        Assert.Null(response["error"]);
+
+        var messages = response["result"]?["messages"] as JArray;
+        Assert.NotNull(messages);
+
+        var textContent = messages![0]?["content"]?["text"]?.ToString();
+        Assert.NotNull(textContent);
+        Assert.Contains("wuauserv", textContent, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("{{serviceName}}", textContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("{serviceName}", textContent, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task PromptsGet_CommandSource_TerminatingError_ReturnsMcpError()
     {
         // User Story 4, Acceptance Scenario 3 (FR-033):
@@ -248,6 +343,7 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
 
         public const string CommandPromptName = "integration-test-command-prompt";
         public const string ArgCommandPromptName = "integration-test-arg-prompt";
+        public const string TemplateCommandPromptName = "integration-test-template-command-prompt";
         public const string ErrorCommandPromptName = "integration-test-error-prompt";
 
         public string ConfigPath { get; }
@@ -261,11 +357,13 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
 
             // Create the prompt template file
             var promptFilePath = Path.Combine(_configDir, "analyze-service.md");
-            File.WriteAllText(promptFilePath, $"# Service Analysis\n{FilePromptExpectedContent} {{serviceName}}.\nProvide a detailed health report.");
+            File.WriteAllText(promptFilePath, $"# Service Analysis\n{FilePromptExpectedContent} {{{{serviceName}}}} / {{serviceName}}.\nProvide a detailed health report.");
 
             ConfigPath = Path.Combine(_configDir, "appsettings.json");
 
             var absolutePromptPath = promptFilePath.Replace("\\", "\\\\");
+            var mustachePlaceholder = "{{serviceName}}";
+            var bracePlaceholder = "{serviceName}";
 
             var json = $$"""
 {
@@ -310,6 +408,15 @@ public class McpPromptsIntegrationTests : PowerShellTestBase, IAsyncLifetime
         "Command": "\"Service: $serviceName\"",
         "Arguments": [
           { "Name": "serviceName", "Description": "The service name to inject", "Required": true }
+        ]
+      },
+      {
+        "Name": "{{TemplateCommandPromptName}}",
+        "Description": "A command prompt that returns template placeholders for post-command rendering",
+        "Source": "command",
+        "Command": "\"Template output: {{mustachePlaceholder}} / {{bracePlaceholder}}\"",
+        "Arguments": [
+          { "Name": "serviceName", "Description": "The service name used for template rendering", "Required": true }
         ]
       },
       {

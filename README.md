@@ -245,15 +245,26 @@ Expose contextual information and reusable templates to AI agents:
       {
         "Name": "check-service",
         "Description": "Analyze service status",
+        "Source": "command",
         "Arguments": [
           { "Name": "serviceName", "Description": "Service to check", "Required": true }
         ],
-        "Command": "Get-Service -Name $serviceName | Format-List *"
+        "Command": "Analyze service '{{serviceName}}' and summarize status."
       }
     ]
   }
 }
 ```
+
+Prompt metadata and behavior:
+- `Name` is required.
+- `Description` is recommended and shown in `prompts/list`.
+- `Arguments` metadata supports `Name`, `Description`, and `Required`.
+- `Source` selects how content is produced: `"file"` uses `Path`, `"command"` uses `Command`.
+- `prompts/list` exposes prompt metadata (name, description, argument definitions).
+- `prompts/get` renders content from the configured source (`Path` file content or `Command` output).
+- Required arguments are enforced at `prompts/get` runtime.
+- Template placeholders support both `{{argName}}` and backward-compatible `{argName}` syntax.
 
 See [Resources and Prompts Guide](https://usepowershell.github.io/PoshMcp/articles/resources-and-prompts.html) for complete examples and best practices.
 

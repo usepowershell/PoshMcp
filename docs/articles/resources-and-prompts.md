@@ -27,11 +27,11 @@ Two sources:
 **Prompts** are reusable templates with named arguments that AI agents can invoke. Perfect for:
 
 - **Standardized workflows**: Define consistent runbook execution patterns
-- **Dynamic context injection**: Pass runtime values (service names, resource IDs) into prompts
+- **Dynamic context injection**: Pass runtime values (service names, resource IDs) into templates
 - **Compliance templates**: Encode organizational best practices
 - **Multi-step guides**: Create templates that orchestrate complex investigations
 
-Prompts inject arguments as PowerShell variables, enabling dynamic rendering.
+Prompts use generic template rendering with named placeholders.
 
 ---
 
@@ -371,7 +371,8 @@ Add prompts to `appsettings.json`:
             "Required": false
           }
         ],
-        "Command": "Get-Service -Name $serviceName | Format-List *"
+        "Source": "command",
+        "Command": "Analyze service '{{serviceName}}' with detail level '{{detail}}'."
       }
     ]
   }
@@ -383,12 +384,18 @@ Add prompts to `appsettings.json`:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `Name` | string | Yes | Prompt identifier (must be unique) |
-| `Description` | string | Yes | Purpose of the prompt (shown in `prompts/list`) |
+| `Description` | string | Recommended | Purpose of the prompt (shown in `prompts/list`) |
 | `Arguments` | array | No | Array of argument definitions |
-| `Arguments[].Name` | string | Yes | Argument name (used as PowerShell variable: `$name`) |
-| `Arguments[].Description` | string | Yes | What the argument is for |
+| `Arguments[].Name` | string | Yes | Argument name |
+| `Arguments[].Description` | string | Recommended | What the argument is for |
 | `Arguments[].Required` | boolean | No | Whether the argument must be provided (default: false) |
-| `Command` | string | Yes | PowerShell command with `$variableName` placeholders |
+| `Source` | string | Yes | `"file"` or `"command"` |
+| `Path` | string | If `Source="file"` | File path to load template content |
+| `Command` | string | If `Source="command"` | Command/script used to produce template content |
+
+Template placeholders support both:
+- `{{argName}}` (preferred)
+- `{argName}` (backward-compatible)
 
 ### Example: Simple Prompts
 
@@ -397,7 +404,8 @@ Basic prompt with required argument:
 ```json
 {
   "Name": "check-process",
-  "Description": "Get details of a running process",
+  "Description": "Summarize details of a running process",
+  "Source": "command",
   "Arguments": [
     {
       "Name": "processName",
@@ -405,7 +413,7 @@ Basic prompt with required argument:
       "Required": true
     }
   ],
-  "Command": "Get-Process -Name $processName | Format-List *"
+  "Command": "Analyze process '{{processName}}' and summarize health indicators."
 }
 ```
 
@@ -415,6 +423,7 @@ Prompt with optional arguments:
 {
   "Name": "list-services",
   "Description": "List Windows services with optional filtering",
+  "Source": "file",
   "Arguments": [
     {
       "Name": "pattern",
@@ -422,7 +431,7 @@ Prompt with optional arguments:
       "Required": false
     }
   ],
-  "Command": "if ([string]::IsNullOrEmpty($pattern)) { Get-Service } else { Get-Service -Name $pattern -ErrorAction SilentlyContinue }"
+  "Path": "prompts/list-services.md"
 }
 ```
 
@@ -437,6 +446,7 @@ Multi-argument prompt for incident investigation:
       {
         "Name": "investigate-incident",
         "Description": "Investigate a specific incident event",
+        "Source": "command",
         "Arguments": [
           {
             "Name": "eventId",
@@ -454,7 +464,7 @@ Multi-argument prompt for incident investigation:
             "Required": false
           }
         ],
-        "Command": "$log = if ([string]::IsNullOrEmpty($logName)) { 'System' } else { $logName }\n$lookback = if ([string]::IsNullOrEmpty($hours)) { 24 } else { [int]$hours }\n$startTime = (Get-Date).AddHours(-$lookback)\nGet-EventLog -LogName $log -EventId $eventId -After $startTime | Select-Object TimeGenerated, EventId, Source, Message | Format-Table -AutoSize"
+        "Command": "Investigate event '{{eventId}}' in log '{{logName}}' over the last '{{hours}}' hours. Return findings and next actions."
       }
     ]
   }
@@ -529,7 +539,7 @@ Retrieve a prompt with arguments rendered.
         "role": "user",
         "content": {
           "type": "text",
-          "text": "Analyze Windows service status and health\n\nService name: svchost\n\n---\n\n[PowerShell output from: Get-Service -Name svchost | Format-List *]"
+          "text": "Analyze Windows service status and health\n\nService name: svchost\n\nDetail level: basic"
         }
       }
     ]
@@ -537,17 +547,24 @@ Retrieve a prompt with arguments rendered.
 }
 ```
 
+Runtime behavior summary:
+- `prompts/list` exposes configured prompt metadata and argument definitions.
+- `prompts/get` loads content from the selected source (`file` via `Path`, `command` via `Command`) and renders placeholders using request arguments.
+- Required arguments (`Required: true`) are enforced at `prompts/get` runtime.
+- Placeholder syntax supports both `{{argName}}` (preferred) and `{argName}` (backward-compatible).
+
 ### Prompt Best Practices
 
 **Argument handling:**
 - Use meaningful names: `serviceName`, `resourceId`, `environment` (not `arg1`, `arg2`)
 - Provide clear descriptions for required arguments
 - Use optional arguments for filtering or configuration
-- Validate arguments in PowerShell (check if service exists, resource is valid)
+- Prefer `{{argName}}` placeholders in new prompts
+- Keep `{argName}` only when maintaining existing templates
 
 **Command design:**
 - Keep prompts focused: one investigation, analysis, or action per prompt
-- Use readable variable substitution: `$serviceName`, not `$svc`
+- Use readable placeholders: `{{serviceName}}`, not abbreviated names
 - Handle missing optional arguments gracefully with `if`/`else` logic
 - Return structured output: use `Select-Object` or `ConvertTo-Json`
 
@@ -584,7 +601,7 @@ Doctor checks include:
 - Duplicate names
 - Required arguments are documented
 - PowerShell command syntax is valid
-- Variable references in commands match argument names
+- Template placeholders reference declared argument names
 
 **Noun resources:**
 - Whether noun-derived resources are enabled
@@ -716,12 +733,12 @@ Prompts that orchestrate complex investigations:
 
 ### Prompt arguments not being substituted
 
-**Symptom:** Prompt output shows `$variableName` literally instead of the argument value
+**Symptom:** Prompt output shows `{{argName}}` or `{argName}` literally instead of argument values
 
 **Solution:**
-- Verify argument name matches variable in command: `Arguments[].Name` = `ServiceName` → `$ServiceName` in command
-- Use double quotes in PowerShell: `"$variable"`, not `'$variable'`
-- Check `prompts/get` request includes correct argument names in `params.arguments`
+- Verify argument names match placeholders exactly (`serviceName` → `{{serviceName}}`)
+- Ensure required arguments are supplied in `prompts/get` `params.arguments`
+- Check the prompt uses supported placeholder syntax (`{{argName}}` preferred, `{argName}` backward-compatible)
 
 ### Doctor reports duplicate URIs
 

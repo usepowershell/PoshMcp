@@ -72,16 +72,20 @@ public class McpPromptHandler
                 McpErrorCode.InvalidParams);
         }
 
+        var rawArgs = context.Params?.Arguments;
+        var stringArgs = ToStringDictionary(rawArgs);
+        ValidateRequiredArguments(prompt, stringArgs);
+
         string content;
         if (string.Equals(prompt.Source, "file", StringComparison.OrdinalIgnoreCase))
         {
             content = await ReadFilePromptAsync(prompt, cancellationToken);
+            content = RenderTemplateVariables(content, stringArgs);
         }
         else if (string.Equals(prompt.Source, "command", StringComparison.OrdinalIgnoreCase))
         {
-            var rawArgs = context.Params?.Arguments;
-            var stringArgs = ToStringDictionary(rawArgs);
             content = ExecuteCommandPrompt(prompt, stringArgs);
+            content = RenderTemplateVariables(content, stringArgs);
         }
         else
         {
@@ -123,6 +127,54 @@ public class McpPromptHandler
                 : kvp.Value.GetString() ?? kvp.Value.GetRawText();
         }
         return result;
+    }
+
+    private static void ValidateRequiredArguments(
+        McpPromptConfiguration prompt,
+        Dictionary<string, string?> args)
+    {
+        var missing = prompt.Arguments
+            .Where(a => a.Required)
+            .Select(a => a.Name)
+            .Where(name =>
+                !args.TryGetValue(name, out var value) ||
+                string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (missing.Count == 0)
+        {
+            return;
+        }
+
+        throw new McpProtocolException(
+            $"Missing required prompt argument(s): {string.Join(", ", missing)}.",
+            McpErrorCode.InvalidParams);
+    }
+
+    private static string RenderTemplateVariables(
+        string content,
+        Dictionary<string, string?> args)
+    {
+        if (string.IsNullOrEmpty(content) || args.Count == 0)
+        {
+            return content;
+        }
+
+        var rendered = content;
+        foreach (var arg in args)
+        {
+            if (string.IsNullOrWhiteSpace(arg.Key))
+            {
+                continue;
+            }
+
+            var replacement = arg.Value ?? string.Empty;
+            rendered = rendered.Replace($"{{{{{arg.Key}}}}}", replacement, StringComparison.Ordinal);
+            rendered = rendered.Replace($"{{{arg.Key}}}", replacement, StringComparison.Ordinal);
+        }
+
+        return rendered;
     }
 
     private async Task<string> ReadFilePromptAsync(
