@@ -189,3 +189,18 @@ Release v0.14.1 shipped successfully. Version bump, release notes, and GitHub re
 - Local focused verification: `dotnet test PoshMcp.Tests/PoshMcp.Tests.csproj --filter "FullyQualifiedName=PoshMcp.Tests.Integration.UnifiedHttpTransportIntegrationTests.ServeHttpTransport_ShouldInitializeAndListToolsOverMcp" --no-restore --verbosity minimal` passed (1/1), confirming initialize + tools/list completes on the current HTTP transport path.
 - Client gotcha: MCP Streamable HTTP responses may be `text/event-stream`; clients should read the first `data:` event rather than wait for the entire stream to close. `HttpMcpClient.ExtractJsonFromSSEAsync` has the correct pattern; older helpers using `ReadAsStringAsync()` can look like a hang if the stream stays open.
 
+### 2026-05-29 — Auth-disabled live root initialize verified
+
+- With auth disabled, live `/health` reports `AuthEnabled:false`, and a minimal unauthenticated Streamable HTTP `initialize` POST to root `/` returns `200 OK`, `content-type: text/event-stream`, `Mcp-Session-Id`, and a valid initialize result for server `PoshMcp` version `0.16.1.0`.
+- Browser fetch from `about:blank` succeeded with `type:"cors"`, so the auth-disabled CORS policy (`AllowAnyOrigin`, any method/header, exposed `Mcp-Session-Id`) is working for preflighted browser requests.
+- Node/VS Code-style `fetch` also succeeded on retry. A previous `TypeError fetch failed` showed cause `EADDRINUSE connect ...:443`, which is a local/client connect-layer failure before any HTTP response, not an app-level 401/404/SSE/body parsing bug.
+
+### 2026-05-29 — VS Code post-initialize Streamable HTTP sequence verified
+
+- Live root `/` accepts the expected sequence after `initialize`: `notifications/initialized` with `Mcp-Session-Id` returns `202 Accepted`; `logging/setLevel` with the same session returns `200 OK` SSE with `{"result":{}}`; `tools/list` then returns `200 OK` SSE. The initialize result advertises `capabilities.logging:{}` from the ModelContextProtocol SDK, and SDK 1.2.0 documents `LoggingCapability`, `RequestMethods.LoggingSetLevel`, and `SetLevelRequestParams`, so VS Code's log-level request is expected and supported rather than an app bug.
+
+### 2026-05-29 — Static command resources in HTTP/OOP need the configured executor when possible
+
+- `McpResourceHandler` handles configured/static `McpResources.Resources[]` reads; noun-derived resources use `McpNounResourceHandler`. In HTTP OutOfProcess mode this means static command resources can accidentally run in the session-aware in-process runspace while noun/tool reads use the configured OOP executor.
+- For simple command-backed static resources such as `Get-BamiTenantConfiguration`, prefer `ICommandExecutor.InvokeAsync(commandName, emptyArgs)` when an executor is available. Keep arbitrary script/pipeline resources on the existing runspace path because the OOP invoke protocol accepts command names plus parameters, not free-form scripts.
+

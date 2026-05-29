@@ -47,11 +47,18 @@ Spec 009 (Test Suite Consistency and Fast Unit Tier) is functionally complete. F
 
 ## Learnings
 
+### 2026-05-29T11:46:53.2558064-05:00: v0.16.2 release prep blocked by pre-existing format drift
+- Built a clean release worktree from `origin/main` to avoid including local non-release changes, then copied only the intended v0.16.2 release files into it.
+- Full `dotnet format --verify-no-changes` failed on existing whitespace drift in `PoshMcp.Server/Authentication/AuthenticationServiceExtensions.cs` and `PoshMcp.Benchmarks/Scenarios/PayloadSizeSerializationBenchmark.cs`, both outside the approved release file set.
+- Release rule: do not stage unrelated format files into a scoped release commit without explicit approval; stop before commit/push/tag when the mandatory format gate fails.
+
 ### 2026-05-29T11:46:53.2558064-05:00: Azure Container App MCP initialize diagnostics
 - Live ACA `ca-poshmcp` health/readiness can be healthy while MCP initialize appears stuck because auth/path negotiation happens before tool execution. Current HTTP transport maps MCP at `/` when `POSHMCP_MCP_PATH`/`--mcp-path` is unset; `/mcp` returns 404.
 - For authenticated ACA deployments, verify `.well-known/oauth-protected-resource`, `.well-known/oauth-authorization-server`, token consent for the advertised `api://.../user_impersonation` scope, and CORS preflight headers for browser/WebView clients before suspecting port or cold-start issues.
 - Generic ARM `az resource show --resource-type Microsoft.App/containerApps --api-version 2023-05-01` was more reliable than `az containerapp show` when the Container Apps CLI extension hit management-plane connection issues.
 - When ACA ARM commands fail intermittently with local socket errors (`WinError 10051` unreachable network or `WinError 10048` socket exhaustion), use Resource Graph to confirm resource existence and resolve workspace/customer IDs, then retry Log Analytics with the workspace ID directly. This distinguished CLI/network failure from resource/RBAC mismatch for `ca-poshmcp`.
+- Post-auth-removal validation pattern: confirm auth state from `/health` configuration data (`AuthEnabled:false`, `AuthSchemes:none`), then prove MCP root behavior with unauthenticated `initialize` over both HTTP/1.1 and .NET HTTP/2. For `ca-poshmcp--0000009`, `/` returned SSE initialize success while `/mcp` returned 404; system logs showed only rollout/startup probe connection-refused events before traffic settled.
+- If VS Code reports `TypeError: fetch failed` while AppRequests show successful `POST /` at the same timestamp, treat it as client/connection handling after ingress unless logs show a matching app exception. A local live probe can also fail before ACA with Windows socket exhaustion (`Only one usage of each socket address...`), producing no new POST rows.
 
 ### 2026-05-17T08:25:00-05:00: PR #278 final log-forging cleanup
 - Fixed the remaining unsanitized structured log field in `PoshMcp.Server/PowerShell/PowerShellAssemblyGenerator.cs` by wrapping `convertedValue?.GetType().Name` for the `ValueType` field with `LogSanitizer.Scrub()`.
