@@ -170,3 +170,14 @@ Release v0.14.1 shipped successfully. Version bump, release notes, and GitHub re
 - Tightened noun-derived resource eligibility to require a zero-required-parameter `Get-{Noun}` path so `resources/read` and link injection only target parameterless reads.
 - Implemented the `AssociatedResourceUri` slice in the worktree and validated focused binding and link-injection tests covering command override precedence and explicit resource-link behavior.
 
+## 2026-05-28: MCP prompt templating parity update
+
+- `HandleGetPromptAsync` now validates required prompt arguments (`Arguments[].Required`) before source execution and returns `McpProtocolException` with `InvalidParams` when values are missing or blank.
+- Template rendering now runs after source text is obtained for both prompt sources: file-backed (`ReadFilePromptAsync`) and command-backed (`ExecuteCommandPrompt`).
+- Rendering supports both `{{argName}}` (primary) and `{argName}` (backward-compatible) with simple string replacement only; no expression evaluation is introduced.
+- PowerShell variable injection behavior for command execution remains intact and happens before command invocation; output templating is an additional post-processing step.
+- Integration tests for `McpPromptsIntegrationTests` now cover file substitution, command-output substitution, and InvalidParams on missing required args while preserving prompts/list metadata assertions.
+
+### 2026-05-28 — Scribe cross-agent update
+- Decision merged into `.squad/decisions.md`: "MCP prompts/get enforces required args and renders templates post-source" (source: `.squad/decisions/inbox/bender-prompt-templating-required-args.md`).
+

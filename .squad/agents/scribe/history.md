@@ -36,6 +36,7 @@ PoshMcp dynamically transforms PowerShell scripts, cmdlets, and modules into sec
 - 2026-05-19: If release agents already updated their own history files and those files are dirty, do not reopen them during Scribe closeout. Add only new squad artifacts in clean files, then commit a path-scoped `.squad/` slice.
 - 2026-05-02: Cut release v0.9.17 following release process principles: clean build verified, version updated in PoshMcp.csproj, committed with context (token diagnostics and idle session timeout), tagged, and pushed. Remote accepted both commit and tag successfully.
 - 2026-05-20: For noun-resource closeout batches, merge overlapping design and implementation inbox notes into one canonical decision entry when they describe the same behavior slice, then clear the processed inbox files and record the validator evidence in the session log.
+- 2026-05-28: For Entra auth troubleshooting batches, record the issuer-shape mismatch explicitly (`sts` v1 token issuer vs v2-only accepted issuer), note whether `requestedAccessTokenVersion` is set to `2`, and capture no-op inbox checks so the run remains auditable.
 
 ## 2026-05-16: Issue #272 spawn — IToolImportSourceTracker implementation
 
@@ -56,4 +57,8 @@ Release v0.14.1 shipped successfully. Version bump, release notes, and GitHub re
 ## 2026-05-20 — Noun-resource tightening closeout
 
 Merged three decision inbox notes into two canonical ledger entries covering `AssociatedResourceUri` behavior and zero-required-parameter noun-resource gating. Recorded one session log, one orchestration log, updated relevant agent histories, and moved squad focus from idle to noun-resource closeout.
+
+## 2026-05-28 — JWT issuer troubleshooting batch
+
+Recorded a no-op decision inbox check (empty), one orchestration entry, and one session log for the cross-agent troubleshooting pass. Captured consensus finding: auth failures align with issuer mismatch (STS v1 issuer observed while validation is v2-only), with Entra-side follow-up to verify `requestedAccessTokenVersion = 2` and use a temporary dual-issuer acceptance workaround as needed.
 

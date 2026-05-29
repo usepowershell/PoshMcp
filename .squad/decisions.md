@@ -3,6 +3,15 @@
 ## Recent Decisions
 > Older entries archived to `decisions-archive.md` (entries >7d removed when file >= 50KB).
 
+### 2026-05-28: MCP prompts/get enforces required args and renders templates post-source
+**By:** Steven (via Bender)
+
+**Decision:** For `prompts/get`, validate required prompt arguments from prompt metadata (`Arguments[].Required`) before file or command source execution. Missing or empty required args return MCP `InvalidParams` with the missing argument names. Render template placeholders only after source text is produced for both file-backed and command-backed prompts, supporting `{{argName}}` and backward-compatible `{argName}` replacement.
+
+**Why:** Align prompt behavior with expected templating semantics while preserving command argument variable injection into PowerShell execution.
+
+---
+
 ### 2026-05-20: AssociatedResourceUri belongs on command overrides and resolves against the exposed resource surface
 **By:** Hermes (PowerShell Expert), Bender (Backend Developer)
 
