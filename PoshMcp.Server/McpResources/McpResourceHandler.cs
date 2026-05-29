@@ -11,6 +11,7 @@ using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using PoshMcp.Server.PowerShell;
+using PoshMcp.Server.PowerShell.OutOfProcess;
 using PSPowerShell = System.Management.Automation.PowerShell;
 
 namespace PoshMcp.Server.McpResources;
@@ -22,6 +23,7 @@ public class McpResourceHandler
 {
     private readonly McpResourcesConfiguration _config;
     private readonly IPowerShellRunspace _runspace;
+    private readonly ICommandExecutor? _commandExecutor;
     private readonly string _configDirectory;
     private readonly ILogger<McpResourceHandler> _logger;
 
@@ -36,10 +38,12 @@ public class McpResourceHandler
         McpResourcesConfiguration config,
         IPowerShellRunspace runspace,
         string configDirectory,
-        ILogger<McpResourceHandler> logger)
+        ILogger<McpResourceHandler> logger,
+        ICommandExecutor? commandExecutor = null)
     {
         _config = config;
         _runspace = runspace;
+        _commandExecutor = commandExecutor;
         _configDirectory = configDirectory;
         _logger = logger;
     }
@@ -148,7 +152,7 @@ public class McpResourceHandler
         return await File.ReadAllTextAsync(resolvedPath, cancellationToken);
     }
 
-    private Task<string> ReadCommandResourceAsync(McpResourceConfiguration config, CancellationToken cancellationToken)
+    private async Task<string> ReadCommandResourceAsync(McpResourceConfiguration config, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(config.Command))
         {
@@ -158,6 +162,15 @@ public class McpResourceHandler
         }
 
         _logger.LogDebug("Executing command resource: {Command}", config.Command);
+
+        if (_commandExecutor is not null && TryGetSimpleCommandName(config.Command, out var commandName))
+        {
+            _logger.LogDebug("Executing command resource via out-of-process executor: {Command}", commandName);
+            return await _commandExecutor.InvokeAsync(
+                commandName,
+                new Dictionary<string, object?>(),
+                cancellationToken);
+        }
 
         var result = _runspace.ExecuteThreadSafe(ps =>
         {
@@ -180,7 +193,23 @@ public class McpResourceHandler
             return output;
         });
 
-        return Task.FromResult(SerializeCommandOutput(result));
+        return SerializeCommandOutput(result);
+    }
+
+    private static bool TryGetSimpleCommandName(string command, out string commandName)
+    {
+        commandName = command.Trim();
+        if (commandName.Length == 0)
+        {
+            return false;
+        }
+
+        return commandName.All(ch =>
+            char.IsLetterOrDigit(ch) ||
+            ch == '-' ||
+            ch == '_' ||
+            ch == '.' ||
+            ch == '\\');
     }
 
     private static string SerializeCommandOutput(System.Collections.ObjectModel.Collection<PSObject> results)

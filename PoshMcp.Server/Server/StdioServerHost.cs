@@ -269,7 +269,12 @@ internal static class StdioServerHost
         var runspace = new SingletonPowerShellRunspace();
         var configDirectory = Path.GetDirectoryName(configFilePath) ?? ".";
         var resourceLogger = loggerFactory.CreateLogger<McpResourceHandler>();
-        var resourceHandler = new McpResourceHandler(resourcesConfig, runspace, configDirectory, resourceLogger);
+        var resourceHandler = new McpResourceHandler(
+            resourcesConfig,
+            runspace,
+            configDirectory,
+            resourceLogger,
+            commandExecutor);
 
         McpNounResourceHandler? nounHandler = null;
         var toolsToRegister = tools;

@@ -111,7 +111,12 @@ internal static class HttpServerHost
         var resourcesConfig = ConfigurationLoader.LoadMcpResourcesConfiguration(finalConfigPath, logger);
         var resourcesConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? ".";
         var resourceLogger = bootstrapLoggerFactory.CreateLogger<McpResourceHandler>();
-        var resourceHandler = new McpResourceHandler(resourcesConfig, sharedSessionRunspace, resourcesConfigDirectory, resourceLogger);
+        var resourceHandler = new McpResourceHandler(
+            resourcesConfig,
+            sharedSessionRunspace,
+            resourcesConfigDirectory,
+            resourceLogger,
+            executorLease?.Executor);
 
         McpNounResourceHandler? nounHandler = null;
         if (toolSetup.EffectiveNounResourceRegistry is not null)

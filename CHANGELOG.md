@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented here.
 
+## [0.16.2] - 2026-05-29
+
+### Fixed
+- **Configured command MCP resources use the active command executor when available** — Static/configured `McpResources` entries with `Source: "command"` and a simple command name now execute through the active `ICommandExecutor` when one is available. This lets `resources/read` see commands imported through the same out-of-process/module-aware execution path as tools, including module-imported commands such as `Get-BamiTenantConfiguration`. Script and pipeline command resources still use the existing runspace fallback.
+
+### Tests
+- Added unit coverage proving simple command-backed resources use the executor and script/pipeline command resources continue to use the runspace fallback.
+
+### Breaking
+- None.
+
+### Upgrade Notes
+- **Drop-in upgrade.** No configuration changes required. Recommended for deployments that expose configured command resources backed by module-imported PowerShell commands, especially when using out-of-process execution.
+
 ## [0.16.1] - 2026-05-29
 
 ### Fixed
