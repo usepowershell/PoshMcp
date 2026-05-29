@@ -47,6 +47,12 @@ Spec 009 (Test Suite Consistency and Fast Unit Tier) is functionally complete. F
 
 ## Learnings
 
+### 2026-05-29T11:46:53.2558064-05:00: Azure Container App MCP initialize diagnostics
+- Live ACA `ca-poshmcp` health/readiness can be healthy while MCP initialize appears stuck because auth/path negotiation happens before tool execution. Current HTTP transport maps MCP at `/` when `POSHMCP_MCP_PATH`/`--mcp-path` is unset; `/mcp` returns 404.
+- For authenticated ACA deployments, verify `.well-known/oauth-protected-resource`, `.well-known/oauth-authorization-server`, token consent for the advertised `api://.../user_impersonation` scope, and CORS preflight headers for browser/WebView clients before suspecting port or cold-start issues.
+- Generic ARM `az resource show --resource-type Microsoft.App/containerApps --api-version 2023-05-01` was more reliable than `az containerapp show` when the Container Apps CLI extension hit management-plane connection issues.
+- When ACA ARM commands fail intermittently with local socket errors (`WinError 10051` unreachable network or `WinError 10048` socket exhaustion), use Resource Graph to confirm resource existence and resolve workspace/customer IDs, then retry Log Analytics with the workspace ID directly. This distinguished CLI/network failure from resource/RBAC mismatch for `ca-poshmcp`.
+
 ### 2026-05-17T08:25:00-05:00: PR #278 final log-forging cleanup
 - Fixed the remaining unsanitized structured log field in `PoshMcp.Server/PowerShell/PowerShellAssemblyGenerator.cs` by wrapping `convertedValue?.GetType().Name` for the `ValueType` field with `LogSanitizer.Scrub()`.
 - Pattern: every dynamic string flowing into `LogInformation`, `LogWarning`, `LogError`, `LogDebug`, or `LogTrace` must be scrubbed at the call site, even when it looks low-risk (like a runtime type name).
@@ -76,3 +82,8 @@ Bender completed remediation of 24 CodeQL cs/log-forging alerts across PowerShel
 - Created annotated tag `v0.15.0` on commit `a9f262a891afb50e977e132f003588e0f2ef4758` and pushed it to `origin`.
 - Verified the remote annotated tag object exists at `refs/tags/v0.15.0` and dereferences via `refs/tags/v0.15.0^{}` to the intended release commit `a9f262a891afb50e977e132f003588e0f2ef4758`.
 - Observed a non-blocking GitHub Actions annotation during CI completion: Node.js 20 deprecation warning for marketplace actions (`actions/checkout@v4`, `actions/setup-dotnet@v4`, `actions/upload-artifact@v4`). Release still shipped successfully; workflow maintenance follow-up is separate from the release cut.
+
+## 2026-05-29T11:46:53.2558064-05:00: v0.16.1 release tag and CI phase split
+- Verified release commit `b37f4857a42651d908eafe86dd98b026fbec0279` had green GitHub checks and committed release notes before creating tag `v0.16.1`.
+- For CI phase splitting, keep job id `build` unchanged so existing required-check configuration is preserved; put Unit in that job and fan out longer category tests with `needs: build`.
+- When Azure credentials are absent, condition the Azure artifact upload on `HAS_AZURE_CREDS == 'true'` so a skipped Azure test does not produce a missing-artifact warning.

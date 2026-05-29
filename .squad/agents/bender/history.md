@@ -181,3 +181,11 @@ Release v0.14.1 shipped successfully. Version bump, release notes, and GitHub re
 ### 2026-05-28 — Scribe cross-agent update
 - Decision merged into `.squad/decisions.md`: "MCP prompts/get enforces required args and renders templates post-source" (source: `.squad/decisions/inbox/bender-prompt-templating-required-args.md`).
 
+### 2026-05-29 — Live HTTP MCP initialize hang triage
+
+- Live probe to `https://ca-poshmcp.agreeableisland-ee0777e7.centralus.azurecontainerapps.io/` with a minimal unauthenticated `initialize` request returned immediately with `401 Unauthorized` and `WWW-Authenticate: Bearer resource_metadata="https://ca-poshmcp.agreeableisland-ee0777e7.centralus.azurecontainerapps.io/.well-known/oauth-protected-resource"`; `/mcp` returned `404 Not Found`, so the deployed MCP path is root `/` unless `POSHMCP_MCP_PATH` is changed.
+- Subsequent unauthenticated metadata/health probes briefly failed at TCP connect (`curl: (7) Could not connect to server`), pointing to live Container Apps availability/scale/network behavior rather than an in-process initialize request waiting on server code.
+- Code inspection: `HttpServerHost` maps `app.MapMcp()` at root by default, applies `RequireAuthorization("McpAccess")` only when auth is enabled, and emits RFC 9728 PRM discovery from the JWT challenge path. Startup/tool discovery completes before `app.RunAsync()`, so a healthy `/health` response means the process is past startup dependency initialization.
+- Local focused verification: `dotnet test PoshMcp.Tests/PoshMcp.Tests.csproj --filter "FullyQualifiedName=PoshMcp.Tests.Integration.UnifiedHttpTransportIntegrationTests.ServeHttpTransport_ShouldInitializeAndListToolsOverMcp" --no-restore --verbosity minimal` passed (1/1), confirming initialize + tools/list completes on the current HTTP transport path.
+- Client gotcha: MCP Streamable HTTP responses may be `text/event-stream`; clients should read the first `data:` event rather than wait for the entire stream to close. `HttpMcpClient.ExtractJsonFromSSEAsync` has the correct pattern; older helpers using `ReadAsStringAsync()` can look like a hang if the stream stays open.
+
