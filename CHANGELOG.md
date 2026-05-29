@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented here.
 
+## [0.16.1] - 2026-05-29
+
+### Fixed
+- **Stable default PowerShell runspace for sessionless HTTP requests** — HTTP requests without `Mcp-Session-Id` now reuse the shared `default` runspace instead of being keyed by per-request connection or trace identifiers. This prevents health probes, readiness checks, and other non-MCP HTTP requests from creating unbounded isolated runspaces that can cause later MCP initialization or tool work to stall.
+
+### Tests
+- Added unit coverage proving sessionless HTTP requests reuse the default runspace while MCP session IDs still preserve per-session isolation.
+
+### Breaking
+- None.
+
+### Upgrade Notes
+- **Drop-in upgrade.** No configuration changes required. Recommended for Streamable HTTP deployments behind health probes or platform readiness checks.
+
 ## [0.16.0] - 2026-05-28
 
 ### Added

@@ -60,6 +60,22 @@ public class ServerSessionAwarePowerShellRunspaceTests : IDisposable
         Assert.Same(runspace1, runspace2);
     }
 
+    [Fact]
+    public void HttpRequestsWithoutMcpSessionId_UseDefaultSessionRunspace()
+    {
+        var context1 = CreateHttpContextWithoutMcpSessionId("conn-1", "trace-1");
+        var context2 = CreateHttpContextWithoutMcpSessionId("conn-2", "trace-2");
+
+        _mockHttpContextAccessor.Setup(a => a.HttpContext).Returns(context1);
+        var runspace1 = GetSessionRunspaceViaReflection();
+
+        _mockHttpContextAccessor.Setup(a => a.HttpContext).Returns(context2);
+        var runspace2 = GetSessionRunspaceViaReflection();
+
+        Assert.NotNull(runspace1);
+        Assert.Same(runspace1, runspace2);
+    }
+
     private void SetupMockHttpContextWithMcpSessionId(string sessionId)
     {
         var mockHttpContext = new Mock<HttpContext>();
@@ -76,6 +92,16 @@ public class ServerSessionAwarePowerShellRunspaceTests : IDisposable
         mockRequest.Setup(r => r.Headers).Returns(mockHeaders.Object);
         mockHttpContext.Setup(c => c.Request).Returns(mockRequest.Object);
         _mockHttpContextAccessor.Setup(a => a.HttpContext).Returns(mockHttpContext.Object);
+    }
+
+    private static DefaultHttpContext CreateHttpContextWithoutMcpSessionId(string connectionId, string traceIdentifier)
+    {
+        var context = new DefaultHttpContext
+        {
+            TraceIdentifier = traceIdentifier
+        };
+        context.Connection.Id = connectionId;
+        return context;
     }
 
     private object? GetSessionRunspaceViaReflection()

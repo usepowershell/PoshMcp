@@ -51,13 +51,7 @@ public class SessionAwarePowerShellRunspace : IPowerShellRunspace, IDisposable
             }
         }
 
-        var connectionId = httpContext.Connection?.Id;
-        if (!string.IsNullOrEmpty(connectionId))
-        {
-            return $"conn_{connectionId}";
-        }
-
-        return $"trace_{httpContext.TraceIdentifier ?? "unknown"}";
+        return "default";
     }
 
     private IsolatedPowerShellRunspace GetSessionRunspace()
