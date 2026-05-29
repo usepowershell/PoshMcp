@@ -28,13 +28,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    # Job-level env. HAS_AZURE_CREDS is evaluated once at job start by checking
-    # whether AZURE_CLIENT_ID secret is non-empty. GitHub Actions does not allow
-    # `secrets.X != ''` directly inside step-level `if:` expressions outside of
-    # environment contexts, so we project it into env here and gate steps on env.
-    env:
-      HAS_AZURE_CREDS: ${{ secrets.AZURE_CLIENT_ID != '' }}
-
     steps:
     - uses: actions/checkout@v4
 
@@ -55,10 +48,11 @@ jobs:
     # ---------------------------------------------------------------------------
     # Phased test execution per spec 009 (issue #215).
     #
-    # Each phase runs as its own step so a failure is attributable to exactly
-    # one category in the CI UI, with its own duration and pass/fail summary.
-    # `continue-on-error` is left at the default (false) so a phase failure
-    # halts subsequent phases — matches today's serial-suite behavior.
+    # The Unit phase stays in the primary build job so formatting/build/unit
+    # failures stop the workflow early and preserve the existing required
+    # `build` check name. Longer non-unit phases run as separate downstream jobs
+    # so Integration, OutOfProcess, Http, Functional, and Azure can execute in
+    # parallel once the primary gate passes.
     #
     # Filter strategy: `--filter "Category=X"` matches xUnit
     # `[Trait("Category", "X")]`. While issue #212 (trait rollout) is in flight,
@@ -71,17 +65,154 @@ jobs:
     - name: Test (Unit)
       run: dotnet test --no-build --configuration Release --filter "Category=Unit" --logger "trx;LogFileName=phase-unit.trx" --results-directory ./TestResults
 
+    - name: Upload Unit Test Results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-unit
+        path: ./TestResults/*.trx
+
+  integration:
+    name: Test (Integration)
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.x
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
+
     - name: Test (Integration)
       run: dotnet test --no-build --configuration Release --filter "Category=Integration" --logger "trx;LogFileName=phase-integration.trx" --results-directory ./TestResults
+
+    - name: Upload Integration Test Results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-integration
+        path: ./TestResults/*.trx
+
+  outofprocess:
+    name: Test (OutOfProcess)
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.x
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
 
     - name: Test (OutOfProcess)
       run: dotnet test --no-build --configuration Release --filter "Category=OutOfProcess" --logger "trx;LogFileName=phase-outofprocess.trx" --results-directory ./TestResults
 
+    - name: Upload OutOfProcess Test Results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-outofprocess
+        path: ./TestResults/*.trx
+
+  http:
+    name: Test (Http)
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.x
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
+
     - name: Test (Http)
       run: dotnet test --no-build --configuration Release --filter "Category=Http" --logger "trx;LogFileName=phase-http.trx" --results-directory ./TestResults
 
+    - name: Upload Http Test Results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-http
+        path: ./TestResults/*.trx
+
+  functional:
+    name: Test (Functional)
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.x
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
+
     - name: Test (Functional)
       run: dotnet test --blame --no-build --configuration Release --filter "Category=Functional" --logger "trx;LogFileName=phase-functional.trx" --results-directory ./TestResults
+
+    - name: Upload Functional Test Results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-functional
+        path: ./TestResults/*.trx
+
+  azure:
+    name: Test (Azure)
+    runs-on: ubuntu-latest
+    needs: build
+
+    # Job-level env. HAS_AZURE_CREDS is evaluated once at job start by checking
+    # whether AZURE_CLIENT_ID secret is non-empty. GitHub Actions does not allow
+    # `secrets.X != ''` directly inside step-level `if:` expressions outside of
+    # environment contexts, so we project it into env here and gate steps on env.
+    env:
+      HAS_AZURE_CREDS: ${{ secrets.AZURE_CLIENT_ID != '' }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.x
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
 
     # Azure phase: skipped (not failed) when credentials absent. PR builds from
     # forks and any environment without AZURE_CLIENT_ID configured will see this
@@ -99,10 +230,10 @@ jobs:
       if: ${{ env.HAS_AZURE_CREDS != 'true' }}
       run: echo "Azure phase skipped — AZURE_CLIENT_ID secret is not configured for this build."
 
-    - name: Upload Test Results
-      if: always()
+    - name: Upload Azure Test Results
+      if: ${{ always() && env.HAS_AZURE_CREDS == 'true' }}
       uses: actions/upload-artifact@v4
       with:
-        name: test-results
+        name: test-results-azure
         path: ./TestResults/*.trx
 
