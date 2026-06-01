@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented here.
 
+## [0.16.3] - 2026-06-01T00:00:00Z
+
+### Added
+- **Azure Container Apps scenario Terraform** - Added `infra/` Terraform for repeatable PoshMcp scenario deployments on Azure Container Apps, including shared Log Analytics, Application Insights, optional ACR, user-assigned managed identity, optional Azure Files storage, and scenario-driven Container Apps.
+- **Logging and metrics guide** - Added `docs/logging-and-metrics.md` covering logging providers, stdio file logging, tool invocation logs, health-check logs, log sanitization, correlation IDs, OpenTelemetry metrics, Application Insights behavior, and troubleshooting patterns.
+
+### Changed
+- **Application Insights metrics export** - Centralized Application Insights configuration and suppresses the HTTP console metrics exporter when Application Insights is enabled with a resolved connection string. Console metrics remain the fallback when Application Insights is disabled or incomplete.
+- **Authentication diagnostics** - JWT validation diagnostics now log only sanitized auth-relevant claim values for audience, scope, roles, and issuer instead of arbitrary token claims.
+- **Repository maintenance** - Removed obsolete squad automation workflows from `.github/workflows`.
+
+### Tests
+- Added unit coverage for Application Insights configuration, connection string fallback, Azure Monitor registration, console exporter suppression, safe authentication claim summaries, and doctor diagnostic sections.
+
+### Breaking
+- None.
+
+### Upgrade Notes
+- **Drop-in upgrade.** No runtime configuration migration is required.
+- For Azure Container Apps scenario testing, build and push a PoshMcp image before applying the Terraform deployment, then configure the global or per-scenario image settings.
+
 ## [0.16.2] - 2026-05-29
 
 ### Fixed
