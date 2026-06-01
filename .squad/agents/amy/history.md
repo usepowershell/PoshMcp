@@ -47,6 +47,16 @@ Spec 009 (Test Suite Consistency and Fast Unit Tier) is functionally complete. F
 
 ## Learnings
 
+### 2026-06-01T00:00:00Z: PoshMcp ACA scenario Terraform planning
+- Reviewed the AdvocacyBami reference Terraform deploy folder: modular root with `core`, `identity`, `app`, and optional `grafana`; ACA uses port 8080, `/health` startup, `/health/ready` readiness/liveness, App Insights secret, Log Analytics, UAI, ACR Pull, and optional Azure Files mount.
+- For this repo, plan-first Azure preparation is mandatory: write `.azure/deployment-plan.md` and wait for approval before generating `infra/` Terraform.
+- Recommended PoshMcp-specific Terraform shape is a shared ACA Environment plus `for_each` scenario Container Apps (`basic`, `advanced`, `azure`, `auth`) with prebuilt-image support first and optional Terraform Docker build later.
+
+### 2026-06-01T00:00:00Z: PoshMcp ACA scenario Terraform generated
+- Generated `infra/` Terraform for multi-scenario Azure Container Apps: optional new/existing resource group, optional ACR, Log Analytics, Application Insights, shared ACA environment, user-assigned managed identity, optional Azure Files, and scenario-driven Container Apps.
+- Kept image build/push outside Terraform; scenarios deploy prebuilt images and can override `image` or `image_tag` while the default path points at the configured ACR repository/tag.
+- Validation passed locally with `terraform fmt -recursive`, `terraform init -backend=false`, and `terraform validate`.
+
 ### 2026-05-29T11:46:53.2558064-05:00: v0.16.2 release prep blocked by pre-existing format drift
 - Built a clean release worktree from `origin/main` to avoid including local non-release changes, then copied only the intended v0.16.2 release files into it.
 - Full `dotnet format --verify-no-changes` failed on existing whitespace drift in `PoshMcp.Server/Authentication/AuthenticationServiceExtensions.cs` and `PoshMcp.Benchmarks/Scenarios/PayloadSizeSerializationBenchmark.cs`, both outside the approved release file set.

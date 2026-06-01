@@ -1,0 +1,74 @@
+# Copy this file to terraform.tfvars and fill in subscription/location/image details.
+subscription_id = "00000000-0000-0000-0000-000000000000"
+tenant_id       = "00000000-0000-0000-0000-000000000000"
+location        = "eastus"
+
+name_prefix      = "poshmcp"
+environment_name = "scenario"
+
+# If true, Terraform creates ACR but does not build/push images. Build and push first:
+#   podman build -t <acr>.azurecr.io/poshmcp:latest ..
+#   podman push <acr>.azurecr.io/poshmcp:latest
+create_container_registry = true
+container_image_repository = "poshmcp"
+container_image_tag        = "latest"
+
+# To use an existing registry or public image instead, set create_container_registry = false
+# and provide either container_image or container_registry_server plus per-scenario image values.
+# create_container_registry = false
+# container_image = "ghcr.io/usepowershell/poshmcp/poshmcp:latest"
+
+application_insights_enabled = true
+enable_storage_mounts        = false
+
+container_app_scenarios = {
+  basic = {
+    name_suffix    = "basic"
+    transport_mode = "http"
+    env = {
+      POSHMCP_LOGGING__LOGLEVEL__DEFAULT = "Information"
+    }
+  }
+
+  advanced = {
+    name_suffix    = "advanced"
+    transport_mode = "http"
+    cpu            = 1
+    memory         = "2.0Gi"
+    env = {
+      POSHMCP_POWERSHELLCONFIGURATION__SUBPROCESSHOSTMODE = "ProcessPool"
+      POSHMCP_POWERSHELLCONFIGURATION__PROCESSPOOLSIZE    = "2"
+      POSHMCP_POWERSHELLCONFIGURATION__COMMANDTIMEOUT     = "00:02:00"
+    }
+  }
+
+  tenant = {
+    name_suffix    = "tenant"
+    transport_mode = "http"
+    env = {
+      POSHMCP_AUTHENTICATION__ENABLED = "false"
+      POSHMCP_TENANTCONFIGURATION__ENABLED = "true"
+    }
+  }
+
+  observability = {
+    name_suffix    = "observability"
+    transport_mode = "http"
+    env = {
+      POSHMCP_APPLICATIONINSIGHTS__ENABLED = "true"
+      POSHMCP_TELEMETRY__METRICS__ENABLED = "true"
+    }
+  }
+}
+
+# Example secret use. Keep real values out of committed tfvars files.
+# container_app_scenario_secrets = {
+#   auth = {
+#     entra-client-secret = "set-with-a-secure-workflow"
+#   }
+# }
+#
+# Add the matching secret_env entry inside the auth scenario object:
+# secret_env = {
+#   POSHMCP_AUTHENTICATION__CLIENTSECRET = "entra-client-secret"
+# }
