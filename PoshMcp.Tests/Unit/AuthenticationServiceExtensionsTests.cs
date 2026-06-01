@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -161,5 +162,72 @@ public class AuthenticationServiceExtensionsTests
         Assert.Equal("preferred_username",
             sp.GetRequiredService<IOptions<AuthenticationConfiguration>>().Value
                 .Schemes["Bearer"].ClaimsMapping.NameClaim);
+    }
+
+    [Fact]
+    public void SafeAuthClaimSummary_IncludesOnlyAllowedClaimValues()
+    {
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(new[]
+        {
+            new Claim("aud", "api://my-app"),
+            new Claim("scp", "mcp:read"),
+            new Claim("scope", "mcp:write"),
+            new Claim("roles", "operator"),
+            new Claim("role", "auditor"),
+            new Claim("iss", "https://login.microsoftonline.com/tenant/v2.0"),
+            new Claim("preferred_username", "person@example.test"),
+            new Claim("oid", "00000000-0000-0000-0000-000000000000"),
+        }, "Bearer"));
+
+        var summary = AuthClaimDiagnostics.BuildSafeSummary(principal);
+        var serialized = string.Join("|", summary.Audience, summary.Scopes, summary.Roles, summary.Issuer);
+
+        Assert.Equal("api://my-app", summary.Audience);
+        Assert.Equal("mcp:read,mcp:write", summary.Scopes);
+        Assert.Equal("operator,auditor", summary.Roles);
+        Assert.Equal("https://login.microsoftonline.com/tenant/v2.0", summary.Issuer);
+        Assert.DoesNotContain("preferred_username", serialized);
+        Assert.DoesNotContain("person@example.test", serialized);
+        Assert.DoesNotContain("oid", serialized);
+        Assert.DoesNotContain("00000000-0000-0000-0000-000000000000", serialized);
+    }
+
+    [Fact]
+    public void SafeAuthClaimSummary_ExcludesAuthLikeButUnsupportedClaimTypes()
+    {
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(new[]
+        {
+            new Claim("aud", "api://my-app"),
+            new Claim("scp", "mcp:read"),
+            new Claim("roles", "operator"),
+            new Claim("iss", "https://login.microsoftonline.com/tenant/v2.0"),
+            new Claim("audience", "api://leaked-audience"),
+            new Claim("scp_extra", "leaked-scope"),
+            new Claim("roles_extra", "leaked-role"),
+            new Claim("issuer", "https://leaked-issuer.example.test"),
+        }, "Bearer"));
+
+        var summary = AuthClaimDiagnostics.BuildSafeSummary(principal);
+        var serialized = string.Join("|", summary.Audience, summary.Scopes, summary.Roles, summary.Issuer);
+
+        Assert.Equal("api://my-app", summary.Audience);
+        Assert.Equal("mcp:read", summary.Scopes);
+        Assert.Equal("operator", summary.Roles);
+        Assert.Equal("https://login.microsoftonline.com/tenant/v2.0", summary.Issuer);
+        Assert.DoesNotContain("api://leaked-audience", serialized);
+        Assert.DoesNotContain("leaked-scope", serialized);
+        Assert.DoesNotContain("leaked-role", serialized);
+        Assert.DoesNotContain("https://leaked-issuer.example.test", serialized);
+    }
+
+    [Fact]
+    public void SafeAuthClaimSummary_WhenPrincipalMissing_ReturnsEmptyFields()
+    {
+        var summary = AuthClaimDiagnostics.BuildSafeSummary(null);
+
+        Assert.Equal(string.Empty, summary.Audience);
+        Assert.Equal(string.Empty, summary.Scopes);
+        Assert.Equal(string.Empty, summary.Roles);
+        Assert.Equal(string.Empty, summary.Issuer);
     }
 }
