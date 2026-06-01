@@ -1,11 +1,19 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
+using System.Net.Http;
+using System.Text;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using PoshMcp.Server.Authentication;
 using Xunit;
 
@@ -157,6 +165,136 @@ public class OAuthProxyEndpointsTests
         Assert.Equal("api://poshmcp-prod/.default", expectedScope);
     }
 
+    [Fact]
+    public async Task Register_ReturnsRedirectUrisFromDynamicClientRegistrationRequest()
+    {
+        var config = new AuthenticationConfiguration
+        {
+            Enabled = true,
+            OAuthProxy = new OAuthProxyConfiguration
+            {
+                Enabled = true,
+                TenantId = "contoso.onmicrosoft.com",
+                ClientId = "configured-client-id"
+            }
+        };
+
+        using var host = await CreateOAuthProxyTestHostAsync(config);
+        using var client = host.GetTestClient();
+        using var content = new StringContent(
+            """
+            {
+              "redirect_uris": ["http://127.0.0.1:33418/callback"],
+              "client_name": "GitHub Copilot CLI",
+              "grant_types": ["authorization_code", "refresh_token"],
+              "response_types": ["code"],
+              "scope": "openid profile offline_access api://poshmcp/user_impersonation"
+            }
+            """,
+            Encoding.UTF8,
+            "application/json");
+
+        using var response = await client.PostAsync("/register", content);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = document.RootElement;
+        Assert.Equal("configured-client-id", root.GetProperty("client_id").GetString());
+        Assert.Equal("none", root.GetProperty("token_endpoint_auth_method").GetString());
+        Assert.Equal("http://127.0.0.1:33418/callback", root.GetProperty("redirect_uris")[0].GetString());
+        Assert.Equal("GitHub Copilot CLI", root.GetProperty("client_name").GetString());
+        Assert.Equal("authorization_code", root.GetProperty("grant_types")[0].GetString());
+        Assert.Equal("refresh_token", root.GetProperty("grant_types")[1].GetString());
+        Assert.Equal("code", root.GetProperty("response_types")[0].GetString());
+        Assert.Equal("openid profile offline_access api://poshmcp/user_impersonation", root.GetProperty("scope").GetString());
+        Assert.True(root.TryGetProperty("client_id_issued_at", out var issuedAt));
+        Assert.Equal(JsonValueKind.Number, issuedAt.ValueKind);
+    }
+
+    [Fact]
+    public async Task Authorize_WhenPromptCreate_OmitsPromptFromEntraRedirect()
+    {
+        var config = CreateConfiguredOAuthProxy();
+
+        using var host = await CreateOAuthProxyTestHostAsync(config);
+        using var client = host.GetTestClient();
+
+        using var response = await client.GetAsync(
+            "/authorize?client_id=dummy-client-id&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A33333%2Fcallback&code_challenge=x&code_challenge_method=S256&resource=https%3A%2F%2Fexample.test&prompt=create");
+
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        var location = response.Headers.Location;
+        Assert.NotNull(location);
+        Assert.Equal("https", location!.Scheme);
+        Assert.Equal("login.microsoftonline.com", location.Host);
+        Assert.Equal("/contoso.onmicrosoft.com/oauth2/v2.0/authorize", location.AbsolutePath);
+
+        var query = QueryHelpers.ParseQuery(location.Query);
+        Assert.Equal("configured-client-id", query["client_id"]);
+        Assert.False(query.ContainsKey("resource"));
+        Assert.False(query.ContainsKey("prompt"));
+    }
+
+    [Fact]
+    public async Task Authorize_WhenPromptHasConsentAndSelectAccount_ForwardsConsentPromptInEntraRedirect()
+    {
+        var config = CreateConfiguredOAuthProxy();
+
+        using var host = await CreateOAuthProxyTestHostAsync(config);
+        using var client = host.GetTestClient();
+
+        using var response = await client.GetAsync(
+            "/authorize?client_id=dummy-client-id&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A33333%2Fcallback&code_challenge=x&code_challenge_method=S256&prompt=consent%20select_account");
+
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        var location = response.Headers.Location;
+        Assert.NotNull(location);
+
+        var query = QueryHelpers.ParseQuery(location!.Query);
+        Assert.Equal("configured-client-id", query["client_id"]);
+        Assert.Equal("consent", query["prompt"]);
+    }
+
+    [Fact]
+    public async Task Authorize_WhenPromptSelectAccount_PreservesPromptInEntraRedirect()
+    {
+        var config = CreateConfiguredOAuthProxy();
+
+        using var host = await CreateOAuthProxyTestHostAsync(config);
+        using var client = host.GetTestClient();
+
+        using var response = await client.GetAsync(
+            "/authorize?client_id=dummy-client-id&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A33333%2Fcallback&code_challenge=x&code_challenge_method=S256&prompt=select_account");
+
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        var location = response.Headers.Location;
+        Assert.NotNull(location);
+
+        var query = QueryHelpers.ParseQuery(location!.Query);
+        Assert.Equal("configured-client-id", query["client_id"]);
+        Assert.Equal("select_account", query["prompt"]);
+    }
+
+    [Fact]
+    public async Task Authorize_WhenPromptUnsupported_OmitsPromptFromEntraRedirect()
+    {
+        var config = CreateConfiguredOAuthProxy();
+
+        using var host = await CreateOAuthProxyTestHostAsync(config);
+        using var client = host.GetTestClient();
+
+        using var response = await client.GetAsync(
+            "/authorize?client_id=dummy-client-id&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A33333%2Fcallback&code_challenge=x&code_challenge_method=S256&prompt=signup");
+
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        var location = response.Headers.Location;
+        Assert.NotNull(location);
+
+        var query = QueryHelpers.ParseQuery(location!.Query);
+        Assert.Equal("configured-client-id", query["client_id"]);
+        Assert.False(query.ContainsKey("prompt"));
+    }
+
     // ── Stub helper ──────────────────────────────────────────────────────────
 
     private sealed class NoOpEndpointRouteBuilder : IEndpointRouteBuilder
@@ -172,4 +310,38 @@ public class OAuthProxyEndpointsTests
         public IApplicationBuilder CreateApplicationBuilder() =>
             new ApplicationBuilder(_sp);
     }
+
+    private static async Task<IHost> CreateOAuthProxyTestHostAsync(AuthenticationConfiguration config)
+    {
+        var host = new HostBuilder()
+            .ConfigureWebHost(webBuilder =>
+            {
+                webBuilder.UseTestServer();
+                webBuilder.ConfigureServices(services =>
+                {
+                    services.AddRouting();
+                    services.AddHttpClient();
+                });
+                webBuilder.Configure(app =>
+                {
+                    app.UseRouting();
+                    app.UseEndpoints(endpoints => endpoints.MapOAuthProxyEndpoints(config));
+                });
+            })
+            .Build();
+
+        await host.StartAsync();
+        return host;
+    }
+
+    private static AuthenticationConfiguration CreateConfiguredOAuthProxy() => new()
+    {
+        Enabled = true,
+        OAuthProxy = new OAuthProxyConfiguration
+        {
+            Enabled = true,
+            TenantId = "contoso.onmicrosoft.com",
+            ClientId = "configured-client-id"
+        }
+    };
 }

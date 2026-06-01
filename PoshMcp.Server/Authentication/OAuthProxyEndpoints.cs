@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -92,7 +94,7 @@ public static class OAuthProxyEndpoints
         }).AllowAnonymous();
 
         // ── /register (DCR proxy) ─────────────────────────────────────────────
-        app.MapPost("/register", () =>
+        app.MapPost("/register", (DynamicClientRegistrationRequest? request) =>
         {
             if (string.IsNullOrWhiteSpace(proxy.ClientId))
             {
@@ -106,12 +108,20 @@ public static class OAuthProxyEndpoints
             var response = new
             {
                 client_id = proxy.ClientId,
+                redirect_uris = request?.RedirectUris ?? Array.Empty<string>(),
+                client_name = request?.ClientName,
+                grant_types = request?.GrantTypes ?? new[] { "authorization_code" },
+                response_types = request?.ResponseTypes ?? new[] { "code" },
+                scope = request?.Scope,
                 client_id_issued_at = issuedAt,
                 // Signal that this is a public client — no secret required
                 token_endpoint_auth_method = "none"
             };
 
-            return Results.Json(response, statusCode: StatusCodes.Status201Created);
+            return Results.Json(
+                response,
+                new JsonSerializerOptions { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull },
+                statusCode: StatusCodes.Status201Created);
         }).AllowAnonymous();
 
         // ── /authorize (redirect proxy) ───────────────────────────────────────
@@ -131,16 +141,29 @@ public static class OAuthProxyEndpoints
             }
 
             // Build new query params: strip `resource` (v1.0 only — not valid on v2.0
-            // endpoint and causes AADSTS9010010), forward everything else, replace client_id.
-            var queryParams = httpContext.Request.Query
-                .Where(kvp => !kvp.Key.Equals("resource", StringComparison.OrdinalIgnoreCase))
-                .SelectMany(kvp => kvp.Value.Select(v =>
+            // endpoint and causes AADSTS9010010), normalize Entra-compatible prompt
+            // values, forward everything else, replace client_id.
+            var queryParams = new List<KeyValuePair<string, string?>>();
+            foreach (var kvp in httpContext.Request.Query)
+            {
+                if (kvp.Key.Equals("resource", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (kvp.Key.Equals("prompt", StringComparison.OrdinalIgnoreCase))
+                {
+                    var prompt = NormalizePrompt(kvp.Value);
+                    if (prompt is not null)
+                        queryParams.Add(new KeyValuePair<string, string?>("prompt", prompt));
+                    continue;
+                }
+
+                queryParams.AddRange(kvp.Value.Select(v =>
                     new KeyValuePair<string, string?>(
                         kvp.Key,
                         kvp.Key.Equals("client_id", StringComparison.OrdinalIgnoreCase)
                             ? proxy.ClientId
-                            : v)))
-                .ToList();
+                            : v)));
+            }
 
             // Ensure client_id is always present even if missing from the original request.
             if (!queryParams.Any(kv => kv.Key.Equals("client_id", StringComparison.OrdinalIgnoreCase)))
@@ -216,5 +239,50 @@ public static class OAuthProxyEndpoints
         var host = req.Headers["X-Forwarded-Host"].FirstOrDefault()
                    ?? req.Host.ToUriComponent();
         return $"{scheme}://{host}{req.PathBase}".TrimEnd('/');
+    }
+
+    private static string? NormalizePrompt(StringValues values)
+    {
+        var tokens = values
+            .SelectMany(value => (value ?? string.Empty).Split(
+                ' ',
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Where(token => !token.Equals("create", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (tokens.Count == 1 && IsSupportedPrompt(tokens[0]))
+            return tokens[0];
+
+        foreach (var supportedPrompt in new[] { "consent", "select_account", "login", "none" })
+        {
+            if (tokens.Any(token => token.Equals(supportedPrompt, StringComparison.OrdinalIgnoreCase)))
+                return supportedPrompt;
+        }
+
+        return null;
+    }
+
+    private static bool IsSupportedPrompt(string value) =>
+        value.Equals("consent", StringComparison.OrdinalIgnoreCase)
+        || value.Equals("select_account", StringComparison.OrdinalIgnoreCase)
+        || value.Equals("login", StringComparison.OrdinalIgnoreCase)
+        || value.Equals("none", StringComparison.OrdinalIgnoreCase);
+
+    private sealed class DynamicClientRegistrationRequest
+    {
+        [JsonPropertyName("redirect_uris")]
+        public string[] RedirectUris { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("client_name")]
+        public string? ClientName { get; set; }
+
+        [JsonPropertyName("grant_types")]
+        public string[]? GrantTypes { get; set; }
+
+        [JsonPropertyName("response_types")]
+        public string[]? ResponseTypes { get; set; }
+
+        [JsonPropertyName("scope")]
+        public string? Scope { get; set; }
     }
 }

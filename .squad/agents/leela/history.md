@@ -4,6 +4,7 @@
 Detailed prior documentation entries were archived to `history-archive.md` because this file exceeded the 15KB Scribe hard gate. Keep this file focused on active documentation patterns and release-note guardrails.
 
 ## Learnings
+- 2026-06-01T00:00:00Z: Prepared v0.16.3 release notes at `docs/release-notes/0.16.3.md` and added the matching `CHANGELOG.md` entry. Version source was `PoshMcp.Server/PoshMcp.csproj` (`0.16.3`), scoped from previous tag `v0.16.2`.
 - For resolver/precedence chains, use a Step/Source/Notes table plus one small PowerShell example per rung. Match implementation vocabulary exactly (`synopsis`, `description`, `syntax`, `name`; `helpParameter`, `helpMessage`, `validateSet`, `typeFallback`).
 - When a feature partially ships, put an honest inline Known Issue callout near the affected content and include what works, what does not, tracking issue, current guidance, and what changes later.
 - Tutorial docs should demonstrate `poshmcp doctor` after setup/config steps, especially where `Modules`, `IncludePatterns`, auth, or doctor-visible runtime settings are involved.

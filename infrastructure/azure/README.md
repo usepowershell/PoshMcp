@@ -214,6 +214,63 @@ Look for:
 - `runtimeSettings.configurationMode.value`: `environment-only`
 - `runtimeSettings.configurationPath.source` and `runtimeSettings.configurationMode.source`: typically `env`
 
+### Recovering From Startup JSON Configuration Failures
+
+If a Container App revision exits before HTTP startup with a JSON parser error such as `JsonReaderException` or `invalid after a value`, first inspect the deployed Container App template. Checked-in repository files may not be the active runtime source if the image bundles a different `appsettings.json`, `POSHMCP_CONFIGURATION` points at a mounted file, or an Azure Files volume is mounted into the container.
+
+```powershell
+$resourceGroup = "<resource-group>"
+$appName = "<container-app-name>"
+$revision = "<revision-name>"
+
+az containerapp logs show `
+  --resource-group $resourceGroup `
+  --name $appName `
+  --revision $revision `
+  --container poshmcp `
+  --tail 100
+
+az containerapp revision list `
+  --resource-group $resourceGroup `
+  --name $appName `
+  --query "[?name=='$revision'].{name:name,image:properties.template.containers[0].image,env:properties.template.containers[0].env,command:properties.template.containers[0].command,args:properties.template.containers[0].args,volumeMounts:properties.template.containers[0].volumeMounts,volumes:properties.template.volumes}" `
+  --output jsonc
+```
+
+Check these fields in order:
+
+- `env[?name=='POSHMCP_CONFIGURATION']`: an explicit config file path. Validate the referenced mounted file before redeploying.
+- `args` or `command`: a `--config` argument also selects an explicit file.
+- `volumeMounts`: a mount over `/app/appsettings.json`, `/app/server/appsettings.json`, or the path named by `POSHMCP_CONFIGURATION` can replace the image-bundled config.
+- `image`: if no explicit config or mount is present, the bad file is probably bundled into that image. Rebuild the image from a validated appsettings file and redeploy the tag or digest.
+
+Validate JSON before publishing or updating runtime config:
+
+```powershell
+Get-Content .\appsettings.json -Raw | ConvertFrom-Json -Depth 100 | Out-Null
+```
+
+If the current active revision is crash-looping and the previous revision was healthy, shift traffic back while the malformed config is fixed:
+
+```powershell
+az containerapp revision list `
+  --resource-group $resourceGroup `
+  --name $appName `
+  --query "[].{name:name,active:properties.active,traffic:properties.trafficWeight,created:properties.createdTime}" `
+  --output table
+
+az containerapp ingress traffic set `
+  --resource-group $resourceGroup `
+  --name $appName `
+  --revision-weight <healthy-revision>=100
+```
+
+After fixing the source, redeploy with the existing script or Terraform path used for the app. For this Bicep deployment script, pass the validated server settings file explicitly:
+
+```powershell
+.\deploy.ps1 -ResourceGroup $resourceGroup -ContainerAppName $appName -ServerAppSettingsFile ..\..\appsettings.json
+```
+
 ### Custom Environment Variables
 
 Add custom variables to Container App after deployment:

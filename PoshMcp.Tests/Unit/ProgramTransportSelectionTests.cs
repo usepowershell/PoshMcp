@@ -170,6 +170,21 @@ public class ProgramTransportSelectionTests
             $"Expected doctor output to include configured OOP module path '{moduleDirectory.Path}' in diagnostics output.");
     }
 
+    [Fact]
+    public async Task ServeCommand_WithInvalidConfigJson_ReturnsConfigError()
+    {
+        using var configFile = new TemporaryConfigFile("{\n  \"PowerShellConfiguration\": {}\n  \"Authentication\": {}\n}");
+        using var capture = new ConsoleCapture();
+        using var transportScope = new EnvironmentVariableScope(TransportEnvVar, null);
+
+        var result = await Program.Main(new[] { "serve", "--config", configFile.Path, "--transport", "http" });
+
+        Assert.Equal(ExitCodes.ConfigError, result);
+        Assert.Contains("Configuration error:", capture.StandardError, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(configFile.Path, capture.StandardError, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("invalid JSON", capture.StandardError, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool PayloadContainsConfiguredModulePath(JsonObject payload, string expectedPath)
     {
         var normalizedExpected = NormalizePath(expectedPath);
@@ -219,6 +234,12 @@ public class ProgramTransportSelectionTests
   }}
 }}";
 
+            File.WriteAllText(Path, json);
+        }
+
+        public TemporaryConfigFile(string json)
+        {
+            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"poshmcp-transport-tests-{Guid.NewGuid():N}.json");
             File.WriteAllText(Path, json);
         }
 

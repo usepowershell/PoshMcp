@@ -51,6 +51,8 @@ public class Program
 
     public static async Task<int> Main(string[] args)
     {
+        Environment.ExitCode = ExitCodeSuccess;
+
         // Build CLI structure
         var rootCommand = CliDefinition.Build();
 
@@ -88,21 +90,21 @@ public class Program
             var mcpPath = context.ParseResult.GetValueForOption(CliDefinition.McpPathOption);
             var logFile = context.ParseResult.GetValueForOption(CliDefinition.LogFileOption);
 
-            var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args, configPath, logLevelText, transport, sessionMode, runtimeMode, mcpPath);
-            var parsedLogLevel = SettingsResolver.ParseLogLevel(resolvedSettings.LogLevel.Value);
-            var transportMode = SettingsResolver.ResolveTransportMode(resolvedSettings.Transport.Value);
-
-            var fileConfigBuilder = new ConfigurationBuilder();
-            if (!string.IsNullOrWhiteSpace(resolvedSettings.FinalConfigPath) && File.Exists(resolvedSettings.FinalConfigPath))
-            {
-                fileConfigBuilder.AddJsonFile(resolvedSettings.FinalConfigPath, optional: true, reloadOnChange: false);
-            }
-            fileConfigBuilder.AddEnvironmentVariables();
-            IConfiguration fileConfig = fileConfigBuilder.Build();
-            var resolvedLogFile = SettingsResolver.ResolveLogFilePath(logFile, fileConfig);
-
             try
             {
+                var resolvedSettings = await SettingsResolver.ResolveCommandSettingsAsync(args, configPath, logLevelText, transport, sessionMode, runtimeMode, mcpPath);
+                var parsedLogLevel = SettingsResolver.ParseLogLevel(resolvedSettings.LogLevel.Value);
+                var transportMode = SettingsResolver.ResolveTransportMode(resolvedSettings.Transport.Value);
+
+                var fileConfigBuilder = new ConfigurationBuilder();
+                if (!string.IsNullOrWhiteSpace(resolvedSettings.FinalConfigPath) && File.Exists(resolvedSettings.FinalConfigPath))
+                {
+                    fileConfigBuilder.AddJsonFile(resolvedSettings.FinalConfigPath, optional: true, reloadOnChange: false);
+                }
+                fileConfigBuilder.AddEnvironmentVariables();
+                IConfiguration fileConfig = fileConfigBuilder.Build();
+                var resolvedLogFile = SettingsResolver.ResolveLogFilePath(logFile, fileConfig);
+
                 if (SettingsResolver.ShouldPrintResolvedSettings(parsedLogLevel))
                 {
                     SettingsResolver.PrintResolvedSettings("serve", resolvedSettings);
@@ -127,6 +129,11 @@ public class Program
                 Environment.ExitCode = ExitCodeStartupError;
             }
             catch (FileNotFoundException ex)
+            {
+                Console.Error.WriteLine($"Configuration error: {ex.Message}");
+                Environment.ExitCode = ExitCodeConfigError;
+            }
+            catch (InvalidDataException ex)
             {
                 Console.Error.WriteLine($"Configuration error: {ex.Message}");
                 Environment.ExitCode = ExitCodeConfigError;
@@ -249,7 +256,8 @@ public class Program
         }, CliDefinition.ScaffoldProjectPathOption, CliDefinition.ForceOption, CliDefinition.FormatOption);
 #pragma warning restore CS8604
 
-        return await rootCommand.InvokeAsync(args);
+        var invokeResult = await rootCommand.InvokeAsync(args);
+        return invokeResult == ExitCodeSuccess ? Environment.ExitCode : invokeResult;
     }
     private static async Task RunMcpServerAsync(string[] args, LogLevel? overrideLogLevel = null, string? explicitConfigPath = null, string? configurationPathSource = null, string? runtimeModeOverride = null, string? logFilePath = null)
     {

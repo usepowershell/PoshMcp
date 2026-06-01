@@ -365,8 +365,17 @@ internal static class SettingsResolver
 
         var defaultRoot = JsonNode.Parse(defaultConfigJson, documentOptions: parseOptions)?.AsObject()
             ?? throw new InvalidOperationException("Embedded default configuration must be a JSON object.");
-        var existingRoot = JsonNode.Parse(existingConfigJson, documentOptions: parseOptions)?.AsObject()
-            ?? throw new InvalidOperationException($"Configuration file '{configPath}' must be a JSON object.");
+
+        JsonObject existingRoot;
+        try
+        {
+            existingRoot = JsonNode.Parse(existingConfigJson, documentOptions: parseOptions)?.AsObject()
+                ?? throw new InvalidDataException($"Configuration file '{configPath}' must be a JSON object.");
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidDataException($"Configuration file '{configPath}' contains invalid JSON: {ex.Message}", ex);
+        }
 
         var changed = MergeMissingProperties(defaultRoot, existingRoot);
         if (!changed)
