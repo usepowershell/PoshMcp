@@ -202,15 +202,12 @@ internal static class StdioServerHost
         IConfiguration configuration,
         bool isStdioMode)
     {
-        var options = configuration.GetSection(PoshMcp.Server.ApplicationInsightsOptions.SectionName).Get<PoshMcp.Server.ApplicationInsightsOptions>()
-                      ?? new PoshMcp.Server.ApplicationInsightsOptions();
+        var options = PoshMcp.Server.ApplicationInsightsConfiguration.GetOptions(configuration);
 
         if (!options.Enabled)
             return;
 
-        var connectionString = options.ConnectionString;
-        if (string.IsNullOrWhiteSpace(connectionString))
-            connectionString = Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING");
+        var connectionString = PoshMcp.Server.ApplicationInsightsConfiguration.ResolveConnectionString(options);
 
         if (string.IsNullOrWhiteSpace(connectionString))
         {

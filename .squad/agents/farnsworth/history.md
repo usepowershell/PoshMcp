@@ -193,6 +193,12 @@ Patterns codified: (1) tutorials touching `Modules`/`IncludePatterns` should alw
 **Outcome:** Roadmap ready for execution. Phase 1 establishes solid foundation with no architectural risk.
 
 **Note:** Decisions.md updated with Hermes log-forging revision (2026-05-17T08:15:00).
+
+### 2026-06-01T00:00:00Z — App Insights suppresses HTTP metrics console exporter
+
+**Change:** HTTP OpenTelemetry now treats console metrics as a local/default fallback only. When `ApplicationInsights.Enabled` is true and a connection string is available from config or `APPLICATIONINSIGHTS_CONNECTION_STRING`, the HTTP host skips `AddConsoleExporter()` so metric output does not clutter console logs while Azure Monitor export is active.
+
+**Architectural lesson:** exporter routing should share the same App Insights readiness predicate as Azure Monitor wiring. A small shared helper (`ApplicationInsightsConfiguration`) prevents drift between "should we add console exporter?" and "can we configure App Insights?" decisions across HTTP and stdio hosts.
 ## 2026-05-13 / 2026-05-14 — Summarized (full text in history-archive.md, archived by Scribe 2026-05-16)
 
 Spec 009 review wave + #247 docs:

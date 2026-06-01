@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -15,6 +16,9 @@ public class ConfigureApplicationInsightsTests
 {
     private static readonly MethodInfo ConfigureMethod = typeof(PoshMcp.StdioServerHost)
         .GetMethod("ConfigureApplicationInsights", BindingFlags.NonPublic | BindingFlags.Static)!;
+
+    private static readonly MethodInfo ConfigureHttpOpenTelemetryMethod = typeof(PoshMcp.HttpServerHost)
+        .GetMethod("ConfigureOpenTelemetryForHttp", BindingFlags.NonPublic | BindingFlags.Static)!;
 
     private static void InvokeConfigureApplicationInsights(
         IServiceCollection services,
@@ -35,6 +39,126 @@ public class ConfigureApplicationInsightsTests
             })
             .Build();
         return config;
+    }
+
+    private static WebApplicationBuilder BuildHttpBuilder(bool appInsightsEnabled, string connectionString = "")
+    {
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            Args = Array.Empty<string>(),
+            EnvironmentName = "Development"
+        });
+
+        builder.Configuration.AddInMemoryCollection(new[]
+        {
+            new KeyValuePair<string, string?>("ApplicationInsights:Enabled", appInsightsEnabled.ToString()),
+            new KeyValuePair<string, string?>("ApplicationInsights:ConnectionString", connectionString),
+            new KeyValuePair<string, string?>("ApplicationInsights:SamplingPercentage", "100"),
+        });
+
+        return builder;
+    }
+
+    private static void InvokeConfigureOpenTelemetryForHttp(WebApplicationBuilder builder)
+    {
+        ConfigureHttpOpenTelemetryMethod.Invoke(null, [builder]);
+    }
+
+    private static int CountMeterProviderBuilderConfigurations(IServiceCollection services)
+    {
+        return services.Count(d =>
+            d.ServiceType.FullName == "OpenTelemetry.Metrics.IConfigureMeterProviderBuilder");
+    }
+
+    [Fact]
+    public void IsConfigured_EnabledFalse_ReturnsFalse()
+    {
+        // Arrange
+        var configuration = BuildConfiguration(enabled: false);
+
+        // Act
+        var isConfigured = PoshMcp.Server.ApplicationInsightsConfiguration.IsConfigured(configuration);
+
+        // Assert
+        Assert.False(isConfigured);
+    }
+
+    [Fact]
+    public void IsConfigured_EnabledTrue_WithConnectionString_ReturnsTrue()
+    {
+        // Arrange
+        var connectionString = "InstrumentationKey=00000000-0000-0000-0000-000000000000;IngestionEndpoint=https://eastus-0.in.applicationinsights.azure.com/";
+        var configuration = BuildConfiguration(enabled: true, connectionString: connectionString);
+
+        // Act
+        var isConfigured = PoshMcp.Server.ApplicationInsightsConfiguration.IsConfigured(configuration);
+
+        // Assert
+        Assert.True(isConfigured);
+    }
+
+    [Fact]
+    public void IsConfigured_EnabledTrue_WithoutConnectionString_ReturnsFalse()
+    {
+        // Arrange
+        var configuration = BuildConfiguration(enabled: true, connectionString: "");
+        var originalEnvVar = Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING");
+        Environment.SetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING", null);
+
+        try
+        {
+            // Act
+            var isConfigured = PoshMcp.Server.ApplicationInsightsConfiguration.IsConfigured(configuration);
+
+            // Assert
+            Assert.False(isConfigured);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING", originalEnvVar);
+        }
+    }
+
+    [Fact]
+    public void IsConfigured_EnabledTrue_WithEnvironmentConnectionString_ReturnsTrue()
+    {
+        // Arrange
+        var configuration = BuildConfiguration(enabled: true, connectionString: "");
+        var envConnStr = "InstrumentationKey=00000000-0000-0000-0000-000000000000;IngestionEndpoint=https://eastus-0.in.applicationinsights.azure.com/";
+        var originalEnvVar = Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING");
+        Environment.SetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING", envConnStr);
+
+        try
+        {
+            // Act
+            var isConfigured = PoshMcp.Server.ApplicationInsightsConfiguration.IsConfigured(configuration);
+
+            // Assert
+            Assert.True(isConfigured);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING", originalEnvVar);
+        }
+    }
+
+    [Fact]
+    public void HttpOpenTelemetry_AppInsightsConfigurationControlsConsoleExporter()
+    {
+        // Arrange
+        var fallbackBuilder = BuildHttpBuilder(appInsightsEnabled: false);
+        var connectionString = "InstrumentationKey=00000000-0000-0000-0000-000000000000;IngestionEndpoint=https://eastus-0.in.applicationinsights.azure.com/";
+        var appInsightsBuilder = BuildHttpBuilder(appInsightsEnabled: true, connectionString: connectionString);
+
+        // Act
+        InvokeConfigureOpenTelemetryForHttp(fallbackBuilder);
+        InvokeConfigureOpenTelemetryForHttp(appInsightsBuilder);
+
+        // Assert
+        Assert.True(
+            CountMeterProviderBuilderConfigurations(fallbackBuilder.Services) >
+            CountMeterProviderBuilderConfigurations(appInsightsBuilder.Services),
+            "Expected the local fallback path to register the console metrics exporter and the Application Insights path to suppress it.");
     }
 
     [Fact]

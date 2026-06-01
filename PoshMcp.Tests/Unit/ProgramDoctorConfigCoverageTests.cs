@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using ModelContextProtocol.Server;
+using PoshMcp.Server.PowerShell;
 using Xunit;
 
 namespace PoshMcp.Tests.Unit;
@@ -293,6 +296,32 @@ public class ProgramDoctorConfigCoverageTests
         Assert.NotNull(identity);
         // CLI doctor has no HTTP context — available must be false
         Assert.False(identity!["available"]?.GetValue<bool>());
+    }
+
+    [Fact]
+    public async Task DoctorReportForCli_WhenToolDiscoveryThrowsStartupFailure_ReturnsDiagnosticReport()
+    {
+        using var configFile = new DoctorConfigFile();
+        var settings = new ResolvedCommandSettings(
+            ConfigPath: new ResolvedSetting(configFile.Path, "test"),
+            FinalConfigPath: configFile.Path,
+            LogLevel: new ResolvedSetting("Warning", "test"),
+            Transport: new ResolvedSetting("stdio", "test"),
+            SessionMode: new ResolvedSetting(null, "default"),
+            RuntimeMode: new ResolvedSetting("OutOfProcess", "test"),
+            McpPath: new ResolvedSetting(null, "default"));
+
+        var report = await DoctorService.BuildDoctorReportForCliAsync(
+            settings,
+            static (config, loggerFactory, logger, configurationPath, metadataSource, descriptionSourceTracker, importSourceTracker) =>
+                throw new InvalidOperationException("OOP environment setup failed: Error executing startup script file: boom"));
+
+        Assert.Equal("errors", report.Summary.Status);
+        Assert.Contains(report.ConfigurationErrors, error =>
+            error.Contains("Tool discovery failed", System.StringComparison.Ordinal)
+            && error.Contains("startup script file", System.StringComparison.Ordinal));
+        Assert.NotNull(report.PowerShell.Version);
+        Assert.NotNull(report.RuntimeSettings.ConfigurationPath.Value);
     }
 
     [Fact]

@@ -204,3 +204,9 @@ Release v0.14.1 shipped successfully. Version bump, release notes, and GitHub re
 - `McpResourceHandler` handles configured/static `McpResources.Resources[]` reads; noun-derived resources use `McpNounResourceHandler`. In HTTP OutOfProcess mode this means static command resources can accidentally run in the session-aware in-process runspace while noun/tool reads use the configured OOP executor.
 - For simple command-backed static resources such as `Get-BamiTenantConfiguration`, prefer `ICommandExecutor.InvokeAsync(commandName, emptyArgs)` when an executor is available. Keep arbitrary script/pipeline resources on the existing runspace path because the OOP invoke protocol accepts command names plus parameters, not free-form scripts.
 
+### 2026-05-29 — Doctor should survive OOP startup/setup failures
+
+- Image `bamips2608.azurecr.io/caglobaldemos:20260529194308` exits after `OOP environment setup failed` because its binary predates the CLI doctor discovery-failure capture path.
+- Current source `DoctorService.BuildDoctorReportForCliAsync` catches startup/tool discovery exceptions, records `Tool discovery failed: ...` in `configurationErrors`, renders the report, and exits `0` for both a missing OOP startup script and the image's exact `/app/appsettings.json`.
+- Focused guard: `ProgramTests.BuildDoctorReportForCliAsync_WhenStartupAndDiscoveryFail_StillReturnsReportWithErrors`.
+

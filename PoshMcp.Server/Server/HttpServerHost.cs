@@ -356,8 +356,12 @@ internal static class HttpServerHost
             {
                 metricsBuilder
                     .AddMeter(McpMetrics.MeterName)
-                    .AddAspNetCoreInstrumentation()
-                    .AddConsoleExporter();
+                    .AddAspNetCoreInstrumentation();
+
+                if (!PoshMcp.Server.ApplicationInsightsConfiguration.IsConfigured(builder.Configuration))
+                {
+                    metricsBuilder.AddConsoleExporter();
+                }
             });
 
         builder.Services.AddSingleton<IHostedService>(serviceProvider =>
@@ -378,15 +382,12 @@ internal static class HttpServerHost
         IConfiguration configuration,
         bool isStdioMode)
     {
-        var options = configuration.GetSection(PoshMcp.Server.ApplicationInsightsOptions.SectionName).Get<PoshMcp.Server.ApplicationInsightsOptions>()
-                      ?? new PoshMcp.Server.ApplicationInsightsOptions();
+        var options = PoshMcp.Server.ApplicationInsightsConfiguration.GetOptions(configuration);
 
         if (!options.Enabled)
             return;
 
-        var connectionString = options.ConnectionString;
-        if (string.IsNullOrWhiteSpace(connectionString))
-            connectionString = Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING");
+        var connectionString = PoshMcp.Server.ApplicationInsightsConfiguration.ResolveConnectionString(options);
 
         if (string.IsNullOrWhiteSpace(connectionString))
         {

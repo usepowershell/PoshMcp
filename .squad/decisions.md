@@ -3,6 +3,13 @@
 ## Recent Decisions
 > Older entries archived to `decisions-archive.md` (entries >7d removed when file >= 50KB).
 
+### 2026-06-01T00:00:00Z: App Insights suppresses metrics console exporter
+**By:** Steven Murawski (via Farnsworth)
+**What:** When Application Insights is enabled and has a resolved connection string, HTTP OpenTelemetry metrics should export through Azure Monitor and must not also register the console exporter. Console metric export remains the fallback when App Insights is disabled or not fully configured.
+**Why:** Duplicate console metric output makes operator logs harder to read in App Insights-backed deployments, while preserving console metrics keeps local/default observability behavior intact.
+
+---
+
 ### 2026-05-28: MCP prompts/get enforces required args and renders templates post-source
 **By:** Steven (via Bender)
 
