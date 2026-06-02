@@ -6,6 +6,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Xunit;
 using Xunit.Abstractions;
+using Xunit.Sdk;
 
 namespace PoshMcp.Tests.Integration;
 
@@ -27,6 +28,7 @@ public sealed class ToolDescriptionParityTests : PowerShellTestBase, IAsyncLifet
     private HelpParityFixtureSession? _inProcessSession;
     private HelpParityFixtureSession? _outOfProcessSession;
     private bool _bothModesAvailable;
+    private string? _oopUnavailableReason;
 
     public ToolDescriptionParityTests(ITestOutputHelper output) : base(output)
     {
@@ -55,11 +57,13 @@ public sealed class ToolDescriptionParityTests : PowerShellTestBase, IAsyncLifet
             }
             else
             {
+                _oopUnavailableReason = "pwsh not on PATH";
                 Logger.LogWarning("pwsh not on PATH; OutOfProcess parity tests will be skipped");
             }
         }
         catch (System.Exception ex)
         {
+            _oopUnavailableReason = ex.Message;
             Logger.LogWarning(ex, "Failed to start OutOfProcess fixture session; OOP tests will be skipped");
         }
     }
@@ -310,14 +314,9 @@ public sealed class ToolDescriptionParityTests : PowerShellTestBase, IAsyncLifet
     {
         if (!_bothModesAvailable)
         {
-            // Use Assert.Skip-equivalent: throw via xUnit's SkipException replacement.
-            // The project does not depend on Xunit.SkippableFact, so we route through
-            // the [PwshAvailableFact]/[PwshAvailableTheory] gate which prevents the
-            // test from running when pwsh is missing. If we somehow reach here with
-            // OOP unavailable, fail loudly so the gap is visible in CI.
-            throw new System.InvalidOperationException(
-                "OutOfProcess fixture session was not initialized but a cross-mode test ran. " +
-                "Verify [PwshAvailableFact]/[PwshAvailableTheory] gating.");
+            throw SkipException.ForSkip(
+                "OutOfProcess fixture session was not initialized. " +
+                $"Reason: {_oopUnavailableReason ?? "unknown"}.");
         }
     }
 }

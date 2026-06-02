@@ -65,7 +65,7 @@ public class ProgramCliScaffoldCommandTests
             "--project-path", projectDirectory
         });
 
-        Assert.Equal(0, secondResult);
+        Assert.Equal(2, secondResult);
         Assert.Contains("already exists", capture.StandardError, StringComparison.OrdinalIgnoreCase);
 
         var contentAfterFailure = await File.ReadAllTextAsync(deployScriptPath);

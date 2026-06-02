@@ -14,6 +14,7 @@ using Xunit.Abstractions;
 namespace PoshMcp.Tests.Integration;
 
 [Trait("Category", "Integration")]
+[Collection("TransportSelectionTests")]
 public class ApplicationInsightsIntegrationTests : PowerShellTestBase
 {
     public ApplicationInsightsIntegrationTests(ITestOutputHelper output) : base(output)
@@ -35,8 +36,8 @@ public class ApplicationInsightsIntegrationTests : PowerShellTestBase
 
             using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
 
-            var healthResponse = await httpClient.GetAsync($"{server.ServerUrl}/health");
-            var readyResponse = await httpClient.GetAsync($"{server.ServerUrl}/health/ready");
+            var healthResponse = await GetWithSocketRetryAsync(httpClient, $"{server.ServerUrl}/health");
+            var readyResponse = await GetWithSocketRetryAsync(httpClient, $"{server.ServerUrl}/health/ready");
 
             Assert.True(healthResponse.IsSuccessStatusCode,
                 $"Expected /health to succeed with AppInsights enabled (no connection string), got {(int)healthResponse.StatusCode}");
@@ -164,7 +165,7 @@ public class ApplicationInsightsIntegrationTests : PowerShellTestBase
 
             using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
 
-            var healthResponse = await httpClient.GetAsync($"{server.ServerUrl}/health");
+            var healthResponse = await GetWithSocketRetryAsync(httpClient, $"{server.ServerUrl}/health");
 
             Assert.True(healthResponse.IsSuccessStatusCode,
                 $"Expected /health to succeed with AppInsights disabled, got {(int)healthResponse.StatusCode}");
@@ -186,30 +187,67 @@ public class ApplicationInsightsIntegrationTests : PowerShellTestBase
     private static async Task<(JObject Response, string? SessionId)> SendMcpRequestAsync(
         HttpClient httpClient, object request, string? sessionId = null)
     {
-        var requestJson = JsonConvert.SerializeObject(request);
-        using var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
-
-        using var requestMessage = new HttpRequestMessage(HttpMethod.Post, "/")
+        const int maxAttempts = 3;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            Content = content
-        };
+            var requestJson = JsonConvert.SerializeObject(request);
+            using var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
 
-        if (!string.IsNullOrWhiteSpace(sessionId))
-        {
-            requestMessage.Headers.Add("Mcp-Session-Id", sessionId);
+            using var requestMessage = new HttpRequestMessage(HttpMethod.Post, "/")
+            {
+                Content = content
+            };
+
+            if (!string.IsNullOrWhiteSpace(sessionId))
+            {
+                requestMessage.Headers.Add("Mcp-Session-Id", sessionId);
+            }
+
+            try
+            {
+                using var response = await httpClient.SendAsync(requestMessage);
+                var responseText = await response.Content.ReadAsStringAsync();
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    throw new HttpRequestException($"HTTP {(int)response.StatusCode}: {responseText}");
+                }
+
+                return (ParseSsePayload(responseText), response.Headers.TryGetValues("Mcp-Session-Id", out var vals)
+                    ? vals.FirstOrDefault()
+                    : null);
+            }
+            catch (HttpRequestException ex) when (attempt < maxAttempts && IsSocketAddressInUse(ex.Message))
+            {
+                await Task.Delay(100 * attempt);
+            }
         }
 
-        using var response = await httpClient.SendAsync(requestMessage);
-        var responseText = await response.Content.ReadAsStringAsync();
+        throw new InvalidOperationException("MCP request retry loop exhausted unexpectedly.");
+    }
 
-        if (!response.IsSuccessStatusCode)
+    private static async Task<HttpResponseMessage> GetWithSocketRetryAsync(HttpClient httpClient, string url)
+    {
+        const int maxAttempts = 3;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            throw new HttpRequestException($"HTTP {(int)response.StatusCode}: {responseText}");
+            try
+            {
+                return await httpClient.GetAsync(url);
+            }
+            catch (HttpRequestException ex) when (attempt < maxAttempts && IsSocketAddressInUse(ex.Message))
+            {
+                await Task.Delay(100 * attempt);
+            }
         }
 
-        return (ParseSsePayload(responseText), response.Headers.TryGetValues("Mcp-Session-Id", out var vals)
-            ? vals.FirstOrDefault()
-            : null);
+        throw new InvalidOperationException("HTTP GET retry loop exhausted unexpectedly.");
+    }
+
+    private static bool IsSocketAddressInUse(string message)
+    {
+        return message.Contains("Only one usage of each socket address", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("address already in use", StringComparison.OrdinalIgnoreCase);
     }
 
     private static JObject ParseSsePayload(string sseResponse)
@@ -233,7 +271,7 @@ public class ApplicationInsightsIntegrationTests : PowerShellTestBase
 /// </summary>
 internal sealed class AppInsightsTestHttpServer : IDisposable
 {
-    private readonly int _port;
+    private int _port;
     private readonly Dictionary<string, string> _environmentOverrides;
     private Process? _serverProcess;
     private readonly object _outputLock = new();
@@ -248,12 +286,45 @@ internal sealed class AppInsightsTestHttpServer : IDisposable
         // FR-411: bind on a kernel-allocated free port (probe TcpListener on
         // port 0, read .Port, release). Replaces a Random.Shared.Next(6100,
         // 6900) range-picker that produced collisions across concurrent runs.
-        _port = port == 0 ? PoshMcp.Tests.Shared.DynamicPort.Allocate() : port;
+        _port = port == 0 ? PoshMcp.Tests.Shared.DynamicPort.AllocateUnique() : port;
         _environmentOverrides = environmentOverrides ?? new Dictionary<string, string>();
     }
 
     public async Task StartAsync()
     {
+        const int maxBindRetryAttempts = 3;
+        for (var bindAttempt = 1; bindAttempt <= maxBindRetryAttempts; bindAttempt++)
+        {
+            await StartCoreAsync();
+
+            if (_serverProcess is null || !_serverProcess.HasExited)
+            {
+                return;
+            }
+
+            var output = GetCapturedOutput();
+            var shouldRetry = bindAttempt < maxBindRetryAttempts && IsSocketAddressInUse(output);
+            if (!shouldRetry)
+            {
+                throw new InvalidOperationException(
+                    $"Server process exited with code {_serverProcess.ExitCode}. Output:\n{output}");
+            }
+
+            SubprocessTeardown.Teardown(_serverProcess);
+            _serverProcess = null;
+            _port = PoshMcp.Tests.Shared.DynamicPort.AllocateUnique();
+        }
+
+        throw new InvalidOperationException("Unexpected AppInsights HTTP server startup state.");
+    }
+
+    private async Task StartCoreAsync()
+    {
+        lock (_outputLock)
+        {
+            _capturedOutput.Clear();
+        }
+
         var currentDirectory = Directory.GetCurrentDirectory();
         var workspaceRoot = currentDirectory;
 
@@ -314,8 +385,7 @@ internal sealed class AppInsightsTestHttpServer : IDisposable
         {
             if (_serverProcess.HasExited)
             {
-                throw new InvalidOperationException(
-                    $"Server process exited with code {_serverProcess.ExitCode}. Output:\n{GetCapturedOutput()}");
+                return;
             }
 
             try
@@ -340,6 +410,13 @@ internal sealed class AppInsightsTestHttpServer : IDisposable
 
         throw new TimeoutException(
             $"Server did not become ready at {ServerUrl}. Output:\n{GetCapturedOutput()}");
+    }
+
+    private static bool IsSocketAddressInUse(string output)
+    {
+        return output.Contains("Only one usage of each socket address", StringComparison.OrdinalIgnoreCase)
+            || output.Contains("address already in use", StringComparison.OrdinalIgnoreCase)
+            || output.Contains("Failed to bind", StringComparison.OrdinalIgnoreCase);
     }
 
     private void OnOutputData(object sender, DataReceivedEventArgs e)

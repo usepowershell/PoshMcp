@@ -93,7 +93,10 @@ internal sealed class HelpParityFixtureSession : IAsyncDisposable
         _server = new InProcessMcpServer(_logger, explicitConfigPath: _configPath);
         await _server.StartAsync();
 
-        _client = new ExternalMcpClient(_logger, _server);
+        _client = new ExternalMcpClient(
+            _logger,
+            _server,
+            startupTimeout: TimeSpan.FromSeconds(120));
         await _client.StartAsync();
 
         // FR-521 pre-warm: discovery already invoked Get-Help during tool registration,

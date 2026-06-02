@@ -1,5 +1,8 @@
+using System;
 using System.Net;
 using System.Net.Sockets;
+using System.Diagnostics;
+using System.Threading;
 
 namespace PoshMcp.Tests.Shared;
 
@@ -35,6 +38,18 @@ namespace PoshMcp.Tests.Shared;
 /// </remarks>
 internal static class DynamicPort
 {
+    private const int TestPortMin = 10000;
+    private const int TestPortMax = 30000;
+    private static int _nextUniquePort = InitializeStartingPort();
+
+    private static int InitializeStartingPort()
+    {
+        var range = TestPortMax - TestPortMin + 1;
+        var seed = unchecked((int)(DateTime.UtcNow.Ticks ^ Process.GetCurrentProcess().Id));
+        var offset = Math.Abs(seed % range);
+        return TestPortMin + offset - 1;
+    }
+
     /// <summary>
     /// Returns a TCP port number the kernel selected as free, then released
     /// the probe socket so a caller (typically a child process) can bind it.
@@ -50,6 +65,58 @@ internal static class DynamicPort
         finally
         {
             probe.Stop();
+        }
+    }
+
+    /// <summary>
+    /// Returns a likely-unique loopback port for this process by walking a
+    /// monotonic candidate sequence in the ephemeral range and probing each
+    /// candidate before returning it.
+    /// </summary>
+    public static int AllocateUnique()
+    {
+        var candidateRange = TestPortMax - TestPortMin + 1;
+
+        for (var i = 0; i < candidateRange; i++)
+        {
+            var candidate = Interlocked.Increment(ref _nextUniquePort);
+            if (candidate > TestPortMax)
+            {
+                Interlocked.CompareExchange(ref _nextUniquePort, TestPortMin - 1, candidate);
+                candidate = Interlocked.Increment(ref _nextUniquePort);
+            }
+
+            if (IsPortAvailable(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return Allocate();
+    }
+
+    private static bool IsPortAvailable(int port)
+    {
+        var probe = new TcpListener(IPAddress.Loopback, port);
+        try
+        {
+            probe.Start();
+            return true;
+        }
+        catch (SocketException)
+        {
+            return false;
+        }
+        finally
+        {
+            try
+            {
+                probe.Stop();
+            }
+            catch (SocketException)
+            {
+                // Ignore stop failures from partially-initialized probes.
+            }
         }
     }
 }

@@ -96,11 +96,6 @@ public class OutOfProcessHostConcurrencyTests
             return;
         }
 
-        if (!HttpListener.IsSupported)
-        {
-            return;
-        }
-
         using var server = new LoopbackHttpServer();
         server.Start();
 
@@ -116,18 +111,7 @@ public class OutOfProcessHostConcurrencyTests
         const int Concurrency = 10;
         var tasks = Enumerable.Range(0, Concurrency).Select(async _ =>
         {
-            return await host.SendRequestAsync<JsonElement>(
-                "invoke",
-                new
-                {
-                    command = "Invoke-WebRequest",
-                    parameters = new Dictionary<string, object?>
-                    {
-                        ["Uri"] = server.Url,
-                        ["UseBasicParsing"] = true,
-                    }
-                },
-                CancellationToken.None);
+            return await SendInvokeWebRequestWithRetryAsync(host, server.Url, CancellationToken.None);
         }).ToArray();
 
         // Pre-fix this throws System.InvalidOperationException with message
@@ -145,6 +129,53 @@ public class OutOfProcessHostConcurrencyTests
             Assert.False(string.IsNullOrEmpty(s),
                 "output should be non-empty JSON.");
         }
+    }
+
+    private static async Task<JsonElement> SendInvokeWebRequestWithRetryAsync(
+        OutOfProcessHost host,
+        string url,
+        CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 3;
+
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                return await host.SendRequestAsync<JsonElement>(
+                    "invoke",
+                    new
+                    {
+                        command = "Invoke-WebRequest",
+                        parameters = new Dictionary<string, object?>
+                        {
+                            ["Uri"] = url,
+                            ["UseBasicParsing"] = true,
+                        }
+                    },
+                    cancellationToken);
+            }
+            catch (Exception ex) when (attempt < maxAttempts && IsTransientLoopbackError(ex))
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(100 * attempt), cancellationToken);
+            }
+        }
+
+        throw new InvalidOperationException("Invoke-WebRequest retry loop exhausted unexpectedly.");
+    }
+
+    private static bool IsTransientLoopbackError(Exception ex)
+    {
+        if (ex is not InvalidOperationException io)
+        {
+            return false;
+        }
+
+        var message = io.Message;
+        return message.Contains("socket address", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("transport connection", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("connection was aborted", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("connection was forcibly closed", StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task<string?> ResolveOopHostScriptForTestAsync()
@@ -190,13 +221,13 @@ public class OutOfProcessHostConcurrencyTests
     }
 
     /// <summary>
-    /// Minimal HttpListener bound to <c>127.0.0.1</c> on an ephemeral port.
-    /// Mirrors the bench's HttpListenerTestServer pattern. Returns a fixed
-    /// JSON body so the test does not depend on outbound network access.
+    /// Minimal loopback HTTP server bound via <see cref="TcpListener"/> on an
+    /// ephemeral port. Returns a fixed JSON body so the test remains fully local
+    /// and avoids URL reservation/socket reuse quirks from HttpListener.
     /// </summary>
     private sealed class LoopbackHttpServer : IDisposable
     {
-        private readonly HttpListener _listener = new();
+        private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
         private readonly CancellationTokenSource _cts = new();
         private Task? _acceptLoop;
 
@@ -204,44 +235,77 @@ public class OutOfProcessHostConcurrencyTests
 
         public void Start()
         {
-            var probe = new TcpListener(IPAddress.Loopback, 0);
-            probe.Start();
-            var port = ((IPEndPoint)probe.LocalEndpoint).Port;
-            probe.Stop();
-
-            Url = $"http://127.0.0.1:{port}/";
-            _listener.Prefixes.Add(Url);
             _listener.Start();
+            var port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+            Url = $"http://127.0.0.1:{port}/";
 
             _acceptLoop = Task.Run(() => AcceptLoopAsync(_cts.Token));
         }
 
         private async Task AcceptLoopAsync(CancellationToken ct)
         {
-            while (!ct.IsCancellationRequested && _listener.IsListening)
+            var responseBody = Encoding.UTF8.GetBytes("{\"ok\":true}");
+            var header = Encoding.ASCII.GetBytes(
+                "HTTP/1.1 200 OK\r\n" +
+                "Content-Type: application/json\r\n" +
+                $"Content-Length: {responseBody.Length}\r\n" +
+                "Connection: close\r\n\r\n");
+
+            while (!ct.IsCancellationRequested)
             {
-                HttpListenerContext context;
+                TcpClient client;
                 try
                 {
-                    context = await _listener.GetContextAsync().ConfigureAwait(false);
+                    client = await _listener.AcceptTcpClientAsync(ct).ConfigureAwait(false);
                 }
+                catch (OperationCanceledException) { return; }
                 catch (ObjectDisposedException) { return; }
-                catch (HttpListenerException) { return; }
+                catch (SocketException) { return; }
 
                 _ = Task.Run(async () =>
                 {
+                    using var _ = client;
                     try
                     {
-                        var bytes = Encoding.UTF8.GetBytes("{\"ok\":true}");
-                        context.Response.StatusCode = 200;
-                        context.Response.ContentType = "application/json";
-                        context.Response.ContentLength64 = bytes.Length;
-                        await context.Response.OutputStream.WriteAsync(bytes, ct).ConfigureAwait(false);
-                        context.Response.OutputStream.Close();
+                        using var stream = client.GetStream();
+
+                        // Read request headers before responding so clients do not
+                        // observe a connection reset when the server closes quickly.
+                        var readBuffer = new byte[1024];
+                        var requestBytes = 0;
+                        while (requestBytes < 16 * 1024)
+                        {
+                            var bytesRead = await stream.ReadAsync(readBuffer.AsMemory(0, readBuffer.Length), ct).ConfigureAwait(false);
+                            if (bytesRead <= 0)
+                            {
+                                break;
+                            }
+
+                            requestBytes += bytesRead;
+                            if (requestBytes >= 4)
+                            {
+                                // Look for CRLF CRLF marking end of headers in the latest read window.
+                                for (var i = 3; i < bytesRead; i++)
+                                {
+                                    if (readBuffer[i - 3] == (byte)'\r'
+                                        && readBuffer[i - 2] == (byte)'\n'
+                                        && readBuffer[i - 1] == (byte)'\r'
+                                        && readBuffer[i] == (byte)'\n')
+                                    {
+                                        goto HeadersRead;
+                                    }
+                                }
+                            }
+                        }
+
+                    HeadersRead:
+                        await stream.WriteAsync(header, ct).ConfigureAwait(false);
+                        await stream.WriteAsync(responseBody, ct).ConfigureAwait(false);
+                        await stream.FlushAsync(ct).ConfigureAwait(false);
                     }
                     catch
                     {
-                        try { context.Response.Abort(); } catch { /* best effort */ }
+                        try { client.Close(); } catch { /* best effort */ }
                     }
                 }, ct);
             }
@@ -251,7 +315,6 @@ public class OutOfProcessHostConcurrencyTests
         {
             try { _cts.Cancel(); } catch { /* best effort */ }
             try { _listener.Stop(); } catch { /* best effort */ }
-            try { _listener.Close(); } catch { /* best effort */ }
             _cts.Dispose();
         }
     }

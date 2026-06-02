@@ -447,15 +447,23 @@ public class ExternalMcpClient : IDisposable
 {
     private readonly ILogger _logger;
     private readonly InProcessMcpServer _server;
+    private readonly TimeSpan _startupTimeout;
+    private readonly int _startupRetryDelayMs;
     private Process? _serverProcess;
     private int _requestId = 1;
     private readonly SemaphoreSlim _streamSemaphore = new(1, 1); // Ensure only one request/response at a time
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(15);
 
-    public ExternalMcpClient(ILogger logger, InProcessMcpServer server)
+    public ExternalMcpClient(
+        ILogger logger,
+        InProcessMcpServer server,
+        TimeSpan? startupTimeout = null,
+        int startupRetryDelayMs = 1000)
     {
         _logger = logger;
         _server = server;
+        _startupTimeout = startupTimeout ?? TimeSpan.FromSeconds(45);
+        _startupRetryDelayMs = startupRetryDelayMs;
     }
 
     public async Task StartAsync()
@@ -463,15 +471,13 @@ public class ExternalMcpClient : IDisposable
         _serverProcess = _server.GetServerProcess();
 
         // Test server readiness by attempting to initialize until it succeeds
-        var startupTimeout = TimeSpan.FromSeconds(45);
-        var retryDelay = 1000; // 1 second between retries
         var initialized = false;
         var attempt = 0;
         var startupStopwatch = Stopwatch.StartNew();
 
         _logger.LogInformation("Testing server readiness by attempting initialization...");
 
-        while (startupStopwatch.Elapsed < startupTimeout)
+        while (startupStopwatch.Elapsed < _startupTimeout)
         {
             attempt++;
 
@@ -500,20 +506,20 @@ public class ExternalMcpClient : IDisposable
                 else
                 {
                     _logger.LogDebug($"Attempt {attempt}: Server initialized but no tools available yet. Retrying...");
-                    await Task.Delay(retryDelay);
+                    await Task.Delay(_startupRetryDelayMs);
                     continue;
                 }
             }
-            catch (Exception ex) when (startupStopwatch.Elapsed < startupTimeout)
+            catch (Exception ex) when (startupStopwatch.Elapsed < _startupTimeout)
             {
-                _logger.LogDebug($"Initialization attempt {attempt} failed: {ex.Message}. Retrying in {retryDelay}ms...");
-                await Task.Delay(retryDelay);
+                _logger.LogDebug($"Initialization attempt {attempt} failed: {ex.Message}. Retrying in {_startupRetryDelayMs}ms...");
+                await Task.Delay(_startupRetryDelayMs);
             }
         }
 
         if (!initialized)
         {
-            throw new TimeoutException($"Server did not become ready with tools after {attempt} attempts in {startupTimeout.TotalSeconds:0} seconds");
+            throw new TimeoutException($"Server did not become ready with tools after {attempt} attempts in {_startupTimeout.TotalSeconds:0} seconds");
         }
 
         _logger.LogInformation("External MCP client connected to server stdio and server is ready with tools");

@@ -13,6 +13,7 @@ using Xunit.Abstractions;
 namespace PoshMcp.Tests.Integration;
 
 [Trait("Category", "Http")]
+[Collection("TransportSelectionTests")]
 public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
 {
     public UnifiedHttpTransportIntegrationTests(ITestOutputHelper output) : base(output)
@@ -30,8 +31,8 @@ public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
 
             using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
 
-            var healthResponse = await httpClient.GetAsync($"{server.ServerUrl}/health");
-            var readyResponse = await httpClient.GetAsync($"{server.ServerUrl}/health/ready");
+            var healthResponse = await GetWithSocketRetryAsync(httpClient, $"{server.ServerUrl}/health");
+            var readyResponse = await GetWithSocketRetryAsync(httpClient, $"{server.ServerUrl}/health/ready");
 
             Assert.True(healthResponse.IsSuccessStatusCode, $"Expected /health to succeed, got {(int)healthResponse.StatusCode}");
             Assert.True(readyResponse.IsSuccessStatusCode, $"Expected /health/ready to succeed, got {(int)readyResponse.StatusCode}");
@@ -260,33 +261,70 @@ public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
 
     private static async Task<(JObject Response, string? SessionId)> SendMcpRequestAsync(HttpClient httpClient, object request, string? sessionId = null)
     {
-        var requestJson = JsonConvert.SerializeObject(request);
-        using var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
-
-        using var requestMessage = new HttpRequestMessage(HttpMethod.Post, "/")
+        const int maxAttempts = 3;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            Content = content
-        };
+            var requestJson = JsonConvert.SerializeObject(request);
+            using var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
 
-        if (!string.IsNullOrWhiteSpace(sessionId))
-        {
-            requestMessage.Headers.Add("Mcp-Session-Id", sessionId);
+            using var requestMessage = new HttpRequestMessage(HttpMethod.Post, "/")
+            {
+                Content = content
+            };
+
+            if (!string.IsNullOrWhiteSpace(sessionId))
+            {
+                requestMessage.Headers.Add("Mcp-Session-Id", sessionId);
+            }
+
+            try
+            {
+                using var response = await httpClient.SendAsync(requestMessage);
+                var responseText = await response.Content.ReadAsStringAsync();
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    throw new HttpRequestException($"HTTP {(int)response.StatusCode}: {responseText}");
+                }
+
+                var responseObject = ParseSsePayload(responseText);
+                var responseSessionId = response.Headers.TryGetValues("Mcp-Session-Id", out var sessionIdValues)
+                    ? sessionIdValues.FirstOrDefault()
+                    : null;
+
+                return (responseObject, responseSessionId);
+            }
+            catch (HttpRequestException ex) when (attempt < maxAttempts && IsSocketAddressInUse(ex.Message))
+            {
+                await Task.Delay(100 * attempt);
+            }
         }
 
-        using var response = await httpClient.SendAsync(requestMessage);
-        var responseText = await response.Content.ReadAsStringAsync();
+        throw new InvalidOperationException("MCP request retry loop exhausted unexpectedly.");
+    }
 
-        if (!response.IsSuccessStatusCode)
+    private static async Task<HttpResponseMessage> GetWithSocketRetryAsync(HttpClient httpClient, string url)
+    {
+        const int maxAttempts = 3;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            throw new HttpRequestException($"HTTP {(int)response.StatusCode}: {responseText}");
+            try
+            {
+                return await httpClient.GetAsync(url);
+            }
+            catch (HttpRequestException ex) when (attempt < maxAttempts && IsSocketAddressInUse(ex.Message))
+            {
+                await Task.Delay(100 * attempt);
+            }
         }
 
-        var responseObject = ParseSsePayload(responseText);
-        var responseSessionId = response.Headers.TryGetValues("Mcp-Session-Id", out var sessionIdValues)
-            ? sessionIdValues.FirstOrDefault()
-            : null;
+        throw new InvalidOperationException("HTTP GET retry loop exhausted unexpectedly.");
+    }
 
-        return (responseObject, responseSessionId);
+    private static bool IsSocketAddressInUse(string message)
+    {
+        return message.Contains("Only one usage of each socket address", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("address already in use", StringComparison.OrdinalIgnoreCase);
     }
 
     private static JObject ParseSsePayload(string sseResponse)
@@ -318,7 +356,7 @@ internal sealed class InProcessUnifiedHttpServer : IDisposable
         // FR-411: bind on a kernel-allocated free port (probe TcpListener on
         // port 0, read .Port, release). Replaces a Random.Shared.Next(6100,
         // 6900) range-picker that produced collisions across concurrent runs.
-        _port = port == 0 ? PoshMcp.Tests.Shared.DynamicPort.Allocate() : port;
+        _port = port == 0 ? PoshMcp.Tests.Shared.DynamicPort.AllocateUnique() : port;
     }
 
     public async Task StartAsync()
