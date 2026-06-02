@@ -38,6 +38,7 @@ PoshMcp dynamically transforms PowerShell scripts, cmdlets, and modules into sec
 - 2026-05-20: For noun-resource closeout batches, merge overlapping design and implementation inbox notes into one canonical decision entry when they describe the same behavior slice, then clear the processed inbox files and record the validator evidence in the session log.
 - 2026-05-28: For Entra auth troubleshooting batches, record the issuer-shape mismatch explicitly (`sts` v1 token issuer vs v2-only accepted issuer), note whether `requestedAccessTokenVersion` is set to `2`, and capture no-op inbox checks so the run remains auditable.
 - 2026-06-02: Release-attempt closeout should log partial stabilization progress per agent, record the exact remaining blocker preventing full-green status, and keep all commit scope limited to `.squad/` artifacts when code changes stay uncommitted.
+- 2026-06-02: Release-finalization closeout should explicitly record three-way alignment between main HEAD, green workflow state, and remote tag peel commit so the release state is auditable without rerunning checks.
 
 ## 2026-05-16: Issue #272 spawn — IToolImportSourceTracker implementation
 
@@ -62,4 +63,8 @@ Merged three decision inbox notes into two canonical ledger entries covering `As
 ## 2026-05-28 — JWT issuer troubleshooting batch
 
 Recorded a no-op decision inbox check (empty), one orchestration entry, and one session log for the cross-agent troubleshooting pass. Captured consensus finding: auth failures align with issuer mismatch (STS v1 issuer observed while validation is v2-only), with Entra-side follow-up to verify `requestedAccessTokenVersion = 2` and use a temporary dual-issuer acceptance workaround as needed.
+
+## 2026-06-02 — v0.16.4 release finalization logged
+
+Recorded a no-op decision inbox check (empty), one orchestration entry for Amy's release verification, and one session log confirming `v0.16.4` finalization with full commit/tag/workflow alignment at `9a4cc931ac5720f0fb305fccebe6da9dad8c6b66`.
 
