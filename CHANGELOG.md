@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented here.
 
+## [0.16.4] - 2026-06-02T00:00:00Z
+
+### Fixed
+- **OAuth authorize prompt compatibility** - The OAuth `/authorize` proxy now normalizes `prompt` forwarding for Microsoft Entra by stripping unsupported values and forwarding at most one supported prompt token (`consent`, `select_account`, `login`, or `none`) to avoid `AADSTS90023` failures.
+- **Malformed configuration error handling** - Startup configuration parsing failures now surface as configuration errors with file-path context and stable command exit behavior instead of unhandled JSON exceptions.
+
+### Changed
+- **OAuth dynamic client registration response shape** - `/register` now echoes expected client metadata fields (including `redirect_uris`) while preserving configured static client identity behavior for Copilot CLI compatibility.
+- **Infrastructure docs update** - Updated Azure infrastructure guidance for the current OAuth and deployment behavior.
+
+### Tests
+- Added unit coverage for OAuth prompt normalization and OAuth registration response compatibility.
+- Added unit coverage for transport selection and configuration error propagation paths.
+
+### Breaking
+- None.
+
+### Upgrade Notes
+- **Drop-in upgrade.** No configuration schema migration is required.
+- If you use Entra-backed OAuth flows, this release improves compatibility with clients that send combined or unsupported `prompt` values.
+
 ## [0.16.3] - 2026-06-01T00:00:00Z
 
 ### Added
