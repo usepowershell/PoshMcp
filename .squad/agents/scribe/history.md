@@ -37,6 +37,7 @@ PoshMcp dynamically transforms PowerShell scripts, cmdlets, and modules into sec
 - 2026-05-02: Cut release v0.9.17 following release process principles: clean build verified, version updated in PoshMcp.csproj, committed with context (token diagnostics and idle session timeout), tagged, and pushed. Remote accepted both commit and tag successfully.
 - 2026-05-20: For noun-resource closeout batches, merge overlapping design and implementation inbox notes into one canonical decision entry when they describe the same behavior slice, then clear the processed inbox files and record the validator evidence in the session log.
 - 2026-05-28: For Entra auth troubleshooting batches, record the issuer-shape mismatch explicitly (`sts` v1 token issuer vs v2-only accepted issuer), note whether `requestedAccessTokenVersion` is set to `2`, and capture no-op inbox checks so the run remains auditable.
+- 2026-06-02: Release-attempt closeout should log partial stabilization progress per agent, record the exact remaining blocker preventing full-green status, and keep all commit scope limited to `.squad/` artifacts when code changes stay uncommitted.
 
 ## 2026-05-16: Issue #272 spawn — IToolImportSourceTracker implementation
 

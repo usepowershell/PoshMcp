@@ -52,3 +52,4 @@ Amy's active history was compacted after crossing the squad history threshold. T
 
 - 2026-06-01: Copilot CLI rejects PoshMcp OAuth DCR responses when `/register` omits `redirect_uris`; a local fix now echoes requested DCR metadata, but deployed ACA images must be rebuilt/redeployed before the live URL reflects it.
 - 2026-06-01: ACA startup `JsonReaderException` during config resolution usually means the active runtime config is not the checked-in root `appsettings.json`; inspect `POSHMCP_CONFIGURATION`, `--config`, volume mounts, and the deployed image-bundled `/app/server/appsettings.json` before changing app code.
+- 2026-06-02: Patch release orchestration should stop before commit/tag when full-suite validation is red; this run halted after version/changelog/release-note updates because tests remained failing.

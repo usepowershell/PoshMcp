@@ -70,6 +70,13 @@
 
 ---
 
+### 2026-05-29T11:46:53.2558064-05:00: HTTP non-MCP requests use the default PowerShell runspace key
+**By:** Hermes (PowerShell Expert)
+**What:** `SessionAwarePowerShellRunspace` should create distinct isolated PowerShell runspaces only when the request includes a non-empty `Mcp-Session-Id`. Requests without an MCP session header, including `/health` probes and other non-MCP HTTP traffic, use the stable `default` runspace key.
+**Why:** Connection ID and trace ID are not MCP session identities. Using them as fallback runspace keys lets health probes and unaffiliated HTTP requests create unbounded runspaces that are never cleaned up by MCP session lifecycle, which can starve or stall later initialization/tool calls while health still appears to work.
+
+---
+
 ---
 
 ### 2026-05-28: MCP prompts/get enforces required args and renders templates post-source

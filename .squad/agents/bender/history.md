@@ -14,3 +14,4 @@ Detailed prior entries were archived to `history-archive.md` because this file e
 - Config startup handling: `serve` must include settings resolution and config upgrade inside its error boundary; malformed runtime JSON should surface as `Configuration error` with exit code 2 and include the config path, not as an unhandled `JsonReaderException`.
 - Docker/build patterns: embedded Dockerfile templates make `poshmcp build --generate-dockerfile` work after tool install; user-facing generate defaults to the custom/user Dockerfile unless `--type base` is explicit.
 - GitHub comments must start with the required agent attribution format from the decision ledger.
+- 2026-06-02: Additional release-track test fixes in `ToolDescriptionParity` and `GetChildItem` functional coverage reduced noise, but AppInsights integration port conflicts can still prevent a clean full-suite release gate.
