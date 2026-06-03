@@ -812,7 +812,11 @@ function Invoke-DiscoverHandler {
 
         foreach ($moduleName in $modules) {
             try { Import-Module -Name $moduleName -ErrorAction Stop -WarningAction SilentlyContinue }
-            catch { throw "Failed to import module '$moduleName': $_" }
+            catch {
+                $importErr = "Failed to import module '$moduleName': $_"
+                [Console]::Error.WriteLine("[oop-host-pool] Discover: $importErr")
+                throw $importErr
+            }
         }
 
         foreach ($name in $functionNames) {
@@ -1078,8 +1082,17 @@ function Invoke-DiscoverHandler {
     try {
         $output = $ps.Invoke()
         if ($ps.HadErrors) {
-            $msgs = @($ps.Streams.Error | ForEach-Object { $_.ToString() })
-            Write-NdjsonResponse -Id $Id -ErrorObj @{ code = -1; message = ($msgs -join '; ') }
+            # When a terminating exception is thrown inside a RunspacePool script block,
+            # $ps.Invoke() does NOT rethrow; the exception is stored in InvocationStateInfo.Reason
+            # and Streams.Error is empty. Extract from both sources so the message is never "".
+            $msgs = @($ps.Streams.Error | ForEach-Object { $_.ToString() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+            if ($msgs.Count -eq 0 -and $null -ne $ps.InvocationStateInfo -and $null -ne $ps.InvocationStateInfo.Reason) {
+                $reason = $ps.InvocationStateInfo.Reason
+                $msgs = @("$($reason.GetType().Name): $($reason.Message)")
+            }
+            $errMsg = if ($msgs.Count -gt 0) { $msgs -join '; ' } else { 'Discovery script failed (no error details captured)' }
+            Write-Diag "Discover HadErrors: $errMsg"
+            Write-NdjsonResponse -Id $Id -ErrorObj @{ code = -1; message = $errMsg }
             return
         }
         $schemas = @()
@@ -1100,7 +1113,13 @@ function Invoke-DiscoverHandler {
         Write-NdjsonResponse -Id $Id -Result $result
     }
     catch {
-        Write-NdjsonResponse -Id $Id -ErrorObj @{ code = -1; message = "$_" }
+        $errMsg = if ($null -ne $_) { "$_" } else { 'null exception thrown from discovery script' }
+        if ([string]::IsNullOrWhiteSpace($errMsg) -and $null -ne $_) {
+            try { $errMsg = "$($_.GetType().Name): $($_.Message)" } catch {}
+        }
+        if ([string]::IsNullOrWhiteSpace($errMsg)) { $errMsg = 'Discovery failed with unknown error' }
+        Write-Diag "Discover exception: $errMsg"
+        Write-NdjsonResponse -Id $Id -ErrorObj @{ code = -1; message = $errMsg }
     }
     finally {
         $ps.Dispose()
