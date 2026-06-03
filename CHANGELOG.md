@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented here.
 
+## [0.17.0] - 2026-06-03T00:00:00Z
+
+### Added
+- **HTTP `/mcp` route alias** - The HTTP transport now responds on both `/` and `/mcp` endpoints, enabling compatibility with Microsoft Scout (clawpilot) clients that expect MCP on the `/mcp` path. The alias endpoint applies the same authorization and MCP protocol handling as the root endpoint.
+
+### Tests
+- Added integration test coverage for `/mcp` route alias functionality.
+
+### Breaking
+- None.
+
+### Upgrade Notes
+- **Drop-in upgrade.** Existing clients using the `/` endpoint are unaffected. Microsoft Scout and other clients can now connect to `/mcp` without configuration changes.
+
 ## [0.16.4] - 2026-06-02T00:00:00Z
 
 ### Fixed

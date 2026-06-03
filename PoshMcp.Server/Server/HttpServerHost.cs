@@ -265,6 +265,11 @@ internal static class HttpServerHost
         if (string.IsNullOrWhiteSpace(normalizedMcpPath))
         {
             mcpEndpoint = app.MapMcp();
+            var mcpAliasEndpoint = app.MapMcp("/mcp");
+            if (authConfigForMiddleware.Value.Enabled)
+            {
+                mcpAliasEndpoint.RequireAuthorization("McpAccess");
+            }
         }
         else
         {
