@@ -522,7 +522,7 @@ public sealed class OutOfProcessHost : IAsyncDisposable
                 var line = await stderr.ReadLineAsync().ConfigureAwait(false);
                 if (line is null) break; // EOF
                 // Subprocess stderr may carry attacker-controllable content; scrub before logging.
-                _logger.LogDebug("OOP stderr: {Line}", LogSanitizer.Scrub(line));
+                _logger.LogInformation("OOP stderr: {Line}", LogSanitizer.Scrub(line));
             }
         }
         catch (ObjectDisposedException)

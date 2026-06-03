@@ -1080,18 +1080,36 @@ function Invoke-DiscoverHandler {
     [void]$ps.AddArgument($script:CommonParameters)
 
     try {
+        $poolState = if ($null -ne $script:Pool) { $script:Pool.RunspacePoolStateInfo.State.ToString() } else { 'null' }
+        Write-Diag "Discover: invoking script on pool (state=$poolState, size=$script:PoolSize)"
         $output = $ps.Invoke()
         if ($ps.HadErrors) {
             # When a terminating exception is thrown inside a RunspacePool script block,
             # $ps.Invoke() does NOT rethrow; the exception is stored in InvocationStateInfo.Reason
             # and Streams.Error is empty. Extract from both sources so the message is never "".
-            $msgs = @($ps.Streams.Error | ForEach-Object { $_.ToString() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+            # Include pool/PS state in the error message so it is always visible in host logs.
+            $psState = $ps.InvocationStateInfo.State
+            $errCount = $ps.Streams.Error.Count
+            $diagParts = @("PoolState=$poolState", "PSState=$psState", "ErrCount=$errCount")
+
+            # Extract from Streams.Error with multiple fallbacks per record in case ToString() is empty
+            $msgs = @($ps.Streams.Error | ForEach-Object {
+                $rec = $_
+                if (-not [string]::IsNullOrWhiteSpace($rec.ToString())) { $rec.ToString() }
+                elseif ($null -ne $rec.Exception -and -not [string]::IsNullOrWhiteSpace($rec.Exception.Message)) { "[$($rec.Exception.GetType().Name)] $($rec.Exception.Message)" }
+                elseif ($null -ne $rec.ErrorDetails -and -not [string]::IsNullOrWhiteSpace($rec.ErrorDetails.Message)) { $rec.ErrorDetails.Message }
+                else { "[$($rec.CategoryInfo.Category)] (empty)" }
+            })
+
+            # Extract from InvocationStateInfo.Reason if Streams.Error had nothing useful
             if ($msgs.Count -eq 0 -and $null -ne $ps.InvocationStateInfo -and $null -ne $ps.InvocationStateInfo.Reason) {
                 $reason = $ps.InvocationStateInfo.Reason
-                $msgs = @("$($reason.GetType().Name): $($reason.Message)")
+                $msgs = @("[$($reason.GetType().Name)] $($reason.ToString())")
             }
-            $errMsg = if ($msgs.Count -gt 0) { $msgs -join '; ' } else { 'Discovery script failed (no error details captured)' }
-            Write-Diag "Discover HadErrors: $errMsg"
+
+            $diagStr = $diagParts -join '; '
+            Write-Diag "Discover HadErrors: $diagStr; Msgs: $($msgs -join ' | ')"
+            $errMsg = if ($msgs.Count -gt 0) { $msgs -join '; ' } else { "Discovery script failed: $diagStr" }
             Write-NdjsonResponse -Id $Id -ErrorObj @{ code = -1; message = $errMsg }
             return
         }
