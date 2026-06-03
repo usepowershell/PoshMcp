@@ -277,6 +277,16 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
             _logger.LogInformation(
                 "OOP environment setup succeeded. Installed: {Installed}, Imported: {Imported}",
                 installed, imported);
+
+            if (result.TryGetProperty("warnings", out var warningsProp))
+            {
+                foreach (var warn in warningsProp.EnumerateArray())
+                {
+                    var warnStr = warn.GetString();
+                    if (warnStr is not null)
+                        _logger.LogWarning("OOP setup warning: {Warning}", warnStr);
+                }
+            }
         }
         else
         {

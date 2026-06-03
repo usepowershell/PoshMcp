@@ -720,7 +720,24 @@ function Invoke-SetupHandler {
         if (Test-Path -Path $scriptPath -PathType Leaf) {
             try {
                 $scriptContent = Get-Content -Path $scriptPath -Raw
-                Invoke-Expression $scriptContent
+                # Run with Continue so non-terminating errors (e.g. Resolve-Path warnings
+                # from module init) are not promoted to terminating exceptions.
+                # 2>&1 captures the error stream so non-terminating errors are logged as
+                # warnings. Actual thrown errors still propagate to the catch block.
+                $savedEap = $ErrorActionPreference
+                try {
+                    $ErrorActionPreference = 'Continue'
+                    Invoke-Expression $scriptContent 2>&1 | ForEach-Object {
+                        if ($_ -is [System.Management.Automation.ErrorRecord]) {
+                            $warnMsg = "Startup script non-terminating error: $_"
+                            Write-Diag "  $warnMsg"
+                            $null = $warnings.Add($warnMsg)
+                        }
+                    }
+                }
+                finally {
+                    $ErrorActionPreference = $savedEap
+                }
                 $startupScriptExecuted = $true
                 Write-Diag '  Successfully executed startup script file'
             }
@@ -741,7 +758,20 @@ function Invoke-SetupHandler {
     if (-not [string]::IsNullOrWhiteSpace($Params.startupScript)) {
         Write-Diag "Executing inline startup script ($($Params.startupScript.Length) characters)"
         try {
-            Invoke-Expression $Params.startupScript
+            $savedEap = $ErrorActionPreference
+            try {
+                $ErrorActionPreference = 'Continue'
+                Invoke-Expression $Params.startupScript 2>&1 | ForEach-Object {
+                    if ($_ -is [System.Management.Automation.ErrorRecord]) {
+                        $warnMsg = "Inline startup script non-terminating error: $_"
+                        Write-Diag "  $warnMsg"
+                        $null = $warnings.Add($warnMsg)
+                    }
+                }
+            }
+            finally {
+                $ErrorActionPreference = $savedEap
+            }
             $inlineScriptExecuted = $true
             Write-Diag '  Successfully executed inline startup script'
         }
