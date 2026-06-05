@@ -804,6 +804,8 @@ function Invoke-DiscoverHandler {
     $script = {
         param($modules, $functionNames, $includePatterns, $excludePatterns, $commonParameters)
 
+        [Console]::Error.WriteLine("[DISCOVER-TRACE] started: modules=$($modules.Count) fnNames=$($functionNames.Count) patterns=$($includePatterns.Count)")
+
         $commands = [System.Collections.ArrayList]::new()
         # Spec 011 FR-263-9: per-command source attribution map.
         $sourceMap = New-Object 'System.Collections.Generic.Dictionary[string,object]' ([System.StringComparer]::OrdinalIgnoreCase)
@@ -811,12 +813,15 @@ function Invoke-DiscoverHandler {
         $patternMatchCounts = @{}
 
         foreach ($moduleName in $modules) {
+            $alreadyLoaded = Get-Module -Name $moduleName -ErrorAction SilentlyContinue
+            [Console]::Error.WriteLine("[DISCOVER-TRACE] importing '$moduleName' (alreadyLoaded=$($null -ne $alreadyLoaded))")
             try { Import-Module -Name $moduleName -ErrorAction Stop -WarningAction SilentlyContinue }
             catch {
                 $importErr = "Failed to import module '$moduleName': $_"
                 [Console]::Error.WriteLine("[oop-host-pool] Discover: $importErr")
                 throw $importErr
             }
+            [Console]::Error.WriteLine("[DISCOVER-TRACE] imported '$moduleName' ok")
         }
 
         foreach ($name in $functionNames) {
@@ -891,6 +896,8 @@ function Invoke-DiscoverHandler {
         foreach ($cmd in $commands) {
             if (-not $seen.ContainsKey($cmd.Name)) { $seen[$cmd.Name] = $true; $null = $unique.Add($cmd) }
         }
+
+        [Console]::Error.WriteLine("[DISCOVER-TRACE] commands found: $($unique.Count) unique (raw=$($commands.Count))")
 
         $schemas = [System.Collections.ArrayList]::new()
 
@@ -980,6 +987,7 @@ function Invoke-DiscoverHandler {
         }
 
         foreach ($cmd in $unique) {
+            [Console]::Error.WriteLine("[DISCOVER-TRACE] Get-Help: $($cmd.Name)")
             $helpInfo = $null
             try { $helpInfo = Get-Help -Name $cmd.Name -ErrorAction SilentlyContinue } catch { $helpInfo = $null }
             $helpMeta = Get-HelpMeta -Cmd $cmd -HelpInfo $helpInfo
@@ -1067,6 +1075,7 @@ function Invoke-DiscoverHandler {
             Patterns = @($patternsPayload)
         }
 
+        [Console]::Error.WriteLine("[DISCOVER-TRACE] complete: schemas=$($schemas.Count), returning")
         return ,@([pscustomobject]@{ Schemas = @($schemas); ModuleImports = $moduleImportsPayload })
     }
 
@@ -1095,10 +1104,11 @@ function Invoke-DiscoverHandler {
             # Extract from Streams.Error with multiple fallbacks per record in case ToString() is empty
             $msgs = @($ps.Streams.Error | ForEach-Object {
                 $rec = $_
-                if (-not [string]::IsNullOrWhiteSpace($rec.ToString())) { $rec.ToString() }
-                elseif ($null -ne $rec.Exception -and -not [string]::IsNullOrWhiteSpace($rec.Exception.Message)) { "[$($rec.Exception.GetType().Name)] $($rec.Exception.Message)" }
-                elseif ($null -ne $rec.ErrorDetails -and -not [string]::IsNullOrWhiteSpace($rec.ErrorDetails.Message)) { $rec.ErrorDetails.Message }
-                else { "[$($rec.CategoryInfo.Category)] (empty)" }
+                $recType = $rec.GetType().Name
+                if (-not [string]::IsNullOrWhiteSpace($rec.ToString())) { "[$recType] $($rec.ToString())" }
+                elseif ($null -ne $rec.Exception -and -not [string]::IsNullOrWhiteSpace($rec.Exception.Message)) { "[$recType/$($rec.Exception.GetType().Name)] $($rec.Exception.Message)" }
+                elseif ($null -ne $rec.ErrorDetails -and -not [string]::IsNullOrWhiteSpace($rec.ErrorDetails.Message)) { "[$recType] $($rec.ErrorDetails.Message)" }
+                else { "[$recType/$($rec.CategoryInfo.Category)] (empty)" }
             })
 
             # Extract from InvocationStateInfo.Reason if Streams.Error had nothing useful
