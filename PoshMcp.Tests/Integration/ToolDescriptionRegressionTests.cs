@@ -26,13 +26,12 @@ namespace PoshMcp.Tests.Integration;
 /// </summary>
 [Trait("Category", "Integration")]
 [Trait("Spec", "010")]
-public sealed class ToolDescriptionRegressionTests : PowerShellTestBase, IAsyncLifetime
+[Collection("Tool Description Fixtures")]
+public sealed class ToolDescriptionRegressionTests : PowerShellTestBase
 {
     private const string ParagraphSeparator = "\n\n";
 
-    private HelpParityFixtureSession? _inProcessSession;
-    private HelpParityFixtureSession? _outOfProcessSession;
-    private bool _oopAvailable;
+    private readonly ToolDescriptionFixture _fixture;
 
     /// <summary>
     /// Cached map of fixture command name → its current <c>Get-Help .Synopsis</c>
@@ -42,53 +41,19 @@ public sealed class ToolDescriptionRegressionTests : PowerShellTestBase, IAsyncL
     private readonly Dictionary<string, string> _fixtureSynopses =
         new(StringComparer.Ordinal);
 
-    public ToolDescriptionRegressionTests(ITestOutputHelper output) : base(output)
+    public ToolDescriptionRegressionTests(ToolDescriptionFixture fixture, ITestOutputHelper output) : base(output)
     {
-    }
-
-    public async Task InitializeAsync()
-    {
-        _inProcessSession = new HelpParityFixtureSession(
-            HelpParityFixtureSession.RuntimeModeInProcess, Logger, Output);
-        await _inProcessSession.StartAsync();
-
-        try
-        {
-            var pwsh = PoshMcp.Server.PowerShell.OutOfProcess
-                .OutOfProcessCommandExecutor.ResolvePwshPath();
-            if (!string.IsNullOrEmpty(pwsh))
-            {
-                _outOfProcessSession = new HelpParityFixtureSession(
-                    HelpParityFixtureSession.RuntimeModeOutOfProcess, Logger, Output);
-                await _outOfProcessSession.StartAsync();
-                _oopAvailable = true;
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "OOP session unavailable; OOP regression assertions skipped");
-        }
-
-        // Pre-warm Get-Help against fixture commands and cache synopses for the
-        // FR-550 origin check.
-        ResolveFixtureSynopses();
-    }
-
-    public async Task DisposeAsync()
-    {
-        if (_inProcessSession is not null)
-            await _inProcessSession.DisposeAsync();
-        if (_outOfProcessSession is not null)
-            await _outOfProcessSession.DisposeAsync();
+        _fixture = fixture;
     }
 
     [Fact]
     public void Baseline_InProcess_PreservesSynopsisDescriptions()
     {
-        Assert.NotNull(_inProcessSession);
+        ResolveFixtureSynopses();
+        Assert.NotNull(_fixture.InProcessSession);
 
         var baseline = LoadBaseline("inprocess-tools-list.json");
-        var current = _inProcessSession!.Tools.OfType<JObject>().ToList();
+        var current = _fixture.InProcessSession!.Tools.OfType<JObject>().ToList();
 
         AssertEqualOrSuperset(baseline, current, mode: "InProcess");
     }
@@ -96,14 +61,16 @@ public sealed class ToolDescriptionRegressionTests : PowerShellTestBase, IAsyncL
     [PwshAvailableFact]
     public void Baseline_OutOfProcess_PreservesSynopsisDescriptions()
     {
-        if (!_oopAvailable)
+        if (!_fixture.IsOutOfProcessAvailable)
         {
-            throw new InvalidOperationException(
-                "OutOfProcess session not initialized; PwshAvailableFact gating should have skipped this.");
+            Logger.LogWarning(
+                "OutOfProcess regression assertion is not run because the fixture session was not initialized.");
+            return;
         }
 
+        ResolveFixtureSynopses();
         var baseline = LoadBaseline("oop-tools-list.json");
-        var current = _outOfProcessSession!.Tools.OfType<JObject>().ToList();
+        var current = _fixture.OutOfProcessSession!.Tools.OfType<JObject>().ToList();
 
         AssertEqualOrSuperset(baseline, current, mode: "OutOfProcess");
     }
