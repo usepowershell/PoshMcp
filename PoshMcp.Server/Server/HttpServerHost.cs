@@ -100,8 +100,10 @@ internal static class HttpServerHost
         var sharedHttpContextAccessor = new HttpContextAccessor();
         var sharedRunspaceLogger = bootstrapLoggerFactory.CreateLogger<SessionAwarePowerShellRunspace>();
         var sharedSessionRunspace = new SessionAwarePowerShellRunspace(sharedHttpContextAccessor, sharedRunspaceLogger);
+        var sessionLifecycle = new McpSessionLifecycle(sharedSessionRunspace.CleanupSession);
 
         builder.Services.AddSingleton<IHttpContextAccessor>(sharedHttpContextAccessor);
+        builder.Services.AddSingleton(sessionLifecycle);
         builder.Services.AddSingleton<IPowerShellRunspace>(sharedSessionRunspace);
 
         logger.LogInformation("Using configuration source: {ConfigurationPath}", ConfigurationHelpers.DescribeConfigurationPath(finalConfigPath));
@@ -144,6 +146,9 @@ internal static class HttpServerHost
 #pragma warning disable MCP9004 // Legacy SSE is opt-in, disabled by default, and documented for isolated trusted clients only.
                 opts.EnableLegacySse = mcpServerConfig.EnableLegacySse;
 #pragma warning restore MCP9004
+#pragma warning disable MCPEXP002 // Required to release session-scoped resources when the SDK ends a session.
+                opts.RunSessionHandler = sessionLifecycle.RunSessionAsync;
+#pragma warning restore MCPEXP002
             })
             .WithTools(tools)
             .WithListPromptsHandler(httpPromptHandler.HandleListPromptsAsync)
@@ -298,7 +303,14 @@ internal static class HttpServerHost
         // OAuth proxy: /.well-known/oauth-authorization-server + /register (DCR)
         app.MapOAuthProxyEndpoints(authConfigForEndpoints.Value);
 
-        await app.RunAsync();
+        try
+        {
+            await app.RunAsync();
+        }
+        finally
+        {
+            await app.DisposeAsync();
+        }
     }
 
     /// <summary>
