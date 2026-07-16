@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
@@ -51,31 +52,48 @@ public class ServerSessionAwarePowerShellRunspaceTests : IDisposable
     }
 
     [Fact]
-    public void NoHttpContext_UsesDefaultSessionRunspace()
+    public void NoHttpContext_UsesDedicatedDiscoveryRunspace()
     {
         _mockHttpContextAccessor.Setup(a => a.HttpContext).Returns((HttpContext?)null);
 
-        var runspace1 = GetSessionRunspaceViaReflection();
-        var runspace2 = GetSessionRunspaceViaReflection();
+        var runspace1 = _runspace.Instance;
+        var runspace2 = _runspace.Instance;
 
         Assert.NotNull(runspace1);
         Assert.Same(runspace1, runspace2);
+        Assert.Empty(_runspace.GetStats().SessionIds);
     }
 
     [Fact]
-    public void HttpRequestsWithoutMcpSessionId_UseDefaultSessionRunspace()
+    public void HeaderlessHttpRequests_UseCleanOneShotRunspaces()
     {
         var context1 = CreateHttpContextWithoutMcpSessionId("conn-1", "trace-1");
         var context2 = CreateHttpContextWithoutMcpSessionId("conn-2", "trace-2");
 
         _mockHttpContextAccessor.Setup(a => a.HttpContext).Returns(context1);
-        var runspace1 = GetSessionRunspaceViaReflection();
+        _runspace.ExecuteThreadSafe(powerShell => InvokeScript(powerShell, "$global:HeaderlessRequestState = 'first-request'"));
 
         _mockHttpContextAccessor.Setup(a => a.HttpContext).Returns(context2);
-        var runspace2 = GetSessionRunspaceViaReflection();
+        var state = _runspace.ExecuteThreadSafe(powerShell =>
+            InvokeScript(powerShell, "if ($global:HeaderlessRequestState) { $global:HeaderlessRequestState } else { 'clean' }"));
 
-        Assert.NotNull(runspace1);
-        Assert.Same(runspace1, runspace2);
+        Assert.Equal("clean", state);
+        Assert.Equal(0, _runspace.GetStats().ActiveSessions);
+        Assert.Equal(0, _runspace.GetStats().OwnedSessionRunspaces);
+    }
+
+    [Fact]
+    public void SameMcpSessionId_PreservesPowerShellState()
+    {
+        SetupMockHttpContextWithMcpSessionId("persistent-session");
+        _runspace.ExecuteThreadSafe(powerShell => InvokeScript(powerShell, "$global:PersistentSessionState = 'retained'"));
+
+        SetupMockHttpContextWithMcpSessionId("persistent-session");
+        var state = _runspace.ExecuteThreadSafe(powerShell =>
+            InvokeScript(powerShell, "$global:PersistentSessionState"));
+
+        Assert.Equal("retained", state);
+        Assert.Equal(new[] { "persistent-session" }, _runspace.GetStats().SessionIds);
     }
 
     [Fact]
@@ -199,6 +217,15 @@ public class ServerSessionAwarePowerShellRunspaceTests : IDisposable
     }
 
     private void SetSession(string sessionId) => SetupMockHttpContextWithMcpSessionId(sessionId);
+
+    private static string? InvokeScript(System.Management.Automation.PowerShell powerShell, string script)
+    {
+        powerShell.Commands.Clear();
+        powerShell.AddScript(script);
+        var result = powerShell.Invoke().SingleOrDefault()?.ToString();
+        powerShell.Commands.Clear();
+        return result;
+    }
 
     private object? GetSessionRunspaceViaReflection(SessionAwarePowerShellRunspace? runspace = null)
     {

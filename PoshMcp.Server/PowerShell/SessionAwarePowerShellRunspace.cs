@@ -29,11 +29,11 @@ public sealed class SessionRunspaceOptions
 /// </summary>
 public class SessionAwarePowerShellRunspace : IPowerShellRunspace, IDisposable
 {
-    private const string DefaultSessionId = "default";
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<SessionAwarePowerShellRunspace> _logger;
     private readonly ConcurrentDictionary<string, SessionRunspaceEntry> _sessionRunspaces = new(StringComparer.Ordinal);
     private readonly Queue<IsolatedPowerShellRunspace> _warmStandbys = new();
+    private readonly IsolatedPowerShellRunspace _discoveryRunspace;
     private readonly object _gate = new();
     private readonly SessionRunspaceOptions _options;
     private readonly TimeProvider _timeProvider;
@@ -59,6 +59,7 @@ public class SessionAwarePowerShellRunspace : IPowerShellRunspace, IDisposable
         _options = Normalize(options ?? throw new ArgumentNullException(nameof(options)));
         _timeProvider = timeProvider ?? TimeProvider.System;
         _sweepTimer = new Timer(_ => SweepIdleRunspaces(), null, _options.SweepInterval, _options.SweepInterval);
+        _discoveryRunspace = CreateInitializedRunspace();
 
         lock (_gate)
         {
@@ -81,7 +82,7 @@ public class SessionAwarePowerShellRunspace : IPowerShellRunspace, IDisposable
         AcquisitionTimeout = options.AcquisitionTimeout < TimeSpan.Zero ? TimeSpan.Zero : options.AcquisitionTimeout
     };
 
-    private string GetSessionId()
+    private string? GetSessionId()
     {
         var httpContext = _httpContextAccessor.HttpContext;
         if (httpContext?.Request.Headers.TryGetValue("Mcp-Session-Id", out var sessionHeader) == true)
@@ -93,12 +94,17 @@ public class SessionAwarePowerShellRunspace : IPowerShellRunspace, IDisposable
             }
         }
 
-        return DefaultSessionId;
+        return null;
     }
 
     private SessionRunspaceEntry GetSessionRunspace()
     {
         var sessionId = GetSessionId();
+        if (sessionId is null)
+        {
+            throw new InvalidOperationException("A persistent PowerShell runspace requires a non-empty Mcp-Session-Id request header.");
+        }
+
         lock (_gate)
         {
             ThrowIfDisposed_NoLock();
@@ -142,21 +148,51 @@ public class SessionAwarePowerShellRunspace : IPowerShellRunspace, IDisposable
         }
     }
 
-    public PSPowerShell Instance => GetSessionRunspace().Instance;
+    public PSPowerShell Instance
+    {
+        get
+        {
+            if (_httpContextAccessor.HttpContext is null)
+            {
+                return _discoveryRunspace.Instance;
+            }
 
-    public T ExecuteThreadSafe<T>(Func<PSPowerShell, T> operation) =>
+            return GetSessionRunspace().Instance;
+        }
+    }
+
+    public T ExecuteThreadSafe<T>(Func<PSPowerShell, T> operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        return GetSessionId() is null
+            ? ExecuteEphemeral(operation)
+            : GetSessionRunspace().Execute(operation, CompleteReleasedEntry);
+    }
+
+    public void ExecuteThreadSafe(Action<PSPowerShell> operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        if (GetSessionId() is null)
+        {
+            ExecuteEphemeral(operation);
+            return;
+        }
+
         GetSessionRunspace().Execute(operation, CompleteReleasedEntry);
+    }
 
-    public void ExecuteThreadSafe(Action<PSPowerShell> operation) =>
-        GetSessionRunspace().Execute(operation, CompleteReleasedEntry);
-
-    public Task<T> ExecuteThreadSafeAsync<T>(Func<PSPowerShell, Task<T>> operation) =>
-        GetSessionRunspace().ExecuteAsync(operation, CompleteReleasedEntry);
+    public Task<T> ExecuteThreadSafeAsync<T>(Func<PSPowerShell, Task<T>> operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        return GetSessionId() is null
+            ? ExecuteEphemeralAsync(operation)
+            : GetSessionRunspace().ExecuteAsync(operation, CompleteReleasedEntry);
+    }
 
     /// <summary>Releases state for a terminated MCP session without interrupting its active invocation.</summary>
     public void CleanupSession(string sessionId)
     {
-        if (string.IsNullOrWhiteSpace(sessionId) || sessionId == DefaultSessionId)
+        if (string.IsNullOrWhiteSpace(sessionId))
         {
             return;
         }
@@ -209,6 +245,64 @@ public class SessionAwarePowerShellRunspace : IPowerShellRunspace, IDisposable
         lock (_gate)
         {
             entry.Dispose();
+            _ownedSessionRunspaces--;
+            Monitor.PulseAll(_gate);
+            if (!_disposed)
+            {
+                RefillWarmStandbys_NoLock();
+            }
+        }
+    }
+
+    private T ExecuteEphemeral<T>(Func<PSPowerShell, T> operation)
+    {
+        using var runspace = AcquireEphemeralRunspace();
+        return runspace.ExecuteThreadSafe(operation);
+    }
+
+    private void ExecuteEphemeral(Action<PSPowerShell> operation)
+    {
+        using var runspace = AcquireEphemeralRunspace();
+        runspace.ExecuteThreadSafe(operation);
+    }
+
+    private async Task<T> ExecuteEphemeralAsync<T>(Func<PSPowerShell, Task<T>> operation)
+    {
+        using var runspace = AcquireEphemeralRunspace();
+        return await runspace.ExecuteThreadSafeAsync(operation);
+    }
+
+    private EphemeralRunspaceLease AcquireEphemeralRunspace()
+    {
+        lock (_gate)
+        {
+            ThrowIfDisposed_NoLock();
+            var timeout = _options.AcquisitionTimeout;
+            var stopwatch = Stopwatch.StartNew();
+            while (_ownedSessionRunspaces >= _options.Capacity)
+            {
+                var remaining = timeout - stopwatch.Elapsed;
+                if (timeout == TimeSpan.Zero || remaining <= TimeSpan.Zero || !Monitor.Wait(_gate, remaining))
+                {
+                    throw new TimeoutException("Timed out acquiring a one-shot PowerShell runspace for a request without an MCP session.");
+                }
+
+                ThrowIfDisposed_NoLock();
+            }
+
+            var runspace = _warmStandbys.Count > 0
+                ? _warmStandbys.Dequeue()
+                : CreateInitializedRunspace();
+            _ownedSessionRunspaces++;
+            return new EphemeralRunspaceLease(this, runspace);
+        }
+    }
+
+    private void ReleaseEphemeralRunspace(IsolatedPowerShellRunspace runspace)
+    {
+        lock (_gate)
+        {
+            runspace.Dispose();
             _ownedSessionRunspaces--;
             Monitor.PulseAll(_gate);
             if (!_disposed)
@@ -275,11 +369,43 @@ public class SessionAwarePowerShellRunspace : IPowerShellRunspace, IDisposable
             standby.Dispose();
         }
 
+        _discoveryRunspace.Dispose();
+
         foreach (var entry in entries)
         {
             if (entry.RequestRelease())
             {
                 CompleteReleasedEntry(entry);
+            }
+        }
+    }
+
+    private sealed class EphemeralRunspaceLease : IDisposable
+    {
+        private readonly SessionAwarePowerShellRunspace _owner;
+        private IsolatedPowerShellRunspace? _runspace;
+
+        public EphemeralRunspaceLease(SessionAwarePowerShellRunspace owner, IsolatedPowerShellRunspace runspace)
+        {
+            _owner = owner;
+            _runspace = runspace;
+        }
+
+        public T ExecuteThreadSafe<T>(Func<PSPowerShell, T> operation) =>
+            (_runspace ?? throw new ObjectDisposedException(nameof(EphemeralRunspaceLease))).ExecuteThreadSafe(operation);
+
+        public void ExecuteThreadSafe(Action<PSPowerShell> operation) =>
+            (_runspace ?? throw new ObjectDisposedException(nameof(EphemeralRunspaceLease))).ExecuteThreadSafe(operation);
+
+        public Task<T> ExecuteThreadSafeAsync<T>(Func<PSPowerShell, Task<T>> operation) =>
+            (_runspace ?? throw new ObjectDisposedException(nameof(EphemeralRunspaceLease))).ExecuteThreadSafeAsync(operation);
+
+        public void Dispose()
+        {
+            var runspace = Interlocked.Exchange(ref _runspace, null);
+            if (runspace is not null)
+            {
+                _owner.ReleaseEphemeralRunspace(runspace);
             }
         }
     }
