@@ -178,6 +178,15 @@ Full configuration structure:
     "RuntimeMode": "InProcess",
     "SubprocessHostMode": "Pool",
     "SubprocessRunspacePoolSize": 0
+  },
+  "McpServer": {
+    "IdleSessionTimeoutSeconds": 60,
+    "SessionRunspaceCapacity": 16,
+    "SessionRunspaceIdleTtlSeconds": 300,
+    "SessionRunspaceSweepIntervalSeconds": 30,
+    "SessionRunspaceWarmStandbyCount": 2,
+    "SessionRunspaceAcquisitionTimeoutSeconds": 15,
+    "EnableLegacySse": false
   }
 }
 ```
@@ -199,6 +208,41 @@ When `RuntimeMode` is `OutOfProcess`, `SubprocessHostMode` selects the subproces
 
 See [Advanced Configuration → Out-of-Process PowerShell](advanced.md#out-of-process-powershell) for sizing options (`SubprocessRunspacePoolSize`, `SubprocessPoolSize`, `SubprocessMinHealthyForStartup`), the cancellation contract, and the benchmark study driving the default.
 
+### MCP Server HTTP Sessions
+
+`McpServer` applies to HTTP transport. Each request with an
+`Mcp-Session-Id` is assigned one clean, initialized PowerShell runspace for
+the lifetime of that MCP session; it is not reassigned to another session.
+Requests without that header use a one-shot runspace and do not retain
+PowerShell state.
+
+| Setting | Default | Effect |
+|---------|--------:|--------|
+| `IdleSessionTimeoutSeconds` | 60 | Closes an inactive MCP session. |
+| `SessionRunspaceCapacity` | 16 | Maximum session-affine and one-shot runspaces owned at once. |
+| `SessionRunspaceIdleTtlSeconds` | 300 | Retains an inactive session runspace for this many seconds before release. |
+| `SessionRunspaceSweepIntervalSeconds` | 30 | Interval for checking idle session runspaces. |
+| `SessionRunspaceWarmStandbyCount` | 2 | Clean initialized runspaces kept ready for new sessions. |
+| `SessionRunspaceAcquisitionTimeoutSeconds` | 15 | Maximum time to wait for runspace capacity before the request fails. |
+| `EnableLegacySse` | `false` | Enables deprecated HTTP-with-SSE endpoints for legacy clients. |
+
+Capacity includes warm standbys. Size `SessionRunspaceCapacity` for expected
+concurrent stateful sessions plus the configured standby count, and account
+for each initialized runspace's module and startup-script memory footprint.
+When capacity is exhausted, a new session or one-shot request waits only for
+`SessionRunspaceAcquisitionTimeoutSeconds` before failing; it is not assigned
+another session's state.
+
+The server releases a session runspace when the SDK session completes, the
+client explicitly sends `DELETE`, or the runspace reaches its idle TTL. A
+release requested during an active invocation completes after that invocation
+unwinds. Dynamic tool reload also releases all managed HTTP session runspaces,
+so clients must initialize a new session and should not rely on session state
+surviving a reload.
+
+For Streamable HTTP negotiation, endpoint paths, and origin validation, see
+[Transport Modes](transport-modes.md#http-mode).
+
 ## Environment Variables
 
 Override configuration via environment variables:
@@ -213,8 +257,8 @@ export POSHMCP_LOG_LEVEL=debug
 # Use custom config file
 export POSHMCP_CONFIGURATION=/config/appsettings.json
 
-# Session timeout (minutes)
-export POSHMCP_SESSION_TIMEOUT_MINUTES=120
+# Override an appsettings key with the standard .NET environment-variable form
+export McpServer__IdleSessionTimeoutSeconds=120
 
 # Container module pre-install
 export POSHMCP_MODULES="Az.Accounts Az.Resources Az.Storage"

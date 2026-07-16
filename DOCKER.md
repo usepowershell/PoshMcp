@@ -31,6 +31,23 @@ docker build -t myorg/poshmcp:latest .
 docker run -d -p 8080:8080 -e POSHMCP_TRANSPORT=http myorg/poshmcp:latest
 ```
 
+### HTTP MCP operator notes
+
+The container's HTTP transport is MCP Streamable HTTP targeting
+2025-11-25. Publish the configured MCP endpoint (default `/`, with `/mcp` as
+a compatibility alias) and keep `/health` and `/health/ready` available for
+probes. Behind a reverse proxy, preserve `Mcp-Session-Id` and
+`MCP-Protocol-Version` headers. Browser-origin requests must be same-origin or
+match `Authentication:Cors:AllowedOrigins`; non-browser MCP clients generally
+omit `Origin`.
+
+HTTP session runspaces are bounded and session-affine. Set the `McpServer`
+settings in the mounted or baked `appsettings.json` according to concurrent
+stateful sessions and memory available for initialized PowerShell runspaces.
+See [Transport Modes](docs/articles/transport-modes.md#http-mode) and
+[Configuration](docs/articles/configuration.md#mcp-server-http-sessions) for
+protocol negotiation, legacy compatibility, lifecycle, and exact settings.
+
 ### Build mode semantics
 - `poshmcp build` defaults to `--type custom`, using `examples/Dockerfile.user` and a source image reference.
 - Default source image reference is `ghcr.io/usepowershell/poshmcp/poshmcp:latest`.
@@ -226,3 +243,5 @@ curl http://localhost:8080/health/ready
 - [infrastructure/azure/](infrastructure/azure/) --- Azure deployment guide
 - [examples/](examples/) --- Sample Dockerfiles and configurations
 - [docs/articles/environment.md](docs/articles/environment.md) --- PowerShell environment setup
+- [docs/articles/transport-modes.md](docs/articles/transport-modes.md) --- Streamable HTTP and transport compatibility
+- [docs/articles/configuration.md](docs/articles/configuration.md#mcp-server-http-sessions) --- HTTP session capacity and lifecycle

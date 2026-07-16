@@ -6,6 +6,8 @@ title: Transport Modes
 # Transport Modes
 
 PoshMcp supports two transport modes for different deployment scenarios.
+The production implementation uses `ModelContextProtocol` and
+`ModelContextProtocol.AspNetCore` 1.4.1 and targets MCP 2025-11-25.
 
 ## Stdio Mode
 
