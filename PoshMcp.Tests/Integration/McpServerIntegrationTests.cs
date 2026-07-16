@@ -238,7 +238,7 @@ public class ServerWithExternalClient : PowerShellTestBase, IAsyncLifetime
 
         var response = await client.SendToolCallAsync("get_process_id", new JObject
         {
-            ["Id"] = new JArray(-1)
+            ["Id"] = new JArray(int.MaxValue)
         });
 
         Assert.Null(response["error"]);
