@@ -219,17 +219,19 @@ PowerShell state.
 | Setting | Default | Effect |
 |---------|--------:|--------|
 | `IdleSessionTimeoutSeconds` | 60 | Closes an inactive MCP session. |
-| `SessionRunspaceCapacity` | 16 | Maximum session-affine and one-shot runspaces owned at once. |
+| `SessionRunspaceCapacity` | 16 | Maximum runspaces concurrently assigned to sessions or leased for one-shot requests. |
 | `SessionRunspaceIdleTtlSeconds` | 300 | Retains an inactive session runspace for this many seconds before release. |
 | `SessionRunspaceSweepIntervalSeconds` | 30 | Interval for checking idle session runspaces. |
 | `SessionRunspaceWarmStandbyCount` | 2 | Clean initialized runspaces kept ready for new sessions. |
 | `SessionRunspaceAcquisitionTimeoutSeconds` | 15 | Maximum time to wait for runspace capacity before the request fails. |
 | `EnableLegacySse` | `false` | Enables deprecated HTTP-with-SSE endpoints for legacy clients. |
 
-Capacity includes warm standbys. Size `SessionRunspaceCapacity` for expected
-concurrent stateful sessions plus the configured standby count, and account
-for each initialized runspace's module and startup-script memory footprint.
-When capacity is exhausted, a new session or one-shot request waits only for
+Warm standbys are initialized separately and do not count against
+`SessionRunspaceCapacity`; the manager can therefore hold more initialized
+runspaces than the capacity setting. Account for both settings when sizing
+memory for module and startup-script initialization. Capacity limits only
+runspaces assigned to sessions or leased for one-shot work. When that limit is
+exhausted, a new session or one-shot request waits only for
 `SessionRunspaceAcquisitionTimeoutSeconds` before failing; it is not assigned
 another session's state.
 
