@@ -97,9 +97,21 @@ internal static class HttpServerHost
         var config = ConfigurationLoader.LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
         await using var executorLease = await McpToolSetupService.StartOutOfProcessExecutorIfNeededAsync(config, bootstrapLoggerFactory, logger, finalConfigPath);
 
+        var mcpServerConfig = authRootConfig.GetSection("McpServer").Get<McpServerConfiguration>()
+            ?? new McpServerConfiguration();
         var sharedHttpContextAccessor = new HttpContextAccessor();
         var sharedRunspaceLogger = bootstrapLoggerFactory.CreateLogger<SessionAwarePowerShellRunspace>();
-        var sharedSessionRunspace = new SessionAwarePowerShellRunspace(sharedHttpContextAccessor, sharedRunspaceLogger);
+        var sharedSessionRunspace = new SessionAwarePowerShellRunspace(
+            sharedHttpContextAccessor,
+            sharedRunspaceLogger,
+            new SessionRunspaceOptions
+            {
+                Capacity = mcpServerConfig.SessionRunspaceCapacity,
+                IdleTtl = TimeSpan.FromSeconds(mcpServerConfig.SessionRunspaceIdleTtlSeconds),
+                SweepInterval = TimeSpan.FromSeconds(mcpServerConfig.SessionRunspaceSweepIntervalSeconds),
+                WarmStandbyCount = mcpServerConfig.SessionRunspaceWarmStandbyCount,
+                AcquisitionTimeout = TimeSpan.FromSeconds(mcpServerConfig.SessionRunspaceAcquisitionTimeoutSeconds)
+            });
         var sessionLifecycle = new McpSessionLifecycle(sharedSessionRunspace.CleanupSession);
 
         builder.Services.AddSingleton<IHttpContextAccessor>(sharedHttpContextAccessor);
@@ -135,9 +147,6 @@ internal static class HttpServerHost
         var promptsConfig = ConfigurationLoader.LoadPromptsConfiguration(finalConfigPath);
         var httpConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? Directory.GetCurrentDirectory();
         var httpPromptHandler = new McpPromptHandler(promptsConfig, httpConfigDirectory, bootstrapLoggerFactory.CreateLogger<McpPromptHandler>());
-        var mcpServerConfig = authRootConfig.GetSection("McpServer").Get<McpServerConfiguration>()
-            ?? new McpServerConfiguration();
-
         var mcpBuilder = builder.Services
             .AddMcpServer()
             .WithHttpTransport(opts =>
