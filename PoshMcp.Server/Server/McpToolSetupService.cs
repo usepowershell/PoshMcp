@@ -50,7 +50,7 @@ internal static class McpToolSetupService
 
         if (config.EnableDynamicReloadTools)
         {
-            var reloadTools = CreateConfigurationReloadTools(loggerFactory, toolFactory, config, finalConfigPath, configurationPathSource, "stdio", config.RuntimeMode.ToString(), null, () => tools, importSourceTracker);
+            var reloadTools = CreateConfigurationReloadTools(loggerFactory, toolFactory, config, finalConfigPath, configurationPathSource, "stdio", config.RuntimeMode.ToString(), null, () => tools, importSourceTracker, null);
             AddConfigurationReloadToolsToList(tools, reloadTools);
             logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools)");
         }
@@ -109,7 +109,20 @@ internal static class McpToolSetupService
 
         if (config.EnableDynamicReloadTools)
         {
-            var reloadTools = CreateConfigurationReloadTools(loggerFactory, toolFactory, config, finalConfigPath, configurationPathSource, "http", config.RuntimeMode.ToString(), null, () => tools, importSourceTracker);
+            var reloadTools = CreateConfigurationReloadTools(
+                loggerFactory,
+                toolFactory,
+                config,
+                finalConfigPath,
+                configurationPathSource,
+                "http",
+                config.RuntimeMode.ToString(),
+                null,
+                () => tools,
+                importSourceTracker,
+                sessionAwareRunspace is SessionAwarePowerShellRunspace managedRunspace
+                    ? managedRunspace.ReleaseAllSessions
+                    : null);
             AddConfigurationReloadToolsToList(tools, reloadTools);
             logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools)");
         }
@@ -341,10 +354,16 @@ internal static class McpToolSetupService
         string? effectiveRuntimeMode,
         string? effectiveMcpPath,
         Func<List<McpServerTool>> registeredToolsProvider,
-        IToolImportSourceTracker? importSourceTracker)
+        IToolImportSourceTracker? importSourceTracker,
+        Action? onConfigurationReloaded)
     {
         var reloadServiceLogger = loggerFactory.CreateLogger<PowerShellConfigurationReloadService>();
-        var reloadService = new PowerShellConfigurationReloadService(reloadServiceLogger, toolFactory, config, finalConfigPath);
+        var reloadService = new PowerShellConfigurationReloadService(
+            reloadServiceLogger,
+            toolFactory,
+            config,
+            finalConfigPath,
+            onConfigurationReloaded);
         var reloadToolsLogger = loggerFactory.CreateLogger<ConfigurationReloadTools>();
         return new ConfigurationReloadTools(
             reloadService,

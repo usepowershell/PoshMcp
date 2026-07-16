@@ -20,17 +20,20 @@ public class PowerShellConfigurationReloadService
     private PowerShellConfiguration _currentConfiguration;
     private List<McpServerTool> _currentTools;
     private readonly string _configurationFilePath;
+    private readonly Action? _onConfigurationReloaded;
 
     public PowerShellConfigurationReloadService(
         ILogger<PowerShellConfigurationReloadService> logger,
         McpToolFactoryV2 toolFactory,
         PowerShellConfiguration initialConfiguration,
-        string configurationFilePath)
+        string configurationFilePath,
+        Action? onConfigurationReloaded = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _toolFactory = toolFactory ?? throw new ArgumentNullException(nameof(toolFactory));
         _currentConfiguration = initialConfiguration ?? throw new ArgumentNullException(nameof(initialConfiguration));
         _configurationFilePath = configurationFilePath ?? throw new ArgumentNullException(nameof(configurationFilePath));
+        _onConfigurationReloaded = onConfigurationReloaded;
         _currentTools = new List<McpServerTool>();
     }
 
@@ -159,6 +162,7 @@ public class PowerShellConfigurationReloadService
 
                 // Update current tools list
                 _currentTools = newTools;
+                _onConfigurationReloaded?.Invoke();
 
                 return Task.FromResult(new ConfigurationReloadResult
                 {

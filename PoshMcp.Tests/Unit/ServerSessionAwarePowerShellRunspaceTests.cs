@@ -1,6 +1,8 @@
 using System;
 using System.Reflection;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Time.Testing;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Primitives;
 using Moq;
@@ -76,6 +78,89 @@ public class ServerSessionAwarePowerShellRunspaceTests : IDisposable
         Assert.Same(runspace1, runspace2);
     }
 
+    [Fact]
+    public void CapacityEvictionAndReplacement_AreBoundedAndSessionAffine()
+    {
+        var time = new FakeTimeProvider();
+        using var runspaces = CreateManagedRunspaces(new SessionRunspaceOptions
+        {
+            Capacity = 1,
+            WarmStandbyCount = 1,
+            IdleTtl = TimeSpan.FromMinutes(1),
+            SweepInterval = TimeSpan.FromHours(1),
+            AcquisitionTimeout = TimeSpan.Zero
+        }, time);
+
+        SetSession("first");
+        var first = GetSessionRunspaceViaReflection(runspaces);
+        Assert.Equal(1, runspaces.GetStats().ActiveSessions);
+        Assert.Equal(1, runspaces.GetStats().OwnedSessionRunspaces);
+
+        SetSession("second");
+        Assert.Throws<TargetInvocationException>(() => GetSessionRunspaceViaReflection(runspaces));
+
+        runspaces.CleanupSession("first");
+        var second = GetSessionRunspaceViaReflection(runspaces);
+        Assert.NotSame(first, second);
+        Assert.Equal(1, runspaces.GetStats().ActiveSessions);
+        Assert.Equal(1, runspaces.GetStats().OwnedSessionRunspaces);
+        Assert.InRange(runspaces.GetStats().WarmStandbyCount, 0, 1);
+    }
+
+    [Fact]
+    public void IdleSweep_EvictsExpiredSessionAndDoesNotTransferItsState()
+    {
+        var time = new FakeTimeProvider();
+        using var runspaces = CreateManagedRunspaces(new SessionRunspaceOptions
+        {
+            Capacity = 2,
+            WarmStandbyCount = 0,
+            IdleTtl = TimeSpan.FromSeconds(10),
+            SweepInterval = TimeSpan.FromHours(1)
+        }, time);
+
+        SetSession("expired");
+        var expired = GetSessionRunspaceViaReflection(runspaces);
+        time.Advance(TimeSpan.FromSeconds(11));
+        runspaces.SweepIdleRunspaces();
+
+        Assert.Equal(0, runspaces.GetStats().ActiveSessions);
+        SetSession("replacement");
+        var replacement = GetSessionRunspaceViaReflection(runspaces);
+        Assert.NotSame(expired, replacement);
+        Assert.Equal(new[] { "replacement" }, runspaces.GetStats().SessionIds);
+    }
+
+    [Fact]
+    public async Task CleanupDuringActiveInvocation_DefersDisposalUntilInvocationCompletes()
+    {
+        using var runspaces = CreateManagedRunspaces(new SessionRunspaceOptions
+        {
+            Capacity = 1,
+            WarmStandbyCount = 0,
+            AcquisitionTimeout = TimeSpan.Zero
+        });
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var complete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        SetSession("active");
+        var invocation = runspaces.ExecuteThreadSafeAsync(async _ =>
+        {
+            started.SetResult();
+            await complete.Task;
+            return 1;
+        });
+        await started.Task;
+
+        runspaces.CleanupSession("active");
+        Assert.Equal(0, runspaces.GetStats().ActiveSessions);
+        Assert.Equal(1, runspaces.GetStats().OwnedSessionRunspaces);
+
+        complete.SetResult();
+        Assert.Equal(1, await invocation);
+        Assert.Equal(0, runspaces.GetStats().OwnedSessionRunspaces);
+    }
+
     private void SetupMockHttpContextWithMcpSessionId(string sessionId)
     {
         var mockHttpContext = new Mock<HttpContext>();
@@ -104,10 +189,21 @@ public class ServerSessionAwarePowerShellRunspaceTests : IDisposable
         return context;
     }
 
-    private object? GetSessionRunspaceViaReflection()
+    private SessionAwarePowerShellRunspace CreateManagedRunspaces(SessionRunspaceOptions options, TimeProvider? timeProvider = null)
+    {
+        return new SessionAwarePowerShellRunspace(
+            _mockHttpContextAccessor.Object,
+            _mockLogger.Object,
+            options,
+            timeProvider);
+    }
+
+    private void SetSession(string sessionId) => SetupMockHttpContextWithMcpSessionId(sessionId);
+
+    private object? GetSessionRunspaceViaReflection(SessionAwarePowerShellRunspace? runspace = null)
     {
         var method = typeof(SessionAwarePowerShellRunspace).GetMethod("GetSessionRunspace", BindingFlags.NonPublic | BindingFlags.Instance);
-        return method?.Invoke(_runspace, null);
+        return method?.Invoke(runspace ?? _runspace, null);
     }
 
     public void Dispose()
