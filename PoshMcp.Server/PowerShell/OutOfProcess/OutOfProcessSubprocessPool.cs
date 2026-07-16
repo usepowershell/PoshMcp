@@ -98,6 +98,9 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
             });
 
     private readonly object _envLock = new();
+    private readonly object _cleanupLock = new();
+    private readonly HashSet<Task> _pendingCleanupTasks = new();
+    private readonly List<Exception> _asynchronousCleanupFailures = new();
     // Serializes the point at which a caller obtains a host with the currently
     // configured environment. It is deliberately not held for command execution:
     // reloads let existing work finish, but prevent new work from leasing stale hosts.
@@ -144,6 +147,12 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
         if (options.MinHealthyForStartup > options.PoolSize)
             throw new ArgumentOutOfRangeException(nameof(options),
                 "MinHealthyForStartup must be <= PoolSize.");
+        if (options.CleanupTimeout <= TimeSpan.Zero
+            || options.CleanupTimeout == Timeout.InfiniteTimeSpan)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options),
+                "CleanupTimeout must be a positive, finite duration.");
+        }
 
         _pwshPath = pwshPath;
         _hostScriptPath = hostScriptPath;
@@ -539,7 +548,14 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
     }
 
     /// <inheritdoc />
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync() => DisposeAsync(CancellationToken.None);
+
+    /// <summary>
+    /// Stops the pool without allowing a stuck worker teardown to block shutdown
+    /// indefinitely. Cleanup failures are logged and returned to the caller as an
+    /// aggregate after all cleanup attempts have been given the configured bound.
+    /// </summary>
+    public async ValueTask DisposeAsync(CancellationToken cancellationToken)
     {
         if (_disposed) return;
         _disposed = true;
@@ -548,35 +564,100 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
 
         _available.Writer.TryComplete();
 
+        var cleanupFailures = new List<Exception>();
+
         if (_reconcilerCts is not null)
         {
-            try { _reconcilerCts.Cancel(); } catch { /* ignore */ }
+            try
+            {
+                _reconcilerCts.Cancel();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to cancel OOP subprocess pool reconciler.");
+                cleanupFailures.Add(ex);
+            }
         }
 
         if (_reconcilerTask is not null)
         {
-            try { await _reconcilerTask.ConfigureAwait(false); }
-            catch { /* reconciler exits on cancel */ }
+            var failure = await AwaitCleanupAsync(
+                _reconcilerTask, "OOP subprocess pool reconciler", cancellationToken)
+                .ConfigureAwait(false);
+            if (failure is not null)
+                cleanupFailures.Add(failure);
         }
 
-        var disposeTasks = _slots
+        foreach (var host in _slots
             .Select(kvp => kvp.Value)
             .Where(s => s.Host is not null)
-            .Select(s => s.Host!.DisposeAsync().AsTask())
-            .ToArray();
+            .Select(s => (Host: s.Host!, SlotIndex: s.Index)))
+        {
+            _ = TrackHostCleanup(host.Host, host.SlotIndex);
+        }
 
-        try
+        Task[] cleanupTasks;
+        lock (_cleanupLock)
         {
-            await Task.WhenAll(disposeTasks).ConfigureAwait(false);
+            cleanupTasks = _pendingCleanupTasks.ToArray();
+            cleanupFailures.AddRange(_asynchronousCleanupFailures);
+            _asynchronousCleanupFailures.Clear();
         }
-        catch
-        {
-            // Best-effort.
-        }
+
+        var cleanupResults = await Task.WhenAll(cleanupTasks.Select(task =>
+            AwaitCleanupAsync(task, "OOP subprocess host", cancellationToken))).ConfigureAwait(false);
+        cleanupFailures.AddRange(cleanupResults.OfType<Exception>());
 
         _slots.Clear();
         _reconcilerCts?.Dispose();
         _reloadGate.Dispose();
+
+        if (cleanupFailures.Count > 0)
+        {
+            throw new AggregateException(
+                "One or more OOP subprocess pool cleanup operations failed.",
+                cleanupFailures);
+        }
+    }
+
+    /// <summary>
+    /// Waits for cleanup with a deterministic timeout source and returns failures
+    /// instead of allowing cleanup to hide the operation that triggered it.
+    /// </summary>
+    internal async Task<Exception?> AwaitCleanupAsync(
+        Task cleanupTask,
+        string operation,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(cleanupTask);
+
+        var timeoutTask = Task.Delay(
+            _options.CleanupTimeout,
+            _options.TimeProvider,
+            cancellationToken);
+        var completed = await Task.WhenAny(cleanupTask, timeoutTask).ConfigureAwait(false);
+
+        if (completed != cleanupTask)
+        {
+            Exception failure = cancellationToken.IsCancellationRequested
+                ? new OperationCanceledException(
+                    $"Cleanup of {operation} was cancelled.", cancellationToken)
+                : new TimeoutException(
+                    $"Cleanup of {operation} exceeded {_options.CleanupTimeout}.");
+            _logger.LogError(failure, "OOP cleanup did not complete: {Operation}.", operation);
+            return failure;
+        }
+
+        try
+        {
+            await cleanupTask.ConfigureAwait(false);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "OOP cleanup failed: {Operation}.", operation);
+            return ex;
+        }
     }
 
     // ---- Internal helpers (visible to tests) ----
@@ -653,7 +734,10 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
         }
         catch
         {
-            try { await host.DisposeAsync().ConfigureAwait(false); } catch { /* ignore */ }
+            await AwaitCleanupAsync(
+                TrackHostCleanup(host, index),
+                $"failed startup host for slot {index}",
+                cancellationToken).ConfigureAwait(false);
             slot.Status = HostStatus.Dead;
 
             if (failFast)
@@ -894,13 +978,7 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
         var host = slot.Host;
         if (host is not null)
         {
-            // Fire-and-forget kill — synchronous Kill on Process is fine here since
-            // OutOfProcessHost.DisposeAsync is the proper teardown path.
-            _ = Task.Run(async () =>
-            {
-                try { await host.DisposeAsync().ConfigureAwait(false); }
-                catch { /* best-effort */ }
-            });
+            TrackHostCleanup(host, slot.Index);
             slot.Host = null;
         }
 
@@ -931,8 +1009,9 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
                     .Where(s => s.Status == HostStatus.Dead)
                     .ToArray();
             }
-            catch
+            catch (Exception ex)
             {
+                _logger.LogWarning(ex, "Failed to enumerate OOP subprocess pool slots for reconciliation.");
                 continue;
             }
 
@@ -991,8 +1070,10 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
 
                     if (slot.Host is not null)
                     {
-                        try { await slot.Host.DisposeAsync().ConfigureAwait(false); }
-                        catch { /* ignore */ }
+                        await AwaitCleanupAsync(
+                            TrackHostCleanup(slot.Host, slot.Index),
+                            $"failed replacement host for slot {slot.Index}",
+                            cancellationToken).ConfigureAwait(false);
                         slot.Host = null;
                     }
 
@@ -1006,6 +1087,51 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
     {
         if (!_started)
             throw new InvalidOperationException("Pool has not been started. Call StartAsync first.");
+    }
+
+    private Task TrackHostCleanup(OutOfProcessHost host, int slotIndex)
+    {
+        Task cleanupTask;
+        try
+        {
+            cleanupTask = host.DisposeAsync().AsTask();
+        }
+        catch (Exception ex)
+        {
+            cleanupTask = Task.FromException(ex);
+        }
+
+        lock (_cleanupLock)
+        {
+            _pendingCleanupTasks.Add(cleanupTask);
+        }
+
+        _ = cleanupTask.ContinueWith(
+            task =>
+            {
+                lock (_cleanupLock)
+                {
+                    _pendingCleanupTasks.Remove(task);
+                }
+
+                if (task.IsFaulted)
+                {
+                    var exception = task.Exception!;
+                    lock (_cleanupLock)
+                    {
+                        _asynchronousCleanupFailures.Add(exception);
+                    }
+                    _logger.LogError(
+                        exception,
+                        "OOP subprocess cleanup faulted asynchronously for slot {Index}.",
+                        slotIndex);
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+
+        return cleanupTask;
     }
 
     /// <summary>
@@ -1108,4 +1234,16 @@ public sealed class OutOfProcessSubprocessPoolOptions
     /// replacements. Default: 1 second.
     /// </summary>
     public TimeSpan ReconcilerInterval { get; init; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// Maximum time shutdown waits for each worker or reconciler cleanup task.
+    /// Worker teardown continues to be observed and logged after this bound expires.
+    /// </summary>
+    public TimeSpan CleanupTimeout { get; init; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Time source used for cleanup bounds. Internal to keep production configuration
+    /// stable while enabling deterministic lifecycle tests.
+    /// </summary>
+    internal TimeProvider TimeProvider { get; init; } = TimeProvider.System;
 }
