@@ -50,17 +50,20 @@ jobs:
     # are buildable and discoverable without making machine-dependent claims.
     - name: Benchmark contract
       run: |
+        dotnet run --no-build --project PoshMcp.Benchmarks --configuration Release -- --verify-http-session-contract | tee benchmark-contract.txt
         dotnet run --no-build --project PoshMcp.Benchmarks --configuration Release -- --list flat | tee benchmark-cases.txt
-        grep -q "HttpSessionBenchmark" benchmark-cases.txt
-        grep -q "FirstHttpSessionLatency" benchmark-cases.txt
-        grep -q "BoundedCapacityRejection" benchmark-cases.txt
+        for benchmark in FirstHttpSessionLatency WarmSessionToolLatency ConcurrentWarmSessionThroughput BoundedCapacityRejection; do
+          grep -Fxq "PoshMcp.Benchmarks.Scenarios.HttpSessionBenchmark.${benchmark}" benchmark-cases.txt
+        done
 
     - name: Upload Benchmark Contract
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: benchmark-contract
-        path: benchmark-cases.txt
+        path: |
+          benchmark-contract.txt
+          benchmark-cases.txt
 
     # ---------------------------------------------------------------------------
     # Phased test execution per spec 009 (issue #215).

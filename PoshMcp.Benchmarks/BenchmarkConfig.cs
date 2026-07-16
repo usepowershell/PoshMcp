@@ -39,6 +39,7 @@ public sealed class BenchmarkConfig : ManualConfig
         // PoshMcp.Benchmarks/README.md.
         AddColumn(StatisticColumn.P95);
         AddColumn(new P99StatisticColumn());
+        AddColumn(new CapacityOutcomeColumn());
 
         SummaryStyle = SummaryStyle.Default.WithRatioStyle(RatioStyle.Trend);
     }

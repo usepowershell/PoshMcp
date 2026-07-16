@@ -110,17 +110,21 @@ against an inherited connection string in the host shell.
   Its first-session row includes server tool discovery, the configured
   `Microsoft.PowerShell.Utility` import, inline startup-script setup, and the
   first `initialize` + `tools/call` exchange. Its warm row excludes that
-  startup work. The bounded-capacity row fills the configured four session
-  runspaces, then reports the response status for one more session's tool call;
-  it demonstrates bounded rejection rather than asserting a machine-specific
-  duration.
+  startup work. The bounded-capacity row fills the configured
+  `SessionRunspaceCapacity` (currently 4) session runspaces, then makes one
+  overflow call. It validates an MCP error response (`result.isError=true` or a
+  JSON-RPC `error`) and throws if that condition is absent. The BDN report
+  exposes both the capacity parameter and a `Capacity outcome` column stating
+  `overflow MCP error (validated)`; the row is emitted only after that
+  validation passes.
 
 ## Quality gates
 
 CI does not run timing benchmarks: shared runners are not stable enough for
 time-based pass/fail thresholds. Instead, the `Benchmark contract` CI step
-builds the benchmark executable and verifies that the reproducible HTTP/session
-scenarios are discoverable. Capture timing reports on a controlled machine with
+builds the benchmark executable, verifies the four-method HTTP/session contract,
+and checks exact BDN discovery names for all four scenarios. It does not run
+performance measurements or enforce timing thresholds. Capture timing reports on a controlled machine with
 the same command and compare like-for-like runs (same hardware, SDK, config,
 and benchmark filter). Commit or attach the resulting
 `*-report-github.md`/CSV when a performance decision needs review; treat large
