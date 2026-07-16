@@ -45,6 +45,23 @@ jobs:
     - name: Build
       run: dotnet build --configuration Release --no-restore
 
+    # Timing assertions are intentionally excluded from shared CI runners.
+    # This verifies that the benchmark suite and its session-affinity coverage
+    # are buildable and discoverable without making machine-dependent claims.
+    - name: Benchmark contract
+      run: |
+        dotnet run --no-build --project PoshMcp.Benchmarks --configuration Release -- --list flat | tee benchmark-cases.txt
+        grep -q "HttpSessionBenchmark" benchmark-cases.txt
+        grep -q "FirstHttpSessionLatency" benchmark-cases.txt
+        grep -q "BoundedCapacityRejection" benchmark-cases.txt
+
+    - name: Upload Benchmark Contract
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-contract
+        path: benchmark-cases.txt
+
     # ---------------------------------------------------------------------------
     # Phased test execution per spec 009 (issue #215).
     #
@@ -236,4 +253,3 @@ jobs:
       with:
         name: test-results-azure
         path: ./TestResults/*.trx
-
