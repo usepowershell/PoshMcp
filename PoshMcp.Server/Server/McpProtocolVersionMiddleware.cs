@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Http;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -17,11 +16,15 @@ internal sealed class McpProtocolVersionMiddleware
 
     private readonly RequestDelegate _next;
     private readonly HashSet<string> _mcpPaths;
-    private readonly ConcurrentDictionary<string, string> _sessionProtocolVersions = new(StringComparer.Ordinal);
+    private readonly McpSessionLifecycle _sessionLifecycle;
 
-    public McpProtocolVersionMiddleware(RequestDelegate next, IEnumerable<string> mcpPaths)
+    public McpProtocolVersionMiddleware(
+        RequestDelegate next,
+        McpSessionLifecycle sessionLifecycle,
+        IEnumerable<string> mcpPaths)
     {
         _next = next;
+        _sessionLifecycle = sessionLifecycle;
         _mcpPaths = new HashSet<string>(mcpPaths, StringComparer.OrdinalIgnoreCase);
     }
 
@@ -35,7 +38,7 @@ internal sealed class McpProtocolVersionMiddleware
 
         var sessionId = context.Request.Headers["Mcp-Session-Id"].ToString();
         if (!string.IsNullOrWhiteSpace(sessionId) &&
-            _sessionProtocolVersions.TryGetValue(sessionId, out var negotiatedVersion) &&
+            _sessionLifecycle.TryGetProtocolVersion(sessionId, out var negotiatedVersion) &&
             !IsValidProtocolHeader(context.Request, negotiatedVersion))
         {
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
@@ -54,7 +57,7 @@ internal sealed class McpProtocolVersionMiddleware
             var createdSessionId = context.Response.Headers["Mcp-Session-Id"].ToString();
             if (!string.IsNullOrWhiteSpace(createdSessionId))
             {
-                _sessionProtocolVersions[createdSessionId] = initializeProtocolVersion;
+                _sessionLifecycle.TrackProtocolVersion(createdSessionId, initializeProtocolVersion);
             }
         }
 
@@ -62,7 +65,7 @@ internal sealed class McpProtocolVersionMiddleware
             !string.IsNullOrWhiteSpace(sessionId) &&
             context.Response.StatusCode is StatusCodes.Status200OK or StatusCodes.Status404NotFound)
         {
-            _sessionProtocolVersions.TryRemove(sessionId, out _);
+            _sessionLifecycle.RemoveProtocolVersion(sessionId);
         }
     }
 
