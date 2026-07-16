@@ -164,6 +164,31 @@ public class McpSessionLifecycleTests
                   runspaces.GetStats().ActiveSessions == 0);
     }
 
+    [Fact]
+    public async Task ApplicationStopped_DisposesSessionRunspaceManager()
+    {
+        var httpContextAccessor = new HttpContextAccessor();
+        using var runspaces = new SessionAwarePowerShellRunspace(
+            httpContextAccessor,
+            NullLogger<SessionAwarePowerShellRunspace>.Instance,
+            new SessionRunspaceOptions { WarmStandbyCount = 1 });
+
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Services.AddSingleton<IPowerShellRunspace>(runspaces);
+
+        await using var app = builder.Build();
+        app.Lifetime.ApplicationStopped.Register(runspaces.Dispose);
+        await app.StartAsync();
+
+        Assert.Equal(1, runspaces.GetStats().WarmStandbyCount);
+
+        await app.StopAsync();
+
+        Assert.Equal(0, runspaces.GetStats().WarmStandbyCount);
+        Assert.Throws<ObjectDisposedException>(() => runspaces.ExecuteThreadSafe(_ => 0));
+    }
+
     private static async Task WaitForAsync(Func<bool> condition)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);

@@ -101,7 +101,7 @@ internal static class HttpServerHost
             ?? new McpServerConfiguration();
         var sharedHttpContextAccessor = new HttpContextAccessor();
         var sharedRunspaceLogger = bootstrapLoggerFactory.CreateLogger<SessionAwarePowerShellRunspace>();
-        var sharedSessionRunspace = new SessionAwarePowerShellRunspace(
+        using var sharedSessionRunspace = new SessionAwarePowerShellRunspace(
             sharedHttpContextAccessor,
             sharedRunspaceLogger,
             new SessionRunspaceOptions
@@ -239,6 +239,7 @@ internal static class HttpServerHost
         builder.Services.AddPoshMcpAuthentication(authRootConfig);
 
         var app = builder.Build();
+        app.Lifetime.ApplicationStopped.Register(sharedSessionRunspace.Dispose);
 
         app.Use(async (context, next) =>
         {
