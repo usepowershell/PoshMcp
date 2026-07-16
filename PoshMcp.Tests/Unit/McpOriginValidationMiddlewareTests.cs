@@ -50,6 +50,19 @@ public class McpOriginValidationMiddlewareTests
     }
 
     [Fact]
+    public async Task InvokeAsync_RejectsInvalidOriginOnTrailingSlashMcpRoute()
+    {
+        var called = false;
+        var middleware = CreateMiddleware(() => called = true);
+        var context = CreateContext("/mcp/", "https://attacker.example");
+
+        await middleware.InvokeAsync(context);
+
+        Assert.False(called);
+        Assert.Equal(StatusCodes.Status403Forbidden, context.Response.StatusCode);
+    }
+
+    [Fact]
     public async Task InvokeAsync_DoesNotApplyToNonMcpEndpoint()
     {
         var called = false;
