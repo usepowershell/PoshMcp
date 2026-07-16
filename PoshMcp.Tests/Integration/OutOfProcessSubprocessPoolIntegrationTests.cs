@@ -109,6 +109,41 @@ public class OutOfProcessSubprocessPoolIntegrationTests : IAsyncLifetime
         _logger.LogInformation("Get-Date returned: {Output}", output);
     }
 
+    [PwshAvailableFact]
+    public async Task Pool_ReloadDuringInvoke_DrainsOldWorkerAndReplacesBeforeNextRequest()
+    {
+        if (_hostScriptPath is null) return;
+
+        await using var pool = CreatePool(1);
+        await pool.StartAsync();
+        await pool.SetupAsync(new EnvironmentConfiguration());
+
+        var oldPid = (await pool.InvokeAsync(
+            "Get-Variable",
+            new Dictionary<string, object?> { ["Name"] = "PID", ["ValueOnly"] = true },
+            CancellationToken.None)).Trim();
+
+        var inFlight = pool.InvokeAsync(
+            "Start-Sleep",
+            new Dictionary<string, object?> { ["Milliseconds"] = 800 },
+            CancellationToken.None);
+
+        await Task.Delay(150);
+        await pool.SetupAsync(new EnvironmentConfiguration());
+        await inFlight;
+
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (DateTime.UtcNow < deadline && pool.HealthyCount < 1)
+            await Task.Delay(100);
+        Assert.Equal(1, pool.HealthyCount);
+
+        var newPid = (await pool.InvokeAsync(
+            "Get-Variable",
+            new Dictionary<string, object?> { ["Name"] = "PID", ["ValueOnly"] = true },
+            CancellationToken.None)).Trim();
+        Assert.NotEqual(oldPid, newPid);
+    }
+
     [PwshAvailableTheory]
     [InlineData(1)]
     [InlineData(2)]

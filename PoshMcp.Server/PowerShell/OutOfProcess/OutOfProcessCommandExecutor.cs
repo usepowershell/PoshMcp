@@ -319,12 +319,16 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
             result = await host.SendRequestAsync<JsonElement>("invoke", invokeParams, cancellationToken)
                 .ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Cancellation is delivered to pwsh as a best-effort control frame.
+            // Never reuse that process: a host may acknowledge cancellation before
+            // an interrupted pipeline has completely unwound.
+            await QuarantineAndReplaceHostAsync(host).ConfigureAwait(false);
+            throw;
+        }
         catch (InvalidOperationException ex) when (!_disposed && IsSubprocessDead(host, ex))
         {
-            // The pwsh subprocess died (e.g. a user command terminated the host).
-            // Restart it, replay the cached environment setup, and retry the
-            // invoke exactly once so the caller sees a normal failure path
-            // rather than a permanent "OOP subprocess is not running" error.
             _logger.LogWarning(ex,
                 "OOP subprocess died while invoking '{CommandName}'. Restarting and retrying once.",
                 commandName);
@@ -394,50 +398,27 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
     }
 
     /// <summary>
-    /// Returns true when <paramref name="ex"/> indicates that the supplied
-    /// <paramref name="host"/>'s subprocess has died (either before the send
-    /// or while the request was in flight). Used to gate the
-    /// restart-and-retry path in <see cref="InvokeAsync"/>.
+    /// Quarantines an interrupted host, starts a clean replacement, and replays
+    /// the latest setup. The cancelled command is intentionally never retried.
     /// </summary>
-    private static bool IsSubprocessDead(OutOfProcessHost host, InvalidOperationException ex)
+    private async Task QuarantineAndReplaceHostAsync(OutOfProcessHost interruptedHost)
     {
-        if (!host.IsRunning) return true;
-
-        // SendRequestAsync throws this exact message when the process has
-        // exited before the call; match defensively so we still recover even
-        // if IsRunning briefly disagrees with HasExited.
-        return ex.Message.Contains("OOP subprocess is not running", StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Disposes the current <see cref="OutOfProcessHost"/>, starts a new one,
-    /// and replays the cached environment setup (if any). Serialized so
-    /// concurrent failed invokes only trigger a single restart.
-    /// </summary>
-    private async Task<OutOfProcessHost> RestartHostAsync(CancellationToken cancellationToken)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-
-        await _restartLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await _restartLock.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         try
         {
-            // Another waiter may have already restarted while we were queued.
-            if (_host is { IsRunning: true })
+            if (_disposed || !ReferenceEquals(_host, interruptedHost))
             {
-                return _host;
+                return;
             }
 
-            if (_host is not null)
+            _host = null;
+            try
             {
-                try
-                {
-                    await _host.DisposeAsync().ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Disposing dead OOP host before restart raised an exception.");
-                }
-                _host = null;
+                await interruptedHost.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Quarantined OOP host cleanup failed.");
             }
 
             var scriptPath = await ResolveHostScriptPathAsync().ConfigureAwait(false);
@@ -447,7 +428,7 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
             var newHost = new OutOfProcessHost(pwshPath, scriptPath, hostLogger, _requestTimeout);
             try
             {
-                await newHost.StartAsync(cancellationToken).ConfigureAwait(false);
+                await newHost.StartAsync(CancellationToken.None).ConfigureAwait(false);
             }
             catch
             {
@@ -467,7 +448,7 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
                         _lastSetupConfigFilePath,
                         _lastSetupTimeout,
                         _lastDiscoveryModules,
-                        cancellationToken).ConfigureAwait(false);
+                        CancellationToken.None).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -476,11 +457,61 @@ public class OutOfProcessCommandExecutor : ICommandExecutor
                 }
             }
 
-            return newHost;
         }
         finally
         {
             try { _restartLock.Release(); } catch (ObjectDisposedException) { /* shutting down */ }
+        }
+    }
+
+    private static bool IsSubprocessDead(OutOfProcessHost host, InvalidOperationException ex) =>
+        !host.IsRunning
+        || ex.Message.Contains("OOP subprocess is not running", StringComparison.Ordinal);
+
+    private async Task<OutOfProcessHost> RestartHostAsync(CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        await _restartLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_host is { IsRunning: true })
+                return _host;
+
+            if (_host is not null)
+            {
+                try { await _host.DisposeAsync().ConfigureAwait(false); }
+                catch (Exception ex) { _logger.LogDebug(ex, "Disposing dead OOP host before restart failed."); }
+                _host = null;
+            }
+
+            var scriptPath = await ResolveHostScriptPathAsync().ConfigureAwait(false);
+            var newHost = new OutOfProcessHost(
+                ResolvePwshPath(), scriptPath,
+                _loggerFactory.CreateLogger<OutOfProcessHost>(), _requestTimeout);
+            try
+            {
+                await newHost.StartAsync(cancellationToken).ConfigureAwait(false);
+                _host = newHost;
+
+                if (_lastSetupConfig is not null)
+                {
+                    await SendSetupAsync(newHost, _lastSetupConfig, _lastSetupConfigFilePath,
+                        _lastSetupTimeout, _lastDiscoveryModules, cancellationToken).ConfigureAwait(false);
+                }
+
+                return newHost;
+            }
+            catch
+            {
+                await newHost.DisposeAsync().ConfigureAwait(false);
+                _host = null;
+                throw;
+            }
+        }
+        finally
+        {
+            try { _restartLock.Release(); } catch (ObjectDisposedException) { }
         }
     }
 

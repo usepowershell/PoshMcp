@@ -159,7 +159,7 @@ public class OutOfProcessCancellationTests
     }
 
     [Fact]
-    public async Task ProcessPool_TokenCancel_StopsPipelineAndKeepsSlotsHealthy()
+    public async Task ProcessPool_TokenCancel_QuarantinesWorkerAndReplacesIt()
     {
         if (!TryResolvePwsh(out var pwshPath)) return;
 
@@ -168,7 +168,7 @@ public class OutOfProcessCancellationTests
 
         var poolOptions = new OutOfProcessSubprocessPoolOptions
         {
-            PoolSize = 2,
+            PoolSize = 1,
             MinHealthyForStartup = 1,
             ReconcilerInterval = TimeSpan.FromMilliseconds(500),
         };
@@ -180,48 +180,39 @@ public class OutOfProcessCancellationTests
 
         await pool.StartAsync(CancellationToken.None);
 
-        // Two long invokes in parallel, both cancelled. Must observe OCE
-        // promptly on both. Slots should stay healthy (soft cancel — no kill
-        // required since Start-Sleep is interruptable).
-        using var cts1 = new CancellationTokenSource();
-        using var cts2 = new CancellationTokenSource();
+        var pidBefore = (await pool.InvokeAsync(
+            "Get-Variable",
+            new Dictionary<string, object?> { ["Name"] = "PID", ["ValueOnly"] = true },
+            CancellationToken.None)).Trim();
 
-        var t1 = pool.InvokeAsync(
+        using var cts = new CancellationTokenSource();
+        var invoke = pool.InvokeAsync(
             "Start-Sleep",
             new Dictionary<string, object?> { ["Seconds"] = 60 },
-            cts1.Token);
-        var t2 = pool.InvokeAsync(
-            "Start-Sleep",
-            new Dictionary<string, object?> { ["Seconds"] = 60 },
-            cts2.Token);
+            cts.Token);
 
         await Task.Delay(TimeSpan.FromMilliseconds(750));
         var sw = Stopwatch.StartNew();
-        cts1.Cancel();
-        cts2.Cancel();
+        cts.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            async () => await t1.WaitAsync(ObservationTimeout));
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            async () => await t2.WaitAsync(ObservationTimeout));
+            async () => await invoke.WaitAsync(ObservationTimeout));
 
         sw.Stop();
         Assert.True(sw.Elapsed < ObservationTimeout,
             $"ProcessPool cancellation took {sw.Elapsed.TotalSeconds:F1}s — exceeded budget.");
 
-        // Brief settle for the pipelines to fully unwind on the host side and
-        // for the slots to be returned to the pool. Then a follow-up invoke
-        // on the pool must succeed promptly — proves slots are reusable.
-        await Task.Delay(TimeSpan.FromSeconds(1));
+        var deadline = DateTime.UtcNow + ObservationTimeout;
+        while (DateTime.UtcNow < deadline && pool.HealthyCount < 1)
+            await Task.Delay(100);
+        Assert.Equal(1, pool.HealthyCount);
 
         using var followUpCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-        var output = await pool.InvokeAsync(
-            "Get-Date",
-            new Dictionary<string, object?>(),
-            followUpCts.Token);
-        Assert.False(string.IsNullOrEmpty(output));
-        Assert.True(pool.HealthyCount >= 1,
-            $"Pool reported HealthyCount={pool.HealthyCount} after soft cancel; expected >= 1.");
+        var pidAfter = (await pool.InvokeAsync(
+            "Get-Variable",
+            new Dictionary<string, object?> { ["Name"] = "PID", ["ValueOnly"] = true },
+            followUpCts.Token)).Trim();
+        Assert.NotEqual(pidBefore, pidAfter);
     }
 
     private static bool TryResolvePwsh(out string pwshPath)

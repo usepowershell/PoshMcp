@@ -98,6 +98,10 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
             });
 
     private readonly object _envLock = new();
+    // Serializes the point at which a caller obtains a host with the currently
+    // configured environment. It is deliberately not held for command execution:
+    // reloads let existing work finish, but prevent new work from leasing stale hosts.
+    private readonly SemaphoreSlim _reloadGate = new(1, 1);
     private EnvironmentConfiguration? _cachedEnv;
     private string? _cachedEnvFingerprint;
     private string? _cachedConfigFilePath;
@@ -106,6 +110,7 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
     private IReadOnlyList<RemoteToolSchema>? _cachedSchemas;
     private string? _cachedSchemasFingerprint;
     private RemoteModuleImportsPayload? _cachedModuleImports;
+    private long _generation;
 
     /// <inheritdoc />
     public RemoteModuleImportsPayload? LastModuleImports
@@ -269,55 +274,69 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
         var discoveryModulesArr = discoveryModules?.ToArray();
         var fingerprint = ComputeEnvironmentFingerprint(config, discoveryModulesArr);
 
-        lock (_envLock)
+        await _reloadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            _cachedEnv = config;
-            _cachedEnvFingerprint = fingerprint;
-            _cachedConfigFilePath = configFilePath;
-            _cachedSetupTimeout = setupRequestTimeout;
-            _cachedDiscoveryModules = discoveryModulesArr;
-
-            // Invalidate schema cache if the fingerprint changed.
-            if (_cachedSchemasFingerprint is not null
-                && !string.Equals(_cachedSchemasFingerprint, fingerprint, StringComparison.Ordinal))
+            var generation = Interlocked.Increment(ref _generation);
+            lock (_envLock)
             {
-                _logger.LogDebug(
-                    "Environment fingerprint changed ({Old} -> {New}); invalidating discovery cache.",
-                    _cachedSchemasFingerprint, fingerprint);
-                _cachedSchemas = null;
-                _cachedSchemasFingerprint = null;
-                _cachedModuleImports = null;
+                _cachedEnv = config;
+                _cachedEnvFingerprint = fingerprint;
+                _cachedConfigFilePath = configFilePath;
+                _cachedSetupTimeout = setupRequestTimeout;
+                _cachedDiscoveryModules = discoveryModulesArr;
+
+                if (_cachedSchemasFingerprint is not null
+                    && !string.Equals(_cachedSchemasFingerprint, fingerprint, StringComparison.Ordinal))
+                {
+                    _logger.LogDebug(
+                        "Environment fingerprint changed ({Old} -> {New}); invalidating discovery cache.",
+                        _cachedSchemasFingerprint, fingerprint);
+                    _cachedSchemas = null;
+                    _cachedSchemasFingerprint = null;
+                    _cachedModuleImports = null;
+                }
             }
+
+            // The gate prevents a Healthy slot becoming leased while setup is sent.
+            // Existing leases are never reconfigured in-flight: they finish against
+            // their original environment and are retired when returned.
+            var snapshot = _slots.Values.ToArray();
+            var idleSlots = snapshot.Where(slot => slot.Status == HostStatus.Healthy).ToArray();
+            foreach (var leasedSlot in snapshot.Where(slot => slot.Status == HostStatus.Leased))
+            {
+                leasedSlot.RetireOnReturn = true;
+            }
+
+            _logger.LogInformation(
+                "Applying environment generation {Generation} to {Count} idle hosts; {Retiring} active hosts will drain.",
+                generation, idleSlots.Length, snapshot.Count(slot => slot.Status == HostStatus.Leased));
+
+            var setupTasks = idleSlots.Select(async slot =>
+            {
+                try
+                {
+                    await ApplySetupToHostAsync(slot, config, configFilePath,
+                        setupRequestTimeout, discoveryModulesArr, cancellationToken)
+                        .ConfigureAwait(false);
+                    slot.Generation = generation;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex,
+                        "Setup failed on slot {Index}; marking dead for reconciliation.",
+                        slot.Index);
+                    MarkSlotDead(slot);
+                    throw;
+                }
+            }).ToArray();
+
+            await Task.WhenAll(setupTasks).ConfigureAwait(false);
         }
-
-        // Apply setup to every currently-healthy host in parallel.
-        var snapshot = _slots
-            .Where(kvp => kvp.Value.Status is HostStatus.Healthy or HostStatus.Leased)
-            .Select(kvp => kvp.Value)
-            .ToArray();
-
-        _logger.LogInformation(
-            "Applying environment setup to {Count} hosts (fingerprint: {Fingerprint}).",
-            snapshot.Length, fingerprint);
-
-        var setupTasks = snapshot.Select(slot => Task.Run(async () =>
+        finally
         {
-            try
-            {
-                await ApplySetupToHostAsync(slot, config, configFilePath,
-                    setupRequestTimeout, discoveryModulesArr, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex,
-                    "Setup failed on slot {Index}; marking dead for reconciliation.",
-                    slot.Index);
-                MarkSlotDead(slot);
-            }
-        }, cancellationToken)).ToArray();
-
-        await Task.WhenAll(setupTasks).ConfigureAwait(false);
+            _reloadGate.Release();
+        }
     }
 
     /// <inheritdoc />
@@ -351,7 +370,7 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
             excludePatterns = config.ExcludePatterns
         };
 
-        await using var lease = await LeaseAsync(cancellationToken).ConfigureAwait(false);
+        await using var lease = await LeaseCurrentGenerationAsync(cancellationToken).ConfigureAwait(false);
         var host = lease.Host;
 
         _logger.LogInformation(
@@ -418,7 +437,7 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
         ObjectDisposedException.ThrowIf(_disposed, this);
         EnsureStarted();
 
-        await using var lease = await LeaseAsync(cancellationToken).ConfigureAwait(false);
+        await using var lease = await LeaseCurrentGenerationAsync(cancellationToken).ConfigureAwait(false);
         var host = lease.Host;
         var slotIndex = lease.SlotIndex;
 
@@ -463,6 +482,17 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
             // mode: only this slot dies; the rest of the pool keeps serving.
             _logger.LogWarning(tex,
                 "Invoke '{CommandName}' timed out on slot {Index}; killing host.",
+                commandName, slotIndex);
+            lease.MarkBroken();
+            throw;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // A cancel frame is best-effort. Do not put a host whose pipeline was
+            // interrupted back into rotation; replacement is safer than reusing
+            // potentially contaminated runspace/process state.
+            _logger.LogInformation(
+                "Invoke '{CommandName}' was cancelled on slot {Index}; quarantining host.",
                 commandName, slotIndex);
             lease.MarkBroken();
             throw;
@@ -546,6 +576,7 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
 
         _slots.Clear();
         _reconcilerCts?.Dispose();
+        _reloadGate.Dispose();
     }
 
     // ---- Internal helpers (visible to tests) ----
@@ -674,6 +705,8 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
                 }
             }
         }
+
+        slot.Generation = Volatile.Read(ref _generation);
 
         return slot;
     }
@@ -809,11 +842,13 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
                 throw new InvalidOperationException("Pool is shut down.", ex);
             }
 
-            if (slot.Status != HostStatus.Healthy || slot.Host is null || !slot.Host.IsRunning)
+            if (slot.Status != HostStatus.Healthy || slot.Host is null || !slot.Host.IsRunning
+                || slot.RetireOnReturn || slot.Generation != Volatile.Read(ref _generation))
             {
                 _logger.LogDebug(
-                    "Skipping stale lease for slot {Index} (status={Status}).",
-                    slot.Index, slot.Status);
+                    "Skipping stale lease for slot {Index} (status={Status}, generation={Generation}).",
+                    slot.Index, slot.Status, slot.Generation);
+                MarkSlotDead(slot);
                 continue;
             }
 
@@ -822,11 +857,24 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
         }
     }
 
+    private async Task<PoolLease> LeaseCurrentGenerationAsync(CancellationToken cancellationToken)
+    {
+        await _reloadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await LeaseAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _reloadGate.Release();
+        }
+    }
+
     private void ReturnLease(HostSlot slot, bool broken)
     {
         if (_disposed) return;
 
-        if (broken || slot.Host is null || !slot.Host.IsRunning)
+        if (broken || slot.RetireOnReturn || slot.Host is null || !slot.Host.IsRunning)
         {
             MarkSlotDead(slot);
             return;
@@ -926,6 +974,8 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
                             .ConfigureAwait(false);
                     }
 
+                    slot.Generation = Volatile.Read(ref _generation);
+                    slot.RetireOnReturn = false;
                     slot.FailedReplacements = 0;
                     _available.Writer.TryWrite(slot);
 
@@ -970,6 +1020,8 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
         public volatile HostStatus Status;
         public OutOfProcessHost? Host;
         public int FailedReplacements;
+        public long Generation;
+        public volatile bool RetireOnReturn;
     }
 
     /// <summary>
