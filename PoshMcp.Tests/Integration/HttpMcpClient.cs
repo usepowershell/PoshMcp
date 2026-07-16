@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -22,9 +21,12 @@ public class HttpMcpClient : IDisposable
     private readonly string _baseUrl;
     private int _requestId = 1;
     private string? _sessionId;
+    private string? _protocolVersion;
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(10);
+    public const string CurrentProtocolVersion = "2025-11-25";
 
     public string? SessionId => _sessionId;
+    public string? ProtocolVersion => _protocolVersion;
 
     public HttpMcpClient(ILogger logger, string baseUrl)
     {
@@ -80,7 +82,7 @@ public class HttpMcpClient : IDisposable
         _logger.LogInformation("HTTP MCP client connected to web server and server is ready");
     }
 
-    public async Task<JObject> SendInitializeAsync()
+    public async Task<JObject> SendInitializeAsync(string protocolVersion = CurrentProtocolVersion)
     {
         var request = new
         {
@@ -89,7 +91,7 @@ public class HttpMcpClient : IDisposable
             method = "initialize",
             @params = new
             {
-                protocolVersion = "2024-11-05",
+                protocolVersion,
                 capabilities = new
                 {
                     tools = new { }
@@ -102,7 +104,9 @@ public class HttpMcpClient : IDisposable
             }
         };
 
-        return await SendRequestAsync(request);
+        var response = await SendRequestAsync(request);
+        _protocolVersion = response["result"]?["protocolVersion"]?.ToString() ?? protocolVersion;
+        return response;
     }
 
     public async Task<JObject> SendListToolsAsync()
@@ -141,23 +145,22 @@ public class HttpMcpClient : IDisposable
 
         try
         {
-            var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
+            using var requestMessage = new HttpRequestMessage(HttpMethod.Post, "/")
+            {
+                Content = new StringContent(requestJson, Encoding.UTF8, "application/json")
+            };
 
-            // Add session ID header for non-initialize requests
-            var headers = new Dictionary<string, string>();
             if (!string.IsNullOrEmpty(_sessionId))
             {
-                headers["Mcp-Session-Id"] = _sessionId;
+                requestMessage.Headers.Add("Mcp-Session-Id", _sessionId);
             }
 
-            foreach (var header in headers)
+            if (!string.IsNullOrEmpty(_protocolVersion))
             {
-                _httpClient.DefaultRequestHeaders.Remove(header.Key);
-                _httpClient.DefaultRequestHeaders.Add(header.Key, header.Value);
+                requestMessage.Headers.Add("MCP-Protocol-Version", _protocolVersion);
             }
 
-            // The MCP HTTP endpoint is at the root /
-            var response = await _httpClient.PostAsync("/", content);
+            using var response = await _httpClient.SendAsync(requestMessage);
 
             // Capture session ID from response headers if present
             if (response.Headers.TryGetValues("Mcp-Session-Id", out var sessionIdValues))
@@ -172,9 +175,7 @@ public class HttpMcpClient : IDisposable
                 throw new HttpRequestException($"HTTP {response.StatusCode}: {errorContent}");
             }
 
-            // Parse first Server-Sent Events payload line without waiting for stream end.
-            var responseJson = await ExtractJsonFromSSEAsync(response.Content);
-            var responseObject = JObject.Parse(responseJson);
+            var responseObject = await ReadJsonResponseAsync(response.Content);
             _logger.LogDebug($"[WEB SERVER RESPONSE] {responseObject.ToString(Formatting.Indented)}");
 
             return responseObject;
@@ -186,26 +187,25 @@ public class HttpMcpClient : IDisposable
         }
     }
 
-    private static async Task<string> ExtractJsonFromSSEAsync(HttpContent content)
+    private static async Task<JObject> ReadJsonResponseAsync(HttpContent content)
     {
-        await using var stream = await content.ReadAsStreamAsync();
-        using var reader = new StreamReader(stream);
-
-        while (true)
+        var responseText = await content.ReadAsStringAsync();
+        var mediaType = content.Headers.ContentType?.MediaType;
+        if (string.Equals(mediaType, "application/json", StringComparison.OrdinalIgnoreCase))
         {
-            var line = await reader.ReadLineAsync();
-            if (line == null)
-            {
-                break;
-            }
+            return JObject.Parse(responseText);
+        }
 
-            if (line.StartsWith("data: "))
+        using var reader = new StringReader(responseText);
+        while (await reader.ReadLineAsync() is { } line)
+        {
+            if (line.StartsWith("data: ", StringComparison.Ordinal))
             {
-                return line.Substring(6); // Remove "data: " prefix
+                return JObject.Parse(line.Substring(6));
             }
         }
 
-        throw new InvalidOperationException("No data line found in SSE response stream");
+        throw new InvalidOperationException($"No JSON response payload found for content type '{mediaType ?? "unknown"}'.");
     }
 
     public void Dispose()

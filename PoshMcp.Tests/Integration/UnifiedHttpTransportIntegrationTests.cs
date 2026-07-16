@@ -20,6 +20,17 @@ public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
     {
     }
 
+    [Theory]
+    [InlineData("application/json", "{\"jsonrpc\":\"2.0\",\"result\":{\"tools\":[]}}")]
+    [InlineData("text/event-stream", "event: message\ndata: {\"jsonrpc\":\"2.0\",\"result\":{\"tools\":[]}}\n\n")]
+    public void StreamableHttpResponseParser_ShouldSupportJsonAndSse(string mediaType, string responseText)
+    {
+        var response = ParseJsonOrSsePayload(responseText, mediaType);
+
+        Assert.Equal("2.0", response["jsonrpc"]?.ToString());
+        Assert.NotNull(response["result"]);
+    }
+
     [Fact]
     public async Task ServeHttpTransport_ShouldStartAndExposeHealthEndpoint()
     {
@@ -156,6 +167,23 @@ public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
                 sessionId,
                 "2025-11-25");
             Assert.True(negotiatedVersionResponse.IsSuccessStatusCode);
+            AssertResponseIsJsonOrSse(negotiatedVersionResponse);
+
+            using var notificationResponse = await SendRawMcpRequestAsync(
+                httpClient,
+                HttpMethod.Post,
+                new { jsonrpc = "2.0", method = "notifications/initialized" },
+                sessionId,
+                "2025-11-25");
+            Assert.Equal(System.Net.HttpStatusCode.Accepted, notificationResponse.StatusCode);
+
+            using var getRequest = new HttpRequestMessage(HttpMethod.Get, "/");
+            getRequest.Headers.Add("Mcp-Session-Id", sessionId);
+            getRequest.Headers.Add("MCP-Protocol-Version", "2025-11-25");
+            getRequest.Headers.Accept.ParseAdd("text/event-stream");
+            using var getResponse = await httpClient.SendAsync(getRequest, HttpCompletionOption.ResponseHeadersRead);
+            Assert.True(getResponse.IsSuccessStatusCode);
+            Assert.Equal("text/event-stream", getResponse.Content.Headers.ContentType?.MediaType);
 
             using var deleteRequest = new HttpRequestMessage(HttpMethod.Delete, "/");
             deleteRequest.Headers.Add("Mcp-Session-Id", sessionId);
@@ -175,6 +203,36 @@ public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
         {
             Output.WriteLine(server.GetCapturedOutput());
             throw new Xunit.Sdk.XunitException($"Streamable HTTP protocol/session conformance failed: {ex.Message}");
+        }
+    }
+
+    [Fact]
+    public async Task ServeHttpTransport_ShouldRejectInvalidOrigins()
+    {
+        using var server = new InProcessUnifiedHttpServer();
+
+        try
+        {
+            await server.StartAsync();
+
+            using var httpClient = CreateMcpHttpClient(server.ServerUrl);
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/")
+            {
+                Content = new StringContent(
+                    JsonConvert.SerializeObject(CreateInitializeRequest("2025-11-25")),
+                    Encoding.UTF8,
+                    "application/json")
+            };
+            request.Headers.Add("Origin", "https://attacker.example");
+
+            using var response = await httpClient.SendAsync(request);
+
+            Assert.Equal(System.Net.HttpStatusCode.Forbidden, response.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            Output.WriteLine(server.GetCapturedOutput());
+            throw new Xunit.Sdk.XunitException($"Streamable HTTP origin conformance failed: {ex.Message}");
         }
     }
 
@@ -383,7 +441,11 @@ public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
         return await httpClient.SendAsync(requestMessage);
     }
 
-    private static async Task<(JObject Response, string? SessionId)> SendMcpRequestAsync(HttpClient httpClient, object request, string? sessionId = null)
+    private static async Task<(JObject Response, string? SessionId)> SendMcpRequestAsync(
+        HttpClient httpClient,
+        object request,
+        string? sessionId = null,
+        string? protocolVersion = null)
     {
         const int maxAttempts = 3;
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
@@ -401,6 +463,11 @@ public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
                 requestMessage.Headers.Add("Mcp-Session-Id", sessionId);
             }
 
+            if (!string.IsNullOrWhiteSpace(protocolVersion))
+            {
+                requestMessage.Headers.Add("MCP-Protocol-Version", protocolVersion);
+            }
+
             try
             {
                 using var response = await httpClient.SendAsync(requestMessage);
@@ -411,7 +478,7 @@ public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
                     throw new HttpRequestException($"HTTP {(int)response.StatusCode}: {responseText}");
                 }
 
-                var responseObject = ParseSsePayload(responseText);
+                var responseObject = ParseJsonOrSsePayload(responseText, response.Content.Headers.ContentType?.MediaType);
                 var responseSessionId = response.Headers.TryGetValues("Mcp-Session-Id", out var sessionIdValues)
                     ? sessionIdValues.FirstOrDefault()
                     : null;
@@ -451,15 +518,27 @@ public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
             || message.Contains("address already in use", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static JObject ParseSsePayload(string sseResponse)
+    private static void AssertResponseIsJsonOrSse(HttpResponseMessage response)
     {
-        var dataLine = sseResponse
+        Assert.Contains(
+            response.Content.Headers.ContentType?.MediaType,
+            new[] { "application/json", "text/event-stream" });
+    }
+
+    private static JObject ParseJsonOrSsePayload(string responseText, string? mediaType)
+    {
+        if (string.Equals(mediaType, "application/json", StringComparison.OrdinalIgnoreCase))
+        {
+            return JObject.Parse(responseText);
+        }
+
+        var dataLine = responseText
             .Split('\n')
             .FirstOrDefault(line => line.StartsWith("data: ", StringComparison.Ordinal));
 
         if (string.IsNullOrWhiteSpace(dataLine))
         {
-            throw new InvalidOperationException($"No MCP data payload found in SSE response: {sseResponse}");
+            throw new InvalidOperationException($"No MCP data payload found in response: {responseText}");
         }
 
         return JObject.Parse(dataLine.Substring(6));

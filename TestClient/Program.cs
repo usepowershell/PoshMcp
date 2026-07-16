@@ -235,7 +235,7 @@ Examples:
             method = "initialize",
             @params = new
             {
-                protocolVersion = "2024-11-05",
+                protocolVersion = "2025-11-25",
                 capabilities = new
                 {
                     tools = new { }
