@@ -47,12 +47,14 @@ are released when the SDK session completes, the client sends `DELETE`, or the
 runspace remains idle for its configured TTL. A release requested while a tool
 is running waits for that invocation to finish.
 
-The defaults are a 60-second MCP session idle timeout, 16 total owned
-runspaces, a 300-second runspace idle TTL, a 30-second sweep interval, two
-warm standbys, and a 15-second acquisition timeout. Capacity includes warm
-standbys and one-shot requests. When capacity is full, a request waits up to
-the acquisition timeout and then fails rather than receiving another
-session's runspace.
+The defaults are a 60-second MCP session idle timeout, a capacity of 16
+runspaces assigned to sessions or leased for one-shot work, a 300-second
+runspace idle TTL, a 30-second sweep interval, two warm standbys, and a
+15-second acquisition timeout. Warm standbys are initialized separately and
+do not count toward capacity, so the manager can hold more initialized
+runspaces than the capacity setting. When assigned or leased capacity is full,
+a request waits up to the acquisition timeout and then fails rather than
+receiving another session's runspace.
 
 Configure session behavior under `McpServer`:
 
@@ -66,6 +68,9 @@ Configure session behavior under `McpServer`:
   }
 }
 ```
+
+The example's standby count is additional to its assigned/leased capacity; it
+does not reserve two of the 24 capacity slots.
 
 For the complete setting reference and operational sizing guidance, see
 [Configuration](configuration.md#mcp-server-http-sessions). Dynamic tool
