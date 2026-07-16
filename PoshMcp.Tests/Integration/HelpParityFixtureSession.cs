@@ -5,9 +5,10 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using Xunit.Abstractions;
+using Xunit;
 
 namespace PoshMcp.Tests.Integration;
 
@@ -37,18 +38,16 @@ internal sealed class HelpParityFixtureSession : IAsyncDisposable
     };
 
     private readonly ILogger _logger;
-    private readonly ITestOutputHelper _output;
     private readonly string _runtimeMode;
     private InProcessMcpServer? _server;
     private ExternalMcpClient? _client;
     private string? _configPath;
     private string? _previousPSModulePath;
 
-    public HelpParityFixtureSession(string runtimeMode, ILogger logger, ITestOutputHelper output)
+    public HelpParityFixtureSession(string runtimeMode, ILogger logger)
     {
         _runtimeMode = runtimeMode;
         _logger = logger;
-        _output = output;
     }
 
     /// <summary>
@@ -202,4 +201,59 @@ internal sealed class HelpParityFixtureSession : IAsyncDisposable
             ?? throw new InvalidOperationException(
                 $"Could not find workspace root from {Directory.GetCurrentDirectory()}");
     }
+}
+
+/// <summary>
+/// Shared lifecycle for the HelpParityFixture server snapshots. A collection
+/// fixture prevents each theory case from starting its own OOP subprocess pool.
+/// </summary>
+public sealed class ToolDescriptionFixture : IAsyncLifetime
+{
+    private static readonly ILogger Logger = NullLogger<ToolDescriptionFixture>.Instance;
+
+    internal HelpParityFixtureSession? InProcessSession { get; private set; }
+    internal HelpParityFixtureSession? OutOfProcessSession { get; private set; }
+    internal bool IsOutOfProcessAvailable { get; private set; }
+    internal string? OutOfProcessUnavailableReason { get; private set; }
+
+    public async Task InitializeAsync()
+    {
+        InProcessSession = new HelpParityFixtureSession(
+            HelpParityFixtureSession.RuntimeModeInProcess, Logger);
+        await InProcessSession.StartAsync();
+
+        try
+        {
+            var pwsh = PoshMcp.Server.PowerShell.OutOfProcess
+                .OutOfProcessCommandExecutor.ResolvePwshPath();
+            if (string.IsNullOrEmpty(pwsh))
+            {
+                OutOfProcessUnavailableReason = "pwsh not on PATH";
+                return;
+            }
+
+            OutOfProcessSession = new HelpParityFixtureSession(
+                HelpParityFixtureSession.RuntimeModeOutOfProcess, Logger);
+            await OutOfProcessSession.StartAsync();
+            IsOutOfProcessAvailable = true;
+        }
+        catch (Exception ex)
+        {
+            OutOfProcessUnavailableReason = ex.Message;
+            Logger.LogWarning(ex, "Failed to start OutOfProcess fixture session");
+        }
+    }
+
+    public async Task DisposeAsync()
+    {
+        if (InProcessSession is not null)
+            await InProcessSession.DisposeAsync();
+        if (OutOfProcessSession is not null)
+            await OutOfProcessSession.DisposeAsync();
+    }
+}
+
+[CollectionDefinition("Tool Description Fixtures", DisableParallelization = true)]
+public sealed class ToolDescriptionFixtureCollection : ICollectionFixture<ToolDescriptionFixture>
+{
 }

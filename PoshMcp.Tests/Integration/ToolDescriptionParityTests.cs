@@ -6,7 +6,6 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Xunit;
 using Xunit.Abstractions;
-using Xunit.Sdk;
 
 namespace PoshMcp.Tests.Integration;
 
@@ -23,57 +22,14 @@ namespace PoshMcp.Tests.Integration;
 /// </summary>
 [Trait("Category", "Integration")]
 [Trait("Spec", "010")]
-public sealed class ToolDescriptionParityTests : PowerShellTestBase, IAsyncLifetime
+[Collection("Tool Description Fixtures")]
+public sealed class ToolDescriptionParityTests : PowerShellTestBase
 {
-    private HelpParityFixtureSession? _inProcessSession;
-    private HelpParityFixtureSession? _outOfProcessSession;
-    private bool _bothModesAvailable;
-    private string? _oopUnavailableReason;
+    private readonly ToolDescriptionFixture _fixture;
 
-    public ToolDescriptionParityTests(ITestOutputHelper output) : base(output)
+    public ToolDescriptionParityTests(ToolDescriptionFixture fixture, ITestOutputHelper output) : base(output)
     {
-    }
-
-    public async Task InitializeAsync()
-    {
-        Logger.LogInformation("=== Initializing ToolDescriptionParityTests fixture sessions ===");
-
-        _inProcessSession = new HelpParityFixtureSession(
-            HelpParityFixtureSession.RuntimeModeInProcess, Logger, Output);
-        await _inProcessSession.StartAsync();
-
-        // OOP requires pwsh on PATH; if unavailable, leave the OOP session unset
-        // and rely on PwshAvailableFact/Theory attributes to skip cross-mode tests.
-        try
-        {
-            var pwsh = PoshMcp.Server.PowerShell.OutOfProcess
-                .OutOfProcessCommandExecutor.ResolvePwshPath();
-            if (!string.IsNullOrEmpty(pwsh))
-            {
-                _outOfProcessSession = new HelpParityFixtureSession(
-                    HelpParityFixtureSession.RuntimeModeOutOfProcess, Logger, Output);
-                await _outOfProcessSession.StartAsync();
-                _bothModesAvailable = true;
-            }
-            else
-            {
-                _oopUnavailableReason = "pwsh not on PATH";
-                Logger.LogWarning("pwsh not on PATH; OutOfProcess parity tests will be skipped");
-            }
-        }
-        catch (System.Exception ex)
-        {
-            _oopUnavailableReason = ex.Message;
-            Logger.LogWarning(ex, "Failed to start OutOfProcess fixture session; OOP tests will be skipped");
-        }
-    }
-
-    public async Task DisposeAsync()
-    {
-        if (_inProcessSession is not null)
-            await _inProcessSession.DisposeAsync();
-        if (_outOfProcessSession is not null)
-            await _outOfProcessSession.DisposeAsync();
+        _fixture = fixture;
     }
 
     /// <summary>
@@ -86,12 +42,12 @@ public sealed class ToolDescriptionParityTests : PowerShellTestBase, IAsyncLifet
     [PwshAvailableFact]
     public void FixtureCommands_AppearInBothModes_WithSameToolVariantCount()
     {
-        SkipIfNoOop();
+        if (!IsOopAvailable()) return;
 
         foreach (var commandName in HelpParityFixtureSession.FixtureCommands)
         {
-            var inProcessVariants = _inProcessSession!.GetToolsForCommand(commandName);
-            var outOfProcessVariants = _outOfProcessSession!.GetToolsForCommand(commandName);
+            var inProcessVariants = _fixture.InProcessSession!.GetToolsForCommand(commandName);
+            var outOfProcessVariants = _fixture.OutOfProcessSession!.GetToolsForCommand(commandName);
 
             Assert.True(
                 inProcessVariants.Count > 0,
@@ -119,10 +75,10 @@ public sealed class ToolDescriptionParityTests : PowerShellTestBase, IAsyncLifet
     [InlineData("Get-FixtureBare")]
     public void ToolDescription_IsByteIdentical_AcrossRuntimeModes(string commandName)
     {
-        SkipIfNoOop();
+        if (!IsOopAvailable()) return;
 
-        var inProcess = _inProcessSession!.GetToolsForCommand(commandName);
-        var outOfProcess = _outOfProcessSession!.GetToolsForCommand(commandName);
+        var inProcess = _fixture.InProcessSession!.GetToolsForCommand(commandName);
+        var outOfProcess = _fixture.OutOfProcessSession!.GetToolsForCommand(commandName);
 
         Assert.NotEmpty(inProcess);
         Assert.NotEmpty(outOfProcess);
@@ -159,10 +115,10 @@ public sealed class ToolDescriptionParityTests : PowerShellTestBase, IAsyncLifet
     [InlineData("Get-FixtureBare")]
     public void ParameterDescriptions_AreByteIdentical_AcrossRuntimeModes(string commandName)
     {
-        SkipIfNoOop();
+        if (!IsOopAvailable()) return;
 
-        var inProcessVariants = _inProcessSession!.GetToolsForCommand(commandName);
-        var outOfProcessVariants = _outOfProcessSession!.GetToolsForCommand(commandName);
+        var inProcessVariants = _fixture.InProcessSession!.GetToolsForCommand(commandName);
+        var outOfProcessVariants = _fixture.OutOfProcessSession!.GetToolsForCommand(commandName);
 
         // Match variants by tool name (e.g., "get_fixturefullhelp") which is
         // derived deterministically from the source command + parameter set.
@@ -223,9 +179,9 @@ public sealed class ToolDescriptionParityTests : PowerShellTestBase, IAsyncLifet
     public void ParameterDescription_IsNonEmpty_WhenHelpTextAvailable_InProcessMode(
         string commandName, string parameterName)
     {
-        Assert.NotNull(_inProcessSession);
+        Assert.NotNull(_fixture.InProcessSession);
 
-        var variants = _inProcessSession!.GetToolsForCommand(commandName);
+        var variants = _fixture.InProcessSession!.GetToolsForCommand(commandName);
         Assert.NotEmpty(variants);
 
         // The parameter must have a non-empty description in at least one variant
@@ -268,9 +224,9 @@ public sealed class ToolDescriptionParityTests : PowerShellTestBase, IAsyncLifet
     public void ParameterDescription_IsNonEmpty_WhenHelpTextAvailable_OutOfProcessMode(
         string commandName, string parameterName)
     {
-        SkipIfNoOop();
+        if (!IsOopAvailable()) return;
 
-        var variants = _outOfProcessSession!.GetToolsForCommand(commandName);
+        var variants = _fixture.OutOfProcessSession!.GetToolsForCommand(commandName);
         Assert.NotEmpty(variants);
 
         var variantsWithParam = variants
@@ -310,13 +266,16 @@ public sealed class ToolDescriptionParityTests : PowerShellTestBase, IAsyncLifet
         return result;
     }
 
-    private void SkipIfNoOop()
+    private bool IsOopAvailable()
     {
-        if (!_bothModesAvailable)
+        if (_fixture.IsOutOfProcessAvailable)
         {
-            throw SkipException.ForSkip(
-                "OutOfProcess fixture session was not initialized. " +
-                $"Reason: {_oopUnavailableReason ?? "unknown"}.");
+            return true;
         }
+
+        Logger.LogWarning(
+            "OutOfProcess parity assertions are not run because the fixture session was not initialized. Reason: {Reason}",
+            _fixture.OutOfProcessUnavailableReason ?? "unknown");
+        return false;
     }
 }
