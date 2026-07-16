@@ -100,7 +100,6 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
     private readonly object _envLock = new();
     private readonly object _cleanupLock = new();
     private readonly HashSet<Task> _pendingCleanupTasks = new();
-    private readonly List<Exception> _asynchronousCleanupFailures = new();
     // Serializes the point at which a caller obtains a host with the currently
     // configured environment. It is deliberately not held for command execution:
     // reloads let existing work finish, but prevent new work from leasing stale hosts.
@@ -153,6 +152,11 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
             throw new ArgumentOutOfRangeException(nameof(options),
                 "CleanupTimeout must be a positive, finite duration.");
         }
+        if (options.MaxTrackedCleanupOperations < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options),
+                "MaxTrackedCleanupOperations must be >= 1.");
+        }
 
         _pwshPath = pwshPath;
         _hostScriptPath = hostScriptPath;
@@ -186,6 +190,14 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
     /// Configured pool size (constant).
     /// </summary>
     public int PoolSize => _options.PoolSize;
+
+    /// <summary>
+    /// Number of cleanup operations currently retained for bounded shutdown waiting.
+    /// </summary>
+    internal int PendingCleanupTaskCount
+    {
+        get { lock (_cleanupLock) { return _pendingCleanupTasks.Count; } }
+    }
 
     /// <inheritdoc />
     public async Task StartAsync(CancellationToken cancellationToken = default)
@@ -588,20 +600,18 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
                 cleanupFailures.Add(failure);
         }
 
+        var cleanupTasks = new HashSet<Task>();
         foreach (var host in _slots
             .Select(kvp => kvp.Value)
             .Where(s => s.Host is not null)
             .Select(s => (Host: s.Host!, SlotIndex: s.Index)))
         {
-            _ = TrackHostCleanup(host.Host, host.SlotIndex);
+            cleanupTasks.Add(TrackHostCleanup(host.Host, host.SlotIndex));
         }
 
-        Task[] cleanupTasks;
         lock (_cleanupLock)
         {
-            cleanupTasks = _pendingCleanupTasks.ToArray();
-            cleanupFailures.AddRange(_asynchronousCleanupFailures);
-            _asynchronousCleanupFailures.Clear();
+            cleanupTasks.UnionWith(_pendingCleanupTasks);
         }
 
         var cleanupResults = await Task.WhenAll(cleanupTasks.Select(task =>
@@ -1101,26 +1111,45 @@ public sealed class OutOfProcessSubprocessPool : ICommandExecutor
             cleanupTask = Task.FromException(ex);
         }
 
+        return TrackCleanupTask(cleanupTask, slotIndex);
+    }
+
+    internal Task TrackCleanupTask(Task cleanupTask, int slotIndex)
+    {
+        ArgumentNullException.ThrowIfNull(cleanupTask);
+
+        var tracked = false;
         lock (_cleanupLock)
         {
-            _pendingCleanupTasks.Add(cleanupTask);
+            if (_pendingCleanupTasks.Count < _options.MaxTrackedCleanupOperations)
+            {
+                tracked = _pendingCleanupTasks.Add(cleanupTask);
+            }
+        }
+
+        if (!tracked)
+        {
+            _logger.LogWarning(
+                "OOP cleanup tracking capacity ({Capacity}) reached; cleanup for slot {Index} " +
+                "will continue without retained shutdown tracking.",
+                _options.MaxTrackedCleanupOperations,
+                slotIndex);
         }
 
         _ = cleanupTask.ContinueWith(
             task =>
             {
-                lock (_cleanupLock)
+                if (tracked)
                 {
-                    _pendingCleanupTasks.Remove(task);
+                    lock (_cleanupLock)
+                    {
+                        _pendingCleanupTasks.Remove(task);
+                    }
                 }
 
                 if (task.IsFaulted)
                 {
                     var exception = task.Exception!;
-                    lock (_cleanupLock)
-                    {
-                        _asynchronousCleanupFailures.Add(exception);
-                    }
                     _logger.LogError(
                         exception,
                         "OOP subprocess cleanup faulted asynchronously for slot {Index}.",
@@ -1240,6 +1269,12 @@ public sealed class OutOfProcessSubprocessPoolOptions
     /// Worker teardown continues to be observed and logged after this bound expires.
     /// </summary>
     public TimeSpan CleanupTimeout { get; init; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Maximum number of incomplete cleanup operations retained for shutdown waiting.
+    /// Additional operations are still observed and logged, but are not retained.
+    /// </summary>
+    public int MaxTrackedCleanupOperations { get; init; } = 16;
 
     /// <summary>
     /// Time source used for cleanup bounds. Internal to keep production configuration

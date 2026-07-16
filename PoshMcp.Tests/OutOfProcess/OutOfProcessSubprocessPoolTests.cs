@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -77,6 +78,21 @@ public class OutOfProcessSubprocessPoolTests
                 {
                     PoolSize = 1,
                     CleanupTimeout = TimeSpan.FromMilliseconds(timeoutMilliseconds),
+                }));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Constructor_InvalidMaxTrackedCleanupOperations_Throws(int maxOperations)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new OutOfProcessSubprocessPool(
+                "pwsh", "x.ps1",
+                new OutOfProcessSubprocessPoolOptions
+                {
+                    PoolSize = 1,
+                    MaxTrackedCleanupOperations = maxOperations,
                 }));
     }
 
@@ -167,6 +183,70 @@ public class OutOfProcessSubprocessPoolTests
             message => message.Level == LogLevel.Error
                 && message.Exception == expected
                 && message.Message.Contains("OOP cleanup failed", StringComparison.Ordinal));
+        await pool.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task CleanupTracking_CompletedAndFaultedTasksAreObservedAndRemoved()
+    {
+        var loggerProvider = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(loggerProvider));
+        var pool = new OutOfProcessSubprocessPool(
+            "pwsh", "x.ps1",
+            new OutOfProcessSubprocessPoolOptions { PoolSize = 1 },
+            loggerFactory);
+        var expected = new InvalidOperationException("worker teardown failed");
+
+        await pool.TrackCleanupTask(Task.CompletedTask, 1);
+        var faulted = pool.TrackCleanupTask(Task.FromException(expected), 2);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => faulted);
+
+        Assert.Equal(0, pool.PendingCleanupTaskCount);
+        Assert.Contains(
+            loggerProvider.Messages,
+            message => message.Level == LogLevel.Error
+                && message.Exception?.InnerException == expected
+                && message.Message.Contains("cleanup faulted asynchronously", StringComparison.Ordinal));
+        await pool.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task CleanupTracking_StuckOperationsAreCappedAndLaterRetired()
+    {
+        var loggerProvider = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(loggerProvider));
+        var pool = new OutOfProcessSubprocessPool(
+            "pwsh", "x.ps1",
+            new OutOfProcessSubprocessPoolOptions
+            {
+                PoolSize = 1,
+                MaxTrackedCleanupOperations = 2,
+            },
+            loggerFactory);
+        var sources = new List<TaskCompletionSource>();
+        var cleanups = new List<Task>();
+
+        for (var index = 0; index < 5; index++)
+        {
+            var source = new TaskCompletionSource();
+            sources.Add(source);
+            cleanups.Add(pool.TrackCleanupTask(source.Task, index));
+        }
+
+        Assert.Equal(2, pool.PendingCleanupTaskCount);
+        Assert.Equal(
+            3,
+            loggerProvider.Messages.Count(message =>
+                message.Level == LogLevel.Warning
+                && message.Message.Contains("tracking capacity", StringComparison.Ordinal)));
+
+        foreach (var source in sources)
+            source.SetResult();
+
+        await Task.WhenAll(cleanups);
+
+        Assert.Equal(0, pool.PendingCleanupTaskCount);
         await pool.DisposeAsync();
     }
 
