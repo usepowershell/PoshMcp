@@ -5,7 +5,7 @@ title: Session Management
 
 # Session Management
 
-PoshMcp manages PowerShell runspaces and session state for each connection.
+PoshMcp manages PowerShell runspaces and session state for each MCP session.
 
 ## Persistent State
 
@@ -25,7 +25,7 @@ $MyData.Timestamp
 
 ## Per-User Isolation (HTTP Mode)
 
-Each user maintains independent state:
+Each HTTP MCP session maintains independent state:
 
 ```powershell
 # User A's session
@@ -38,19 +38,44 @@ $Global:Data = @{ ... }
 # User B never sees User A's data
 ```
 
-## Session Timeouts
+## HTTP Session Lifecycle
 
-Runspaces are cleaned up after inactivity (default: 30-60 minutes).
+In HTTP mode, a request with `Mcp-Session-Id` receives one clean initialized
+runspace that is never shared with another session. Requests without that
+header use a one-shot runspace and do not preserve state. Session runspaces
+are released when the SDK session completes, the client sends `DELETE`, or the
+runspace remains idle for its configured TTL. A release requested while a tool
+is running waits for that invocation to finish.
 
-Configure timeout:
+The defaults are a 60-second MCP session idle timeout, 16 total owned
+runspaces, a 300-second runspace idle TTL, a 30-second sweep interval, two
+warm standbys, and a 15-second acquisition timeout. Capacity includes warm
+standbys and one-shot requests. When capacity is full, a request waits up to
+the acquisition timeout and then fails rather than receiving another
+session's runspace.
 
-```bash
-export POSHMCP_SESSION_TIMEOUT_MINUTES=120
+Configure session behavior under `McpServer`:
+
+```json
+{
+  "McpServer": {
+    "IdleSessionTimeoutSeconds": 120,
+    "SessionRunspaceCapacity": 24,
+    "SessionRunspaceWarmStandbyCount": 2,
+    "SessionRunspaceAcquisitionTimeoutSeconds": 15
+  }
+}
 ```
+
+For the complete setting reference and operational sizing guidance, see
+[Configuration](configuration.md#mcp-server-http-sessions). Dynamic tool
+reload releases managed HTTP session runspaces, so clients must create a new
+session and should not expect in-session PowerShell state to survive a reload.
 
 ## Startup Scripts
 
-Run PowerShell code when a new session starts.
+Run PowerShell code when PoshMcp creates a clean runspace. This includes warm
+standbys before they are assigned to a session.
 
 Edit `appsettings.json`:
 

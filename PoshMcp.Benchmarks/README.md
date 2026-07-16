@@ -129,3 +129,13 @@ the same command and compare like-for-like runs (same hardware, SDK, config,
 and benchmark filter). Commit or attach the resulting
 `*-report-github.md`/CSV when a performance decision needs review; treat large
 same-machine regressions as investigation signals, not normal test assertions.
+
+## Interpreting historical OOP results
+
+The controlled-machine OOP comparison and the rationale for the `Pool` default
+are recorded in
+[`specs/004-out-of-process-execution/benchmark-findings.md`](../specs/004-out-of-process-execution/benchmark-findings.md).
+Those measurements are historical single-machine findings, not production
+capacity or SLO guarantees. Use the commands above and compare identical
+hardware, SDK, configuration, and benchmark filters before making an
+operational decision.

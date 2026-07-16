@@ -149,11 +149,14 @@ ProcessPool example for tenant isolation:
 
 ### Cancellation
 
-The MCP request `CancellationToken` propagates into the subprocess channel for all three host modes via a `cancel` control frame sent by `OutOfProcessHost.SendRequestAsync`. The host attempts a cooperative `BeginStop` on the in-flight pipeline; the .NET awaiter completes with `OperationCanceledException` immediately without waiting for the host to acknowledge. Per-mode behavior:
+The MCP request `CancellationToken` sends a best-effort `cancel` control frame
+through `OutOfProcessHost.SendRequestAsync`. The host dispatcher attempts a
+cooperative `BeginStop` on the in-flight pipeline; cancellation is not a
+guarantee that a blocked cmdlet has already stopped. Per-mode behavior:
 
-- `Pool`: `PoolDispatcher` looks up the active `[powershell]` instance by request id and calls `BeginStop` on it. The runspace is returned to the pool when the pipeline unwinds, so pool capacity recovers without restart. Pool capacity under stuck-but-cancelled invokes is `N - in_flight_uncancelled`.
-- `ProcessPool`: each leased host runs the Single-mode script and inherits the same soft-cancel via the inherited `OutOfProcessHost` cancel frame. If the host honors `BeginStop`, the slot stays healthy and is returned to the pool; other hosts are unaffected. The existing per-request kill-on-timeout path in `OutOfProcessSubprocessPool` remains as a backstop for wedged hosts (e.g., a cmdlet stuck in unmanaged code) that do not honor `BeginStop` within the per-request timeout.
-- `Single`: `SingleDispatcher` runs the invoke on a background dispatcher thread and calls `BeginStop` on the matching `[powershell]` instance when the cancel frame arrives. The host stays healthy for follow-up requests; the per-request timeout serves as the backstop and recycles the host only if `BeginStop` does not unwind the pipeline in time.
+- `Pool`: `PoolDispatcher` looks up the active `[powershell]` instance by request id and calls `BeginStop`. When the pipeline unwinds, its runspace returns to the pool; a wedged invocation continues to consume capacity until the timeout backstop intervenes.
+- `ProcessPool`: each leased host inherits the same cooperative cancellation. If `BeginStop` unwinds the pipeline, the slot returns to the pool and other hosts remain unaffected. The per-request timeout can restart a wedged host, such as one blocked in unmanaged code.
+- `Single`: `SingleDispatcher` calls `BeginStop` on the matching `[powershell]` instance. The host remains usable after a successful unwind; the per-request timeout recycles it only as a backstop.
 
 ### Diagnostics
 
@@ -172,7 +175,9 @@ Automatically reload tool definitions when configuration changes (experimental):
 }
 ```
 
-**Note:** This can be slow; use sparingly.
+**Note:** This can be slow; use sparingly. In HTTP mode, reload releases all
+managed session runspaces. Established clients must initialize a new MCP
+session afterwards and should treat session-scoped PowerShell state as lost.
 
 ---
 

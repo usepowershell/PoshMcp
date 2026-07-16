@@ -168,6 +168,19 @@ Configure which PowerShell commands to expose in `appsettings.json`:
 }
 ```
 
+#### Production MCP compatibility
+
+The production server uses `ModelContextProtocol` and
+`ModelContextProtocol.AspNetCore` **1.4.1** and targets MCP
+**2025-11-25** Streamable HTTP. HTTP clients should use the negotiated
+session and protocol headers after `initialize`. PoshMcp also retains
+compatibility for 2024-11-05 Streamable HTTP clients and can opt into the
+deprecated HTTP-with-SSE endpoints for a transition period. See
+[Transport Modes](docs/articles/transport-modes.md#http-mode) for the
+endpoint, negotiation, origin-validation, and legacy-compatibility details,
+and [Configuration](docs/articles/configuration.md#mcp-server-http-sessions)
+for the bounded session-runspace settings.
+
 ### Configuration source diagnostics
 
 Use doctor to verify whether the server is running from a file-backed config or environment-only appsettings-style variables:
@@ -445,6 +458,7 @@ For architectural details, see [DESIGN.md](DESIGN.md).
   - Configuration via CLI, environment variables, or appsettings.json
   - Performance characteristics and trade-offs
   - Troubleshooting and best practices
+- **[PoshMcp.Benchmarks/README.md](PoshMcp.Benchmarks/README.md)** — Benchmark commands, artifact interpretation, and CI contract coverage
 
 ### Advanced Topics
 - **[docs/articles/azure-integration.md](docs/articles/azure-integration.md)** — Azure deployment and integration guidance

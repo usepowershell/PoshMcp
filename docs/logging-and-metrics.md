@@ -155,6 +155,22 @@ The `errorType` field on error/warning log events can be one of:
 | `PowerShell runspace disposed successfully` | Information | `PowerShellCleanupService` |
 | `Error disposing PowerShell runspace` | Warning | `PowerShellCleanupService` |
 
+#### HTTP Session Runspaces
+
+HTTP transport also logs the session-runspace manager lifecycle:
+
+| Event | Level | Source |
+|-------|-------|--------|
+| `Session runspace manager started with capacity {Capacity}, idle TTL {IdleTtl}, and {WarmStandbyCount} warm standbys` | Information | `SessionAwarePowerShellRunspace` |
+| `Assigned clean PowerShell runspace to session {SessionId}` | Information | `SessionAwarePowerShellRunspace` |
+| `Releasing PowerShell runspace for session {SessionId}: {Reason}` | Information | `SessionAwarePowerShellRunspace` |
+
+Use these events to correlate capacity configuration with session assignment and
+release. Session IDs are identifiers; protect HTTP logs according to
+your organization's telemetry-retention policy. For lifecycle semantics and
+configuration defaults, see [Session Management](articles/session-management.md)
+and [Configuration](articles/configuration.md#mcp-server-http-sessions).
+
 ### Authentication and Authorization
 
 These events are only emitted when authentication is enabled (`Authentication.Enabled: true`):
