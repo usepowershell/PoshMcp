@@ -21,7 +21,9 @@ internal sealed class McpOriginValidationMiddleware
         IEnumerable<string> allowedOrigins)
     {
         _next = next;
-        _mcpPaths = new HashSet<string>(mcpPaths, StringComparer.OrdinalIgnoreCase);
+        _mcpPaths = new HashSet<string>(
+            mcpPaths.Select(NormalizeMcpPath),
+            StringComparer.OrdinalIgnoreCase);
         _allowedOrigins = new HashSet<string>(
             allowedOrigins
                 .Select(NormalizeOrigin)
@@ -32,7 +34,7 @@ internal sealed class McpOriginValidationMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        if (!_mcpPaths.Contains(context.Request.Path.Value ?? string.Empty) ||
+        if (!_mcpPaths.Contains(NormalizeMcpPath(context.Request.Path.Value)) ||
             !context.Request.Headers.TryGetValue("Origin", out var origin))
         {
             await _next(context);
@@ -85,5 +87,15 @@ internal sealed class McpOriginValidationMiddleware
         }
 
         return uri.GetLeftPart(UriPartial.Authority);
+    }
+
+    private static string NormalizeMcpPath(string? path)
+    {
+        if (string.IsNullOrEmpty(path) || path == "/")
+        {
+            return path ?? string.Empty;
+        }
+
+        return path.TrimEnd('/');
     }
 }
