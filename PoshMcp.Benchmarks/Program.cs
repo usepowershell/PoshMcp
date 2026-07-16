@@ -15,6 +15,14 @@ using PoshMcp.Benchmarks;
 Environment.SetEnvironmentVariable("ApplicationInsights__Enabled", "false");
 Environment.SetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING", string.Empty);
 
+if (args.SequenceEqual(["--verify-http-session-contract"], StringComparer.Ordinal))
+{
+    BenchmarkContract.VerifyHttpSessionContract();
+    return 0;
+}
+
 BenchmarkSwitcher
     .FromAssembly(typeof(BenchmarkConfig).Assembly)
     .Run(args, new BenchmarkConfig());
+
+return 0;

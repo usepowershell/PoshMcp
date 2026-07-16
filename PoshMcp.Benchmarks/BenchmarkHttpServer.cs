@@ -22,7 +22,7 @@ internal sealed class BenchmarkHttpServer : IAsyncDisposable
 
     public Uri BaseUri { get; }
 
-    public static async Task<BenchmarkHttpServer> StartAsync()
+    public static async Task<BenchmarkHttpServer> StartAsync(int sessionRunspaceCapacity = 4)
     {
         var serverAssembly = typeof(PowerShellConfiguration).Assembly.Location;
         var configPath = Path.Combine(
@@ -48,6 +48,7 @@ internal sealed class BenchmarkHttpServer : IAsyncDisposable
         startInfo.ArgumentList.Add(configPath);
         startInfo.Environment["ApplicationInsights__Enabled"] = "false";
         startInfo.Environment["APPLICATIONINSIGHTS_CONNECTION_STRING"] = string.Empty;
+        startInfo.Environment["McpServer__SessionRunspaceCapacity"] = sessionRunspaceCapacity.ToString();
 
         var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Unable to start the benchmark HTTP server.");
@@ -162,6 +163,28 @@ internal sealed class BenchmarkMcpClient : IAsyncDisposable
         method = "tools/call",
         @params = new { name = "get_date", arguments = new { } }
     });
+
+    public static async Task<bool> IsMcpErrorAsync(HttpResponseMessage response)
+    {
+        var payload = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+        if (payload.StartsWith("event:", StringComparison.Ordinal))
+        {
+            payload = payload.Split('\n')
+                .FirstOrDefault(line => line.StartsWith("data:", StringComparison.Ordinal))?[5..].TrimStart()
+                ?? throw new InvalidOperationException("The benchmark MCP server returned an SSE response without JSON data.");
+        }
+
+        using var document = JsonDocument.Parse(payload);
+        return IsMcpError(document.RootElement);
+    }
+
+    internal static bool IsMcpError(JsonElement response)
+    {
+        return response.TryGetProperty("error", out _)
+            || (response.TryGetProperty("result", out var result)
+                && result.TryGetProperty("isError", out var isError)
+                && isError.ValueKind is JsonValueKind.True);
+    }
 
     private Task<HttpResponseMessage> SendAsync(object payload)
     {

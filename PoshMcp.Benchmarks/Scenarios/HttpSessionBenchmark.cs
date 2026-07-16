@@ -10,16 +10,21 @@ namespace PoshMcp.Benchmarks.Scenarios;
 [MaxIterationCount(10)]
 public class HttpSessionBenchmark
 {
+    public const int DefaultSessionRunspaceCapacity = 4;
+
     private BenchmarkHttpServer? _server;
     private BenchmarkMcpClient? _warmClient;
     private List<BenchmarkMcpClient>? _throughputClients;
     private List<BenchmarkMcpClient>? _capacityClients;
     private BenchmarkMcpClient? _overflowClient;
 
+    [Params(DefaultSessionRunspaceCapacity)]
+    public int SessionRunspaceCapacity { get; set; }
+
     [GlobalSetup(Target = nameof(WarmSessionToolLatency))]
     public async Task StartWarmSessionAsync()
     {
-        _server = await BenchmarkHttpServer.StartAsync().ConfigureAwait(false);
+        _server = await BenchmarkHttpServer.StartAsync(SessionRunspaceCapacity).ConfigureAwait(false);
         _warmClient = _server!.CreateClient();
         await _warmClient.InitializeAsync().ConfigureAwait(false);
         using var response = await _warmClient.CallGetDateAsync().ConfigureAwait(false);
@@ -29,9 +34,9 @@ public class HttpSessionBenchmark
     [GlobalSetup(Target = nameof(ConcurrentWarmSessionThroughput))]
     public async Task StartConcurrentWarmSessionsAsync()
     {
-        _server = await BenchmarkHttpServer.StartAsync().ConfigureAwait(false);
+        _server = await BenchmarkHttpServer.StartAsync(SessionRunspaceCapacity).ConfigureAwait(false);
         _throughputClients = new List<BenchmarkMcpClient>();
-        for (var index = 0; index < 4; index++)
+        for (var index = 0; index < SessionRunspaceCapacity; index++)
         {
             var client = _server.CreateClient();
             await client.InitializeAsync().ConfigureAwait(false);
@@ -44,9 +49,9 @@ public class HttpSessionBenchmark
     [GlobalSetup(Target = nameof(BoundedCapacityRejection))]
     public async Task FillCapacityAsync()
     {
-        _server = await BenchmarkHttpServer.StartAsync().ConfigureAwait(false);
+        _server = await BenchmarkHttpServer.StartAsync(SessionRunspaceCapacity).ConfigureAwait(false);
         _capacityClients = new List<BenchmarkMcpClient>();
-        for (var index = 0; index < 4; index++)
+        for (var index = 0; index < SessionRunspaceCapacity; index++)
         {
             var client = _server!.CreateClient();
             await client.InitializeAsync().ConfigureAwait(false);
@@ -107,7 +112,7 @@ public class HttpSessionBenchmark
     [InvocationCount(1)]
     public async Task FirstHttpSessionLatency()
     {
-        await using var server = await BenchmarkHttpServer.StartAsync().ConfigureAwait(false);
+        await using var server = await BenchmarkHttpServer.StartAsync(SessionRunspaceCapacity).ConfigureAwait(false);
         await using var client = server.CreateClient();
         await client.InitializeAsync().ConfigureAwait(false);
         using var response = await client.CallGetDateAsync().ConfigureAwait(false);
@@ -144,11 +149,16 @@ public class HttpSessionBenchmark
         }
     }
 
-    [Benchmark(Description = "Over-capacity session tool call returns without unbounded allocation")]
+    [Benchmark(Description = "Over-capacity session call validates an MCP error response")]
     [InvocationCount(1)]
-    public async Task<int> BoundedCapacityRejection()
+    public async Task BoundedCapacityRejection()
     {
         using var response = await _overflowClient!.CallGetDateAsync().ConfigureAwait(false);
-        return (int)response.StatusCode;
+        response.EnsureSuccessStatusCode();
+        if (!await BenchmarkMcpClient.IsMcpErrorAsync(response).ConfigureAwait(false))
+        {
+            throw new InvalidOperationException(
+                $"Expected an MCP tool error after exhausting {SessionRunspaceCapacity} session runspaces.");
+        }
     }
 }
