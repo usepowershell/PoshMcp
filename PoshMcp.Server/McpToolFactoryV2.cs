@@ -996,7 +996,10 @@ public class McpToolFactoryV2
 
         try
         {
-            return McpServerTool.Create(methodDelegate, options);
+            var tool = McpServerTool.Create(methodDelegate, options);
+            return McpToolSchema.HasOnlyInfrastructureParameters(method)
+                ? McpToolSchema.ApplyStrictEmptyObjectSchema(tool)
+                : tool;
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("pointer type") || ex.Message.Contains("ref struct"))
         {

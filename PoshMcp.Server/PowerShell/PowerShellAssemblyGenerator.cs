@@ -1015,7 +1015,9 @@ public class PowerShellAssemblyGenerator
                                 safeInvocationId,
                                 stopwatch.ElapsedMilliseconds);
                             ps.Commands.Clear();
-                            return Task.FromResult($"{{\"error\": \"The term '{commandName}' is not recognized as a name of a cmdlet, function, script file, or executable program.\"}}");
+                            return Task.FromException<string>(new InvalidOperationException(
+                                $"The term '{commandName}' is not recognized as a name of a cmdlet, function, script file, or executable program.",
+                                cmdEx));
                         }
                         catch (Exception ex)
                         {
@@ -1028,7 +1030,9 @@ public class PowerShellAssemblyGenerator
                                 safeInvocationId,
                                 stopwatch.ElapsedMilliseconds);
                             ps.Commands.Clear();
-                            return Task.FromResult($"{{\"error\": \"Command execution failed: {ex.Message}\"}}");
+                            return Task.FromException<string>(new InvalidOperationException(
+                                $"Command execution failed: {ex.Message}",
+                                ex));
                         }
 
                         // Handle errors
@@ -1046,7 +1050,8 @@ public class PowerShellAssemblyGenerator
                                 LogSanitizer.Scrub(errorMessage),
                                 stopwatch.ElapsedMilliseconds);
                             ps.Commands.Clear();
-                            return Task.FromResult($"{{\"error\": \"Command completed with errors: {errorMessage}\"}}");
+                            return Task.FromException<string>(new InvalidOperationException(
+                                $"Command completed with errors: {errorMessage}"));
                         }
 
                         // Convert results to JSON using System.Text.Json (much faster than PowerShell's ConvertTo-Json)
@@ -1098,7 +1103,9 @@ public class PowerShellAssemblyGenerator
                                 safeInvocationId,
                                 stopwatch.ElapsedMilliseconds);
                             ps.Commands.Clear();
-                            return Task.FromResult($"{{\"error\": \"Failed to serialize results to JSON: {ex.Message}\"}}");
+                            return Task.FromException<string>(new InvalidOperationException(
+                                $"Failed to serialize results to JSON: {ex.Message}",
+                                ex));
                         }
                     }
                     catch (OperationCanceledException ex)
@@ -1140,7 +1147,9 @@ public class PowerShellAssemblyGenerator
                             safeInvocationId,
                             stopwatch.ElapsedMilliseconds);
                         ps.Commands.Clear();
-                        return Task.FromResult($"{{\"error\": \"Unexpected error: {ex.Message}\"}}");
+                        return Task.FromException<string>(new InvalidOperationException(
+                            $"Unexpected error: {ex.Message}",
+                            ex));
                     }
                 });
             }

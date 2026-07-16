@@ -216,6 +216,36 @@ public class ServerWithExternalClient : PowerShellTestBase, IAsyncLifetime
         Logger.LogInformation($"Error handled correctly via external client: {errorMessage}");
     }
 
+    [Fact]
+    public async Task ToolCallsWithInvalidArguments_ReturnToolErrorResult()
+    {
+        var client = _sharedClient ?? throw new InvalidOperationException("Shared client not initialized");
+
+        var response = await client.SendToolCallAsync("get_process_id", new JObject
+        {
+            ["Id"] = new JArray("not-a-process-id")
+        });
+
+        Assert.Null(response["error"]);
+        Assert.True(response["result"]?["isError"]?.Value<bool>() == true,
+            $"Invalid tool arguments must be represented by result.isError=true. Response: {response}");
+    }
+
+    [Fact]
+    public async Task PowerShellExecutionFailures_ReturnToolErrorResult()
+    {
+        var client = _sharedClient ?? throw new InvalidOperationException("Shared client not initialized");
+
+        var response = await client.SendToolCallAsync("get_process_id", new JObject
+        {
+            ["Id"] = new JArray(-1)
+        });
+
+        Assert.Null(response["error"]);
+        Assert.True(response["result"]?["isError"]?.Value<bool>() == true,
+            $"PowerShell execution failures must be represented by result.isError=true. Response: {response}");
+    }
+
 
     #region Helper Methods (No longer needed - using shared instances)
 
