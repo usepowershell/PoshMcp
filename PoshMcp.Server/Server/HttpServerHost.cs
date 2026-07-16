@@ -141,6 +141,9 @@ internal static class HttpServerHost
             .WithHttpTransport(opts =>
             {
                 opts.IdleTimeout = TimeSpan.FromSeconds(mcpServerConfig.IdleSessionTimeoutSeconds);
+#pragma warning disable MCP9004 // Legacy SSE is opt-in, disabled by default, and documented for isolated trusted clients only.
+                opts.EnableLegacySse = mcpServerConfig.EnableLegacySse;
+#pragma warning restore MCP9004
             })
             .WithTools(tools)
             .WithListPromptsHandler(httpPromptHandler.HandleListPromptsAsync)
@@ -267,6 +270,7 @@ internal static class HttpServerHost
         app.UseMiddleware<McpOriginValidationMiddleware>(
             mcpEndpointPaths,
             authConfigValue.Cors?.AllowedOrigins ?? []);
+        app.UseMiddleware<McpProtocolVersionMiddleware>((object)mcpEndpointPaths);
 
         IEndpointConventionBuilder mcpEndpoint;
         if (string.IsNullOrWhiteSpace(normalizedMcpPath))
@@ -329,7 +333,8 @@ internal static class HttpServerHost
                     // Auth disabled — keep wide-open for dev/stdio use
                     policy.AllowAnyOrigin();
                 }
-                policy.AllowAnyMethod().AllowAnyHeader().WithExposedHeaders("Mcp-Session-Id");
+                policy.AllowAnyMethod().AllowAnyHeader()
+                    .WithExposedHeaders("Mcp-Session-Id", "MCP-Protocol-Version");
             });
         });
     }

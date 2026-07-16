@@ -48,7 +48,7 @@ public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
     }
 
     [Fact]
-    public async Task ServeHttpTransport_ShouldInitializeAndListToolsOverMcp()
+    public async Task ServeHttpTransport_ShouldRetain2024_11_05Compatibility()
     {
         using var server = new InProcessUnifiedHttpServer();
 
@@ -110,6 +110,71 @@ public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
         {
             Output.WriteLine(server.GetCapturedOutput());
             throw new Xunit.Sdk.XunitException($"Unified HTTP MCP request flow failed: {ex.Message}");
+        }
+    }
+
+    [Fact]
+    public async Task ServeHttpTransport_ShouldEnforceNegotiatedProtocolAndDeleteSessions()
+    {
+        using var server = new InProcessUnifiedHttpServer();
+
+        try
+        {
+            await server.StartAsync();
+
+            using var httpClient = CreateMcpHttpClient(server.ServerUrl);
+            var (initializeResponse, sessionId) = await SendMcpRequestAsync(httpClient, CreateInitializeRequest("2025-11-25"));
+
+            Assert.Equal("2025-11-25", initializeResponse["result"]?["protocolVersion"]?.ToString());
+            Assert.False(string.IsNullOrWhiteSpace(sessionId));
+
+            using var missingVersionGetRequest = new HttpRequestMessage(HttpMethod.Get, "/");
+            missingVersionGetRequest.Headers.Add("Mcp-Session-Id", sessionId);
+            missingVersionGetRequest.Headers.Accept.ParseAdd("text/event-stream");
+            using var missingVersionGetResponse = await httpClient.SendAsync(missingVersionGetRequest);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, missingVersionGetResponse.StatusCode);
+
+            using var missingVersionResponse = await SendRawMcpRequestAsync(
+                httpClient,
+                HttpMethod.Post,
+                new { jsonrpc = "2.0", id = 2, method = "tools/list" },
+                sessionId);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, missingVersionResponse.StatusCode);
+
+            using var invalidVersionResponse = await SendRawMcpRequestAsync(
+                httpClient,
+                HttpMethod.Post,
+                new { jsonrpc = "2.0", id = 3, method = "tools/list" },
+                sessionId,
+                "unsupported-version");
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, invalidVersionResponse.StatusCode);
+
+            using var negotiatedVersionResponse = await SendRawMcpRequestAsync(
+                httpClient,
+                HttpMethod.Post,
+                new { jsonrpc = "2.0", id = 4, method = "tools/list" },
+                sessionId,
+                "2025-11-25");
+            Assert.True(negotiatedVersionResponse.IsSuccessStatusCode);
+
+            using var deleteRequest = new HttpRequestMessage(HttpMethod.Delete, "/");
+            deleteRequest.Headers.Add("Mcp-Session-Id", sessionId);
+            deleteRequest.Headers.Add("MCP-Protocol-Version", "2025-11-25");
+            using var deleteResponse = await httpClient.SendAsync(deleteRequest);
+            Assert.Equal(System.Net.HttpStatusCode.OK, deleteResponse.StatusCode);
+
+            using var expiredSessionResponse = await SendRawMcpRequestAsync(
+                httpClient,
+                HttpMethod.Post,
+                new { jsonrpc = "2.0", id = 5, method = "tools/list" },
+                sessionId,
+                "2025-11-25");
+            Assert.Equal(System.Net.HttpStatusCode.NotFound, expiredSessionResponse.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            Output.WriteLine(server.GetCapturedOutput());
+            throw new Xunit.Sdk.XunitException($"Streamable HTTP protocol/session conformance failed: {ex.Message}");
         }
     }
 
@@ -257,6 +322,65 @@ public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
             Output.WriteLine(server.GetCapturedOutput());
             throw new Xunit.Sdk.XunitException($"Unified HTTP MCP error-path flow failed: {ex.Message}");
         }
+    }
+
+    private static HttpClient CreateMcpHttpClient(string serverUrl)
+    {
+        var httpClient = new HttpClient
+        {
+            BaseAddress = new Uri(serverUrl),
+            Timeout = TimeSpan.FromSeconds(10)
+        };
+        httpClient.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+        httpClient.DefaultRequestHeaders.Accept.ParseAdd("text/event-stream");
+        return httpClient;
+    }
+
+    private static object CreateInitializeRequest(string protocolVersion)
+    {
+        return new
+        {
+            jsonrpc = "2.0",
+            id = 1,
+            method = "initialize",
+            @params = new
+            {
+                protocolVersion,
+                capabilities = new { tools = new { } },
+                clientInfo = new
+                {
+                    name = "unified-http-streamable-conformance-test",
+                    version = "1.0.0"
+                }
+            }
+        };
+    }
+
+    private static async Task<HttpResponseMessage> SendRawMcpRequestAsync(
+        HttpClient httpClient,
+        HttpMethod method,
+        object request,
+        string? sessionId,
+        string? protocolVersion = null)
+    {
+        var requestJson = JsonConvert.SerializeObject(request);
+        using var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
+        using var requestMessage = new HttpRequestMessage(method, "/")
+        {
+            Content = content
+        };
+
+        if (!string.IsNullOrWhiteSpace(sessionId))
+        {
+            requestMessage.Headers.Add("Mcp-Session-Id", sessionId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(protocolVersion))
+        {
+            requestMessage.Headers.Add("MCP-Protocol-Version", protocolVersion);
+        }
+
+        return await httpClient.SendAsync(requestMessage);
     }
 
     private static async Task<(JObject Response, string? SessionId)> SendMcpRequestAsync(HttpClient httpClient, object request, string? sessionId = null)

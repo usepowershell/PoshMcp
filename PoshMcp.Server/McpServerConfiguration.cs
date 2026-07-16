@@ -11,4 +11,10 @@ public class McpServerConfiguration
     /// Default: 60 seconds.
     /// </summary>
     public int IdleSessionTimeoutSeconds { get; set; } = 60;
+
+    /// <summary>
+    /// Enables the deprecated HTTP-with-SSE endpoints for clients that cannot use
+    /// the Streamable HTTP transport. Disabled by default.
+    /// </summary>
+    public bool EnableLegacySse { get; set; }
 }
