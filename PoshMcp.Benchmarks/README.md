@@ -21,6 +21,7 @@ one row per (mode × scenario × payload-size) combination in one results table.
 | `PayloadSizeSerializationBenchmark`          | Round-trip a string of size `PayloadBytes` (1 KB / 16 KB / 256 KB / 1 MB). |
 | `ProcessCrashRecoveryBenchmark`              | Kill one underlying `pwsh` host, then time the next successful invoke. |
 | `RunspaceCorruptionRecoveryBenchmark`        | Slow invoke in flight → time a fast probe (head-of-line-blocking gate). |
+| `HttpSessionBenchmark`                       | HTTP startup + first session call, warm-session latency, concurrent session throughput, and capacity rejection. |
 
 ## Running
 
@@ -40,6 +41,7 @@ dotnet run --project PoshMcp.Benchmarks --configuration Release -- --filter '*Co
 dotnet run --project PoshMcp.Benchmarks --configuration Release -- --filter '*PayloadSize*'
 dotnet run --project PoshMcp.Benchmarks --configuration Release -- --filter '*ProcessCrash*'
 dotnet run --project PoshMcp.Benchmarks --configuration Release -- --filter '*RunspaceCorruption*'
+dotnet run --project PoshMcp.Benchmarks --configuration Release -- --filter '*HttpSession*'
 ```
 
 ### Filter by mode (BDN matches `[Params]` values in the case ID)
@@ -103,3 +105,23 @@ against an inherited connection string in the host shell.
   `Get-Date`, `Get-Random`, `Write-Output`, `Invoke-WebRequest`, and
   `Start-Sleep` are callable directly. The harness measures executor cost,
   not module install / import.
+- `HttpSessionBenchmark` is intentionally different: it launches the actual
+  HTTP server with `BenchmarkAssets/http-session-benchmark.appsettings.json`.
+  Its first-session row includes server tool discovery, the configured
+  `Microsoft.PowerShell.Utility` import, inline startup-script setup, and the
+  first `initialize` + `tools/call` exchange. Its warm row excludes that
+  startup work. The bounded-capacity row fills the configured four session
+  runspaces, then reports the response status for one more session's tool call;
+  it demonstrates bounded rejection rather than asserting a machine-specific
+  duration.
+
+## Quality gates
+
+CI does not run timing benchmarks: shared runners are not stable enough for
+time-based pass/fail thresholds. Instead, the `Benchmark contract` CI step
+builds the benchmark executable and verifies that the reproducible HTTP/session
+scenarios are discoverable. Capture timing reports on a controlled machine with
+the same command and compare like-for-like runs (same hardware, SDK, config,
+and benchmark filter). Commit or attach the resulting
+`*-report-github.md`/CSV when a performance decision needs review; treat large
+same-machine regressions as investigation signals, not normal test assertions.
