@@ -385,7 +385,7 @@ internal static class McpToolSetupService
     private static McpServerTool CreateReloadFromFileToolInstance(ConfigurationReloadTools reloadTools)
     {
         var reloadConfigFromFileDelegate = new Func<CancellationToken, Task<string>>(reloadTools.ReloadConfigurationFromFile);
-        return McpServerTool.Create(reloadConfigFromFileDelegate, new McpServerToolCreateOptions
+        return McpToolSchema.ApplyStrictEmptyObjectSchema(McpServerTool.Create(reloadConfigFromFileDelegate, new McpServerToolCreateOptions
         {
             Name = "reload-configuration-from-file",
             Description = "Reloads PowerShell configuration from the configuration file and regenerates available tools",
@@ -395,7 +395,7 @@ internal static class McpToolSetupService
             Idempotent = true,
             OpenWorld = false,
             UseStructuredContent = true
-        });
+        }));
     }
 
     /// <summary>
@@ -423,7 +423,7 @@ internal static class McpToolSetupService
     private static McpServerTool CreateGetConfigurationStatusToolInstance(ConfigurationReloadTools reloadTools)
     {
         var getConfigStatusDelegate = new Func<CancellationToken, Task<string>>(reloadTools.GetConfigurationStatus);
-        return McpServerTool.Create(getConfigStatusDelegate, new McpServerToolCreateOptions
+        return McpToolSchema.ApplyStrictEmptyObjectSchema(McpServerTool.Create(getConfigStatusDelegate, new McpServerToolCreateOptions
         {
             Name = "get-configuration-status",
             Description = "Gets current PowerShell configuration status and tool information",
@@ -433,7 +433,7 @@ internal static class McpToolSetupService
             Idempotent = true,
             OpenWorld = false,
             UseStructuredContent = true
-        });
+        }));
     }
 
     /// <summary>
@@ -557,7 +557,7 @@ internal static class McpToolSetupService
                 importSourceTracker,
                 nounRegistryProvider));
 
-        return McpServerTool.Create(troubleshootingDelegate, new McpServerToolCreateOptions
+        return McpToolSchema.ApplyStrictEmptyObjectSchema(McpServerTool.Create(troubleshootingDelegate, new McpServerToolCreateOptions
         {
             Name = "get-configuration-troubleshooting",
             Description = "Returns doctor-style configuration diagnostics for the running server. Output includes runtime settings, environment variables, PowerShell info, configured functions, MCP definitions, authentication configuration, and caller identity (when available).",
@@ -567,7 +567,7 @@ internal static class McpToolSetupService
             Idempotent = true,
             OpenWorld = false,
             UseStructuredContent = true
-        });
+        }));
     }
 
     /// <summary>
@@ -627,7 +627,7 @@ internal static class McpToolSetupService
             effectiveMcpPath,
             guidanceLogger);
 
-        return McpServerTool.Create(guidanceTools.GetConfigurationGuidance, new McpServerToolCreateOptions
+        return McpToolSchema.ApplyStrictEmptyObjectSchema(McpServerTool.Create(guidanceTools.GetConfigurationGuidance, new McpServerToolCreateOptions
         {
             Name = "get-configuration-guidance",
             Description = "Returns configuration guidance for creating and updating appsettings.json, including environment customization and authentication recommendations based on the current runtime transport.",
@@ -637,7 +637,7 @@ internal static class McpToolSetupService
             Idempotent = true,
             OpenWorld = false,
             UseStructuredContent = true
-        });
+        }));
     }
 
     /// <summary>

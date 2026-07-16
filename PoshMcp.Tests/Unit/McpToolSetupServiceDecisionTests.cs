@@ -95,6 +95,9 @@ public sealed class McpToolSetupServiceDecisionTests
         Assert.Contains("set-result-caching", toolNames);
         Assert.DoesNotContain("get-configuration-guidance", toolNames);
         Assert.DoesNotContain("get-configuration-troubleshooting", toolNames);
+
+        AssertStrictEmptyInputSchema(toolSetupResult.Tools, "reload-configuration-from-file");
+        AssertStrictEmptyInputSchema(toolSetupResult.Tools, "get-configuration-status");
     }
 
     [PwshAvailableFact]
@@ -119,6 +122,9 @@ public sealed class McpToolSetupServiceDecisionTests
         Assert.DoesNotContain("reload-configuration-from-file", toolNames);
         Assert.DoesNotContain("update-configuration", toolNames);
         Assert.DoesNotContain("get-configuration-status", toolNames);
+
+        AssertStrictEmptyInputSchema(toolSetupResult.Tools, "get-configuration-guidance");
+        AssertStrictEmptyInputSchema(toolSetupResult.Tools, "get-configuration-troubleshooting");
     }
 
     [PwshAvailableFact]
@@ -194,6 +200,18 @@ public sealed class McpToolSetupServiceDecisionTests
         return tools.Select(tool => tool.ProtocolTool.Name)
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static void AssertStrictEmptyInputSchema(IEnumerable<McpServerTool> tools, string toolName)
+    {
+        var tool = Assert.Single(tools, tool =>
+            string.Equals(tool.ProtocolTool.Name, toolName, StringComparison.OrdinalIgnoreCase));
+        var schema = JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText())?.AsObject();
+
+        Assert.NotNull(schema);
+        Assert.Equal("object", schema!["type"]?.GetValue<string>());
+        Assert.Empty(schema["properties"]?.AsObject() ?? []);
+        Assert.False(schema["additionalProperties"]?.GetValue<bool>() ?? true);
     }
 
     private sealed class TemporaryConfigFile : IDisposable
