@@ -261,6 +261,13 @@ internal static class HttpServerHost
         }).AllowAnonymous();
 
         var normalizedMcpPath = SettingsResolver.NormalizeMcpPath(mcpPath);
+        var mcpEndpointPaths = string.IsNullOrWhiteSpace(normalizedMcpPath)
+            ? new[] { "/", "/mcp" }
+            : new[] { normalizedMcpPath };
+        app.UseMiddleware<McpOriginValidationMiddleware>(
+            mcpEndpointPaths,
+            authConfigValue.Cors?.AllowedOrigins ?? []);
+
         IEndpointConventionBuilder mcpEndpoint;
         if (string.IsNullOrWhiteSpace(normalizedMcpPath))
         {
