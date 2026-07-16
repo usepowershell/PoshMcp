@@ -68,6 +68,8 @@ public class MultiUserIsolationTests : PowerShellTestBase, IAsyncLifetime
             Assert.NotNull(client1.SessionId);
             Assert.NotNull(client2.SessionId);
             Assert.NotEqual(client1.SessionId, client2.SessionId);
+            Assert.Equal(HttpMcpClient.CurrentProtocolVersion, client1.ProtocolVersion);
+            Assert.Equal(HttpMcpClient.CurrentProtocolVersion, client2.ProtocolVersion);
 
             Logger.LogInformation($"Client 1 session: {client1.SessionId}");
             Logger.LogInformation($"Client 2 session: {client2.SessionId}");
