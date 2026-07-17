@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented here.
 
+## [0.18.0] - 2026-07-17
+
+### Added
+- **HTTP session runspace lifecycle controls** - Added configurable session-runspace capacity, idle retention, sweep interval, warm-standby count, and acquisition timeout settings under `McpServer`. Runspaces are released on session expiry, client `DELETE`, dynamic tool reload, and host shutdown.
+- **MCP endpoint origin validation** - Requests that carry an `Origin` header are now accepted only when they are same-origin or match `Authentication:Cors:AllowedOrigins`.
+- **HTTP-session benchmark contract** - Added benchmark scenarios for startup and first-session work, warm-session latency, concurrent session throughput, and bounded-capacity rejection. CI verifies scenario discovery and the benchmark contract without shared-runner timing thresholds.
+
+### Changed
+- **Streamable HTTP protocol negotiation** - `2025-11-25` clients must retain and send the negotiated `MCP-Protocol-Version` and `Mcp-Session-Id` headers after initialization; `2024-11-05` clients remain compatible without the protocol-version header after initialization. The legacy HTTP-with-SSE transport is now opt-in through `McpServer:EnableLegacySse`.
+- **HTTP runspace isolation** - Each HTTP MCP session now has a dedicated initialized PowerShell runspace. Headerless requests use isolated one-shot runspaces and no longer retain state between requests; warm standbys are initialized separately from assigned or leased capacity.
+- **MCP schema and error semantics** - Tools without user parameters now advertise a strict empty-object input schema, and PowerShell command failures surface through MCP error handling rather than serialized JSON error strings.
+- **MCP SDK upgrade** - Updated `ModelContextProtocol` and `ModelContextProtocol.AspNetCore` to 1.4.1.
+
+### Fixed
+- **Out-of-process execution resilience** - Hardened cancellation, configuration reload, worker cleanup, and worker tracking for out-of-process PowerShell execution.
+- **HTTP runspace shutdown cleanup** - HTTP session runspaces are disposed during host shutdown, including releases requested while a tool invocation is active.
+
+### Documentation
+- Updated transport, configuration, session-management, advanced, logging, Docker, and README guidance for Streamable HTTP protocol migration, origin validation, and session-runspace lifecycle behavior.
+
+### Tests
+- Added Streamable HTTP conformance, origin-validation, session-lifecycle, tool-schema, error-handling, and out-of-process cleanup coverage.
+
+### Breaking
+- Cross-origin browser clients that send an `Origin` header receive `403` unless the origin is same-origin or listed in `Authentication:Cors:AllowedOrigins`.
+- `2025-11-25` Streamable HTTP clients must send a valid negotiated `MCP-Protocol-Version` header after initialization; missing, invalid, or unsupported versions receive `400`.
+- Headerless HTTP calls no longer preserve PowerShell state between requests.
+- Consumers that interpreted serialized `{"error": ...}` tool results must handle MCP error responses.
+
+### Upgrade Notes
+- Add each required exact HTTPS browser origin to `Authentication:Cors:AllowedOrigins`; do not use wildcard origins.
+- Ensure `2025-11-25` clients retain and send both `Mcp-Session-Id` and `MCP-Protocol-Version` after initialization. Use an HTTP session for PowerShell state that must persist between calls.
+- Enable `McpServer:EnableLegacySse` only for required legacy clients that cannot use Streamable HTTP.
+
 ## [0.17.0] - 2026-06-03T00:00:00Z
 
 ### Added
