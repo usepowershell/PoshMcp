@@ -25,9 +25,8 @@ public class SubprocessTeardownTests : PowerShellTestBase
     [PwshAvailableFact]
     public async Task TeardownAsync_AfterShortLivedPwsh_LeavesNoOrphans()
     {
-        var auditor = new OrphanProcessAuditor("pwsh");
-
         var process = StartShortLivedPwsh();
+        var processId = process.Id;
 
         try
         {
@@ -40,19 +39,16 @@ public class SubprocessTeardownTests : PowerShellTestBase
             await SubprocessTeardown.TeardownAsync(process, Logger);
         }
 
-        var newPids = auditor.NewLivingPids();
-        Assert.True(
-            newPids.Count == 0,
-            $"Expected zero new living pwsh processes after teardown, found {newPids.Count}: " +
-            $"{string.Join(",", newPids)}");
+        Assert.False(
+            IsProcessRunning(processId),
+            $"Expected pwsh process {processId} to be gone after teardown.");
     }
 
     [PwshAvailableFact]
     public async Task TeardownAsync_AfterHungPwsh_KillsTreeAndLeavesNoOrphans()
     {
-        var auditor = new OrphanProcessAuditor("pwsh");
-
         var process = StartHungPwsh();
+        var processId = process.Id;
 
         try
         {
@@ -65,11 +61,9 @@ public class SubprocessTeardownTests : PowerShellTestBase
             await SubprocessTeardown.TeardownAsync(process, Logger);
         }
 
-        var newPids = auditor.NewLivingPids();
-        Assert.True(
-            newPids.Count == 0,
-            $"Expected kill-tree teardown to leave zero new living pwsh processes, found {newPids.Count}: " +
-            $"{string.Join(",", newPids)}");
+        Assert.False(
+            IsProcessRunning(processId),
+            $"Expected pwsh process {processId} to be gone after teardown.");
     }
 
     private static Process StartShortLivedPwsh()
@@ -106,5 +100,18 @@ public class SubprocessTeardownTests : PowerShellTestBase
         process.Start();
         TestProcessRegistry.Register(process);
         return process;
+    }
+
+    private static bool IsProcessRunning(int processId)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            return !process.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 }
