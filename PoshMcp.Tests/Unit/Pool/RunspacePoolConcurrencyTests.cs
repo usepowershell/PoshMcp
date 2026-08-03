@@ -31,16 +31,16 @@ namespace PoshMcp.Tests.Unit.Pool;
 /// wall-clock sleeps as primary synchronisation signals.
 /// </summary>
 [Trait("Category", "Unit")]
-public sealed class RunspacePoolConcurrencyTests : IDisposable
+public sealed class RunspacePoolConcurrencyTests
 {
     // ─── Helpers ────────────────────────────────────────────────────────────────
 
-    private static readonly PSPowerShell SharedPs = PSPowerShell.Create();
-
     private static Mock<IPowerShellRunspace> MockRunspace()
     {
+        var ps = PSPowerShell.Create();
         var mock = new Mock<IPowerShellRunspace>();
-        mock.Setup(r => r.Instance).Returns(SharedPs);
+        mock.Setup(r => r.Instance).Returns(ps);
+        mock.Setup(r => r.Dispose()).Callback(ps.Dispose);
         return mock;
     }
 
@@ -98,8 +98,6 @@ public sealed class RunspacePoolConcurrencyTests : IDisposable
         Assert.True(s.ResettingWorkers >= 0, $"{context} ResettingWorkers={s.ResettingWorkers} < 0");
         Assert.True(s.TotalWorkers >= 0, $"{context} TotalWorkers={s.TotalWorkers} < 0");
     }
-
-    public void Dispose() => SharedPs.Dispose();
 
     // ─── 1. Exhaustion — callers beyond capacity time out, no deadlock ──────────
 
@@ -442,8 +440,9 @@ public sealed class RunspacePoolConcurrencyTests : IDisposable
 
     /// <summary>
     /// When all outstanding leases are returned concurrently while <see cref="StatelessRunspacePool.DisposeAsync"/>
-    /// is draining, <see cref="RunspacePoolStats.TotalWorkers"/> and all component counters
-    /// must remain non-negative. Tests the <c>FinalizeLeaseDone</c> concurrent-decrement path.
+    /// is draining, all counters must reach exact zero after both operations complete — verifying
+    /// that no workers leak and no background work remains in-flight.
+    /// Tests the <c>FinalizeLeaseDone</c> concurrent-decrement path.
     /// </summary>
     [Fact]
     public async Task ConcurrentDisposalAndLeaseReturn_CountersNeverGoNegative()
@@ -465,7 +464,12 @@ public sealed class RunspacePoolConcurrencyTests : IDisposable
         await disposeTask;
 
         var stats = pool.GetStats();
-        AssertNonNegative(stats, "post-concurrent-disposal");
+        // After all leases are returned and DisposeAsync completes, the pool must be fully
+        // drained: no leaked workers, no in-flight background work, exact zeros on all counters.
+        Assert.Equal(0, stats.TotalWorkers);
+        Assert.Equal(0, stats.WarmWorkers);
+        Assert.Equal(0, stats.LeasedWorkers);
+        Assert.Equal(0, stats.ResettingWorkers);
     }
 
     // ─── 9. Repeated exhaustion and release — stability / no flake ───────────────

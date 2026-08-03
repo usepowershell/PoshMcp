@@ -18,17 +18,16 @@ namespace PoshMcp.Tests.Unit.Pool;
 /// All tests use injected test doubles — no real PowerShell runspaces are created.
 /// </summary>
 [Trait("Category", "Unit")]
-public sealed class StatelessRunspacePoolTests : IDisposable
+public sealed class StatelessRunspacePoolTests
 {
     // ─── Helpers ────────────────────────────────────────────────────────────────
 
-    // PS instance shared across mocks (no runspace; not actually invoked in unit tests).
-    private static readonly PSPowerShell SharedPs = PSPowerShell.Create();
-
     private static Mock<IPowerShellRunspace> MockRunspace()
     {
+        var ps = PSPowerShell.Create();
         var mock = new Mock<IPowerShellRunspace>();
-        mock.Setup(r => r.Instance).Returns(SharedPs);
+        mock.Setup(r => r.Instance).Returns(ps);
+        mock.Setup(r => r.Dispose()).Callback(ps.Dispose);
         return mock;
     }
 
@@ -87,7 +86,6 @@ public sealed class StatelessRunspacePoolTests : IDisposable
             $"resetting={stats.ResettingWorkers} total={stats.TotalWorkers}");
     }
 
-    public void Dispose() => SharedPs.Dispose();
 
     // ─── Construction / options validation ──────────────────────────────────────
 
@@ -563,8 +561,7 @@ public sealed class StatelessRunspacePoolTests : IDisposable
 
         var leases = await Task.WhenAll(tasks);
 
-        // All leases must refer to distinct PowerShell instances.
-        // (In the test double case they all share SharedPs — but the lease objects are distinct.)
+        // All leases must be distinct — no worker double-issued.
         Assert.Equal(4, leases.Length);
         Assert.All(leases, l => Assert.NotNull(l));
 
