@@ -39,7 +39,10 @@ public class McpSessionLifecycleTests
             .AddMcpServer()
             .WithHttpTransport(options =>
             {
+                options.Stateless = false; // Stateful HTTP required for Mcp-Session-Id and lifecycle callbacks.
+#pragma warning disable MCP9006 // Intentional: this test exercises stateful-mode IdleTimeout behavior.
                 options.IdleTimeout = TimeSpan.FromHours(1);
+#pragma warning restore MCP9006
                 options.TimeProvider = timeProvider;
 #pragma warning disable MCPEXP002 // The lifecycle callback is the production cleanup integration point.
                 options.RunSessionHandler = lifecycle.RunSessionAsync;
@@ -120,7 +123,10 @@ public class McpSessionLifecycleTests
             .AddMcpServer()
             .WithHttpTransport(options =>
             {
+                options.Stateless = false; // Stateful HTTP required for Mcp-Session-Id and lifecycle callbacks.
+#pragma warning disable MCP9006 // Intentional: this test exercises stateful-mode shutdown cleanup behavior.
                 options.IdleTimeout = Timeout.InfiniteTimeSpan;
+#pragma warning restore MCP9006
 #pragma warning disable MCPEXP002 // The lifecycle callback is the production cleanup integration point.
                 options.RunSessionHandler = lifecycle.RunSessionAsync;
 #pragma warning restore MCPEXP002
@@ -187,6 +193,57 @@ public class McpSessionLifecycleTests
 
         Assert.Equal(0, runspaces.GetStats().WarmStandbyCount);
         Assert.Throws<ObjectDisposedException>(() => runspaces.ExecuteThreadSafe(_ => 0));
+    }
+
+    /// <summary>
+    /// Validates that setting <see cref="HttpServerTransportOptions.Stateless"/> = false
+    /// (the PoshMcp default) causes the server to return a <c>Mcp-Session-Id</c> header
+    /// on initialize, confirming stateful HTTP transport is active.
+    /// </summary>
+    [Fact]
+    public async Task StatelessFalse_ReturnsMcpSessionId_OnInitialize()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Services.AddSingleton(new McpSessionLifecycle(_ => { }));
+        builder.Services
+            .AddMcpServer()
+            .WithHttpTransport(options =>
+            {
+                options.Stateless = false; // Explicit PoshMcp default — stateful HTTP transport.
+            });
+
+        await using var app = builder.Build();
+        app.MapMcp();
+        await app.StartAsync();
+
+        using var client = app.GetTestClient();
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+        client.DefaultRequestHeaders.Accept.ParseAdd("text/event-stream");
+
+        using var initResponse = await client.PostAsync(
+            "/",
+            new StringContent(
+                JsonSerializer.Serialize(new
+                {
+                    jsonrpc = "2.0",
+                    id = 1,
+                    method = "initialize",
+                    @params = new
+                    {
+                        protocolVersion = McpProtocolVersionMiddleware.CurrentProtocolVersion,
+                        capabilities = new { },
+                        clientInfo = new { name = "stateful-option-test", version = "1.0" }
+                    }
+                }),
+                Encoding.UTF8,
+                "application/json"));
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, initResponse.StatusCode);
+        // Stateful transport MUST return Mcp-Session-Id. Absence indicates Stateless=true is active.
+        Assert.True(
+            initResponse.Headers.Contains("Mcp-Session-Id"),
+            "Stateful HTTP (Stateless=false) must return Mcp-Session-Id on initialize.");
     }
 
     private static async Task WaitForAsync(Func<bool> condition)
