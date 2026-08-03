@@ -64,17 +64,24 @@ public class MultiUserIsolationTests : PowerShellTestBase, IAsyncLifetime
             Assert.NotNull(client2Response);
             Assert.Contains("null", client2Text);
 
-            // Verify distinct session IDs – the strongest indicator of session isolation
-            Assert.NotNull(client1.SessionId);
-            Assert.NotNull(client2.SessionId);
-            Assert.NotEqual(client1.SessionId, client2.SessionId);
-            Assert.Equal(HttpMcpClient.CurrentProtocolVersion, client1.ProtocolVersion);
-            Assert.Equal(HttpMcpClient.CurrentProtocolVersion, client2.ProtocolVersion);
-
-            Logger.LogInformation($"Client 1 session: {client1.SessionId}");
-            Logger.LogInformation($"Client 2 session: {client2.SessionId}");
             Logger.LogInformation($"Client 1 response: {client1Text.Substring(0, Math.Min(200, client1Text.Length))}...");
             Logger.LogInformation($"Client 2 response: {client2Text.Substring(0, Math.Min(200, client2Text.Length))}...");
+
+            // Verify isolation by session IDs when in stateful compat mode, or by tool output in stateless mode.
+            // In stateless mode (the current default) no Mcp-Session-Id is returned; isolation
+            // was already proven above by client2 not seeing client1's command output.
+            if (client1.SessionId != null && client2.SessionId != null)
+            {
+                Assert.NotEqual(client1.SessionId, client2.SessionId);
+                Logger.LogInformation($"Client 1 session: {client1.SessionId}");
+                Logger.LogInformation($"Client 2 session: {client2.SessionId}");
+            }
+            else
+            {
+                Logger.LogInformation("Stateless mode: no session IDs — isolation verified by tool output isolation above.");
+            }
+            Assert.Equal(HttpMcpClient.CurrentProtocolVersion, client1.ProtocolVersion);
+            Assert.Equal(HttpMcpClient.CurrentProtocolVersion, client2.ProtocolVersion);
 
             Logger.LogInformation("=== MultiUser test completed successfully - both clients executed in separate runspaces ===");
         }

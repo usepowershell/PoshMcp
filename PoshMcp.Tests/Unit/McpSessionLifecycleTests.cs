@@ -196,9 +196,10 @@ public class McpSessionLifecycleTests
     }
 
     /// <summary>
-    /// Validates that setting <see cref="HttpServerTransportOptions.Stateless"/> = false
-    /// (the PoshMcp default) causes the server to return a <c>Mcp-Session-Id</c> header
+    /// Validates that explicitly setting <see cref="HttpServerTransportOptions.Stateless"/> = false
+    /// (operator compatibility mode) causes the server to return a <c>Mcp-Session-Id</c> header
     /// on initialize, confirming stateful HTTP transport is active.
+    /// Note: stateless is the production default since 2026-08-03; this test covers the compat mode.
     /// </summary>
     [Fact]
     public async Task StatelessFalse_ReturnsMcpSessionId_OnInitialize()
@@ -210,7 +211,7 @@ public class McpSessionLifecycleTests
             .AddMcpServer()
             .WithHttpTransport(options =>
             {
-                options.Stateless = false; // Explicit PoshMcp default — stateful HTTP transport.
+                options.Stateless = false; // Explicit operator compatibility mode.
             });
 
         await using var app = builder.Build();
