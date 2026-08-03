@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using PSPowerShell = System.Management.Automation.PowerShell;
 
@@ -70,17 +71,36 @@ public sealed class RunspaceWorker : IDisposable
     /// caller won the race.
     /// </returns>
     public bool TryTransitionTo(RunspaceWorkerState target)
+        => TryTransitionTo(target, out _);
+
+    /// <summary>
+    /// Attempts to transition the worker to <paramref name="target"/> and, on success,
+    /// returns the actual state the worker was in immediately before the transition via
+    /// <paramref name="actualFrom"/>. This is the authoritative from-state because it is the
+    /// value that the CAS was performed against — callers can use it to update state-specific
+    /// counters exactly once without a separate Volatile.Read race.
+    /// </summary>
+    /// <returns>
+    /// <c>true</c> and <paramref name="actualFrom"/> set to the pre-transition state if the CAS
+    /// succeeded. <c>false</c> (and <paramref name="actualFrom"/> set to the current actual state)
+    /// if the transition is not valid or a concurrent caller won the race.
+    /// </returns>
+    public bool TryTransitionTo(RunspaceWorkerState target, out RunspaceWorkerState actualFrom)
     {
         int current = Volatile.Read(ref _state);
+        actualFrom = (RunspaceWorkerState)current;
 
-        if (!IsValidTransition((RunspaceWorkerState)current, target))
+        if (!IsValidTransition(actualFrom, target))
             return false;
 
         int prev = Interlocked.CompareExchange(ref _state, (int)target, current);
         if (prev != current)
+        {
+            actualFrom = (RunspaceWorkerState)prev;
             return false;
+        }
 
-        if (target == RunspaceWorkerState.Warm && (RunspaceWorkerState)current == RunspaceWorkerState.Resetting)
+        if (target == RunspaceWorkerState.Warm && actualFrom == RunspaceWorkerState.Resetting)
             LastLeaseCompletedAt = DateTimeOffset.UtcNow;
 
         return true;
@@ -100,6 +120,42 @@ public sealed class RunspaceWorker : IDisposable
         (RunspaceWorkerState.Evicted, RunspaceWorkerState.Disposed) => true,
         _ => false
     };
+
+    /// <summary>
+    /// Captured variable names present in the runspace immediately after the startup script ran.
+    /// <see cref="RunspaceResetProtocol"/> uses this to exclude worker-initialized state from
+    /// variable cleanup during reset.
+    /// </summary>
+    internal IReadOnlySet<string>? InitializedVariableNames { get; private set; }
+
+    /// <summary>
+    /// Captured PSDrive names present in the runspace immediately after the startup script ran.
+    /// <see cref="RunspaceResetProtocol"/> uses this to exclude worker-initialized drives from
+    /// drive cleanup during reset.
+    /// </summary>
+    internal IReadOnlySet<string>? InitializedDriveNames { get; private set; }
+
+    /// <summary>
+    /// Records the set of variable names present in the runspace immediately after the startup
+    /// script completed. Must be called exactly once during the <c>Creating → Warm</c> transition,
+    /// before the worker is enqueued in the available channel.
+    /// </summary>
+    internal void SetInitializedVariableSnapshot(IReadOnlySet<string> names)
+    {
+        ArgumentNullException.ThrowIfNull(names);
+        InitializedVariableNames = names;
+    }
+
+    /// <summary>
+    /// Records the set of PSDrive names present in the runspace immediately after the startup
+    /// script completed. Must be called exactly once during the <c>Creating → Warm</c> transition,
+    /// before the worker is enqueued in the available channel.
+    /// </summary>
+    internal void SetInitializedDriveSnapshot(IReadOnlySet<string> names)
+    {
+        ArgumentNullException.ThrowIfNull(names);
+        InitializedDriveNames = names;
+    }
 
     /// <summary>
     /// Releases all resources held by this worker. Idempotent and thread-safe.
