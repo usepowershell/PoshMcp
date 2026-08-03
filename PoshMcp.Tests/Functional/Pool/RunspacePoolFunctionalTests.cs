@@ -519,4 +519,98 @@ $WhatIfPreference       = $true
             $"Pool condition not met within {timeout}. " +
             $"warm={s.WarmWorkers} leased={s.LeasedWorkers} resetting={s.ResettingWorkers} total={s.TotalWorkers}");
     }
+
+    // ─── Concurrent real-PS leases — startup-script state isolated per worker ───
+
+    /// <summary>
+    /// Three concurrent leases on a pool with three workers, each initialized with a unique
+    /// GUID via the startup script. All three tokens must be distinct — proving that startup
+    /// scripts run independently per worker, not shared, even under concurrent acquisition.
+    /// </summary>
+    [Fact]
+    public async Task Pool_ConcurrentLeases_RealPS_EachWorkerHasDistinctStartupState()
+    {
+        const string script = "$WorkerToken = [System.Guid]::NewGuid().ToString()";
+        await using var pool = new StatelessRunspacePool(FastOptions(min: 3, max: 3, eager: 3),
+            startupScript: script);
+        await pool.StartAsync();
+
+        // Acquire all 3 workers concurrently.
+        var leaseTasks = Enumerable.Range(0, 3)
+            .Select(_ => pool.AcquireAsync().AsTask())
+            .ToArray();
+        var leases = await Task.WhenAll(leaseTasks);
+
+        string ReadToken(RunspaceLease l)
+        {
+            l.PowerShell.Commands.Clear();
+            l.PowerShell.AddScript("$WorkerToken");
+            var res = l.PowerShell.Invoke<string>();
+            l.PowerShell.Commands.Clear();
+            return res.FirstOrDefault() ?? string.Empty;
+        }
+
+        var tokens = leases.Select(ReadToken).ToArray();
+
+        // All tokens must be valid GUIDs (startup script ran on each worker).
+        Assert.All(tokens, t =>
+            Assert.True(Guid.TryParse(t, out _), $"Expected GUID from startup script; got '{t}'"));
+
+        // All tokens must be distinct — each worker ran its own startup script.
+        Assert.Equal(3, tokens.Distinct().Count());
+
+        foreach (var l in leases) await l.DisposeAsync();
+    }
+
+    // ─── Concurrent reset — request-scoped variables never leak across workers ──
+
+    /// <summary>
+    /// Across multiple rounds of concurrent acquire/release with real PowerShell, a variable
+    /// set inside one lease must not be visible in any subsequent lease on any worker.
+    /// Proves that reset correctness holds under concurrent load, not just sequentially.
+    /// </summary>
+    [Fact]
+    public async Task Pool_ConcurrentReset_RealPS_RequestScopedVariableNeverLeaks()
+    {
+        await using var pool = new StatelessRunspacePool(FastOptions(min: 2, max: 3, eager: 3));
+        await pool.StartAsync();
+
+        const int rounds = 5;
+        for (int r = 0; r < rounds; r++)
+        {
+            // 3 concurrent leases; each sets the same variable name to a round-unique value.
+            var leaseTasks = Enumerable.Range(0, 3)
+                .Select(_ => pool.AcquireAsync().AsTask())
+                .ToArray();
+            var leases = await Task.WhenAll(leaseTasks);
+
+            // Set the marker variable on all 3 workers concurrently.
+            var marker = $"ConcLeak_r{r}_{Guid.NewGuid():N}";
+            await Task.WhenAll(leases.Select(l => Task.Run(() =>
+            {
+                l.PowerShell.Commands.Clear();
+                l.PowerShell.AddScript($"$ConcurrentLeakProbe = '{marker}'");
+                l.PowerShell.Invoke();
+                l.PowerShell.Commands.Clear();
+            })));
+
+            foreach (var l in leases) await l.DisposeAsync();
+        }
+
+        // After all rounds complete, wait for all resets to finish.
+        await WaitForPoolStats(pool,
+            s => s.LeasedWorkers == 0 && s.ResettingWorkers == 0,
+            TimeSpan.FromSeconds(10));
+
+        // Acquire a fresh lease and verify the leak-probe variable is absent.
+        await using var checkLease = await pool.AcquireAsync();
+        checkLease.PowerShell.Commands.Clear();
+        checkLease.PowerShell.AddScript(
+            "(Get-Variable -Name ConcurrentLeakProbe -ErrorAction SilentlyContinue) -eq $null");
+        var gone = checkLease.PowerShell.Invoke<bool>();
+        checkLease.PowerShell.Commands.Clear();
+
+        Assert.True(gone.Count > 0 && gone[0],
+            "Request-scoped variable leaked across concurrent lease boundaries.");
+    }
 }
