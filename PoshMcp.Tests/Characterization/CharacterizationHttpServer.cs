@@ -11,9 +11,16 @@ using PoshMcp.Tests.Shared;
 namespace PoshMcp.Tests.Characterization;
 
 /// <summary>
-/// Starts the PoshMcp HTTP server as a subprocess via <c>dotnet run --no-build</c>,
-/// polls the health endpoint, and exposes the subprocess for working-set measurement.
+/// Starts the PoshMcp HTTP server by launching the pre-built server assembly directly
+/// via <c>dotnet &lt;assembly.dll&gt;</c>, polls the health endpoint, and exposes the
+/// server process for working-set measurement.
 /// </summary>
+/// <remarks>
+/// The server is launched from its compiled DLL rather than via <c>dotnet run</c>
+/// so that <see cref="_serverProcess"/> represents the actual PoshMcp server process,
+/// not a dotnet CLI host. This ensures memory readings and cold-start latency measure
+/// only the server, without CLI or MSBuild overhead.
+/// </remarks>
 internal sealed class CharacterizationHttpServer : IAsyncDisposable
 {
     private readonly int _port;
@@ -47,13 +54,21 @@ internal sealed class CharacterizationHttpServer : IAsyncDisposable
     public async Task StartAsync(string? configPath = null)
     {
         var (workspaceRoot, buildConfiguration) = ResolveWorkspace();
-        var serverProjectPath = Path.Combine(workspaceRoot, "PoshMcp.Server", "PoshMcp.csproj");
+        const string TargetFramework = "net10.0";
+        var serverDllPath = Path.Combine(workspaceRoot, "PoshMcp.Server", "bin", buildConfiguration, TargetFramework, "PoshMcp.dll");
         var resolvedConfig = configPath ?? Path.Combine(workspaceRoot, "PoshMcp.Server", "appsettings.json");
 
-        if (!File.Exists(serverProjectPath))
-            throw new FileNotFoundException($"Server project not found: {serverProjectPath}");
+        if (!File.Exists(serverDllPath))
+            throw new FileNotFoundException(
+                $"Server assembly not found at '{serverDllPath}'. " +
+                $"Build the solution before running characterization tests: dotnet build --configuration {buildConfiguration}",
+                serverDllPath);
         if (!File.Exists(resolvedConfig))
             throw new FileNotFoundException($"Config not found: {resolvedConfig}");
+
+        // Run the server from its own output directory so any appsettings files
+        // copied there are on the default search path.
+        var serverDir = Path.GetDirectoryName(serverDllPath)!;
 
         var startInfo = new ProcessStartInfo
         {
@@ -62,15 +77,9 @@ internal sealed class CharacterizationHttpServer : IAsyncDisposable
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
-            WorkingDirectory = Directory.GetCurrentDirectory(),
+            WorkingDirectory = serverDir,
         };
-        startInfo.ArgumentList.Add("run");
-        startInfo.ArgumentList.Add("--no-build");
-        startInfo.ArgumentList.Add("--configuration");
-        startInfo.ArgumentList.Add(buildConfiguration);
-        startInfo.ArgumentList.Add("--project");
-        startInfo.ArgumentList.Add(serverProjectPath);
-        startInfo.ArgumentList.Add("--");
+        startInfo.ArgumentList.Add(serverDllPath);
         startInfo.ArgumentList.Add("serve");
         startInfo.ArgumentList.Add("--transport");
         startInfo.ArgumentList.Add("http");

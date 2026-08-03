@@ -108,6 +108,20 @@ startup_script_cost_ms = cold_start_http_with_script.stats.mean
 
 The two scenarios use identical config except the `Environment.StartupScript` field.
 
+## Server Launch
+
+`CharacterizationHttpServer` launches the server by invoking the pre-built assembly
+directly: `dotnet <path>/PoshMcp.dll serve --transport http --url <url> --config <cfg>`.
+
+This ensures `_serverProcess` is the real PoshMcp server process (not a dotnet CLI
+host), so working-set readings and cold-start latency measure only the server without
+CLI or MSBuild overhead.
+
+The DLL is resolved from the workspace root and the build configuration detected from
+the test output path (`AppContext.BaseDirectory` contains `/Release/` or `/Debug/`).
+A `FileNotFoundException` is thrown with a clear build instruction if the assembly is
+missing, so misconfigured launchers fail immediately.
+
 ## Configuration Used
 
 All scenarios use `with-startup-script.appsettings.json` (or its no-script counterpart)
