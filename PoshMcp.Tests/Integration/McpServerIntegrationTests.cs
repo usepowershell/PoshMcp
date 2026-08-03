@@ -247,6 +247,100 @@ public class ServerWithExternalClient : PowerShellTestBase, IAsyncLifetime
     }
 
 
+    /// <summary>
+    /// #345: Every tool in the <c>tools/list</c> response must carry an
+    /// <c>inputSchema</c> with <c>"type":"object"</c> at the root.
+    /// This test exercises the real SDK v2 serialization path over the wire.
+    /// </summary>
+    [Fact]
+    [Trait("Issue", "345")]
+    public async Task EveryTool_InToolsListResponse_HasTypeObjectInputSchema()
+    {
+        var client = _sharedClient ?? throw new InvalidOperationException("Shared client not initialized");
+
+        var toolsResponse = await client.SendListToolsAsync();
+        Assert.NotNull(toolsResponse);
+
+        var tools = toolsResponse["result"]?["tools"] as JArray;
+        Assert.NotNull(tools);
+        Assert.True(tools!.Count > 0, "Expected at least one tool in tools/list response.");
+
+        var violations = new List<string>();
+        foreach (var tool in tools)
+        {
+            var toolName = tool["name"]?.ToString() ?? "<unnamed>";
+            var inputSchema = tool["inputSchema"];
+
+            if (inputSchema is null || inputSchema.Type == Newtonsoft.Json.Linq.JTokenType.Null)
+            {
+                violations.Add($"'{toolName}': inputSchema is missing or null");
+                continue;
+            }
+
+            var schemaType = inputSchema["type"]?.ToString();
+            if (schemaType != "object")
+            {
+                violations.Add($"'{toolName}': inputSchema.type='{schemaType}' (expected 'object')");
+            }
+        }
+
+        Assert.True(
+            violations.Count == 0,
+            $"#345: tools/list schema violations:\n" + string.Join("\n", violations));
+    }
+
+    /// <summary>
+    /// #345: Parameterless built-in tools (e.g. <c>reload-configuration-from-file</c>,
+    /// <c>get-configuration-status</c>) must use the strict empty-object convention:
+    /// <c>type:object</c>, <c>properties:{{}}</c>, <c>additionalProperties:false</c>.
+    /// </summary>
+    [Fact]
+    [Trait("Issue", "345")]
+    public async Task ParameterlessBuiltinTools_InToolsListResponse_HaveStrictEmptySchema()
+    {
+        var client = _sharedClient ?? throw new InvalidOperationException("Shared client not initialized");
+
+        var toolsResponse = await client.SendListToolsAsync();
+        Assert.NotNull(toolsResponse);
+
+        var tools = toolsResponse["result"]?["tools"] as JArray;
+        Assert.NotNull(tools);
+
+        // These are the always-registered parameterless built-in tools
+        // (set-result-caching has user parameters so it is intentionally excluded).
+        var parameterlessBuiltins = new[]
+        {
+            "reload-configuration-from-file",
+            "get-configuration-status",
+            "get-configuration-guidance",
+            "get-configuration-troubleshooting"
+        };
+
+        foreach (var expectedName in parameterlessBuiltins)
+        {
+            var tool = tools!.FirstOrDefault(t =>
+                string.Equals(t["name"]?.ToString(), expectedName, StringComparison.OrdinalIgnoreCase));
+
+            // Skip tools that are not registered in the current test configuration
+            if (tool is null)
+            {
+                Logger.LogInformation("Skipping '{ToolName}' — not present in test server configuration.", expectedName);
+                continue;
+            }
+
+            var inputSchema = tool["inputSchema"];
+            Assert.NotNull(inputSchema);
+            var schemaType = inputSchema!["type"]?.ToString();
+            Assert.True(schemaType == "object",
+                $"'{expectedName}' inputSchema.type must be 'object', got '{schemaType}'");
+
+            var additionalProperties = inputSchema["additionalProperties"];
+            Assert.NotNull(additionalProperties);
+            Assert.True(additionalProperties!.Value<bool?>() == false,
+                $"'{expectedName}' inputSchema.additionalProperties must be false (strict empty convention)");
+        }
+    }
+
     #region Helper Methods (No longer needed - using shared instances)
 
     // These methods are no longer used since we're using shared server/client instances
