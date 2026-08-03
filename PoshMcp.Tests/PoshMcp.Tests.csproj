@@ -33,4 +33,10 @@
     <ProjectReference Include="..\PoshMcp.Server\PoshMcp.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="Characterization\Assets\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

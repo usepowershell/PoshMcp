@@ -1,0 +1,35 @@
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Warning",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "ApplicationInsights": {
+    "Enabled": false,
+    "ConnectionString": ""
+  },
+  "PowerShellConfiguration": {
+    "RuntimeMode": "InProcess",
+    "CommandNames": [ "Get-Date" ],
+    "Modules": [ "Microsoft.PowerShell.Utility" ],
+    "Environment": {
+      "StartupScript": "$script:PoshMcpCharacterizationSetup = 'v1-baseline-2026'"
+    },
+    "EnableDynamicReloadTools": false,
+    "EnableConfigurationTroubleshootingTool": false
+  },
+  "McpServer": {
+    "IdleSessionTimeoutSeconds": 60,
+    "SessionRunspaceCapacity": 4,
+    "SessionRunspaceIdleTtlSeconds": 300,
+    "SessionRunspaceSweepIntervalSeconds": 60,
+    "SessionRunspaceWarmStandbyCount": 0,
+    "SessionRunspaceAcquisitionTimeoutSeconds": 10,
+    "EnableLegacySse": false
+  },
+  "Authentication": {
+    "Enabled": false,
+    "Schemes": {}
+  }
+}

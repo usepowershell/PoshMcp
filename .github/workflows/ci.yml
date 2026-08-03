@@ -256,3 +256,50 @@ jobs:
       with:
         name: test-results-azure
         path: ./TestResults/*.trx
+
+  # ---------------------------------------------------------------------------
+  # Phase 0 (issue #347): v1 SDK 1.4.1 performance baseline characterization.
+  #
+  # Runs after the build gate so it has a pre-built server binary.
+  # Does NOT fail on timing thresholds — values are observational baselines
+  # consumed by Phase 4 (post-v2 upgrade) for relative regression comparison.
+  #
+  # Artifact: v1-baseline-characterization — contains:
+  #   v1-baseline-characterization.json   (structured JSON, see README.md)
+  #   phase-characterization.trx          (xUnit pass/fail evidence)
+  # ---------------------------------------------------------------------------
+  characterization:
+    name: "v1 Baseline Characterization (#347)"
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.x
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
+
+    - name: Run v1 Baseline Characterization
+      env:
+        # Absolute path so the test process writes the JSON to the workspace root
+        # regardless of the test binary's working directory.
+        CHARACTERIZATION_ARTIFACT_PATH: ${{ github.workspace }}/TestResults/v1-baseline-characterization.json
+      run: dotnet test --no-build --configuration Release --filter "Category=Characterization" --logger "trx;LogFileName=phase-characterization.trx" --results-directory ./TestResults
+
+    - name: Upload v1 Baseline Characterization Artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: v1-baseline-characterization
+        path: |
+          TestResults/v1-baseline-characterization.json
+          TestResults/phase-characterization.trx
+
