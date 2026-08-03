@@ -1,3 +1,5 @@
+using PoshMcp.Server.PowerShell.Pool;
+
 namespace PoshMcp;
 
 /// <summary>
@@ -5,6 +7,24 @@ namespace PoshMcp;
 /// </summary>
 public class McpServerConfiguration
 {
+    /// <summary>
+    /// HTTP transport session semantics.
+    /// Default: <see cref="HttpTransportMode.Stateless"/> — enables <c>server/discover</c>
+    /// and protocol <c>2026-07-28</c>.
+    /// Set to <see cref="HttpTransportMode.Stateful"/> for backward-compatibility with
+    /// clients that require <c>Mcp-Session-Id</c>.
+    /// Neither mode restores session-affine PowerShell state.
+    /// </summary>
+    public HttpTransportMode HttpTransportMode { get; set; } = HttpTransportMode.Stateless;
+
+    /// <summary>
+    /// Warm-worker runspace pool options for HTTP execution.
+    /// Bind from the <c>McpServer:RunspacePool</c> configuration section.
+    /// Deprecated per-field aliases (<c>SessionRunspace*</c>) fall back to these when the
+    /// new keys are absent; use <see cref="McpServerConfigurationResolver"/> for source-aware resolution.
+    /// </summary>
+    public RunspacePoolOptions RunspacePool { get; set; } = new();
+
     /// <summary>
     /// Timeout in seconds before an idle MCP session is closed.
     /// Set higher than the default (60s) when auth flows take time.

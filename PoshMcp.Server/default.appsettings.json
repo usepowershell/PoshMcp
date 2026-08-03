@@ -5,6 +5,20 @@
       "Microsoft.Hosting.Lifetime": "Information"
     }
   },
+  "McpServer": {
+    "HttpTransportMode": "Stateless",
+    "RunspacePool": {
+      "MinPoolSize": 2,
+      "MaxPoolSize": 16,
+      "EagerWarmCount": 2,
+      "AcquisitionTimeout": "00:00:15",
+      "IdleTtl": "00:05:00",
+      "SweepInterval": "00:00:30",
+      "StopTimeout": "00:00:05",
+      "ShutdownDrainTimeout": "00:00:30",
+      "ReplenishCheckInterval": "00:00:05"
+    }
+  },
   "PowerShellConfiguration": {
     "CommandNames": [
       "Get-Process",
