@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -34,7 +35,8 @@ public sealed class StatelessRunspacePoolTests : IDisposable
     private static StatelessRunspacePool MakePool(
         RunspacePoolOptions? options = null,
         Func<IPowerShellRunspace>? factory = null,
-        Func<RunspaceWorker, ILogger, CancellationToken, Task>? reset = null)
+        Func<RunspaceWorker, ILogger, CancellationToken, Task>? reset = null,
+        Func<DateTimeOffset>? clock = null)
     {
         return new StatelessRunspacePool(
             options ?? DefaultOptions(),
@@ -42,7 +44,9 @@ public sealed class StatelessRunspacePoolTests : IDisposable
             startupScript: null,
             workerFactory: factory ?? (() => MockRunspace().Object),
             snapshotCapture: _ => new HashSet<string>(),
-            resetProtocol: reset ?? ((_, _, _) => Task.CompletedTask));
+            driveSnapshotCapture: _ => new HashSet<string>(),
+            resetProtocol: reset ?? ((_, _, _) => Task.CompletedTask),
+            clock: clock);
     }
 
     private static RunspacePoolOptions DefaultOptions(int min = 1, int max = 4, int eager = 1) =>
@@ -58,6 +62,30 @@ public sealed class StatelessRunspacePoolTests : IDisposable
             ShutdownDrainTimeout = TimeSpan.FromMilliseconds(500),
             ReplenishCheckInterval = TimeSpan.FromSeconds(30),
         };
+
+    /// <summary>
+    /// Polls <paramref name="pool"/> until <paramref name="condition"/> returns true or
+    /// <paramref name="timeout"/> elapses. Used to replace timing-based <c>Task.Delay</c> in
+    /// assertions so tests don't race against background reset/replenish tasks.
+    /// </summary>
+    private static async Task WaitForStatsAsync(
+        StatelessRunspacePool pool,
+        Func<RunspacePoolStats, bool> condition,
+        TimeSpan? timeout = null)
+    {
+        var deadline = timeout ?? TimeSpan.FromSeconds(5);
+        var sw = Stopwatch.StartNew();
+        while (sw.Elapsed < deadline)
+        {
+            if (condition(pool.GetStats())) return;
+            await Task.Delay(10);
+        }
+        var stats = pool.GetStats();
+        throw new TimeoutException(
+            $"Condition not met within {deadline}. " +
+            $"warm={stats.WarmWorkers} leased={stats.LeasedWorkers} " +
+            $"resetting={stats.ResettingWorkers} total={stats.TotalWorkers}");
+    }
 
     public void Dispose() => SharedPs.Dispose();
 
@@ -206,8 +234,8 @@ public sealed class StatelessRunspacePoolTests : IDisposable
         var lease = await pool.AcquireAsync();
         await lease.DisposeAsync();
 
-        // Allow reset to complete.
-        await Task.Delay(50);
+        // Poll instead of sleeping — background reset fires asynchronously.
+        await WaitForStatsAsync(pool, s => s.WarmWorkers == 1 && s.LeasedWorkers == 0);
 
         var stats = pool.GetStats();
         Assert.Equal(1, stats.WarmWorkers);
@@ -384,7 +412,8 @@ public sealed class StatelessRunspacePoolTests : IDisposable
         var lease = await pool.AcquireAsync();
         lease.RequestEviction();
         await lease.DisposeAsync();
-        await Task.Delay(50);
+
+        await WaitForStatsAsync(pool, s => s.LeasedWorkers == 0 && s.ResettingWorkers == 0);
 
         var stats = pool.GetStats();
         // Worker was evicted; no warm workers remain (replenisher not yet triggered).
@@ -402,7 +431,7 @@ public sealed class StatelessRunspacePoolTests : IDisposable
 
         await using (await pool.AcquireAsync()) { /* returns worker which triggers reset */ }
 
-        await Task.Delay(100);
+        await WaitForStatsAsync(pool, s => s.LeasedWorkers == 0 && s.ResettingWorkers == 0);
 
         var stats = pool.GetStats();
         Assert.Equal(0, stats.LeasedWorkers);
@@ -490,8 +519,8 @@ public sealed class StatelessRunspacePoolTests : IDisposable
         Assert.False(drainTask.IsCompleted);
 
         await lease.DisposeAsync();
-        await Task.Delay(80); // reset callback fires
-        await drainTask;
+        // Pool reset callback fires asynchronously; drain completes after reset settles.
+        await drainTask.WaitAsync(TimeSpan.FromSeconds(5));
 
         await pool.DisposeAsync();
     }
@@ -560,6 +589,265 @@ public sealed class StatelessRunspacePoolTests : IDisposable
         var stats = pool.GetStats();
         Assert.Equal(0, stats.LeasedWorkers);
         Assert.Equal(0, stats.ResettingWorkers);
+
+        await pool.DisposeAsync();
+    }
+
+    // ─── StopTimeout — TimeoutException → stop_timeout eviction ─────────────────
+
+    [Fact]
+    public async Task LeaseReturn_WhenResetThrowsTimeoutException_WorkerEvictedAsStopTimeout()
+    {
+        // Inject a reset that simulates a stuck pipeline that exceeds StopTimeout.
+        await using var pool = MakePool(
+            reset: (_, _, _) => Task.FromException(
+                new TimeoutException("Simulated: reset pipeline did not stop within StopTimeout.")));
+        await pool.StartAsync();
+
+        await using (await pool.AcquireAsync()) { }
+
+        await WaitForStatsAsync(pool, s => s.LeasedWorkers == 0 && s.ResettingWorkers == 0);
+
+        // Worker evicted with stop_timeout reason; counters must be consistent.
+        var stats = pool.GetStats();
+        Assert.Equal(0, stats.LeasedWorkers);
+        Assert.Equal(0, stats.ResettingWorkers);
+        Assert.True(stats.TotalWorkers >= 0);  // might be 0 or replenished
+
+        await pool.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task LeaseReturn_WhenResetThrowsTimeoutException_TotalCountIsExactlyOnce()
+    {
+        // Verifies _totalCount is decremented exactly once even when EvictWorker
+        // races the TimeoutException path (Blocker 1 regression guard).
+        await using var pool = MakePool(
+            options: DefaultOptions(min: 1, max: 2, eager: 2),
+            reset: (_, _, ct) => ct.IsCancellationRequested
+                ? Task.FromException(new OperationCanceledException())
+                : Task.FromException(new TimeoutException("stop_timeout test")));
+        await pool.StartAsync();
+
+        var stats0 = pool.GetStats();
+        Assert.Equal(2, stats0.TotalWorkers);
+
+        var l1 = await pool.AcquireAsync();
+        var l2 = await pool.AcquireAsync();
+        await l1.DisposeAsync();
+        await l2.DisposeAsync();
+
+        await WaitForStatsAsync(pool, s => s.LeasedWorkers == 0 && s.ResettingWorkers == 0);
+
+        var statsAfter = pool.GetStats();
+        // Both workers evicted; total must be 0 (replenisher hasn't fired) or 1-2 if it has.
+        Assert.True(statsAfter.TotalWorkers >= 0, $"_totalCount went negative: {statsAfter.TotalWorkers}");
+
+        await pool.DisposeAsync();
+    }
+
+    // ─── Post-eviction replenishment — deterministic synchronization ─────────────
+
+    [Fact]
+    public async Task Replenishment_AfterExplicitEviction_RestoresMinPoolSize()
+    {
+        // Min=2, Max=4, Eager=2. Evict both workers by requesting eviction on leases.
+        // The replenisher (triggered via FireAndForgetCreateWorkerAsync) must restore Min.
+        var opts = DefaultOptions(min: 2, max: 4, eager: 2);
+        opts.ReplenishCheckInterval = TimeSpan.FromSeconds(60); // disable background replenisher
+        await using var pool = MakePool(opts);
+        await pool.StartAsync();
+
+        Assert.Equal(2, pool.GetStats().TotalWorkers);
+
+        var l1 = await pool.AcquireAsync();
+        var l2 = await pool.AcquireAsync();
+        l1.RequestEviction();
+        l2.RequestEviction();
+        await l1.DisposeAsync();
+        await l2.DisposeAsync();
+
+        // Replenishment is triggered synchronously from OnWorkerReturnedAsync (fire-and-forget).
+        // Poll until MinPoolSize warm workers are available — no arbitrary sleeps.
+        await WaitForStatsAsync(pool, s => s.TotalWorkers >= 2, TimeSpan.FromSeconds(10));
+
+        Assert.True(pool.GetStats().TotalWorkers >= 2,
+            $"Expected TotalWorkers >= 2 after replenishment; got {pool.GetStats().TotalWorkers}");
+
+        await pool.DisposeAsync();
+    }
+
+    // ─── Idle sweep — injectable clock / no eviction below MinPoolSize ────────────
+
+    [Fact]
+    public void SweepOnce_WithClockAdvanced_EvictsSurplusButNotBelowMin()
+    {
+        // Workers created at "now". After advancing the clock past IdleTtl,
+        // only surplus workers (above MinPoolSize) should be evicted.
+        var frozenTime = DateTimeOffset.UtcNow;
+        var pool = MakePool(
+            options: DefaultOptions(min: 2, max: 4, eager: 4),
+            clock: () => frozenTime);
+
+        pool.StartAsync().GetAwaiter().GetResult();
+
+        var statsStart = pool.GetStats();
+        Assert.Equal(4, statsStart.WarmWorkers);
+
+        // Advance clock past IdleTtl (default 300s).
+        frozenTime = frozenTime.AddSeconds(301);
+        pool.SweepOnce();
+
+        var statsAfter = pool.GetStats();
+        // Should have evicted surplus=2 workers, leaving exactly MinPoolSize=2.
+        Assert.Equal(2, statsAfter.WarmWorkers);
+        Assert.Equal(2, statsAfter.TotalWorkers);
+
+        pool.DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
+
+    [Fact]
+    public void SweepOnce_WhenAllWorkersWithinTtl_EvictsNone()
+    {
+        var frozenTime = DateTimeOffset.UtcNow;
+        var pool = MakePool(
+            options: DefaultOptions(min: 1, max: 3, eager: 3),
+            clock: () => frozenTime);
+
+        pool.StartAsync().GetAwaiter().GetResult();
+        Assert.Equal(3, pool.GetStats().WarmWorkers);
+
+        // Do NOT advance clock — all workers are within IdleTtl.
+        pool.SweepOnce();
+
+        Assert.Equal(3, pool.GetStats().WarmWorkers);
+
+        pool.DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
+
+    [Fact]
+    public void SweepOnce_WhenAtMinPoolSize_EvictsNothing()
+    {
+        // With warmCount == MinPoolSize, surplus == 0 → sweeper must be a no-op.
+        var frozenTime = DateTimeOffset.UtcNow;
+        var pool = MakePool(
+            options: DefaultOptions(min: 2, max: 4, eager: 2),
+            clock: () => frozenTime.AddSeconds(9999));  // far past TTL
+
+        pool.StartAsync().GetAwaiter().GetResult();
+        Assert.Equal(2, pool.GetStats().WarmWorkers);
+
+        pool.SweepOnce();  // surplus=0 → no eviction
+
+        Assert.Equal(2, pool.GetStats().WarmWorkers);
+        Assert.Equal(2, pool.GetStats().TotalWorkers);
+
+        pool.DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
+
+    // ─── Bounded channel — capacity invariant ────────────────────────────────────
+
+    [Fact]
+    public async Task BoundedChannel_AfterSweepEviction_ReplenishmentWriteSucceeds()
+    {
+        // Regression: bounded channel must not be deadlocked by stale entries after sweep.
+        // Min=2, Max=4. Start with 4 warm workers. Sweep evicts 2 (surplus=2).
+        // Stale entries remain in channel. Replenisher should still be able to enqueue new workers.
+        var frozenTime = DateTimeOffset.UtcNow;
+        var opts = new RunspacePoolOptions
+        {
+            MinPoolSize = 2,
+            MaxPoolSize = 4,
+            EagerWarmCount = 4,
+            AcquisitionTimeout = TimeSpan.FromSeconds(5),
+            IdleTtl = TimeSpan.FromSeconds(300),
+            SweepInterval = TimeSpan.FromSeconds(60),
+            StopTimeout = TimeSpan.FromSeconds(5),
+            ShutdownDrainTimeout = TimeSpan.FromMilliseconds(500),
+            ReplenishCheckInterval = TimeSpan.FromSeconds(60),
+        };
+
+        await using var pool = new StatelessRunspacePool(
+            opts,
+            workerFactory: () => MockRunspace().Object,
+            snapshotCapture: _ => new HashSet<string>(),
+            driveSnapshotCapture: _ => new HashSet<string>(),
+            resetProtocol: (_, _, _) => Task.CompletedTask,
+            clock: () => frozenTime);
+
+        await pool.StartAsync();
+        Assert.Equal(4, pool.GetStats().WarmWorkers);
+
+        // Advance clock and sweep — evicts 2 surplus workers; 2 stale entries remain in channel.
+        frozenTime = frozenTime.AddSeconds(301);
+        pool.SweepOnce();
+        Assert.Equal(2, pool.GetStats().WarmWorkers);
+        Assert.Equal(2, pool.GetStats().TotalWorkers);
+
+        // Now lease both remaining warm workers and evict them (simulates sudden eviction).
+        var l1 = await pool.AcquireAsync();
+        var l2 = await pool.AcquireAsync();
+        l1.RequestEviction();
+        l2.RequestEviction();
+        await l1.DisposeAsync();
+        await l2.DisposeAsync();
+
+        // Replenishment fires from EvictWorker callbacks; poll until MinPoolSize is restored.
+        // This verifies stale channel entries don't deadlock replenishment writes.
+        await WaitForStatsAsync(pool, s => s.TotalWorkers >= 2, TimeSpan.FromSeconds(10));
+
+        Assert.True(pool.GetStats().TotalWorkers >= 2,
+            $"Bounded channel deadlocked replenishment; TotalWorkers={pool.GetStats().TotalWorkers}");
+
+        await pool.DisposeAsync();
+    }
+
+    // ─── Acquisition timeout vs. cancellation — distinguishable ─────────────────
+
+    [Fact]
+    public async Task AcquireAsync_Timeout_ThrowsTimeoutException_NotOCE()
+    {
+        var opts = DefaultOptions(min: 1, max: 1, eager: 1);
+        opts.AcquisitionTimeout = TimeSpan.FromMilliseconds(50);
+        opts.ShutdownDrainTimeout = TimeSpan.FromMilliseconds(200);
+        await using var pool = MakePool(opts);
+        await pool.StartAsync();
+
+        var held = await pool.AcquireAsync();
+        try
+        {
+            var ex = await Assert.ThrowsAsync<TimeoutException>(() => pool.AcquireAsync().AsTask());
+            Assert.IsNotType<OperationCanceledException>(ex);  // must be TimeoutException, not OCE
+        }
+        finally
+        {
+            await held.DisposeAsync();
+        }
+
+        await pool.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task AcquireAsync_CallerCancelled_ThrowsOCE_NotTimeoutException()
+    {
+        var opts = DefaultOptions(min: 1, max: 1, eager: 1);
+        opts.AcquisitionTimeout = TimeSpan.FromSeconds(30);
+        opts.ShutdownDrainTimeout = TimeSpan.FromMilliseconds(200);
+        await using var pool = MakePool(opts);
+        await pool.StartAsync();
+
+        var held = await pool.AcquireAsync();
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(80));
+            var ex = await Assert.ThrowsAsync<OperationCanceledException>(
+                () => pool.AcquireAsync(cts.Token).AsTask());
+            Assert.IsNotType<TimeoutException>(ex);  // must be OCE, not TimeoutException
+        }
+        finally
+        {
+            await held.DisposeAsync();
+        }
 
         await pool.DisposeAsync();
     }

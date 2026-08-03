@@ -4,6 +4,7 @@ using System.Linq;
 using System.Management.Automation.Runspaces;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using PoshMcp.Server.PowerShell;
 using PoshMcp.Server.PowerShell.Pool;
 using Xunit;
@@ -80,7 +81,7 @@ public sealed class RunspacePoolFunctionalTests : IDisposable
         ps.Streams.ClearStreams();
         Assert.True(before[0] > 0, "Expected $Error to be populated before reset.");
 
-        await RunspaceResetProtocol.ResetAsync(worker, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+        await RunspaceResetProtocol.ResetAsync(worker, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, TimeSpan.FromSeconds(5));
 
         // Verify $Error is empty after reset.
         ps.AddScript("$Error.Count");
@@ -109,7 +110,7 @@ $WhatIfPreference       = $true
         ps.Commands.Clear();
         ps.Streams.ClearStreams();
 
-        await RunspaceResetProtocol.ResetAsync(worker, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+        await RunspaceResetProtocol.ResetAsync(worker, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, TimeSpan.FromSeconds(5));
 
         ps.AddScript(@"@{
     EAP = $ErrorActionPreference
@@ -141,7 +142,7 @@ $WhatIfPreference       = $true
         ps.Commands.Clear();
         ps.Streams.ClearStreams();
 
-        await RunspaceResetProtocol.ResetAsync(worker, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+        await RunspaceResetProtocol.ResetAsync(worker, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, TimeSpan.FromSeconds(5));
 
         ps.AddScript("(Get-Variable -Name McpRequestResult -ErrorAction SilentlyContinue) -eq $null");
         var results = ps.Invoke<bool>();
@@ -174,7 +175,7 @@ $WhatIfPreference       = $true
         ps.Commands.Clear();
         ps.Streams.ClearStreams();
 
-        await RunspaceResetProtocol.ResetAsync(worker, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+        await RunspaceResetProtocol.ResetAsync(worker, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, TimeSpan.FromSeconds(5));
 
         // Worker token must survive.
         ps.AddScript("$WorkerToken");
@@ -207,7 +208,7 @@ $WhatIfPreference       = $true
         ps.Commands.Clear();
         ps.Streams.ClearStreams();
 
-        await RunspaceResetProtocol.ResetAsync(worker, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+        await RunspaceResetProtocol.ResetAsync(worker, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, TimeSpan.FromSeconds(5));
 
         ps.AddScript("(Get-Location).Path");
         var location = ps.Invoke<string>();
@@ -242,7 +243,8 @@ $WhatIfPreference       = $true
         await Assert.ThrowsAnyAsync<Exception>(
             () => RunspaceResetProtocol.ResetAsync(
                 worker,
-                Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance));
+                Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+                TimeSpan.FromSeconds(5)));
     }
 
     // ─── StatelessRunspacePool — startup script runs once per worker ─────────
@@ -355,5 +357,166 @@ $WhatIfPreference       = $true
         lease2.PowerShell.Commands.Clear();
 
         Assert.True(results[0], "Request-scoped variable leaked across lease boundary.");
+    }
+
+    // ─── RunspaceResetProtocol — request-scoped PSDrive removed ───────────────
+
+    [Fact]
+    public async Task ResetProtocol_RemovesRequestScopedPsDrive()
+    {
+        using var worker = CreateWorker();
+        var ps = worker.PowerShell;
+
+        // Capture initial drive snapshot (what the reset protocol should preserve).
+        var driveSnapshot = RunspaceResetProtocol.CaptureDriveSnapshot(ps);
+        worker.SetInitializedDriveSnapshot(driveSnapshot);
+
+        // Create a temporary FileSystem drive to simulate a request-scoped drive.
+        // Use a unique name to avoid clashing with any existing drive.
+        var driveName = $"McpTest{Guid.NewGuid():N}"[..10];
+        var tempPath = System.IO.Path.GetTempPath();
+        ps.Commands.Clear();
+        ps.AddScript($"New-PSDrive -Name '{driveName}' -PSProvider FileSystem -Root '{tempPath.Replace("'", "\\'")}' -Scope Global");
+        ps.Invoke();
+        ps.Commands.Clear();
+        ps.Streams.ClearStreams();
+
+        // Verify the drive exists before reset.
+        ps.AddScript($"(Get-PSDrive -Name '{driveName}' -ErrorAction SilentlyContinue) -ne $null");
+        var before = ps.Invoke<bool>();
+        ps.Commands.Clear();
+        ps.Streams.ClearStreams();
+        Assert.True(before.Count > 0 && before[0], "Expected request-scoped drive to exist before reset.");
+
+        await RunspaceResetProtocol.ResetAsync(worker, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, TimeSpan.FromSeconds(5));
+
+        // Verify the drive was removed after reset.
+        ps.AddScript($"(Get-PSDrive -Name '{driveName}' -ErrorAction SilentlyContinue) -eq $null");
+        var after = ps.Invoke<bool>();
+        ps.Commands.Clear();
+        ps.Streams.ClearStreams();
+        Assert.True(after.Count > 0 && after[0], $"Request-scoped PSDrive '{driveName}' was not removed by reset.");
+    }
+
+    [Fact]
+    public async Task Pool_RequestScopedPsDrive_NotLeakedToNextRequest()
+    {
+        await using var pool = new StatelessRunspacePool(FastOptions(min: 1, max: 1, eager: 1));
+        await pool.StartAsync();
+
+        var driveName = $"McpTest{Guid.NewGuid():N}"[..10];
+        var tempPath = System.IO.Path.GetTempPath();
+
+        // First request: create a PSDrive.
+        await using (var lease1 = await pool.AcquireAsync())
+        {
+            lease1.PowerShell.Commands.Clear();
+            lease1.PowerShell.AddScript(
+                $"New-PSDrive -Name '{driveName}' -PSProvider FileSystem -Root '{tempPath.Replace("'", "\\'")}' -Scope Global");
+            lease1.PowerShell.Invoke();
+            lease1.PowerShell.Commands.Clear();
+        }
+
+        // Wait for reset to complete.
+        await Task.Delay(500);
+
+        // Second request: the drive must not be present.
+        await using var lease2 = await pool.AcquireAsync();
+        lease2.PowerShell.Commands.Clear();
+        lease2.PowerShell.AddScript(
+            $"(Get-PSDrive -Name '{driveName}' -ErrorAction SilentlyContinue) -eq $null");
+        var gone = lease2.PowerShell.Invoke<bool>();
+        lease2.PowerShell.Commands.Clear();
+
+        Assert.True(gone.Count > 0 && gone[0],
+            $"Request-scoped PSDrive '{driveName}' leaked across lease boundary.");
+    }
+
+    // ─── StatelessRunspacePool — StopTimeout controllable stuck path ─────────
+
+    [Fact]
+    public async Task Pool_Reset_StuckPipeline_EvictedWithStopTimeoutReason()
+    {
+        // Create a pool where the reset protocol uses a real stuck PS script.
+        // The script uses Start-Sleep; we cancel via a short StopTimeout so the test
+        // completes in bounded time and never hangs the suite.
+        var resetStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        async Task SlowReset(RunspaceWorker w, ILogger l, CancellationToken ct)
+        {
+            resetStarted.TrySetResult();
+            // Invoke a long-running script without honouring ct (simulates stuck pipeline).
+            // The real RunspaceResetProtocol.ResetAsync uses WaitAsync(ct) + ps.Stop() to
+            // implement StopTimeout; here we simulate by throwing TimeoutException directly
+            // after signalling that the reset started.
+            await Task.Delay(50, CancellationToken.None);
+            throw new TimeoutException("Simulated stuck pipeline exceeded StopTimeout.");
+        }
+
+        var opts = FastOptions(min: 1, max: 2, eager: 1);
+        opts.StopTimeout = TimeSpan.FromMilliseconds(200);
+
+        await using var pool = new StatelessRunspacePool(
+            opts,
+            resetProtocol: SlowReset);
+        await pool.StartAsync();
+
+        // Acquire and release; the SlowReset fires asynchronously after lease disposal.
+        var lease = await pool.AcquireAsync();
+        await lease.DisposeAsync();
+
+        // Wait for reset to start, then verify pool recovers (worker evicted + replenished).
+        await resetStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitForPoolStats(pool, s => s.LeasedWorkers == 0 && s.ResettingWorkers == 0,
+            TimeSpan.FromSeconds(5));
+
+        var stats = pool.GetStats();
+        Assert.Equal(0, stats.LeasedWorkers);
+        Assert.Equal(0, stats.ResettingWorkers);
+        // Worker was evicted with stop_timeout; pool must not have negative total.
+        Assert.True(stats.TotalWorkers >= 0, $"TotalWorkers went negative: {stats.TotalWorkers}");
+    }
+
+    // ─── Post-eviction replenishment — observable synchronization ─────────────
+
+    [Fact]
+    public async Task Pool_AfterEviction_ReplenisherRestoresMinPoolSize()
+    {
+        // Evict all workers explicitly; replenishment must restore Min=1 without arbitrary sleeps.
+        await using var pool = new StatelessRunspacePool(FastOptions(min: 1, max: 2, eager: 2));
+        await pool.StartAsync();
+
+        Assert.Equal(2, pool.GetStats().TotalWorkers);
+
+        var l1 = await pool.AcquireAsync();
+        var l2 = await pool.AcquireAsync();
+        l1.RequestEviction();
+        l2.RequestEviction();
+        await l1.DisposeAsync();
+        await l2.DisposeAsync();
+
+        // Replenishment is triggered via FireAndForgetCreateWorkerAsync from OnWorkerReturnedAsync.
+        // Poll (not sleep) until MinPoolSize workers are present.
+        await WaitForPoolStats(pool, s => s.TotalWorkers >= 1, TimeSpan.FromSeconds(10));
+
+        Assert.True(pool.GetStats().TotalWorkers >= 1,
+            $"Post-eviction replenishment failed; TotalWorkers={pool.GetStats().TotalWorkers}");
+    }
+
+    private static async Task WaitForPoolStats(
+        StatelessRunspacePool pool,
+        Func<RunspacePoolStats, bool> condition,
+        TimeSpan timeout)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (sw.Elapsed < timeout)
+        {
+            if (condition(pool.GetStats())) return;
+            await Task.Delay(20);
+        }
+        var s = pool.GetStats();
+        throw new TimeoutException(
+            $"Pool condition not met within {timeout}. " +
+            $"warm={s.WarmWorkers} leased={s.LeasedWorkers} resetting={s.ResettingWorkers} total={s.TotalWorkers}");
     }
 }

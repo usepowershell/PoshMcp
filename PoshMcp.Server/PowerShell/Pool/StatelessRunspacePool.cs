@@ -45,20 +45,20 @@ public sealed class StatelessRunspacePool : IRunspacePool
     private readonly string? _startupScript;
     private readonly Func<IPowerShellRunspace> _workerFactory;
     private readonly Func<PSPowerShell, IReadOnlySet<string>> _snapshotCapture;
+    private readonly Func<PSPowerShell, IReadOnlySet<string>> _driveSnapshotCapture;
     private readonly Func<RunspaceWorker, ILogger, CancellationToken, Task> _resetProtocol;
+    private readonly Func<DateTimeOffset> _clock;
 
     // All live workers tracked for sweep/drain.
     private readonly ConcurrentDictionary<RunspaceWorker, byte> _allWorkers = new();
 
-    // Available warm workers. Unbounded so stale evicted entries do not block
-    // replenishment writes; total-worker cap is enforced via _totalCount.
-    private readonly Channel<RunspaceWorker> _available = Channel.CreateUnbounded<RunspaceWorker>(
-        new UnboundedChannelOptions
-        {
-            SingleReader = false,
-            SingleWriter = false,
-            AllowSynchronousContinuations = false,
-        });
+    // Available warm workers. Bounded by MaxPoolSize.
+    // Capacity proof: channel entries (warm + stale) ≤ MaxPoolSize at all times because:
+    //   (a) workers are added only when they become Warm and _totalCount ≤ MaxPoolSize;
+    //   (b) stale entries (Warm→Evicted by sweeper) are bounded to sweeper surplus ≤ MaxPoolSize−MinPoolSize;
+    //   (c) replenishment after sweep never exceeds the remaining capacity (see analysis in PR).
+    // A TryWrite failure would indicate a pool-accounting bug; it is logged and the worker is evicted.
+    private readonly Channel<RunspaceWorker> _available;
 
     // Lifecycle counters — all updated via Interlocked.
     private int _warmCount;
@@ -102,10 +102,21 @@ public sealed class StatelessRunspacePool : IRunspacePool
     /// startup. Defaults to <see cref="RunspaceResetProtocol.CaptureVariableSnapshot"/>.
     /// Inject a no-op in unit tests.
     /// </param>
+    /// <param name="driveSnapshotCapture">
+    /// Optional delegate that captures PSDrive names from a <c>PSPowerShell</c> after
+    /// startup. Defaults to <see cref="RunspaceResetProtocol.CaptureDriveSnapshot"/>.
+    /// Inject a no-op in unit tests.
+    /// </param>
     /// <param name="resetProtocol">
     /// Optional delegate that executes the reset cycle on a returned worker.
-    /// Defaults to <see cref="RunspaceResetProtocol.ResetAsync"/>.
+    /// Defaults to <see cref="RunspaceResetProtocol.ResetAsync"/> with
+    /// <see cref="RunspacePoolOptions.StopTimeout"/> as the bounded stop wait.
     /// Inject a no-op in unit tests.
+    /// </param>
+    /// <param name="clock">
+    /// Optional function returning the current UTC time. Defaults to
+    /// <see cref="DateTimeOffset.UtcNow"/>. Inject a controlled clock in unit tests
+    /// to exercise idle-sweep logic without real-time delays.
     /// </param>
     public StatelessRunspacePool(
         RunspacePoolOptions options,
@@ -113,7 +124,9 @@ public sealed class StatelessRunspacePool : IRunspacePool
         string? startupScript = null,
         Func<IPowerShellRunspace>? workerFactory = null,
         Func<PSPowerShell, IReadOnlySet<string>>? snapshotCapture = null,
-        Func<RunspaceWorker, ILogger, CancellationToken, Task>? resetProtocol = null)
+        Func<PSPowerShell, IReadOnlySet<string>>? driveSnapshotCapture = null,
+        Func<RunspaceWorker, ILogger, CancellationToken, Task>? resetProtocol = null,
+        Func<DateTimeOffset>? clock = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         var errors = options.Validate();
@@ -128,8 +141,23 @@ public sealed class StatelessRunspacePool : IRunspacePool
         _metrics = new RunspacePoolMetrics();
         _workerFactory = workerFactory ?? (() => new IsolatedPowerShellRunspace(_startupScript ?? string.Empty));
         _snapshotCapture = snapshotCapture ?? RunspaceResetProtocol.CaptureVariableSnapshot;
-        _resetProtocol = resetProtocol ?? RunspaceResetProtocol.ResetAsync;
+        _driveSnapshotCapture = driveSnapshotCapture ?? RunspaceResetProtocol.CaptureDriveSnapshot;
+        _resetProtocol = resetProtocol ??
+            ((worker, logger, ct) => RunspaceResetProtocol.ResetAsync(worker, logger, _options.StopTimeout, ct));
+        _clock = clock ?? (() => DateTimeOffset.UtcNow);
         _shutdownToken = _shutdownCts.Token;
+
+        // Bounded channel — capacity analysis guarantees TryWrite never fails during normal
+        // operation. If it does, the worker is evicted to prevent a silent "warm but unreachable"
+        // worker that would cause _warmCount to diverge from actual reachable workers.
+        _available = Channel.CreateBounded<RunspaceWorker>(
+            new BoundedChannelOptions(_options.MaxPoolSize)
+            {
+                FullMode = BoundedChannelFullMode.DropWrite,
+                SingleReader = false,
+                SingleWriter = false,
+                AllowSynchronousContinuations = false,
+            });
     }
 
     // ─── Startup ────────────────────────────────────────────────────────────────
@@ -374,7 +402,7 @@ public sealed class StatelessRunspacePool : IRunspacePool
             string reason = evictRequested ? "explicit" : "broken";
             EvictWorker(worker, reason);
             FinalizeLeaseDone();
-            _ = TryReplenishAsync(_shutdownToken);
+            FireAndForgetCreateWorkerAsync(_shutdownToken);
             return;
         }
 
@@ -396,8 +424,20 @@ public sealed class StatelessRunspacePool : IRunspacePool
                 Interlocked.Increment(ref _warmCount);
                 _metrics.WorkerCount.Add(-1, RunspacePoolMetrics.StateTag("resetting"));
                 _metrics.WorkerCount.Add(1, RunspacePoolMetrics.StateTag("warm"));
-                _available.Writer.TryWrite(worker);
-                _logger.LogDebug("Worker reset complete; returned to pool.");
+
+                if (!_available.Writer.TryWrite(worker))
+                {
+                    // Bounded channel full despite capacity invariant — accounting bug.
+                    _logger.LogCritical(
+                        "BUG: bounded channel full on worker return. Worker will be orphaned-then-evicted.");
+                    Interlocked.Decrement(ref _warmCount);
+                    _metrics.WorkerCount.Add(-1, RunspacePoolMetrics.StateTag("warm"));
+                    EvictWorker(worker, "channel_full");
+                }
+                else
+                {
+                    _logger.LogDebug("Worker reset complete; returned to pool.");
+                }
             }
             else
             {
@@ -407,12 +447,23 @@ public sealed class StatelessRunspacePool : IRunspacePool
                 EvictWorker(worker, "drain");
             }
         }
+        catch (TimeoutException)
+        {
+            // Reset pipeline did not stop within StopTimeout; worker is stuck/uncertain.
+            _logger.LogWarning(
+                "Worker {CreatedAt} evicted after reset StopTimeout.",
+                worker.CreatedAt);
+            Interlocked.Decrement(ref _resettingCount);
+            _metrics.WorkerCount.Add(-1, RunspacePoolMetrics.StateTag("resetting"));
+            EvictWorker(worker, "stop_timeout");
+            FireAndForgetCreateWorkerAsync(_shutdownToken);
+        }
         catch (OperationCanceledException)
         {
             Interlocked.Decrement(ref _resettingCount);
             _metrics.WorkerCount.Add(-1, RunspacePoolMetrics.StateTag("resetting"));
             EvictWorker(worker, "cancel");
-            _ = TryReplenishAsync(_shutdownToken);
+            FireAndForgetCreateWorkerAsync(_shutdownToken);
         }
         catch (Exception ex)
         {
@@ -420,7 +471,7 @@ public sealed class StatelessRunspacePool : IRunspacePool
             Interlocked.Decrement(ref _resettingCount);
             _metrics.WorkerCount.Add(-1, RunspacePoolMetrics.StateTag("resetting"));
             EvictWorker(worker, "reset_failure");
-            _ = TryReplenishAsync(_shutdownToken);
+            FireAndForgetCreateWorkerAsync(_shutdownToken);
         }
 
         FinalizeLeaseDone();
@@ -438,10 +489,16 @@ public sealed class StatelessRunspacePool : IRunspacePool
     // ─── Worker creation ────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Creates one worker, runs the startup script, captures the variable snapshot,
+    /// Creates one worker, runs the startup script, captures the variable and drive snapshots,
     /// and enqueues it if successful. <c>_totalCount</c> is incremented before creation
     /// begins and decremented on failure.
     /// </summary>
+    /// <remarks>
+    /// On <see cref="OperationCanceledException"/>, the exception is re-thrown after cleanup so
+    /// callers using <c>Task.WhenAll</c> (e.g., <see cref="StartAsync"/>) can detect
+    /// cancellation. Fire-and-forget callers must observe the task to prevent unobserved
+    /// exceptions; use <see cref="FireAndForgetCreateWorkerAsync"/> for that pattern.
+    /// </remarks>
     private async Task CreateWorkerAsync(CancellationToken ct)
     {
         if (Interlocked.Increment(ref _totalCount) > _options.MaxPoolSize)
@@ -457,10 +514,13 @@ public sealed class StatelessRunspacePool : IRunspacePool
             var runspace = await Task.Run(_workerFactory, ct).ConfigureAwait(false);
             worker = new RunspaceWorker(runspace);
 
-            // Capture variable snapshot immediately after factory construction
+            // Capture variable and drive snapshots immediately after factory construction
             // (the factory runs the startup script internally via IsolatedPowerShellRunspace).
-            var snapshot = _snapshotCapture(worker.PowerShell);
-            worker.SetInitializedVariableSnapshot(snapshot);
+            var varSnapshot = _snapshotCapture(worker.PowerShell);
+            worker.SetInitializedVariableSnapshot(varSnapshot);
+
+            var driveSnapshot = _driveSnapshotCapture(worker.PowerShell);
+            worker.SetInitializedDriveSnapshot(driveSnapshot);
 
             if (!worker.TryTransitionTo(RunspaceWorkerState.Warm))
             {
@@ -471,24 +531,24 @@ public sealed class StatelessRunspacePool : IRunspacePool
             Interlocked.Increment(ref _warmCount);
             _metrics.WorkerCount.Add(1, RunspacePoolMetrics.StateTag("warm"));
             _allWorkers.TryAdd(worker, 0);
-            _available.Writer.TryWrite(worker);
+
+            if (!_available.Writer.TryWrite(worker))
+            {
+                // Channel full despite capacity proof — pool-accounting bug. Evict to prevent
+                // a warm-but-unreachable worker that would cause _warmCount to diverge.
+                _logger.LogCritical(
+                    "BUG: bounded channel full when enqueuing warm worker. " +
+                    "Worker will be orphaned-then-evicted. Max={Max}, Total={Total}.",
+                    _options.MaxPoolSize, Volatile.Read(ref _totalCount));
+                Interlocked.Decrement(ref _warmCount);
+                _metrics.WorkerCount.Add(-1, RunspacePoolMetrics.StateTag("warm"));
+                EvictWorker(worker, "channel_full");
+                return;
+            }
 
             _logger.LogDebug(
                 "Worker {CreatedAt} initialized and enqueued. Total={Total}.",
                 worker.CreatedAt, Volatile.Read(ref _totalCount));
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogWarning(ex, "Worker startup failed; evicting without entering pool.");
-            _metrics.StartupFailures.Add(1);
-            Interlocked.Decrement(ref _totalCount);
-
-            if (worker is not null)
-            {
-                worker.TryTransitionTo(RunspaceWorkerState.Evicted);
-                _allWorkers.TryRemove(worker, out _);
-                worker.Dispose();
-            }
         }
         catch (OperationCanceledException)
         {
@@ -501,14 +561,62 @@ public sealed class StatelessRunspacePool : IRunspacePool
                 _allWorkers.TryRemove(worker, out _);
                 worker.Dispose();
             }
+
+            throw;  // Preserve cancellation semantics for Task.WhenAll callers (StartAsync).
         }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Worker startup failed; evicting without entering pool.");
+            _metrics.StartupFailures.Add(1);
+            Interlocked.Decrement(ref _totalCount);
+
+            if (worker is not null)
+            {
+                // worker may have been transitioned to Warm but failed before/during channel write.
+                // Decrement _warmCount only if worker reached Warm state.
+                if (worker.State == RunspaceWorkerState.Warm)
+                {
+                    Interlocked.Decrement(ref _warmCount);
+                    _metrics.WorkerCount.Add(-1, RunspacePoolMetrics.StateTag("warm"));
+                }
+                worker.TryTransitionTo(RunspaceWorkerState.Evicted);
+                _allWorkers.TryRemove(worker, out _);
+                worker.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Fire-and-forget wrapper for <see cref="CreateWorkerAsync"/> that observes the task
+    /// and silently swallows <see cref="OperationCanceledException"/> (expected on shutdown).
+    /// </summary>
+    private void FireAndForgetCreateWorkerAsync(CancellationToken ct)
+    {
+        var task = CreateWorkerAsync(ct);
+        task.ContinueWith(
+            static t => { /* OCE on shutdown is expected; log only faults */ },
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     // ─── Eviction helper ────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Attempts to evict a worker. Only succeeds if this call wins the <c>Evicted</c>
+    /// CAS — exactly one racing caller will proceed; all others return without adjusting
+    /// counters. Callers that pre-adjusted a state-specific counter (e.g., <c>_resettingCount</c>)
+    /// before calling this method still own that adjustment regardless of the CAS outcome.
+    /// </summary>
     private void EvictWorker(RunspaceWorker worker, string reason)
     {
-        worker.TryTransitionTo(RunspaceWorkerState.Evicted);
+        if (!worker.TryTransitionTo(RunspaceWorkerState.Evicted))
+        {
+            // Another path (e.g., ForceDisposeAllWorkers) already owns this eviction.
+            // Do not decrement _totalCount a second time.
+            return;
+        }
+
         Interlocked.Decrement(ref _totalCount);
         _allWorkers.TryRemove(worker, out _);
         _metrics.Evictions.Add(1, RunspacePoolMetrics.ReasonTag(reason));
@@ -523,20 +631,39 @@ public sealed class StatelessRunspacePool : IRunspacePool
     {
         foreach (var (worker, _) in _allWorkers)
         {
-            if (_allWorkers.TryRemove(worker, out _))
+            if (!_allWorkers.TryRemove(worker, out _))
+                continue;
+
+            // Use TryTransitionTo(out fromState) so the actual from-state drives counter
+            // adjustments — not a separately-read snapshot that could be stale at CAS time.
+            if (!worker.TryTransitionTo(RunspaceWorkerState.Evicted, out var fromState))
             {
-                var state = worker.State;
-                worker.TryTransitionTo(RunspaceWorkerState.Evicted);
-                Interlocked.Decrement(ref _totalCount);
-                // Only decrement the counter for the state the worker was actually in.
-                // Leased workers: _leasedCount is decremented in OnWorkerReturnedAsync.
-                if (state == RunspaceWorkerState.Warm)
-                    Interlocked.Decrement(ref _warmCount);
-                else if (state == RunspaceWorkerState.Resetting)
-                    Interlocked.Decrement(ref _resettingCount);
-                _metrics.Evictions.Add(1, RunspacePoolMetrics.ReasonTag(reason));
-                worker.Dispose();
+                // Another path (OnWorkerReturnedAsync returning a lease) owns this eviction.
+                continue;
             }
+
+            Interlocked.Decrement(ref _totalCount);
+
+            // Adjust only the counters we "own": Warm workers were not concurrently managed
+            // by any active lease callback. Leased and Resetting workers are owned by
+            // OnWorkerReturnedAsync which will decrement their counters when the callback fires.
+            switch (fromState)
+            {
+                case RunspaceWorkerState.Warm:
+                    Interlocked.Decrement(ref _warmCount);
+                    _metrics.WorkerCount.Add(-1, RunspacePoolMetrics.StateTag("warm"));
+                    break;
+                // Leased:    _leasedCount decremented in OnWorkerReturnedAsync early-return path.
+                // Resetting: _resettingCount decremented in OnWorkerReturnedAsync catch paths.
+                // Creating:  no state-specific counter.
+            }
+
+            _metrics.Evictions.Add(1, RunspacePoolMetrics.ReasonTag(reason));
+            worker.Dispose();
+
+            _logger.LogInformation(
+                "Worker {CreatedAt} force-evicted from {FromState} (reason={Reason}). Total={Total}.",
+                worker.CreatedAt, fromState, reason, Volatile.Read(ref _totalCount));
         }
     }
 
@@ -573,9 +700,10 @@ public sealed class StatelessRunspacePool : IRunspacePool
             int current = Volatile.Read(ref _totalCount);
             if (current >= _options.MaxPoolSize) break;
 
-            // CreateWorkerAsync increments _totalCount itself, so don't double-count.
+            // CreateWorkerAsync increments _totalCount itself; use fire-and-forget wrapper
+            // so OCE on shutdown is silently swallowed rather than appearing unobserved.
             started = true;
-            _ = CreateWorkerAsync(ct);
+            FireAndForgetCreateWorkerAsync(ct);
         }
 
         if (started)
@@ -601,13 +729,19 @@ public sealed class StatelessRunspacePool : IRunspacePool
         }
     }
 
-    private void SweepOnce()
+    /// <summary>
+    /// Evicts surplus warm workers that have been idle beyond <see cref="RunspacePoolOptions.IdleTtl"/>.
+    /// Never evicts below <see cref="RunspacePoolOptions.MinPoolSize"/>.
+    /// Exposed as <c>internal</c> so tests can trigger a sweep deterministically without waiting
+    /// for the real sweep interval.
+    /// </summary>
+    internal void SweepOnce()
     {
         int warmCount = Volatile.Read(ref _warmCount);
         int surplus = warmCount - _options.MinPoolSize;
         if (surplus <= 0) return;
 
-        var now = DateTimeOffset.UtcNow;
+        var now = _clock();
         int evicted = 0;
 
         foreach (var (worker, _) in _allWorkers)
