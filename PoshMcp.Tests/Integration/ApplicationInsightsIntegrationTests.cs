@@ -125,7 +125,9 @@ public class ApplicationInsightsIntegrationTests : PowerShellTestBase
             var (initializeResponse, sessionId) = await SendMcpRequestAsync(httpClient, initializeRequest);
             Assert.Equal("2.0", initializeResponse["jsonrpc"]?.ToString());
             Assert.NotNull(initializeResponse["result"]);
-            Assert.False(string.IsNullOrWhiteSpace(sessionId));
+            // In stateless mode (the current default) no Mcp-Session-Id is returned; in
+            // stateful compat mode one is returned.  Either is acceptable here — the test
+            // proves tools respond, not which transport mode the server uses.
 
             var listToolsRequest = new
             {
@@ -134,6 +136,7 @@ public class ApplicationInsightsIntegrationTests : PowerShellTestBase
                 method = "tools/list"
             };
 
+            // Pass sessionId only if we received one (stateful compat); omit in stateless mode.
             var (listToolsResponse, _) = await SendMcpRequestAsync(httpClient, listToolsRequest, sessionId);
             var tools = listToolsResponse["result"]?["tools"] as JArray;
 

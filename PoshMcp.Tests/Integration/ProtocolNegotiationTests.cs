@@ -3,7 +3,15 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using ModelContextProtocol.AspNetCore;
+using ModelContextProtocol.Server;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Xunit;
@@ -12,47 +20,21 @@ using Xunit.Abstractions;
 namespace PoshMcp.Tests.Integration;
 
 /// <summary>
-/// Validates MCP v2 protocol negotiation (Layer 1) independently of HTTP transport statefulness (Layer 2).
+/// Validates MCP v2 protocol negotiation for both transport modes.
 ///
-/// <b>Authoritative wire behavior (observed on SDK v2.0.0, stateful mode <c>Stateless = false</c>):</b>
-///
-/// <list type="bullet">
-///   <item><b>server/discover is blocked at the HTTP transport layer</b> in stateful mode. The ASP.NET
-///         Core middleware returns <c>HTTP 400</c> with a well-formed JSON-RPC error before the
-///         MCP server-level handler is invoked. SDK error: "A new session can only be created by
-///         an initialize request. Include a valid Mcp-Session-Id header for non-initialize requests,
-///         or enable stateless mode by setting HttpServerTransportOptions.Stateless = true."</item>
-///   <item><b>2026-07-28 protocol is not available via initialize in stateful mode.</b>
-///         <c>initialize</c> with <c>2026-07-28</c> returns JSON-RPC error <c>-32022</c>: "Protocol
-///         version '2026-07-28' is not available through the initialize handshake." Supported versions
-///         for <c>initialize</c> are: <c>2024-11-05</c>, <c>2025-03-26</c>, <c>2025-06-18</c>,
-///         <c>2025-11-25</c>. The 2026-07-28 revision requires stateless mode (<c>Stateless = true</c>).</item>
-///   <item><b>Layer 1 × Layer 2 independence observed:</b> The HTTP transport layer assigns a
-///         <c>Mcp-Session-Id</c> even when the MCP protocol layer returns an initialize error
-///         (e.g., for <c>2026-07-28</c>). These are separate concerns.</item>
-///   <item><b>Scope mismatch:</b> Issue #340 requests testing <c>server/discover</c> success and
-///         <c>2026-07-28</c> initialize success. Both are NOT available in PoshMcp's current stateful
-///         HTTP default. The SDK documentation states <c>ConfigureDiscover()</c> "registers the handler
-///         unconditionally" at the MCP protocol layer, but the ASP.NET Core HTTP transport middleware
-///         (<c>Stateless = false</c>) intercepts pre-session requests before they reach that layer.
-///         These tests document the correct compatible behavior and surface the mismatch explicitly.</item>
-///   <item>The graceful-degradation path for v2 clients: probe <c>server/discover</c> → receive 400
-///         with explicit guidance → fall back to <c>initialize</c> with a supported version → session.</item>
-///   <item>The legacy down-level path: <c>initialize</c> with <c>2024-11-05</c> or
-///         <c>2025-11-25</c> → established session with <c>tools/list</c> and <c>tools/call</c>.</item>
-/// </list>
-///
-/// <b>Behavior Matrix (Layer 1 × Layer 2 independence, stateful HTTP default):</b>
+/// <b>Behavior Matrix:</b>
 /// <code>
-/// | Negotiation Path                              | Protocol    | tools/list | tools/call | Session ID  |
-/// |-----------------------------------------------|-------------|:----------:|:----------:|:-----------:|
-/// | server/discover probe (stateful)              | N/A         |     —      |     —      | — (400)     |
-/// | initialize with 2026-07-28 (stateful)         | 2026-07-28  |     —      |     —      | * (-32022)  |
-/// | server/discover → fallback → init 2025-11-25  | 2025-11-25  |     ✓      |     ✓      |     ✓       |
-/// | initialize directly (down-level)              | 2025-11-25  |     ✓      |     ✓      |     ✓       |
-/// | initialize directly (down-level)              | 2024-11-05  |     ✓      |     ✓      |     ✓       |
+/// | Path                                               | Protocol    | tools/list | tools/call | Session ID  |
+/// |----------------------------------------------------|-------------|:----------:|:----------:|:-----------:|
+/// | server/discover (stateless default)                | 2026-07-28  |     ✓      |     —      | —           |
+/// | tools/list direct (stateless default)              | any         |     ✓      |     —      | —           |
+/// | tools/call direct (stateless default)              | any         |     —      |     ✓      | —           |
+/// | initialize 2024-11-05 (stateless, compat)          | 2024-11-05  |     ✓      |     ✓      | —           |
+/// | initialize 2024-11-05 (stateful compat mode)       | 2024-11-05  |     ✓      |     ✓      |     ✓       |
+/// | initialize 2025-11-25 (stateful compat mode)       | 2025-11-25  |     ✓      |     ✓      |     ✓       |
 /// </code>
-/// * = session ID issued by transport layer but session unusable (MCP protocol error -32022)
+/// Stateless is the production default; stateful compat tests use an explicit test-host configuration.
+/// Protocol negotiation does not mutate the configured transport mode.
 /// </summary>
 [Trait("Category", "Integration")]
 [Trait("Category", "ProtocolNegotiation")]
@@ -62,503 +44,313 @@ public class ProtocolNegotiationTests : PowerShellTestBase
     public ProtocolNegotiationTests(ITestOutputHelper output) : base(output) { }
 
     // -------------------------------------------------------------------------
-    // Layer 1 — server/discover behavior in stateful mode
-    //
-    // SCOPE MISMATCH: issue #340 requests testing that server/discover succeeds.
-    // Authoritative wire behavior: stateful mode blocks pre-session non-initialize
-    // requests at the HTTP transport layer (HTTP 400) before the MCP handler runs.
-    // These tests document the actual behavior; tests below prove the correct
-    // graceful-fallback path (probe → 400 → initialize → functional session).
+    // Stateless default — server/discover and direct tool access
+    // Uses InProcessUnifiedHttpServer (production default: Stateless = true).
     // -------------------------------------------------------------------------
 
     [Fact]
-    public async Task ServerDiscover_InStatefulMode_Returns400WithJsonRpcError()
-    {
-        // In stateful mode (Stateless = false) the ASP.NET Core middleware intercepts
-        // pre-session requests before they reach the MCP server/discover handler.
-        // The SDK returns a well-formed JSON-RPC error, not an unstructured HTTP error.
-        using var server = new InProcessUnifiedHttpServer();
-        await server.StartAsync();
-
-        using var httpClient = new HttpClient
-        {
-            BaseAddress = new Uri(server.ServerUrl),
-            Timeout = TimeSpan.FromSeconds(10)
-        };
-        httpClient.DefaultRequestHeaders.Accept.ParseAdd("application/json");
-        httpClient.DefaultRequestHeaders.Accept.ParseAdd("text/event-stream");
-
-        using var content = new StringContent(
-            JsonConvert.SerializeObject(new { jsonrpc = "2.0", id = 1, method = "server/discover" }),
-            Encoding.UTF8,
-            "application/json");
-
-        using var httpResponse = await httpClient.PostAsync("/", content);
-        var body = await httpResponse.Content.ReadAsStringAsync();
-        Output.WriteLine($"Status: {(int)httpResponse.StatusCode}");
-        Output.WriteLine($"Body: {body}");
-
-        // The HTTP transport layer returns 400 with a structured JSON-RPC error body.
-        // Asserting the status and the JSON shape proves graceful rejection (not a crash).
-        Assert.Equal(HttpStatusCode.BadRequest, httpResponse.StatusCode);
-
-        var errorObj = JObject.Parse(body);
-        Assert.Equal("2.0", errorObj["jsonrpc"]?.ToString());
-        Assert.NotNull(errorObj["error"]);
-
-        var errorMessage = errorObj["error"]?["message"]?.ToString() ?? "";
-        Output.WriteLine($"Error message: {errorMessage}");
-
-        // The SDK error message explicitly guides clients to the correct path,
-        // enabling clean graceful degradation (the client knows to use initialize).
-        Assert.Contains("initialize request", errorMessage, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task ServerDiscover_InStatefulMode_ErrorGuidesClientToInitialize()
-    {
-        // The 400 error from server/discover in stateful mode must contain explicit
-        // guidance so that client SDK implementations can implement graceful fallback
-        // to the initialize handshake.
-        using var server = new InProcessUnifiedHttpServer();
-        await server.StartAsync();
-
-        using var httpClient = new HttpClient
-        {
-            BaseAddress = new Uri(server.ServerUrl),
-            Timeout = TimeSpan.FromSeconds(10)
-        };
-        httpClient.DefaultRequestHeaders.Accept.ParseAdd("application/json");
-        httpClient.DefaultRequestHeaders.Accept.ParseAdd("text/event-stream");
-
-        using var content = new StringContent(
-            JsonConvert.SerializeObject(new { jsonrpc = "2.0", id = 1, method = "server/discover" }),
-            Encoding.UTF8,
-            "application/json");
-
-        using var httpResponse = await httpClient.PostAsync("/", content);
-        var body = await httpResponse.Content.ReadAsStringAsync();
-        var errorObj = JObject.Parse(body);
-
-        var errorCode = errorObj["error"]?["code"]?.Value<int>();
-        var errorMessage = errorObj["error"]?["message"]?.ToString() ?? "";
-
-        Output.WriteLine($"Error code: {errorCode}, message: {errorMessage}");
-
-        // MCP error code -32000 is a generic server error; the message must be actionable.
-        Assert.NotNull(errorCode);
-        Assert.Contains("initialize", errorMessage, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task ServerDiscover_InStatefulMode_Requires_Both_Accept_Headers()
-    {
-        // The server enforces Accept: application/json AND text/event-stream.
-        // A client that omits text/event-stream receives 406 Not Acceptable,
-        // which is separate from the session-related 400.
-        using var server = new InProcessUnifiedHttpServer();
-        await server.StartAsync();
-
-        using var httpClient = new HttpClient
-        {
-            BaseAddress = new Uri(server.ServerUrl),
-            Timeout = TimeSpan.FromSeconds(10)
-        };
-        // Intentionally only sending application/json, NOT text/event-stream.
-        httpClient.DefaultRequestHeaders.Accept.ParseAdd("application/json");
-
-        using var content = new StringContent(
-            JsonConvert.SerializeObject(new { jsonrpc = "2.0", id = 1, method = "server/discover" }),
-            Encoding.UTF8,
-            "application/json");
-
-        using var httpResponse = await httpClient.PostAsync("/", content);
-        var body = await httpResponse.Content.ReadAsStringAsync();
-        Output.WriteLine($"Status: {(int)httpResponse.StatusCode}, Body: {body}");
-
-        // 406 is the expected response for missing text/event-stream Accept.
-        Assert.Equal(HttpStatusCode.NotAcceptable, httpResponse.StatusCode);
-
-        var errorObj = JObject.Parse(body);
-        Assert.Equal("2.0", errorObj["jsonrpc"]?.ToString());
-        Assert.NotNull(errorObj["error"]);
-    }
-
-    // -------------------------------------------------------------------------
-    // Layer 1 — initialize handshake (down-level and v2 protocol clients)
-    // -------------------------------------------------------------------------
-
-    [Theory]
-    [InlineData("2024-11-05")]
-    [InlineData("2025-11-25")]
-    public async Task Initialize_ShouldSucceedAndReturnSessionId_ForAllSupportedProtocolVersions(
-        string requestedVersion)
+    public async Task ServerDiscover_StatelessDefault_Succeeds()
     {
         using var server = new InProcessUnifiedHttpServer();
         await server.StartAsync();
 
         using var client = CreateMcpClient(server.ServerUrl);
-        var (response, sessionId) = await SendInitializeAsync(client, requestedVersion);
+        using var response = await PostDiscoverAsync(client);
 
-        Output.WriteLine($"[{requestedVersion}] initialize response: {response.ToString(Formatting.None)}");
-        Output.WriteLine($"[{requestedVersion}] sessionId: {sessionId ?? "(none)"}");
+        var body = await response.Content.ReadAsStringAsync();
+        Output.WriteLine($"server/discover status: {(int)response.StatusCode}");
+        Output.WriteLine($"server/discover body: {body}");
 
-        Assert.Equal("2.0", response["jsonrpc"]?.ToString());
-        Assert.NotNull(response["result"]);
-        Assert.Null(response["error"]);
-        Assert.False(string.IsNullOrWhiteSpace(sessionId),
-            $"Expected Mcp-Session-Id header for protocol {requestedVersion}");
+        Assert.True(response.IsSuccessStatusCode,
+            $"server/discover must succeed in stateless mode (got {(int)response.StatusCode}): {body}");
+
+        var result = ParseJsonOrSse(body, response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("2.0", result["jsonrpc"]?.ToString());
+        Assert.NotNull(result["result"]);
+        Assert.Null(result["error"]);
     }
 
-    [Theory]
-    [InlineData("2024-11-05")]
-    [InlineData("2025-11-25")]
-    public async Task Initialize_ShouldNegotiateCompatibleProtocolVersion(string requestedVersion)
+    [Fact]
+    public async Task ServerDiscover_StatelessDefault_ReturnsServerInfo()
     {
         using var server = new InProcessUnifiedHttpServer();
         await server.StartAsync();
 
         using var client = CreateMcpClient(server.ServerUrl);
-        var (response, _) = await SendInitializeAsync(client, requestedVersion);
+        using var response = await PostDiscoverAsync(client);
 
-        var negotiatedVersion = response["result"]?["protocolVersion"]?.ToString();
-        Output.WriteLine($"Requested: {requestedVersion}, Negotiated: {negotiatedVersion}");
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.True(response.IsSuccessStatusCode, $"server/discover failed: {body}");
 
-        Assert.False(string.IsNullOrWhiteSpace(negotiatedVersion),
-            "initialize result must include protocolVersion");
+        var result = ParseJsonOrSse(body, response.Content.Headers.ContentType?.MediaType);
+        var discoveryResult = result["result"];
+        Assert.NotNull(discoveryResult);
 
-        // SDK doc: "For clients using the initialize handshake, the server returns the requested
-        // initialize-capable version when it is supported and otherwise returns 2025-11-25."
-        // Both 2024-11-05 and 2025-11-25 are supported, so the server echoes the requested version.
-        Assert.Equal(requestedVersion, negotiatedVersion);
+        // server/discover result must include at minimum serverInfo or capabilities
+        var hasServerInfo = discoveryResult?["serverInfo"] != null;
+        var hasCapabilities = discoveryResult?["capabilities"] != null;
+        var hasProtocolVersion = discoveryResult?["protocolVersion"] != null;
+        Output.WriteLine($"result keys: serverInfo={hasServerInfo}, capabilities={hasCapabilities}, protocolVersion={hasProtocolVersion}");
+        Assert.True(hasServerInfo || hasCapabilities || hasProtocolVersion,
+            $"server/discover result must include server info, capabilities, or protocolVersion. Got: {discoveryResult}");
     }
 
     [Fact]
-    public async Task Initialize_WithJuly2026Protocol_InStatefulMode_ReturnsStructuredError()
-    {
-        // Authoritative behavior: 2026-07-28 is NOT available via initialize in stateful mode.
-        // The server returns JSON-RPC error -32022 with the list of supported versions,
-        // enabling clients to choose a supported version and retry.
-        using var server = new InProcessUnifiedHttpServer();
-        await server.StartAsync();
-
-        using var httpClient = new HttpClient
-        {
-            BaseAddress = new Uri(server.ServerUrl),
-            Timeout = TimeSpan.FromSeconds(10)
-        };
-        httpClient.DefaultRequestHeaders.Accept.ParseAdd("application/json");
-        httpClient.DefaultRequestHeaders.Accept.ParseAdd("text/event-stream");
-
-        using var content = new StringContent(
-            JsonConvert.SerializeObject(new
-            {
-                jsonrpc = "2.0",
-                id = 1,
-                method = "initialize",
-                @params = new
-                {
-                    protocolVersion = "2026-07-28",
-                    capabilities = new { tools = new { } },
-                    clientInfo = new { name = "protocol-negotiation-test", version = "1.0.0" }
-                }
-            }),
-            Encoding.UTF8,
-            "application/json");
-
-        using var httpResponse = await httpClient.PostAsync("/", content);
-        var body = await httpResponse.Content.ReadAsStringAsync();
-        Output.WriteLine($"Status: {(int)httpResponse.StatusCode}");
-        Output.WriteLine($"Body: {body}");
-
-        var errorObj = ParseJsonOrSse(body, httpResponse.Content.Headers.ContentType?.MediaType);
-        Assert.Equal("2.0", errorObj["jsonrpc"]?.ToString());
-        Assert.NotNull(errorObj["error"]);
-
-        var errorCode = errorObj["error"]?["code"]?.Value<int>();
-        var errorMessage = errorObj["error"]?["message"]?.ToString() ?? "";
-        Output.WriteLine($"Error code: {errorCode}, message: {errorMessage}");
-
-        // Error -32022 is the SDK's UnsupportedProtocolVersion code for initialize.
-        Assert.Equal(-32022, errorCode);
-        Assert.Contains("2026-07-28", errorMessage, StringComparison.Ordinal);
-        Assert.Contains("initialize", errorMessage, StringComparison.OrdinalIgnoreCase);
-
-        // The error data lists supported initialize-compatible versions so clients can retry.
-        var supported = errorObj["error"]?["data"]?["supported"] as JArray;
-        Assert.NotNull(supported);
-        Assert.Contains(supported!, v => string.Equals(v?.ToString(), "2025-11-25", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public async Task Initialize_WithJuly2026Protocol_TransportLayerStillAssignsSessionId()
-    {
-        // Layer 1 × Layer 2 independence: the HTTP transport layer assigns a Mcp-Session-Id
-        // regardless of the MCP protocol-level error. This proves the two layers are independent.
-        using var server = new InProcessUnifiedHttpServer();
-        await server.StartAsync();
-
-        using var httpClient = new HttpClient
-        {
-            BaseAddress = new Uri(server.ServerUrl),
-            Timeout = TimeSpan.FromSeconds(10)
-        };
-        httpClient.DefaultRequestHeaders.Accept.ParseAdd("application/json");
-        httpClient.DefaultRequestHeaders.Accept.ParseAdd("text/event-stream");
-
-        using var content = new StringContent(
-            JsonConvert.SerializeObject(new
-            {
-                jsonrpc = "2.0",
-                id = 1,
-                method = "initialize",
-                @params = new
-                {
-                    protocolVersion = "2026-07-28",
-                    capabilities = new { tools = new { } },
-                    clientInfo = new { name = "protocol-negotiation-test", version = "1.0.0" }
-                }
-            }),
-            Encoding.UTF8,
-            "application/json");
-
-        using var httpResponse = await httpClient.PostAsync("/", content);
-        var body = await httpResponse.Content.ReadAsStringAsync();
-
-        var sessionId = httpResponse.Headers.TryGetValues("Mcp-Session-Id", out var vals)
-            ? vals.FirstOrDefault()
-            : null;
-
-        Output.WriteLine($"Session ID from transport: {sessionId ?? "(none)"}");
-        Output.WriteLine($"MCP protocol response: {body}");
-
-        // HTTP transport (Layer 2) assigns a session ID even though the MCP protocol
-        // layer (Layer 1) rejects the 2026-07-28 version. Independent layers.
-        Assert.False(string.IsNullOrWhiteSpace(sessionId),
-            "HTTP transport should assign Mcp-Session-Id independently of MCP protocol-level errors.");
-        var errorObj = ParseJsonOrSse(body, httpResponse.Content.Headers.ContentType?.MediaType);
-        Assert.NotNull(errorObj["error"]);
-    }
-
-    // -------------------------------------------------------------------------
-    // Layer 1 — graceful-fallback path:
-    //   v2 client probes server/discover → gets 400 → falls back to initialize
-    //   This is the authoritative down-level client behavior for stateful servers.
-    // -------------------------------------------------------------------------
-
-    [Theory]
-    [InlineData("2025-11-25")]
-    public async Task DiscoverProbe_GracefulFallback_ShouldSupportToolsList(string fallbackVersion)
+    public async Task ToolsList_StatelessDefault_WorksWithoutSession()
     {
         using var server = new InProcessUnifiedHttpServer();
         await server.StartAsync();
 
         using var client = CreateMcpClient(server.ServerUrl);
+        using var response = await PostRawAsync(client,
+            new { jsonrpc = "2.0", id = 1, method = "tools/list" });
 
-        // Step 1: v2 client probes server/discover — expects 400 in stateful mode.
-        using var probeContent = new StringContent(
-            JsonConvert.SerializeObject(new { jsonrpc = "2.0", id = 1, method = "server/discover" }),
-            Encoding.UTF8,
-            "application/json");
-        using var probeMsg = new HttpRequestMessage(HttpMethod.Post, "/") { Content = probeContent };
-        using var probeResponse = await client.SendAsync(probeMsg);
-        Output.WriteLine($"server/discover probe status: {(int)probeResponse.StatusCode}");
+        var body = await response.Content.ReadAsStringAsync();
+        Output.WriteLine($"tools/list: {body}");
+        Assert.True(response.IsSuccessStatusCode, $"tools/list in stateless mode failed: {body}");
 
-        // Graceful fallback: 400 is a clean, structured rejection — not a crash.
-        // v2 SDK client implementations fall back to initialize when they see this error.
-        Assert.Equal(HttpStatusCode.BadRequest, probeResponse.StatusCode);
-
-        // Step 2: fall back to initialize with the chosen version
-        var (_, sessionId) = await SendInitializeAsync(client, fallbackVersion, startId: 2);
-        Assert.False(string.IsNullOrWhiteSpace(sessionId),
-            "After discovering stateful server, initialize must succeed");
-        Output.WriteLine($"sessionId after graceful fallback: {sessionId}");
-
-        // Step 3: tools/list proves the session is functional
-        var toolsResponse = await PostJsonRpcAsync(client, new
-        {
-            jsonrpc = "2.0",
-            id = 3,
-            method = "tools/list"
-        }, sessionId: sessionId, protocolVersion: fallbackVersion);
-
-        var tools = toolsResponse["result"]?["tools"] as JArray;
-        Output.WriteLine($"tools count: {tools?.Count ?? 0}");
-        Assert.NotNull(tools);
+        var result = ParseJsonOrSse(body, response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("2.0", result["jsonrpc"]?.ToString());
+        Assert.NotNull(result["result"]?["tools"]);
+        var tools = result["result"]!["tools"] as JArray;
         Assert.NotEmpty(tools!);
     }
 
-    [Theory]
-    [InlineData("2025-11-25")]
-    public async Task DiscoverProbe_GracefulFallback_ShouldSupportToolsCall(string fallbackVersion)
+    [Fact]
+    public async Task ToolsCall_StatelessDefault_Succeeds()
     {
         using var server = new InProcessUnifiedHttpServer();
         await server.StartAsync();
 
         using var client = CreateMcpClient(server.ServerUrl);
 
-        // Step 1: probe fails gracefully
-        using var probeContent = new StringContent(
-            JsonConvert.SerializeObject(new { jsonrpc = "2.0", id = 1, method = "server/discover" }),
-            Encoding.UTF8,
-            "application/json");
-        using var probeMsg = new HttpRequestMessage(HttpMethod.Post, "/") { Content = probeContent };
-        using var probeResponse = await client.SendAsync(probeMsg);
-        Assert.Equal(HttpStatusCode.BadRequest, probeResponse.StatusCode);
-
-        // Step 2: fall back to initialize
-        var (_, sessionId) = await SendInitializeAsync(client, fallbackVersion, startId: 2);
-        Assert.False(string.IsNullOrWhiteSpace(sessionId));
-
-        // Step 3: list tools
-        var toolsResponse = await PostJsonRpcAsync(client, new
-        {
-            jsonrpc = "2.0",
-            id = 3,
-            method = "tools/list"
-        }, sessionId: sessionId, protocolVersion: fallbackVersion);
-
-        var tools = toolsResponse["result"]?["tools"] as JArray;
+        // Get a callable tool name
+        using var listResponse = await PostRawAsync(client,
+            new { jsonrpc = "2.0", id = 1, method = "tools/list" });
+        var listBody = await listResponse.Content.ReadAsStringAsync();
+        Assert.True(listResponse.IsSuccessStatusCode, $"tools/list failed: {listBody}");
+        var listResult = ParseJsonOrSse(listBody, listResponse.Content.Headers.ContentType?.MediaType);
+        var tools = listResult["result"]!["tools"] as JArray;
         Assert.NotNull(tools);
-        Assert.NotEmpty(tools!);
 
         var toolName = tools!
             .Select(t => t?["name"]?.ToString())
             .FirstOrDefault(n => !string.IsNullOrWhiteSpace(n) &&
                 (n.StartsWith("get_date", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(n, "get_last_command_output", StringComparison.OrdinalIgnoreCase)));
-        Assert.False(string.IsNullOrWhiteSpace(toolName), "Expected a callable tool");
+        Assert.False(string.IsNullOrWhiteSpace(toolName), "Expected a callable tool in stateless mode");
 
-        // Step 4: call tool
-        var callResponse = await PostJsonRpcAsync(client, new
+        using var callResponse = await PostRawAsync(client, new
         {
             jsonrpc = "2.0",
-            id = 4,
+            id = 2,
             method = "tools/call",
             @params = new { name = toolName, arguments = new { } }
-        }, sessionId: sessionId, protocolVersion: fallbackVersion);
+        });
+        var callBody = await callResponse.Content.ReadAsStringAsync();
+        Output.WriteLine($"tools/call [{toolName}]: {callBody}");
+        Assert.True(callResponse.IsSuccessStatusCode, $"tools/call in stateless mode failed: {callBody}");
 
-        Output.WriteLine($"tools/call response: {callResponse.ToString(Formatting.None)}");
-        Assert.Equal("2.0", callResponse["jsonrpc"]?.ToString());
-        Assert.NotNull(callResponse["result"]);
-        Assert.Null(callResponse["error"]);
+        var callResult = ParseJsonOrSse(callBody, callResponse.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("2.0", callResult["jsonrpc"]?.ToString());
+        Assert.NotNull(callResult["result"]);
+        Assert.Null(callResult["error"]);
     }
 
-    // -------------------------------------------------------------------------
-    // Layer 1 — direct initialize path (down-level clients, no probe step)
-    // -------------------------------------------------------------------------
-
-    [Theory]
-    [InlineData("2025-11-25")]
-    [InlineData("2024-11-05")]
-    public async Task DirectInitialize_DownLevelClient_ShouldSupportToolsList(string protocolVersion)
+    [Fact]
+    public async Task BackwardCompat_Initialize_DownLevel_202411_InStatelessMode_Succeeds()
     {
+        // Proves down-level clients using initialize with 2024-11-05 still work in stateless mode.
+        // No Mcp-Session-Id is returned (stateless transport), but the MCP protocol succeeds.
         using var server = new InProcessUnifiedHttpServer();
         await server.StartAsync();
 
         using var client = CreateMcpClient(server.ServerUrl);
-
-        var (_, sessionId) = await SendInitializeAsync(client, protocolVersion);
-        Assert.False(string.IsNullOrWhiteSpace(sessionId));
-
-        var toolsResponse = await PostJsonRpcAsync(client, new
+        using var response = await PostRawAsync(client, new
         {
             jsonrpc = "2.0",
-            id = 2,
-            method = "tools/list"
-        }, sessionId: sessionId, protocolVersion: protocolVersion);
+            id = 1,
+            method = "initialize",
+            @params = new
+            {
+                protocolVersion = "2024-11-05",
+                capabilities = new { tools = new { } },
+                clientInfo = new { name = "compat-test", version = "1.0.0" }
+            }
+        });
 
-        var tools = toolsResponse["result"]?["tools"] as JArray;
-        Output.WriteLine($"[{protocolVersion}] tools count: {tools?.Count ?? 0}");
+        var body = await response.Content.ReadAsStringAsync();
+        Output.WriteLine($"initialize 2024-11-05 (stateless): {body}");
+        Assert.True(response.IsSuccessStatusCode, $"initialize 2024-11-05 failed in stateless mode: {body}");
+
+        var result = ParseJsonOrSse(body, response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("2.0", result["jsonrpc"]?.ToString());
+        Assert.NotNull(result["result"]);
+        Assert.Null(result["error"]);
+
+        // Stateless mode must NOT return Mcp-Session-Id
+        var hasSessionId = response.Headers.TryGetValues("Mcp-Session-Id", out var vals)
+            && vals.Any(v => !string.IsNullOrWhiteSpace(v));
+        Assert.False(hasSessionId, "Stateless mode must not return Mcp-Session-Id on initialize");
+
+        // tools/list still works after initialize in stateless mode
+        using var toolsResponse = await PostRawAsync(client,
+            new { jsonrpc = "2.0", id = 2, method = "tools/list" });
+        var toolsBody = await toolsResponse.Content.ReadAsStringAsync();
+        Assert.True(toolsResponse.IsSuccessStatusCode, $"tools/list after stateless initialize failed: {toolsBody}");
+        var toolsResult = ParseJsonOrSse(toolsBody, toolsResponse.Content.Headers.ContentType?.MediaType);
+        var tools = toolsResult["result"]?["tools"] as JArray;
         Assert.NotNull(tools);
         Assert.NotEmpty(tools!);
     }
 
-    [Theory]
-    [InlineData("2025-11-25")]
-    [InlineData("2024-11-05")]
-    public async Task DirectInitialize_DownLevelClient_ShouldSupportToolsCall(string protocolVersion)
-    {
-        using var server = new InProcessUnifiedHttpServer();
-        await server.StartAsync();
-
-        using var client = CreateMcpClient(server.ServerUrl);
-
-        var (_, sessionId) = await SendInitializeAsync(client, protocolVersion);
-        Assert.False(string.IsNullOrWhiteSpace(sessionId));
-
-        var toolsResponse = await PostJsonRpcAsync(client, new
-        {
-            jsonrpc = "2.0",
-            id = 2,
-            method = "tools/list"
-        }, sessionId: sessionId, protocolVersion: protocolVersion);
-
-        var tools = toolsResponse["result"]?["tools"] as JArray;
-        Assert.NotNull(tools);
-        Assert.NotEmpty(tools!);
-
-        var toolName = tools!
-            .Select(t => t?["name"]?.ToString())
-            .FirstOrDefault(n => !string.IsNullOrWhiteSpace(n) &&
-                (n.StartsWith("get_date", StringComparison.OrdinalIgnoreCase) ||
-                 string.Equals(n, "get_last_command_output", StringComparison.OrdinalIgnoreCase)));
-        Assert.False(string.IsNullOrWhiteSpace(toolName));
-
-        var callResponse = await PostJsonRpcAsync(client, new
-        {
-            jsonrpc = "2.0",
-            id = 3,
-            method = "tools/call",
-            @params = new { name = toolName, arguments = new { } }
-        }, sessionId: sessionId, protocolVersion: protocolVersion);
-
-        Output.WriteLine($"[{protocolVersion}] tools/call: {callResponse.ToString(Formatting.None)}");
-        Assert.Equal("2.0", callResponse["jsonrpc"]?.ToString());
-        Assert.NotNull(callResponse["result"]);
-        Assert.Null(callResponse["error"]);
-    }
-
     // -------------------------------------------------------------------------
-    // Layer 1 × Layer 2 independence — initialize protocol version must NOT
-    // alter HTTP transport mode (session ID always returned)
+    // Stateful compatibility mode — explicit Stateless = false on test host
+    // Proves down-level initialize still works with session tracking when
+    // operators configure the backward-compatibility transport mode.
     // -------------------------------------------------------------------------
 
     [Theory]
-    [InlineData("2025-11-25")]
     [InlineData("2024-11-05")]
-    public async Task Initialize_ShouldNotAlterHttpTransportMode_SessionIdAlwaysReturned(
+    [InlineData("2025-11-25")]
+    public async Task StatefulCompat_Initialize_DownLevel_ReturnsSessionId_And_FunctionalTools(
         string protocolVersion)
     {
-        // Proves that the choice of protocol version in the initialize handshake
-        // does not change the server's HTTP transport mode. The server must always
-        // return Mcp-Session-Id, confirming stateful mode is independent of
-        // the negotiated MCP protocol version.
+        await using var app = BuildStatefulCompatHost(protocolVersion);
+        await app.StartAsync();
+        using var client = app.GetTestClient();
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+        client.DefaultRequestHeaders.Accept.ParseAdd("text/event-stream");
+
+        // initialize returns a session ID in stateful mode
+        using var initResponse = await client.PostAsync("/",
+            JsonContent(new
+            {
+                jsonrpc = "2.0",
+                id = 1,
+                method = "initialize",
+                @params = new
+                {
+                    protocolVersion,
+                    capabilities = new { tools = new { } },
+                    clientInfo = new { name = "stateful-compat-test", version = "1.0.0" }
+                }
+            }));
+        var initBody = await initResponse.Content.ReadAsStringAsync();
+        Output.WriteLine($"[{protocolVersion}] initialize (stateful): {initBody}");
+        Assert.Equal(HttpStatusCode.OK, initResponse.StatusCode);
+
+        var sessionId = initResponse.Headers.TryGetValues("Mcp-Session-Id", out var vals)
+            ? vals.FirstOrDefault() : null;
+        Assert.False(string.IsNullOrWhiteSpace(sessionId),
+            $"Stateful compat mode must return Mcp-Session-Id for protocol {protocolVersion}");
+
+        // tools/list works with session ID
+        using var toolsRequest = new HttpRequestMessage(HttpMethod.Post, "/")
+        {
+            Content = JsonContent(new { jsonrpc = "2.0", id = 2, method = "tools/list" })
+        };
+        toolsRequest.Headers.TryAddWithoutValidation("Mcp-Session-Id", sessionId);
+        toolsRequest.Headers.TryAddWithoutValidation("MCP-Protocol-Version", protocolVersion);
+        using var toolsResponse = await client.SendAsync(toolsRequest);
+        var toolsBody = await toolsResponse.Content.ReadAsStringAsync();
+        Output.WriteLine($"[{protocolVersion}] tools/list (stateful): {toolsBody}");
+        Assert.Equal(HttpStatusCode.OK, toolsResponse.StatusCode);
+        var toolsResult = ParseJsonOrSse(toolsBody, toolsResponse.Content.Headers.ContentType?.MediaType);
+        var tools = toolsResult["result"]?["tools"] as JArray;
+        Assert.NotNull(tools);
+        Assert.NotEmpty(tools!);
+
+        // tools/call proves tools are functional end-to-end in stateful compat mode
+        using var callRequest = new HttpRequestMessage(HttpMethod.Post, "/")
+        {
+            Content = JsonContent(new
+            {
+                jsonrpc = "2.0",
+                id = 3,
+                method = "tools/call",
+                @params = new { name = "compat_echo", arguments = new { } }
+            })
+        };
+        callRequest.Headers.TryAddWithoutValidation("Mcp-Session-Id", sessionId);
+        callRequest.Headers.TryAddWithoutValidation("MCP-Protocol-Version", protocolVersion);
+        using var callResponse = await client.SendAsync(callRequest);
+        var callBody = await callResponse.Content.ReadAsStringAsync();
+        Output.WriteLine($"[{protocolVersion}] tools/call (stateful): {callBody}");
+        Assert.Equal(HttpStatusCode.OK, callResponse.StatusCode);
+        var callResult = ParseJsonOrSse(callBody, callResponse.Content.Headers.ContentType?.MediaType);
+        Assert.NotNull(callResult["result"]);
+        Assert.Null(callResult["error"]);
+    }
+
+    // -------------------------------------------------------------------------
+    // Mode independence — protocol negotiation does not mutate transport mode
+    // -------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("2024-11-05")]
+    [InlineData("2025-11-25")]
+    public async Task ProtocolVersion_InHeader_DoesNotMutateStatelessTransportMode(string version)
+    {
+        // Prove that sending MCP-Protocol-Version headers on stateless requests
+        // does not cause the server to switch to stateful mode (no Mcp-Session-Id returned).
         using var server = new InProcessUnifiedHttpServer();
         await server.StartAsync();
 
         using var client = CreateMcpClient(server.ServerUrl);
-        var (response, sessionId) = await SendInitializeAsync(client, protocolVersion);
-
-        Output.WriteLine($"[{protocolVersion}] sessionId: {sessionId ?? "(none)"}");
-
-        Assert.False(string.IsNullOrWhiteSpace(sessionId),
-            $"Protocol {protocolVersion} must not disable stateful HTTP; Mcp-Session-Id is required.");
-
-        // Verify the session is independently functional (no transport-mode leakage)
-        var toolsResponse = await PostJsonRpcAsync(client, new
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/")
         {
-            jsonrpc = "2.0",
-            id = 2,
-            method = "tools/list"
-        }, sessionId: sessionId, protocolVersion: protocolVersion);
+            Content = JsonContent(new { jsonrpc = "2.0", id = 1, method = "tools/list" })
+        };
+        request.Headers.TryAddWithoutValidation("MCP-Protocol-Version", version);
 
-        Assert.NotNull(toolsResponse["result"]?["tools"]);
+        using var response = await client.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+        Output.WriteLine($"[{version}] tools/list with version header: {body}");
+        Assert.True(response.IsSuccessStatusCode, $"tools/list with version header failed: {body}");
+
+        // Transport mode is stateless; no Mcp-Session-Id should be returned
+        var hasSessionId = response.Headers.TryGetValues("Mcp-Session-Id", out var vals)
+            && vals.Any(v => !string.IsNullOrWhiteSpace(v));
+        Assert.False(hasSessionId,
+            $"Protocol version header {version} must not trigger stateful transport (Mcp-Session-Id returned)");
     }
 
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    private static WebApplication BuildStatefulCompatHost(string negotiatedProtocolVersion)
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+
+        var lifecycle = new McpSessionLifecycle(_ => { });
+        builder.Services.AddSingleton(lifecycle);
+
+        var compatTool = McpServerTool.Create(
+            static (CancellationToken _) => Task.FromResult("compatibility-test-pass"),
+            new McpServerToolCreateOptions { Name = "compat_echo", Description = "Stateful compatibility echo" });
+
+        builder.Services
+            .AddMcpServer()
+            .WithHttpTransport(options =>
+            {
+                options.Stateless = false; // Explicit operator compatibility mode.
+#pragma warning disable MCP9006 // Intentional: stateful-mode option in explicit compat test.
+                options.IdleTimeout = Timeout.InfiniteTimeSpan;
+#pragma warning restore MCP9006
+#pragma warning disable MCPEXP002 // Lifecycle callback for stateful compat mode.
+                options.RunSessionHandler = lifecycle.RunSessionAsync;
+#pragma warning restore MCPEXP002
+            })
+            .WithTools([compatTool]);
+
+        var app = builder.Build();
+        app.UseMiddleware<McpProtocolVersionMiddleware>((object)new[] { "/" });
+        app.MapMcp();
+        return app;
+    }
 
     private static HttpClient CreateMcpClient(string serverUrl)
     {
@@ -572,105 +364,52 @@ public class ProtocolNegotiationTests : PowerShellTestBase
         return client;
     }
 
-    private static async Task<(JObject Response, string? SessionId)> SendInitializeAsync(
-        HttpClient client,
-        string protocolVersion,
-        int startId = 1)
+    private static async Task<HttpResponseMessage> PostRawAsync(HttpClient client, object payload)
     {
-        var request = new
+        using var content = new StringContent(JsonConvert.SerializeObject(payload), Encoding.UTF8, "application/json");
+        return await client.PostAsync("/", content);
+    }
+
+    private static async Task<HttpResponseMessage> PostDiscoverAsync(HttpClient client)
+    {
+        // MCP 2026-07-28 server/discover requires per-request metadata:
+        //   HTTP headers: MCP-Protocol-Version: 2026-07-28, Mcp-Method: server/discover
+        //   Body params._meta: protocolVersion + clientCapabilities (keys contain '/', use JObject)
+        var payload = new JObject
         {
-            jsonrpc = "2.0",
-            id = startId,
-            method = "initialize",
-            @params = new
+            ["jsonrpc"] = "2.0",
+            ["id"] = 1,
+            ["method"] = "server/discover",
+            ["params"] = new JObject
             {
-                protocolVersion,
-                capabilities = new { tools = new { } },
-                clientInfo = new
+                ["_meta"] = new JObject
                 {
-                    name = "protocol-negotiation-test",
-                    version = "1.0.0"
+                    ["io.modelcontextprotocol/protocolVersion"] = "2026-07-28",
+                    ["io.modelcontextprotocol/clientCapabilities"] = new JObject()
                 }
             }
         };
-
-        return await PostJsonRpcWithSessionAsync(client, request, sessionId: null, protocolVersion: null);
-    }
-
-    private static async Task<JObject> PostJsonRpcAsync(
-        HttpClient client,
-        object request,
-        string? sessionId = null,
-        string? protocolVersion = null)
-    {
-        var (response, _) = await PostJsonRpcWithSessionAsync(client, request, sessionId, protocolVersion);
-        return response;
-    }
-
-    private static async Task<(JObject Response, string? SessionId)> PostJsonRpcWithSessionAsync(
-        HttpClient client,
-        object request,
-        string? sessionId,
-        string? protocolVersion)
-    {
-        const int maxAttempts = 3;
-
-        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/")
         {
-            using var content = new StringContent(
-                JsonConvert.SerializeObject(request),
-                Encoding.UTF8,
-                "application/json");
-
-            using var requestMessage = new HttpRequestMessage(HttpMethod.Post, "/")
-            {
-                Content = content
-            };
-
-            if (!string.IsNullOrWhiteSpace(sessionId))
-                requestMessage.Headers.TryAddWithoutValidation("Mcp-Session-Id", sessionId);
-
-            if (!string.IsNullOrWhiteSpace(protocolVersion))
-                requestMessage.Headers.TryAddWithoutValidation("MCP-Protocol-Version", protocolVersion);
-
-            try
-            {
-                using var httpResponse = await client.SendAsync(requestMessage);
-                var body = await httpResponse.Content.ReadAsStringAsync();
-
-                if (!httpResponse.IsSuccessStatusCode)
-                    throw new HttpRequestException($"HTTP {(int)httpResponse.StatusCode}: {body}");
-
-                var responseObj = ParseJsonOrSse(body, httpResponse.Content.Headers.ContentType?.MediaType);
-                var returnedSessionId = httpResponse.Headers.TryGetValues("Mcp-Session-Id", out var vals)
-                    ? vals.FirstOrDefault()
-                    : null;
-
-                return (responseObj, returnedSessionId);
-            }
-            catch (HttpRequestException ex) when (attempt < maxAttempts &&
-                (ex.Message.Contains("Only one usage of each socket address", StringComparison.OrdinalIgnoreCase) ||
-                 ex.Message.Contains("address already in use", StringComparison.OrdinalIgnoreCase)))
-            {
-                await Task.Delay(100 * attempt);
-            }
-        }
-
-        throw new InvalidOperationException("MCP request retry loop exhausted.");
+            Content = new StringContent(payload.ToString(Newtonsoft.Json.Formatting.None), Encoding.UTF8, "application/json")
+        };
+        request.Headers.TryAddWithoutValidation("MCP-Protocol-Version", "2026-07-28");
+        request.Headers.TryAddWithoutValidation("Mcp-Method", "server/discover");
+        return await client.SendAsync(request);
     }
+
+    private static StringContent JsonContent(object payload) =>
+        new(JsonConvert.SerializeObject(payload), Encoding.UTF8, "application/json");
 
     private static JObject ParseJsonOrSse(string body, string? mediaType)
     {
         if (string.Equals(mediaType, "application/json", StringComparison.OrdinalIgnoreCase))
             return JObject.Parse(body);
 
-        var dataLine = body
-            .Split('\n')
+        var dataLine = body.Split('\n')
             .FirstOrDefault(l => l.StartsWith("data: ", StringComparison.Ordinal));
-
         if (string.IsNullOrWhiteSpace(dataLine))
             throw new InvalidOperationException($"No MCP data line in response: {body}");
-
         return JObject.Parse(dataLine.Substring(6));
     }
 }

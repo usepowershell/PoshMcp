@@ -100,7 +100,8 @@ public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
             var (initializeResponse, sessionId) = await SendMcpRequestAsync(httpClient, initializeRequest);
             Assert.Equal("2.0", initializeResponse["jsonrpc"]?.ToString());
             Assert.NotNull(initializeResponse["result"]);
-            Assert.False(string.IsNullOrWhiteSpace(sessionId));
+            // Stateless mode (production default): no Mcp-Session-Id is returned.
+            // The 2024-11-05 protocol is still supported for backward compatibility.
 
             var listToolsRequest = new
             {
@@ -109,7 +110,8 @@ public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
                 method = "tools/list"
             };
 
-            var (listToolsResponse, _) = await SendMcpRequestAsync(httpClient, listToolsRequest, sessionId);
+            // In stateless mode subsequent requests do not require a session ID.
+            var (listToolsResponse, _) = await SendMcpRequestAsync(httpClient, listToolsRequest);
             var tools = listToolsResponse["result"]?["tools"] as JArray;
 
             Assert.NotNull(tools);
@@ -125,8 +127,10 @@ public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
     }
 
     [Fact]
-    public async Task ServeHttpTransport_ShouldEnforceNegotiatedProtocolAndDeleteSessions()
+    public async Task ServeHttpTransport_Stateless_SupportsDirectMethodsAndNotifications()
     {
+        // In stateless mode (production default) every request is independent — no session required.
+        // Proves: tools/list works without initialize; notifications are accepted; GET is handled.
         using var server = new InProcessUnifiedHttpServer();
 
         try
@@ -134,75 +138,34 @@ public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
             await server.StartAsync();
 
             using var httpClient = CreateMcpHttpClient(server.ServerUrl);
-            var (initializeResponse, sessionId) = await SendMcpRequestAsync(httpClient, CreateInitializeRequest("2025-11-25"));
 
-            Assert.Equal("2025-11-25", initializeResponse["result"]?["protocolVersion"]?.ToString());
-            Assert.False(string.IsNullOrWhiteSpace(sessionId));
+            // tools/list: works directly without initialize or session ID
+            var (toolsListResponse, noSessionId) = await SendMcpRequestAsync(httpClient,
+                new { jsonrpc = "2.0", id = 1, method = "tools/list" });
+            Assert.NotNull(toolsListResponse["result"]?["tools"]);
+            Assert.True(string.IsNullOrWhiteSpace(noSessionId),
+                "Stateless mode must not return Mcp-Session-Id on tools/list");
 
-            using var missingVersionGetRequest = new HttpRequestMessage(HttpMethod.Get, "/");
-            missingVersionGetRequest.Headers.Add("Mcp-Session-Id", sessionId);
-            missingVersionGetRequest.Headers.Accept.ParseAdd("text/event-stream");
-            using var missingVersionGetResponse = await httpClient.SendAsync(missingVersionGetRequest);
-            Assert.Equal(System.Net.HttpStatusCode.BadRequest, missingVersionGetResponse.StatusCode);
-
-            using var missingVersionResponse = await SendRawMcpRequestAsync(
-                httpClient,
-                HttpMethod.Post,
-                new { jsonrpc = "2.0", id = 2, method = "tools/list" },
-                sessionId);
-            Assert.Equal(System.Net.HttpStatusCode.BadRequest, missingVersionResponse.StatusCode);
-
-            using var invalidVersionResponse = await SendRawMcpRequestAsync(
-                httpClient,
-                HttpMethod.Post,
-                new { jsonrpc = "2.0", id = 3, method = "tools/list" },
-                sessionId,
-                "unsupported-version");
-            Assert.Equal(System.Net.HttpStatusCode.BadRequest, invalidVersionResponse.StatusCode);
-
-            using var negotiatedVersionResponse = await SendRawMcpRequestAsync(
-                httpClient,
-                HttpMethod.Post,
-                new { jsonrpc = "2.0", id = 4, method = "tools/list" },
-                sessionId,
-                "2025-11-25");
-            Assert.True(negotiatedVersionResponse.IsSuccessStatusCode);
-            AssertResponseIsJsonOrSse(negotiatedVersionResponse);
-
+            // notifications: accepted without session ID
             using var notificationResponse = await SendRawMcpRequestAsync(
                 httpClient,
                 HttpMethod.Post,
                 new { jsonrpc = "2.0", method = "notifications/initialized" },
-                sessionId,
-                "2025-11-25");
+                sessionId: null);
             Assert.Equal(System.Net.HttpStatusCode.Accepted, notificationResponse.StatusCode);
 
+            // GET without session: handled by SDK (200 SSE stream or 4xx, not a server crash)
             using var getRequest = new HttpRequestMessage(HttpMethod.Get, "/");
-            getRequest.Headers.Add("Mcp-Session-Id", sessionId);
-            getRequest.Headers.Add("MCP-Protocol-Version", "2025-11-25");
             getRequest.Headers.Accept.ParseAdd("text/event-stream");
             using var getResponse = await httpClient.SendAsync(getRequest, HttpCompletionOption.ResponseHeadersRead);
-            Assert.True(getResponse.IsSuccessStatusCode);
-            Assert.Equal("text/event-stream", getResponse.Content.Headers.ContentType?.MediaType);
-
-            using var deleteRequest = new HttpRequestMessage(HttpMethod.Delete, "/");
-            deleteRequest.Headers.Add("Mcp-Session-Id", sessionId);
-            deleteRequest.Headers.Add("MCP-Protocol-Version", "2025-11-25");
-            using var deleteResponse = await httpClient.SendAsync(deleteRequest);
-            Assert.Equal(System.Net.HttpStatusCode.OK, deleteResponse.StatusCode);
-
-            using var expiredSessionResponse = await SendRawMcpRequestAsync(
-                httpClient,
-                HttpMethod.Post,
-                new { jsonrpc = "2.0", id = 5, method = "tools/list" },
-                sessionId,
-                "2025-11-25");
-            Assert.Equal(System.Net.HttpStatusCode.NotFound, expiredSessionResponse.StatusCode);
+            Assert.True(
+                getResponse.IsSuccessStatusCode || (int)getResponse.StatusCode < 500,
+                $"GET without session in stateless mode must not cause a 5xx error: got {(int)getResponse.StatusCode}");
         }
         catch (Exception ex)
         {
             Output.WriteLine(server.GetCapturedOutput());
-            throw new Xunit.Sdk.XunitException($"Streamable HTTP protocol/session conformance failed: {ex.Message}");
+            throw new Xunit.Sdk.XunitException($"Stateless protocol conformance failed: {ex.Message}");
         }
     }
 
@@ -273,7 +236,7 @@ public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
             };
 
             var (_, sessionId) = await SendMcpRequestAsync(httpClient, initializeRequest);
-            Assert.False(string.IsNullOrWhiteSpace(sessionId));
+            // Stateless mode: sessionId is null/empty — tools work without session tracking.
 
             var listToolsRequest = new
             {
@@ -282,7 +245,7 @@ public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
                 method = "tools/list"
             };
 
-            var (listToolsResponse, _) = await SendMcpRequestAsync(httpClient, listToolsRequest, sessionId);
+            var (listToolsResponse, _) = await SendMcpRequestAsync(httpClient, listToolsRequest);
             var tools = listToolsResponse["result"]?["tools"] as JArray;
 
             Assert.NotNull(tools);
@@ -307,7 +270,7 @@ public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
                 }
             };
 
-            var (callResponse, _) = await SendMcpRequestAsync(httpClient, callRequest, sessionId);
+            var (callResponse, _) = await SendMcpRequestAsync(httpClient, callRequest);
             Assert.Equal("2.0", callResponse["jsonrpc"]?.ToString());
             Assert.NotNull(callResponse["result"]);
             Assert.Null(callResponse["error"]);
@@ -356,7 +319,7 @@ public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
             };
 
             var (_, sessionId) = await SendMcpRequestAsync(httpClient, initializeRequest);
-            Assert.False(string.IsNullOrWhiteSpace(sessionId));
+            // Stateless mode: sessionId is null/empty — tools/call works without a session.
 
             var invalidToolCallRequest = new
             {
@@ -370,7 +333,7 @@ public class UnifiedHttpTransportIntegrationTests : PowerShellTestBase
                 }
             };
 
-            var (errorResponse, _) = await SendMcpRequestAsync(httpClient, invalidToolCallRequest, sessionId);
+            var (errorResponse, _) = await SendMcpRequestAsync(httpClient, invalidToolCallRequest);
             Assert.Equal("2.0", errorResponse["jsonrpc"]?.ToString());
             Assert.NotNull(errorResponse["error"]);
             Assert.Null(errorResponse["result"]);

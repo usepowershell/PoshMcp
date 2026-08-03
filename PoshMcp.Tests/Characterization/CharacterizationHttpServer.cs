@@ -185,12 +185,12 @@ internal sealed class CharacterizationMcpClient : IAsyncDisposable
         using var response = await PostAsync(body, sessionId: null);
         response.EnsureSuccessStatusCode();
 
+        // In stateless mode (Stateless = true, the current default) no Mcp-Session-Id is
+        // returned; that is correct behavior.  _sessionId stays null and CallGetDateAsync
+        // proceeds without a session header, which works on a stateless server.
         _sessionId = response.Headers.TryGetValues("Mcp-Session-Id", out var values)
             ? System.Linq.Enumerable.FirstOrDefault(values)
             : null;
-
-        if (string.IsNullOrWhiteSpace(_sessionId))
-            throw new InvalidOperationException("Server did not return a session ID from initialize.");
     }
 
     /// <summary>

@@ -151,14 +151,13 @@ internal static class HttpServerHost
             .AddMcpServer()
             .WithHttpTransport(opts =>
             {
-                // PoshMcp preserves stateful HTTP as the default for backward compatibility.
-                // SDK v2 changed the default to Stateless = true (2026-07-28 spec); we
-                // explicitly opt out so Mcp-Session-Id tracking, RunSessionHandler lifecycle,
-                // and IdleTimeout all continue to function for existing clients.
-                // Operators who want the modern stateless transport can opt in via
-                // McpServer:HttpTransportMode=Stateless in future configuration.
-                opts.Stateless = false;
-#pragma warning disable MCP9006 // Intentional: PoshMcp uses stateful HTTP by default for backward compatibility.
+                // Per maintainer decision 2026-08-03: stateless is the production default so that
+                // server/discover and protocol 2026-07-28 are available on the default HTTP path.
+                // Stateful HTTP is an operator-selectable backward-compatibility mode.
+                // IdleTimeout and RunSessionHandler are stateful-only; they are ignored when
+                // Stateless = true and become active if an operator configures Stateless = false.
+                opts.Stateless = true;
+#pragma warning disable MCP9006 // Intentional: stateful-only option; retained for operator compatibility mode.
                 opts.IdleTimeout = TimeSpan.FromSeconds(mcpServerConfig.IdleSessionTimeoutSeconds);
 #pragma warning restore MCP9006
 #pragma warning disable MCP9004 // Legacy SSE is opt-in, disabled by default, and documented for isolated trusted clients only.
