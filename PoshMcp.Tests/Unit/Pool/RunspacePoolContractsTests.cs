@@ -183,15 +183,15 @@ public sealed class RunspacePoolContractsTests
     // ─── RunspaceWorker — valid state transitions ────────────────────────────────
 
     [Theory]
-    [InlineData(RunspaceWorkerState.Creating,  RunspaceWorkerState.Warm)]
-    [InlineData(RunspaceWorkerState.Creating,  RunspaceWorkerState.Evicted)]
-    [InlineData(RunspaceWorkerState.Warm,      RunspaceWorkerState.Leased)]
-    [InlineData(RunspaceWorkerState.Warm,      RunspaceWorkerState.Evicted)]
-    [InlineData(RunspaceWorkerState.Leased,    RunspaceWorkerState.Resetting)]
-    [InlineData(RunspaceWorkerState.Leased,    RunspaceWorkerState.Evicted)]
+    [InlineData(RunspaceWorkerState.Creating, RunspaceWorkerState.Warm)]
+    [InlineData(RunspaceWorkerState.Creating, RunspaceWorkerState.Evicted)]
+    [InlineData(RunspaceWorkerState.Warm, RunspaceWorkerState.Leased)]
+    [InlineData(RunspaceWorkerState.Warm, RunspaceWorkerState.Evicted)]
+    [InlineData(RunspaceWorkerState.Leased, RunspaceWorkerState.Resetting)]
+    [InlineData(RunspaceWorkerState.Leased, RunspaceWorkerState.Evicted)]
     [InlineData(RunspaceWorkerState.Resetting, RunspaceWorkerState.Warm)]
     [InlineData(RunspaceWorkerState.Resetting, RunspaceWorkerState.Evicted)]
-    [InlineData(RunspaceWorkerState.Evicted,   RunspaceWorkerState.Disposed)]
+    [InlineData(RunspaceWorkerState.Evicted, RunspaceWorkerState.Disposed)]
     public void RunspaceWorker_ValidTransition_Succeeds(RunspaceWorkerState from, RunspaceWorkerState to)
     {
         using var worker = CreateWorkerInState(from);
@@ -224,25 +224,25 @@ public sealed class RunspacePoolContractsTests
     // ─── RunspaceWorker — invalid state transitions ──────────────────────────────
 
     [Theory]
-    [InlineData(RunspaceWorkerState.Creating,  RunspaceWorkerState.Leased)]
-    [InlineData(RunspaceWorkerState.Creating,  RunspaceWorkerState.Resetting)]
-    [InlineData(RunspaceWorkerState.Creating,  RunspaceWorkerState.Disposed)]
-    [InlineData(RunspaceWorkerState.Warm,      RunspaceWorkerState.Creating)]
-    [InlineData(RunspaceWorkerState.Warm,      RunspaceWorkerState.Resetting)]
-    [InlineData(RunspaceWorkerState.Warm,      RunspaceWorkerState.Disposed)]
-    [InlineData(RunspaceWorkerState.Leased,    RunspaceWorkerState.Creating)]
-    [InlineData(RunspaceWorkerState.Leased,    RunspaceWorkerState.Warm)]
-    [InlineData(RunspaceWorkerState.Leased,    RunspaceWorkerState.Disposed)]
+    [InlineData(RunspaceWorkerState.Creating, RunspaceWorkerState.Leased)]
+    [InlineData(RunspaceWorkerState.Creating, RunspaceWorkerState.Resetting)]
+    [InlineData(RunspaceWorkerState.Creating, RunspaceWorkerState.Disposed)]
+    [InlineData(RunspaceWorkerState.Warm, RunspaceWorkerState.Creating)]
+    [InlineData(RunspaceWorkerState.Warm, RunspaceWorkerState.Resetting)]
+    [InlineData(RunspaceWorkerState.Warm, RunspaceWorkerState.Disposed)]
+    [InlineData(RunspaceWorkerState.Leased, RunspaceWorkerState.Creating)]
+    [InlineData(RunspaceWorkerState.Leased, RunspaceWorkerState.Warm)]
+    [InlineData(RunspaceWorkerState.Leased, RunspaceWorkerState.Disposed)]
     [InlineData(RunspaceWorkerState.Resetting, RunspaceWorkerState.Creating)]
     [InlineData(RunspaceWorkerState.Resetting, RunspaceWorkerState.Leased)]
     [InlineData(RunspaceWorkerState.Resetting, RunspaceWorkerState.Disposed)]
-    [InlineData(RunspaceWorkerState.Evicted,   RunspaceWorkerState.Creating)]
-    [InlineData(RunspaceWorkerState.Evicted,   RunspaceWorkerState.Warm)]
-    [InlineData(RunspaceWorkerState.Evicted,   RunspaceWorkerState.Leased)]
-    [InlineData(RunspaceWorkerState.Evicted,   RunspaceWorkerState.Resetting)]
-    [InlineData(RunspaceWorkerState.Disposed,  RunspaceWorkerState.Creating)]
-    [InlineData(RunspaceWorkerState.Disposed,  RunspaceWorkerState.Warm)]
-    [InlineData(RunspaceWorkerState.Disposed,  RunspaceWorkerState.Evicted)]
+    [InlineData(RunspaceWorkerState.Evicted, RunspaceWorkerState.Creating)]
+    [InlineData(RunspaceWorkerState.Evicted, RunspaceWorkerState.Warm)]
+    [InlineData(RunspaceWorkerState.Evicted, RunspaceWorkerState.Leased)]
+    [InlineData(RunspaceWorkerState.Evicted, RunspaceWorkerState.Resetting)]
+    [InlineData(RunspaceWorkerState.Disposed, RunspaceWorkerState.Creating)]
+    [InlineData(RunspaceWorkerState.Disposed, RunspaceWorkerState.Warm)]
+    [InlineData(RunspaceWorkerState.Disposed, RunspaceWorkerState.Evicted)]
     public void RunspaceWorker_InvalidTransition_ReturnsFalse(RunspaceWorkerState from, RunspaceWorkerState to)
     {
         using var worker = CreateWorkerInState(from);
@@ -508,16 +508,16 @@ public sealed class RunspacePoolContractsTests
     // Returns the minimal sequence of (from, to) transitions to reach the target state.
     private static (RunspaceWorkerState From, RunspaceWorkerState To)[] PathToState(RunspaceWorkerState target) => target switch
     {
-        RunspaceWorkerState.Creating  => [],
-        RunspaceWorkerState.Warm      => [(RunspaceWorkerState.Creating,  RunspaceWorkerState.Warm)],
-        RunspaceWorkerState.Leased    => [(RunspaceWorkerState.Creating,  RunspaceWorkerState.Warm),
+        RunspaceWorkerState.Creating => [],
+        RunspaceWorkerState.Warm => [(RunspaceWorkerState.Creating, RunspaceWorkerState.Warm)],
+        RunspaceWorkerState.Leased => [(RunspaceWorkerState.Creating,  RunspaceWorkerState.Warm),
                                           (RunspaceWorkerState.Warm,      RunspaceWorkerState.Leased)],
         RunspaceWorkerState.Resetting => [(RunspaceWorkerState.Creating,  RunspaceWorkerState.Warm),
                                           (RunspaceWorkerState.Warm,      RunspaceWorkerState.Leased),
                                           (RunspaceWorkerState.Leased,    RunspaceWorkerState.Resetting)],
-        RunspaceWorkerState.Evicted   => [(RunspaceWorkerState.Creating,  RunspaceWorkerState.Warm),
+        RunspaceWorkerState.Evicted => [(RunspaceWorkerState.Creating,  RunspaceWorkerState.Warm),
                                           (RunspaceWorkerState.Warm,      RunspaceWorkerState.Evicted)],
-        RunspaceWorkerState.Disposed  => [(RunspaceWorkerState.Creating,  RunspaceWorkerState.Warm),
+        RunspaceWorkerState.Disposed => [(RunspaceWorkerState.Creating,  RunspaceWorkerState.Warm),
                                           (RunspaceWorkerState.Warm,      RunspaceWorkerState.Evicted),
                                           (RunspaceWorkerState.Evicted,   RunspaceWorkerState.Disposed)],
         _ => throw new ArgumentOutOfRangeException(nameof(target), target, null)

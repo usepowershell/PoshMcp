@@ -89,15 +89,15 @@ public sealed class RunspaceWorker : IDisposable
     /// <inheritdoc cref="RunspaceWorkerState"/>
     private static bool IsValidTransition(RunspaceWorkerState from, RunspaceWorkerState to) => (from, to) switch
     {
-        (RunspaceWorkerState.Creating,   RunspaceWorkerState.Warm)      => true,
-        (RunspaceWorkerState.Creating,   RunspaceWorkerState.Evicted)   => true,
-        (RunspaceWorkerState.Warm,       RunspaceWorkerState.Leased)    => true,
-        (RunspaceWorkerState.Warm,       RunspaceWorkerState.Evicted)   => true,
-        (RunspaceWorkerState.Leased,     RunspaceWorkerState.Resetting) => true,
-        (RunspaceWorkerState.Leased,     RunspaceWorkerState.Evicted)   => true,
-        (RunspaceWorkerState.Resetting,  RunspaceWorkerState.Warm)      => true,
-        (RunspaceWorkerState.Resetting,  RunspaceWorkerState.Evicted)   => true,
-        (RunspaceWorkerState.Evicted,    RunspaceWorkerState.Disposed)  => true,
+        (RunspaceWorkerState.Creating, RunspaceWorkerState.Warm) => true,
+        (RunspaceWorkerState.Creating, RunspaceWorkerState.Evicted) => true,
+        (RunspaceWorkerState.Warm, RunspaceWorkerState.Leased) => true,
+        (RunspaceWorkerState.Warm, RunspaceWorkerState.Evicted) => true,
+        (RunspaceWorkerState.Leased, RunspaceWorkerState.Resetting) => true,
+        (RunspaceWorkerState.Leased, RunspaceWorkerState.Evicted) => true,
+        (RunspaceWorkerState.Resetting, RunspaceWorkerState.Warm) => true,
+        (RunspaceWorkerState.Resetting, RunspaceWorkerState.Evicted) => true,
+        (RunspaceWorkerState.Evicted, RunspaceWorkerState.Disposed) => true,
         _ => false
     };
 
