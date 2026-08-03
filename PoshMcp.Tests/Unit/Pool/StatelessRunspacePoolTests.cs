@@ -680,7 +680,7 @@ public sealed class StatelessRunspacePoolTests : IDisposable
     // ─── Idle sweep — injectable clock / no eviction below MinPoolSize ────────────
 
     [Fact]
-    public void SweepOnce_WithClockAdvanced_EvictsSurplusButNotBelowMin()
+    public async Task SweepOnce_WithClockAdvanced_EvictsSurplusButNotBelowMin()
     {
         // Workers created at "now". After advancing the clock past IdleTtl,
         // only surplus workers (above MinPoolSize) should be evicted.
@@ -689,7 +689,7 @@ public sealed class StatelessRunspacePoolTests : IDisposable
             options: DefaultOptions(min: 2, max: 4, eager: 4),
             clock: () => frozenTime);
 
-        pool.StartAsync().GetAwaiter().GetResult();
+        await pool.StartAsync();
 
         var statsStart = pool.GetStats();
         Assert.Equal(4, statsStart.WarmWorkers);
@@ -703,18 +703,18 @@ public sealed class StatelessRunspacePoolTests : IDisposable
         Assert.Equal(2, statsAfter.WarmWorkers);
         Assert.Equal(2, statsAfter.TotalWorkers);
 
-        pool.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        await pool.DisposeAsync();
     }
 
     [Fact]
-    public void SweepOnce_WhenAllWorkersWithinTtl_EvictsNone()
+    public async Task SweepOnce_WhenAllWorkersWithinTtl_EvictsNone()
     {
         var frozenTime = DateTimeOffset.UtcNow;
         var pool = MakePool(
             options: DefaultOptions(min: 1, max: 3, eager: 3),
             clock: () => frozenTime);
 
-        pool.StartAsync().GetAwaiter().GetResult();
+        await pool.StartAsync();
         Assert.Equal(3, pool.GetStats().WarmWorkers);
 
         // Do NOT advance clock — all workers are within IdleTtl.
@@ -722,11 +722,11 @@ public sealed class StatelessRunspacePoolTests : IDisposable
 
         Assert.Equal(3, pool.GetStats().WarmWorkers);
 
-        pool.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        await pool.DisposeAsync();
     }
 
     [Fact]
-    public void SweepOnce_WhenAtMinPoolSize_EvictsNothing()
+    public async Task SweepOnce_WhenAtMinPoolSize_EvictsNothing()
     {
         // With warmCount == MinPoolSize, surplus == 0 → sweeper must be a no-op.
         var frozenTime = DateTimeOffset.UtcNow;
@@ -734,7 +734,7 @@ public sealed class StatelessRunspacePoolTests : IDisposable
             options: DefaultOptions(min: 2, max: 4, eager: 2),
             clock: () => frozenTime.AddSeconds(9999));  // far past TTL
 
-        pool.StartAsync().GetAwaiter().GetResult();
+        await pool.StartAsync();
         Assert.Equal(2, pool.GetStats().WarmWorkers);
 
         pool.SweepOnce();  // surplus=0 → no eviction
@@ -742,7 +742,7 @@ public sealed class StatelessRunspacePoolTests : IDisposable
         Assert.Equal(2, pool.GetStats().WarmWorkers);
         Assert.Equal(2, pool.GetStats().TotalWorkers);
 
-        pool.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        await pool.DisposeAsync();
     }
 
     // ─── Bounded channel — capacity invariant ────────────────────────────────────

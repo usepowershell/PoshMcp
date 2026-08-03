@@ -653,9 +653,9 @@ public sealed class StatelessRunspacePool : IRunspacePool
                     Interlocked.Decrement(ref _warmCount);
                     _metrics.WorkerCount.Add(-1, RunspacePoolMetrics.StateTag("warm"));
                     break;
-                // Leased:    _leasedCount decremented in OnWorkerReturnedAsync early-return path.
-                // Resetting: _resettingCount decremented in OnWorkerReturnedAsync catch paths.
-                // Creating:  no state-specific counter.
+                    // Leased:    _leasedCount decremented in OnWorkerReturnedAsync early-return path.
+                    // Resetting: _resettingCount decremented in OnWorkerReturnedAsync catch paths.
+                    // Creating:  no state-specific counter.
             }
 
             _metrics.Evictions.Add(1, RunspacePoolMetrics.ReasonTag(reason));
