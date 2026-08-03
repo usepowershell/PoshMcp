@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using PSPowerShell = System.Management.Automation.PowerShell;
 
@@ -100,6 +101,24 @@ public sealed class RunspaceWorker : IDisposable
         (RunspaceWorkerState.Evicted, RunspaceWorkerState.Disposed) => true,
         _ => false
     };
+
+    /// <summary>
+    /// Captured variable names present in the runspace immediately after the startup script ran.
+    /// <see cref="RunspaceResetProtocol"/> uses this to exclude worker-initialized state from
+    /// variable cleanup during reset.
+    /// </summary>
+    internal IReadOnlySet<string>? InitializedVariableNames { get; private set; }
+
+    /// <summary>
+    /// Records the set of variable names present in the runspace immediately after the startup
+    /// script completed. Must be called exactly once during the <c>Creating → Warm</c> transition,
+    /// before the worker is enqueued in the available channel.
+    /// </summary>
+    internal void SetInitializedVariableSnapshot(IReadOnlySet<string> names)
+    {
+        ArgumentNullException.ThrowIfNull(names);
+        InitializedVariableNames = names;
+    }
 
     /// <summary>
     /// Releases all resources held by this worker. Idempotent and thread-safe.
