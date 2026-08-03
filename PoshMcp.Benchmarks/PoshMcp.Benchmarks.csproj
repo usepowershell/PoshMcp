@@ -14,6 +14,8 @@
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" Version="0.14.0" />
     <PackageReference Include="BenchmarkDotNet.Diagnostics.Windows" Version="0.14.0" />
+    <!-- Explicit pin resolves MSB3277 conflict: MCP SDK v2 requires 10.8.3; BenchmarkDotNet 0.14.0 resolves 10.5.2. -->
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.8.3" />
     <PackageReference Include="System.Security.Cryptography.Xml" Version="10.0.*" />
   </ItemGroup>
 
