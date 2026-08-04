@@ -617,7 +617,7 @@ The deployment automatically configures these environment variables:
 - `ASPNETCORE_ENVIRONMENT`: Production
 - `ASPNETCORE_URLS`: http://+:8080
 - `POSHMCP_TRANSPORT`: http
-- `PowerShellConfiguration__FunctionNames__0`: Your configured functions
+- `PowerShellConfiguration__CommandNames__0`: Your configured functions
 - `PowerShellConfiguration__EnableDynamicReloadTools`: true/false
 - `APPLICATIONINSIGHTS_CONNECTION_STRING`: Auto-configured
 - `AZURE_CLIENT_ID`: Managed Identity client ID

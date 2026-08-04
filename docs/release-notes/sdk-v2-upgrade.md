@@ -3,8 +3,12 @@
 > **Pre-release status.** This document describes changes queued for the next release. Two
 > blockers remain open before the release gate can close:
 >
-> - [#349](https://github.com/usepowershell/PoshMcp/issues/349) — `windows-latest` soak run
->   is still in progress.
+> - [#349](https://github.com/usepowershell/PoshMcp/issues/349) — Workflow run
+>   [30929198633](https://github.com/usepowershell/PoshMcp/actions/runs/30929198633) completed
+>   on clean `main@a6c924a` and **FAILED** the handle-floor gate (reported slope `0.13202/s`;
+>   excluding the underpopulated two-sample terminal window: `0.04553/s`, above the predeclared
+>   `0.010/s` threshold; cooldown plateau at `+802` passed). #349 remains open pending controlled
+>   investigation [#385](https://github.com/usepowershell/PoshMcp/issues/385).
 > - [#380](https://github.com/usepowershell/PoshMcp/issues/380) — SDK v2 warm-call/throughput
 >   gate is **RED** with unknown root cause.
 >
@@ -29,8 +33,10 @@ relied on cross-call state. See [Breaking Changes](#breaking-changes) and the
 
 - `ModelContextProtocol` and `ModelContextProtocol.AspNetCore` updated from **1.4.1** to
   **2.0.0**.
-- Default MCP protocol version for Stateless HTTP is **`2026-07-28`**. `2025-11-25` and
-  `2024-11-05` remain supported.
+- SDK v2 introduces the `server/discover` capability, which uses the **`2026-07-28`** MCP
+  protocol spec. Standard `initialize` negotiates **`2025-11-25`**; **`2024-11-05`** remains
+  supported as a compatibility fallback. The `2026-07-28` date does not apply to ordinary
+  `initialize` handshakes.
 
 ### HTTP transport: Stateless default
 
@@ -146,8 +152,10 @@ in v2.
 3. **Test cross-call state assumptions.** Audit tool sequences that rely on PowerShell side effects
    persisting across calls. Refactor to pass state explicitly or use an alternative from the list
    above.
-4. **Update clients if needed.** Stateless HTTP returns the same MCP protocol version header
-   (`2026-07-28`). Clients that do not send `Mcp-Session-Id` continue to work without changes.
+4. **Update clients if needed.** Clients using standard `initialize` negotiate `2025-11-25`
+   (or `2024-11-05` as a compatibility fallback) — this is unchanged from prior releases. The
+   `2026-07-28` protocol spec applies to the SDK v2 `server/discover` capability; clients that
+   do not use `server/discover` continue to work without changes.
 5. **Verify health endpoints.** The `/health/ready` endpoint reflects pool readiness after the
    eager warm-up phase completes. Allow the pool to reach ready state before routing traffic in
    production.
@@ -162,7 +170,7 @@ The following blockers must be resolved before #360 final release verification c
 
 | Issue | Description | Status |
 |-------|-------------|--------|
-| [#349](https://github.com/usepowershell/PoshMcp/issues/349) | Windows-latest soak run | Open — run in progress |
+| [#349](https://github.com/usepowershell/PoshMcp/issues/349) | Windows-latest soak: run [30929198633](https://github.com/usepowershell/PoshMcp/actions/runs/30929198633) FAILED handle-floor gate | Open — [#385](https://github.com/usepowershell/PoshMcp/issues/385) investigation pending |
 | [#380](https://github.com/usepowershell/PoshMcp/issues/380) | SDK v2 warm-call/throughput gate | Open — RED, root cause unknown |
 
 ## See Also

@@ -4,7 +4,7 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 
-> **Pre-release status.** Two release blockers remain open: [#349](https://github.com/usepowershell/PoshMcp/issues/349) (Windows soak run) and [#380](https://github.com/usepowershell/PoshMcp/issues/380) (SDK v2 warm-call throughput gate). This entry documents the scope of changes queued for the next release.
+> **Pre-release status.** Two release blockers remain open: [#349](https://github.com/usepowershell/PoshMcp/issues/349) (authoritative soak FAILED handle-floor gate — run [30929198633](https://github.com/usepowershell/PoshMcp/actions/runs/30929198633) on `main@a6c924a`; investigation [#385](https://github.com/usepowershell/PoshMcp/issues/385) pending) and [#380](https://github.com/usepowershell/PoshMcp/issues/380) (SDK v2 warm-call throughput gate). This entry documents the scope of changes queued for the next release.
 
 ### Added
 - **Stateless HTTP transport (default)** — HTTP now defaults to `Stateless` mode, aligning with MCP SDK v2 semantics. Each tool call leases a clean worker from the shared warm `StatelessRunspacePool`, resets it before use, and returns it after use. No cross-call PowerShell state is preserved.
@@ -14,7 +14,7 @@ All notable changes to this project will be documented here.
 - **Migration and startup-script documentation** — Added `docs/articles/migration-v1-v2.md` and `docs/articles/startup-scripts.md`.
 
 ### Changed
-- **MCP SDK upgrade** — `ModelContextProtocol` and `ModelContextProtocol.AspNetCore` updated to **2.0.0**. Default protocol version for Stateless HTTP is `2026-07-28`; `2025-11-25` and `2024-11-05` remain supported.
+- **MCP SDK upgrade** — `ModelContextProtocol` and `ModelContextProtocol.AspNetCore` updated to **2.0.0**. SDK v2 introduces the `server/discover` capability using the `2026-07-28` MCP protocol spec. Standard `initialize` negotiates `2025-11-25`; `2024-11-05` remains supported as a compatibility fallback.
 - **Startup script scope** — Startup scripts run once per warm worker during pool initialisation. Scripts must be idempotent and thread-safe; they do not run once per process or per tool call.
 - **`CommandNames` replaces `FunctionNames`** — The canonical configuration key is now `CommandNames`. The legacy `FunctionNames` key is accepted with a deprecation warning and will be removed in a future major version.
 
