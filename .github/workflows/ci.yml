@@ -303,3 +303,111 @@ jobs:
           TestResults/v1-baseline-characterization.json
           TestResults/phase-characterization.trx
 
+  # ---------------------------------------------------------------------------
+  # Phase 4 (issue #357): Performance comparison against Phase 0 baselines.
+  #
+  # Downloads the Phase 0 v1-baseline-characterization artifact from the latest
+  # successful CI run on main, runs both Stateless and Stateful transport mode
+  # measurements with identical methodology (same N, same tool, same config),
+  # and applies relative gates:
+  #   cold-start p95  ≤ 110% of baseline
+  #   warm-call p95   ≤ 105% of baseline
+  #   throughput mean ≤ 1/0.95 × baseline  (≥ 95% throughput rate)
+  #   peak memory     ≤ 110% of baseline
+  #
+  # Gate failures cause the job to fail (blocking the release). Artifacts are
+  # uploaded with if: always() so CI reports are available for diagnosis.
+  #
+  # Artifact: phase4-comparison — contains:
+  #   phase4-comparison.json   (schema poshmcp/v4-comparison/1.0)
+  #   phase4-comparison.trx    (xUnit pass/fail evidence)
+  # ---------------------------------------------------------------------------
+  performance-comparison:
+    name: "Phase 4 Performance Comparison (#357)"
+    runs-on: ubuntu-latest
+    needs: build
+
+    permissions:
+      contents: read
+      actions: read
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.x
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
+
+    # Download the authoritative Phase 0 baseline from the latest successful
+    # ci.yml run on main. Fails fast with an actionable message if unavailable.
+    - name: Download Phase 0 baseline
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        RUN_ID=$(gh run list \
+          --workflow ci.yml \
+          --branch main \
+          --status completed \
+          --json databaseId,conclusion \
+          --jq '[.[] | select(.conclusion == "success")] | .[0].databaseId')
+
+        if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+          echo "ERROR: No successful CI run on main found."
+          echo "  Ensure at least one commit has been merged to main after the"
+          echo "  Phase 0 characterization job was added (issue #347)."
+          exit 1
+        fi
+
+        echo "Phase 0 baseline source: CI run $RUN_ID"
+        mkdir -p TestResults/baseline
+
+        if ! gh run download "$RUN_ID" \
+          --name v1-baseline-characterization \
+          --dir TestResults/baseline; then
+          echo "ERROR: Could not download 'v1-baseline-characterization' artifact from run $RUN_ID."
+          echo "  The characterization job may not have run or its artifact may have expired."
+          exit 1
+        fi
+
+        BASELINE_JSON="TestResults/baseline/v1-baseline-characterization.json"
+        if [ ! -f "$BASELINE_JSON" ]; then
+          echo "ERROR: Artifact downloaded but v1-baseline-characterization.json not found."
+          ls -la TestResults/baseline/ || true
+          exit 1
+        fi
+
+        SCHEMA=$(jq -r '.schemaVersion // "missing"' "$BASELINE_JSON")
+        if [ "$SCHEMA" != "poshmcp/v1-characterization/1.0" ]; then
+          echo "ERROR: Baseline schema mismatch. Expected 'poshmcp/v1-characterization/1.0', got '$SCHEMA'."
+          exit 1
+        fi
+
+        echo "Phase 0 baseline validated — schemaVersion=$SCHEMA, runId=$RUN_ID"
+        echo "V1_BASELINE_PATH=${{ github.workspace }}/TestResults/baseline/v1-baseline-characterization.json" >> "$GITHUB_ENV"
+        echo "V1_BASELINE_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+
+    - name: Run Phase 4 Performance Comparison
+      env:
+        PHASE4_ARTIFACT_PATH: ${{ github.workspace }}/TestResults/phase4-comparison.json
+      run: |
+        dotnet test --no-build --configuration Release \
+          --filter "Category=PerformanceComparison" \
+          --logger "trx;LogFileName=phase4-comparison.trx" \
+          --results-directory ./TestResults
+
+    - name: Upload Phase 4 Comparison Artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: phase4-comparison
+        path: |
+          TestResults/phase4-comparison.json
+          TestResults/phase4-comparison.trx
+
