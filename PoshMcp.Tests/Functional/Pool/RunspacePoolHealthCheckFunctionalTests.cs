@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -15,6 +16,7 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using PoshMcp.Server.Health;
 using PoshMcp.Server.PowerShell;
 using PoshMcp.Server.PowerShell.Pool;
@@ -31,6 +33,8 @@ namespace PoshMcp.Tests.Functional.Pool;
 /// G4: TestServer endpoints — HTTP status and JSON "runspace_pool" entry.
 /// G7: disposed/failure boundaries.
 /// G8: EagerWarmCount > MinPoolSize — prove thresholds are not conflated.
+/// G9: Partial eager warmup blocks startup — StartAsync throws on partial warm;
+///     counters zero, workers disposed, host path fails, DisposeAsync safe.
 /// </summary>
 [Trait("Category", "Functional")]
 public sealed class RunspacePoolHealthCheckFunctionalTests
@@ -274,6 +278,206 @@ public sealed class RunspacePoolHealthCheckFunctionalTests
         _output.WriteLine($"G7 disposed: {result.Status} — {result.Description}");
         // IsDraining=true after dispose (DrainAsync is called during DisposeAsync) → Degraded.
         Assert.NotEqual(HealthStatus.Healthy, result.Status);
+    }
+
+    // ─── G9: Partial eager warmup blocks startup ─────────────────────────────
+
+    /// <summary>
+    /// G9a: With EagerWarmCount=3 and only 1 factory call succeeding, StartAsync must throw.
+    /// The partial warm worker is disposed before the throw; counters return to zero.
+    /// _started must remain false; no worker is accessible after failure.
+    /// </summary>
+    [Fact]
+    public async Task G9a_PartialEagerWarmup_1of3_StartAsyncThrows()
+    {
+        int callCount = 0;
+        var disposedCount = 0;
+        var mockRunspaces = new List<Mock<IPowerShellRunspace>>();
+
+        var pool = new StatelessRunspacePool(
+            OptionsFor(min: 1, max: 3, eager: 3),
+            loggerFactory: null,
+            startupScript: null,
+            workerFactory: () =>
+            {
+                var n = Interlocked.Increment(ref callCount);
+                if (n > 1)
+                    throw new InvalidOperationException($"Simulated startup failure #{n}");
+                var mock = new Mock<IPowerShellRunspace>();
+                mock.Setup(r => r.Dispose())
+                    .Callback(() => Interlocked.Increment(ref disposedCount));
+                lock (mockRunspaces) { mockRunspaces.Add(mock); }
+                return mock.Object;
+            },
+            snapshotCapture: _ => new HashSet<string>(),
+            driveSnapshotCapture: _ => new HashSet<string>(),
+            resetProtocol: (_, _, _) => Task.CompletedTask);
+
+        // StartAsync must throw because warm (1) < EagerWarmCount (3).
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => pool.StartAsync(CancellationToken.None));
+
+        _output.WriteLine($"G9a StartAsync exception: {ex.Message}");
+
+        Assert.Contains("1/3", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("EagerWarmCount", ex.Message, StringComparison.Ordinal);
+
+        var stats = pool.GetStats();
+        _output.WriteLine(
+            $"G9a Stats after failed start: IsStarted={stats.IsStarted}, " +
+            $"Warm={stats.WarmWorkers}, Total={stats.TotalWorkers}, " +
+            $"Creating={stats.CreatingWorkers}, Disposed={disposedCount}");
+
+        // _started remains false: pool is not ready.
+        Assert.False(stats.IsStarted, "_started must remain false after partial startup failure.");
+
+        // Counters must be zero: the partial warm worker was disposed and removed from _allWorkers.
+        Assert.Equal(0, stats.WarmWorkers);
+        Assert.Equal(0, stats.TotalWorkers);
+        Assert.Equal(0, stats.CreatingWorkers);
+
+        // The successful worker's underlying runspace must have been disposed exactly once.
+        Assert.Equal(1, disposedCount);
+
+        // Health check sees not-started → Unhealthy (reads _started=false).
+        var check = MakeCheck(pool);
+        var healthResult = await check.CheckHealthAsync(new HealthCheckContext());
+        Assert.Equal(HealthStatus.Unhealthy, healthResult.Status);
+        Assert.Equal(false, healthResult.Data["is_started"]);
+
+        // DisposeAsync on a failed (never-started) pool must be safe (no workers to drain).
+        await pool.DisposeAsync();
+    }
+
+    /// <summary>
+    /// G9b: EagerWarmCount=3, MinPoolSize=1, 2 of 3 factories succeed.
+    /// StartAsync still throws (warm=2 &lt; eager=3) and disposes both partial workers.
+    /// </summary>
+    [Fact]
+    public async Task G9b_PartialEagerWarmup_2of3_StartAsyncThrows()
+    {
+        int callCount = 0;
+        int disposedCount = 0;
+
+        var pool = new StatelessRunspacePool(
+            OptionsFor(min: 1, max: 3, eager: 3),
+            loggerFactory: null,
+            startupScript: null,
+            workerFactory: () =>
+            {
+                var n = Interlocked.Increment(ref callCount);
+                if (n > 2)
+                    throw new InvalidOperationException($"Simulated failure #{n}");
+                var mock = new Mock<IPowerShellRunspace>();
+                mock.Setup(r => r.Dispose())
+                    .Callback(() => Interlocked.Increment(ref disposedCount));
+                return mock.Object;
+            },
+            snapshotCapture: _ => new HashSet<string>(),
+            driveSnapshotCapture: _ => new HashSet<string>(),
+            resetProtocol: (_, _, _) => Task.CompletedTask);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => pool.StartAsync(CancellationToken.None));
+
+        var stats = pool.GetStats();
+        _output.WriteLine(
+            $"G9b Stats: IsStarted={stats.IsStarted}, Warm={stats.WarmWorkers}, " +
+            $"Total={stats.TotalWorkers}, Disposed={disposedCount}");
+
+        Assert.False(stats.IsStarted);
+        Assert.Equal(0, stats.WarmWorkers);
+        Assert.Equal(0, stats.TotalWorkers);
+        Assert.Equal(2, disposedCount);  // Both partial workers disposed.
+
+        await pool.DisposeAsync();  // Must be safe after failed startup.
+    }
+
+    /// <summary>
+    /// G9c: All EagerWarmCount=3 workers succeed (warm=3 == eager=3 == max=3).
+    /// StartAsync must NOT throw; pool is started and all workers are accessible.
+    /// Verifies the fix does not regress the all-succeed case.
+    /// </summary>
+    [Fact]
+    public async Task G9c_AllEagerWorkersSucceed_3of3_StartAsyncSucceeds()
+    {
+        await using var pool = new StatelessRunspacePool(
+            OptionsFor(min: 1, max: 3, eager: 3),
+            loggerFactory: null,
+            startupScript: null,
+            workerFactory: () => new Mock<IPowerShellRunspace>().Object,
+            snapshotCapture: _ => new HashSet<string>(),
+            driveSnapshotCapture: _ => new HashSet<string>(),
+            resetProtocol: (_, _, _) => Task.CompletedTask);
+
+        await pool.StartAsync(CancellationToken.None);  // Must not throw.
+
+        var stats = pool.GetStats();
+        Assert.True(stats.IsStarted);
+        Assert.Equal(3, stats.WarmWorkers);
+        Assert.Equal(3, stats.TotalWorkers);
+    }
+
+    /// <summary>
+    /// G9d: RunspacePoolLifecycleService + TestServer host — partial eager failure prevents host startup.
+    /// The hosted service propagates the StartAsync exception so the host cannot open.
+    /// </summary>
+    [Fact]
+    public async Task G9d_PartialEagerFailure_LifecycleService_HostStartupFails()
+    {
+        int callCount = 0;
+
+        var pool = new StatelessRunspacePool(
+            OptionsFor(min: 1, max: 3, eager: 3),
+            loggerFactory: null,
+            startupScript: null,
+            workerFactory: () =>
+            {
+                var n = Interlocked.Increment(ref callCount);
+                if (n > 1)
+                    throw new InvalidOperationException($"Simulated failure #{n}");
+                return new Mock<IPowerShellRunspace>().Object;
+            },
+            snapshotCapture: _ => new HashSet<string>(),
+            driveSnapshotCapture: _ => new HashSet<string>(),
+            resetProtocol: (_, _, _) => Task.CompletedTask);
+
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Logging.SetMinimumLevel(LogLevel.Warning);
+        builder.Services.AddSingleton<IRunspacePool>(pool);
+        builder.Services.AddSingleton<IHostedService, RunspacePoolLifecycleService>();
+        builder.Services.AddHealthChecks()
+            .AddCheck<RunspacePoolHealthCheck>("runspace_pool", tags: new[] { "ready" });
+
+        var app = builder.Build();
+        app.MapHealthChecks("/health/ready", new HealthCheckOptions
+        {
+            Predicate = _ => true,
+            ResponseWriter = WriteHealthJsonAsync,
+            ResultStatusCodes =
+            {
+                [HealthStatus.Healthy]   = StatusCodes.Status200OK,
+                [HealthStatus.Degraded]  = StatusCodes.Status503ServiceUnavailable,
+                [HealthStatus.Unhealthy] = StatusCodes.Status503ServiceUnavailable,
+            },
+        }).AllowAnonymous();
+
+        // Host startup must throw because RunspacePoolLifecycleService.StartAsync propagates
+        // the pool's InvalidOperationException.
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => app.StartAsync());
+        _output.WriteLine($"G9d Host startup exception: {ex.Message}");
+
+        Assert.Contains("EagerWarmCount", ex.Message, StringComparison.Ordinal);
+
+        // Pool must remain not-started and have no live workers.
+        var stats = pool.GetStats();
+        Assert.False(stats.IsStarted);
+        Assert.Equal(0, stats.WarmWorkers);
+        Assert.Equal(0, stats.TotalWorkers);
+
+        await app.DisposeAsync();
     }
 
     // ─── G8: EagerWarmCount > MinPoolSize — thresholds are not conflated ──────

@@ -171,11 +171,16 @@ public sealed class StatelessRunspacePool : IRunspacePool
     /// and starting the sweeper and replenisher background loops.
     /// </summary>
     /// <remarks>
-    /// If all eager-warm workers fail initialization and <c>EagerWarmCount &gt; 0</c>,
-    /// this method throws. Partial success is allowed: at least one worker must start.
+    /// If any eager-warm worker fails initialization and <c>EagerWarmCount &gt; 0</c>,
+    /// this method throws. All <c>EagerWarmCount</c> workers must be warm before the host
+    /// is allowed to serve requests — partial success is not permitted.
+    /// Successfully-created partial workers are disposed before the exception is thrown.
+    /// After a failed startup the pool has no live workers, <c>_started</c> remains
+    /// <c>false</c>, and <see cref="DisposeAsync"/> may be called safely to release resources.
     /// </remarks>
     /// <exception cref="InvalidOperationException">
-    /// Pool has already been started, or all eager-warm workers failed initialization.
+    /// Pool has already been started, or fewer than <see cref="RunspacePoolOptions.EagerWarmCount"/>
+    /// workers were successfully initialized.
     /// </exception>
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
@@ -194,10 +199,16 @@ public sealed class StatelessRunspacePool : IRunspacePool
             await Task.WhenAll(startupTasks).ConfigureAwait(false);
 
             int warm = Volatile.Read(ref _warmCount);
-            if (warm == 0)
+            if (warm < _options.EagerWarmCount)
+            {
+                // Dispose any partial warm workers so they cannot be acquired and counters
+                // return to zero. Background loops have not started, so no races exist.
+                ForceDisposeAllWorkers("startup_partial_failure");
                 throw new InvalidOperationException(
-                    $"All {_options.EagerWarmCount} eager-warm worker(s) failed initialization. " +
-                    "Pool cannot start.");
+                    $"Only {warm}/{_options.EagerWarmCount} eager-warm worker(s) initialized. " +
+                    "Pool cannot start: all EagerWarmCount workers must be warm before the host " +
+                    "is allowed to serve requests.");
+            }
 
             _logger.LogInformation(
                 "Startup complete: {Warm}/{Eager} workers initialized.", warm, _options.EagerWarmCount);
