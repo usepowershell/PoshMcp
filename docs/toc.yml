@@ -67,6 +67,8 @@
 
 - name: Release Notes
   items:
+  - name: SDK v2 Upgrade (pre-release)
+    href: release-notes/sdk-v2-upgrade.md
   - name: v0.15.1
     href: release-notes/0.15.1.md
   - name: v0.15.0

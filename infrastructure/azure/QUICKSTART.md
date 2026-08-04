@@ -212,7 +212,7 @@ Update PowerShell functions at runtime (if EnableDynamicReloadTools is true):
 az containerapp update \
   --name poshmcp \
   --resource-group poshmcp-rg \
-  --set-env-vars "PowerShellConfiguration__FunctionNames__0=Get-Process" "PowerShellConfiguration__FunctionNames__1=Get-Service"
+  --set-env-vars "PowerShellConfiguration__CommandNames__0=Get-Process" "PowerShellConfiguration__CommandNames__1=Get-Service"
 ```
 
 ## Cleanup

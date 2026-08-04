@@ -110,8 +110,8 @@ Scope rules for `integration/Modules` work:
 
 ## References
 
-- **Out-of-Process Documentation:** [docs/OUT-OF-PROCESS.md](../docs/OUT-OF-PROCESS.md)
-- **Production Module Deployment:** [docs/ENVIRONMENT-CUSTOMIZATION.md](../docs/ENVIRONMENT-CUSTOMIZATION.md)
+- **Out-of-Process Documentation:** [docs/articles/advanced.md](../docs/articles/advanced.md)
+- **Production Module Deployment:** [docs/articles/environment.md](../docs/articles/environment.md)
 - **Integration Test Guidelines:** [PoshMcp.Tests/README.md](../PoshMcp.Tests/README.md)
 
 ## Current Integration Test Workstreams

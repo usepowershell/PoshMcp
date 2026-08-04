@@ -417,5 +417,5 @@ steps:
 - [Azure infrastructure documentation](../../infrastructure/azure/README.md) — deployment architecture and configuration
 - [Dockerfile examples](../../examples/README.md) — custom image templates
 - [PoshMcp architecture](../../DESIGN.md) — design philosophy
-- [Trait-based test filtering](../../docs/TRAIT-BASED-TEST-FILTERING.md) — filter tests by category, speed, or cost
-- [Quick start reference](../../docs/QUICKSTART-AZURE-INTEGRATION-TEST.md) — quick command reference
+- [Trait-based test filtering](../../docs/archive/TRAIT-BASED-TEST-FILTERING.md) — filter tests by category, speed, or cost
+- [Quick start reference](../../docs/archive/QUICKSTART-AZURE-INTEGRATION-TEST.md) — quick command reference

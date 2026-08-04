@@ -496,11 +496,11 @@ az acr delete -n myregistry
 
 ## See Also
 
-- **[DOCKER.md](../DOCKER.md)** — Building and customizing container images
-- **[examples/README.md](../examples/README.md)** — Docker Compose examples and customization patterns
-- **[docs/ENVIRONMENT-CUSTOMIZATION.md](../docs/ENVIRONMENT-CUSTOMIZATION.md)** — PowerShell environment setup
+- **[DOCKER.md](../../DOCKER.md)** — Building and customizing container images
+- **[examples/README.md](../../examples/README.md)** — Docker Compose examples and customization patterns
+- **[docs/articles/environment.md](../../docs/articles/environment.md)** — PowerShell environment setup
 - **[Microsoft Azure Container Apps Documentation](https://learn.microsoft.com/azure/container-apps/)** — Azure official docs
-- **[Bicep Documentation](../main.bicep)** — Infrastructure-as-code template
+- **[Bicep Documentation](main.bicep)** — Infrastructure-as-code template
 
 
 
@@ -617,7 +617,7 @@ The deployment automatically configures these environment variables:
 - `ASPNETCORE_ENVIRONMENT`: Production
 - `ASPNETCORE_URLS`: http://+:8080
 - `POSHMCP_TRANSPORT`: http
-- `PowerShellConfiguration__FunctionNames__0`: Your configured functions
+- `PowerShellConfiguration__CommandNames__0`: Your configured functions
 - `PowerShellConfiguration__EnableDynamicReloadTools`: true/false
 - `APPLICATIONINSIGHTS_CONNECTION_STRING`: Auto-configured
 - `AZURE_CLIENT_ID`: Managed Identity client ID

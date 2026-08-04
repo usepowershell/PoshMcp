@@ -383,7 +383,7 @@ dotnet test --verbosity normal
 ## See Also
 
 - **[../README.md](../README.md)** — Project overview
-- **[../docs/IMPLEMENTATION-GUIDE.md](../docs/IMPLEMENTATION-GUIDE.md)** — Developer guide
+- **[../docs/archive/IMPLEMENTATION-GUIDE.md](../docs/archive/IMPLEMENTATION-GUIDE.md)** — Developer guide (archived)
 - **[xUnit Documentation](https://xunit.net/)** — Testing framework reference
 
 
@@ -401,5 +401,5 @@ dotnet test --verbosity normal
 ## See also
 
 - [Azure integration test documentation](Integration/README.azure-integration.md) — Azure deployment test details
-- [Trait-based test filtering](../docs/TRAIT-BASED-TEST-FILTERING.md) — filter integration tests by category, speed, or cost
+- [Trait-based test filtering](../docs/archive/TRAIT-BASED-TEST-FILTERING.md) — filter integration tests by category, speed, or cost
 - [Main README](../README.md) — project overview and getting started
