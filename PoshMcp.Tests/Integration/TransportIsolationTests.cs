@@ -111,9 +111,26 @@ function Get-WorkerMarker { return $WorkerStartupMarker }
     public async Task Stateless_Location_IsResetAfterRequest()
     {
         var client = _statelessClient!;
-        await CallToolAsync(client, "iso_change_location");
-        var result = await CallToolTextAsync(client, "iso_location_is_temp");
-        Assert.Equal("False", result);
+
+        // Capture the worker's baseline location via the production HTTP/MCP path.
+        // The reset protocol sets location to drive root (Windows) or '/' (Linux),
+        // so repeated calls return a stable platform-appropriate path.
+        var baseline = await CallToolTextAsync(client, "iso_read_location");
+
+        // Change to a platform-guaranteed alternate directory (no $env:TEMP assumption).
+        // The tool returns (Get-Location).Path after the change in PS canonical form.
+        var altDir = await CallToolTextAsync(client, "iso_change_location");
+
+        // Verify the change was meaningful (altDir must differ from baseline).
+        static string Norm(string p) => p.Replace('\\', '/').TrimEnd('/');
+        Assert.True(!string.Equals(Norm(baseline), Norm(altDir), StringComparison.OrdinalIgnoreCase),
+            $"iso_change_location must move to a different directory; baseline='{baseline}' altDir='{altDir}'");
+
+        // After worker reset, location must no longer be the contaminated alternate directory.
+        // Fails against an implementation that omits location reset.
+        var afterReset = await CallToolTextAsync(client, "iso_read_location");
+        Assert.True(!string.Equals(Norm(altDir), Norm(afterReset), StringComparison.OrdinalIgnoreCase),
+            $"Location was not reset: still at altDir '{altDir}' after reset (got '{afterReset}')");
     }
 
     [Fact]
@@ -548,16 +565,18 @@ function Get-WorkerMarker { return $WorkerStartupMarker }
                 _ => RunScript(runspace, "$Error.Count.ToString()")),
 
             // Isolation: working location
-            Tool("iso_change_location", "Change location to temp",
-                _ => RunScript(runspace, "Set-Location $env:TEMP; 'ok'")),
-            Tool("iso_location_is_temp", "Check if location is temp",
+            // iso_change_location: moves to platform temp dir and returns the new path in PS canonical form.
+            // iso_read_location: returns the current path — used to capture baseline and post-reset value.
+            Tool("iso_change_location", "Change location to platform temp dir, return new path",
                 _ => RunScript(runspace,
-                    "((Get-Location).Path.TrimEnd('\\','/') -eq $env:TEMP.TrimEnd('\\','/')).ToString()")),
+                    "Set-Location ([System.IO.Path]::GetTempPath()); (Get-Location).Path")),
+            Tool("iso_read_location", "Return current working directory path",
+                _ => RunScript(runspace, "(Get-Location).Path")),
 
             // Isolation: PSDrives
             Tool("iso_create_drive", "Create request-scoped PSDrive",
                 _ => RunScript(runspace,
-                    "New-PSDrive -Name IsoTestDrive -PSProvider FileSystem -Root $env:TEMP -ErrorAction SilentlyContinue; 'ok'")),
+                    "New-PSDrive -Name IsoTestDrive -PSProvider FileSystem -Root ([System.IO.Path]::GetTempPath()) -ErrorAction SilentlyContinue; 'ok'")),
             Tool("iso_check_drive", "Check if request-scoped PSDrive exists",
                 _ => RunScript(runspace,
                     "((Get-PSDrive -Name IsoTestDrive -ErrorAction SilentlyContinue) -ne $null).ToString()")),
@@ -581,7 +600,7 @@ function Get-WorkerMarker { return $WorkerStartupMarker }
 $IsoTestVar = 'contaminated'
 Write-Error 'err' -ErrorAction SilentlyContinue
 $ErrorActionPreference = 'Stop'
-New-PSDrive -Name IsoTestDrive -PSProvider FileSystem -Root $env:TEMP -ErrorAction SilentlyContinue
+New-PSDrive -Name IsoTestDrive -PSProvider FileSystem -Root ([System.IO.Path]::GetTempPath()) -ErrorAction SilentlyContinue
 function IsoTestFunc { 'hello' }
 'ok'")),
             Tool("iso_read_all", "Read all isolation fields as a combined string",
