@@ -296,15 +296,30 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
             ["concurrent_throughput_ms"] = 4,  // PerClientWarmupCalls(1) * ThroughputConcurrency(4)
         };
         var measuredIterations = new Dictionary<string, int>();
-        foreach (var s in _baseline!.Scenarios)
+        if (_baseline is not null)
         {
-            measuredIterations[s.Scenario] = s.Iterations;
+            foreach (var s in _baseline.Scenarios)
+                measuredIterations[s.Scenario] = s.Iterations;
+        }
+        else
+        {
+            // Collect-only mode: baseline not yet available; use predeclared N values.
+            // Must match V1BaselineCharacterizationTests scenario constants exactly.
+            measuredIterations["cold_start_http_no_script"] = PredeclaredColdStartN;
+            measuredIterations["cold_start_http_with_script"] = PredeclaredColdStartN;
+            measuredIterations["warm_call_latency_ms"] = PredeclaredWarmCallN;
+            measuredIterations["concurrent_throughput_ms"] = PredeclaredThroughputN;
+            measuredIterations["diagnostic_http_health_ms"] = 20;
+            measuredIterations["memory_idle_mb"] = 1;
+            measuredIterations["memory_light_load_mb"] = 1;
+            measuredIterations["memory_moderate_load_mb"] = 1;
         }
 
         return MethodologyContract.CaptureCurrentEnvironment(
             sdkMajorVersion: currentSdk.MajorVersion,
             sdkSha256: currentSdk.Sha256,
-            sourceCommitSha: Environment.GetEnvironmentVariable("GITHUB_SHA") ?? "local",
+            sourceCommitSha: Environment.GetEnvironmentVariable("POSHMCP_SOURCE_COMMIT_SHA")
+                             ?? Environment.GetEnvironmentVariable("GITHUB_SHA") ?? "local",
             productOrder: productOrder,
             modeOrder: modeOrder,
             warmupCounts: warmupCounts,
@@ -359,7 +374,12 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
         {
             var artifactPath = Path.Combine(dir, $"phase4-{mode}-collect-only.json");
             if (!File.Exists(artifactPath))
-                continue; // mode may not have a collect-only artifact if that test wasn't run
+                throw new InvalidOperationException(
+                    $"Deferred comparison: collect-only artifact not found for mode '{mode}' " +
+                    $"at '{artifactPath}'. " +
+                    "The collect-only step must complete and write artifacts before the deferred " +
+                    "comparison step. Check that the collect-only step did not crash before calling " +
+                    "DisposeAsync (e.g., NullReferenceException in WriteArtifactAsync).");
 
             var expectedSha256 = Environment.GetEnvironmentVariable(
                 $"PHASE4_COLLECT_ONLY_{mode.ToUpperInvariant()}_SHA256");
