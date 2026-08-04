@@ -8,6 +8,8 @@ on:
       - '**.csproj'
       - '**.sln'
       - '.github/workflows/ci.yml'
+      - '.github/workflows/phase4-gate.yml'
+      - 'scripts/**'
   pull_request:
     branches: [ main ]
     paths:
@@ -15,6 +17,8 @@ on:
       - '**.csproj'
       - '**.sln'
       - '.github/workflows/ci.yml'
+      - '.github/workflows/phase4-gate.yml'
+      - 'scripts/**'
 
 # Minimum permissions for the whole workflow. The build job only needs to read
 # repository contents; uploading test result artifacts via actions/upload-artifact@v4
@@ -303,3 +307,37 @@ jobs:
           TestResults/v1-baseline-characterization.json
           TestResults/phase-characterization.trx
 
+  # ---------------------------------------------------------------------------
+  # Phase 4 (issue #357): Performance comparison against the genuine SDK 1.4.1 baseline.
+  #
+  # The full job now lives in the reusable workflow .github/workflows/phase4-gate.yml so the
+  # SAME comparison implementation backs both the advisory PR check and the enforceable release
+  # gate (#360). On PRs it runs in ADVISORY mode (enforceGate: false): a valid v1.4.1->v2.0.0
+  # comparison whose only failure is red performance thresholds does NOT block the PR, but the
+  # red status is preserved (annotations + job summary + uploaded artifacts). Infrastructure or
+  # methodology failures still fail. The release gate invokes the same workflow with
+  # enforceGate: true so any threshold breach stays RED.
+  # ---------------------------------------------------------------------------
+  performance-comparison:
+    name: "Phase 4 Performance Comparison (#357)"
+    needs: build
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/phase4-gate.yml
+    with:
+      enforceGate: false
+
+  # Deterministic checks for the advisory/release classifier (scripts/Invoke-Phase4Gate.ps1).
+  # Proves advisory succeeds only for a valid comparison, release fails on a breach, and both
+  # modes fail on infra/methodology/provenance/SDK-pair/parity errors (requirement 3).
+  phase4-gate-checks:
+    name: "Phase 4 Gate Classifier Checks (#357)"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@v4
+    - name: Run Phase 4 gate classifier checks
+      shell: pwsh
+      run: ./scripts/Test-Phase4Gate.ps1
