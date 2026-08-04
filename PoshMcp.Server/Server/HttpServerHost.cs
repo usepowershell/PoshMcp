@@ -24,6 +24,7 @@ using PoshMcp.Server.Health;
 using PoshMcp.Server.McpPrompts;
 using PoshMcp.Server.McpResources;
 using PoshMcp.Server.PowerShell;
+using PoshMcp.Server.PowerShell.Pool;
 using PoshMcp.Server.Metrics;
 using PoshMcp.Server.Observability;
 using OpenTelemetry;
@@ -97,8 +98,7 @@ internal static class HttpServerHost
         var config = ConfigurationLoader.LoadPowerShellConfiguration(finalConfigPath, logger, runtimeModeOverride);
         await using var executorLease = await McpToolSetupService.StartOutOfProcessExecutorIfNeededAsync(config, bootstrapLoggerFactory, logger, finalConfigPath);
 
-        var mcpServerConfig = authRootConfig.GetSection("McpServer").Get<McpServerConfiguration>()
-            ?? new McpServerConfiguration();
+        var mcpServerConfig = RegisterResolvedMcpConfiguration(builder.Services, authRootConfig, logger);
         var sharedHttpContextAccessor = new HttpContextAccessor();
         var sharedRunspaceLogger = bootstrapLoggerFactory.CreateLogger<SessionAwarePowerShellRunspace>();
         using var sharedSessionRunspace = new SessionAwarePowerShellRunspace(
@@ -514,6 +514,51 @@ internal static class HttpServerHost
     }
 
 
+
+    /// <summary>
+    /// Resolves <see cref="McpServerConfiguration"/> from the user-provided configuration exactly once,
+    /// emitting deprecation warnings for legacy keys, applying per-key fallback, validating pool options,
+    /// and registering the resolved <see cref="McpServerConfiguration"/> and <see cref="RunspacePoolOptions"/>
+    /// as DI singletons for downstream consumers (e.g., #350).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Must be called with <paramref name="userConfiguration"/> built from the user's explicit config file
+    /// and environment variables only (i.e., the <c>authRootConfig</c> from
+    /// <see cref="ConfigurationLoader.BuildRootConfiguration"/>). Bundled <c>appsettings.json</c> defaults
+    /// live in <c>builder.Configuration</c> — intentionally excluded here so they do not suppress legacy key
+    /// fallback for users who have not yet migrated.
+    /// </para>
+    /// <para>
+    /// Warnings are emitted once per startup regardless of how many times DI resolves the singletons,
+    /// because the resolver is called exactly once inside this method.
+    /// </para>
+    /// </remarks>
+    /// <param name="services">DI service collection to register singletons into.</param>
+    /// <param name="userConfiguration">User-provided configuration (user config file + env vars, no bundled defaults).</param>
+    /// <param name="logger">Startup logger used for deprecation warnings.</param>
+    /// <returns>The resolved and registered <see cref="McpServerConfiguration"/> instance.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown for invalid <c>HttpTransportMode</c> values or invalid <c>RunspacePool</c> settings;
+    /// propagates to the startup catch handler so the server fails fast with a clear error message.
+    /// </exception>
+    internal static McpServerConfiguration RegisterResolvedMcpConfiguration(
+        IServiceCollection services,
+        IConfiguration userConfiguration,
+        ILogger logger)
+    {
+        var (transportMode, poolOptions) = McpServerConfigurationResolver.Resolve(userConfiguration, logger);
+
+        var mcpConfig = userConfiguration.GetSection("McpServer").Get<McpServerConfiguration>()
+            ?? new McpServerConfiguration();
+        mcpConfig.RunspacePool = poolOptions;
+        mcpConfig.HttpTransportMode = transportMode;
+
+        services.AddSingleton(mcpConfig);
+        services.AddSingleton(poolOptions);
+
+        return mcpConfig;
+    }
 
     /// <summary>
     /// Registers cleanup services for HTTP transport.
