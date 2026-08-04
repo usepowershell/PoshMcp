@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
@@ -52,6 +53,7 @@ public sealed class HttpServerPoolWiringTests
     }
 
     [Fact]
+#pragma warning disable CS0618 // Intentional: verifying PooledHttpRunspace has no dependency on the obsolete type.
     public void PooledHttpRunspace_HasNoSessionAwarePowerShellRunspaceDependency()
     {
         var ctors = typeof(PooledHttpRunspace).GetConstructors(
@@ -64,6 +66,7 @@ public sealed class HttpServerPoolWiringTests
             Assert.DoesNotContain(typeof(SessionAwarePowerShellRunspace), paramTypes);
         }
     }
+#pragma warning restore CS0618
 
     [Fact]
     public void RunspacePoolLifecycleService_ImplementsIHostedService()
@@ -108,6 +111,7 @@ public sealed class HttpServerPoolWiringTests
     }
 
     [Fact]
+#pragma warning disable CS0618 // Intentional: verifying SAPR is not resolvable from the pool DI chain.
     public void ServiceCollection_NoSAPR_WhenPooledRunspaceRegistered()
     {
         var pool = MakePool();
@@ -121,28 +125,35 @@ public sealed class HttpServerPoolWiringTests
         // SAPR must NOT be resolvable from this DI chain.
         Assert.Null(provider.GetService<SessionAwarePowerShellRunspace>());
     }
+#pragma warning restore CS0618
 
-    // ─── Session lifecycle: cleanup is no-op for pool ────────────────────────────
+    // ─── Session lifecycle: no PowerShell cleanup callback ───────────────────────
 
+    /// <summary>
+    /// Proves that <see cref="McpSessionLifecycle"/> has a parameterless constructor and that
+    /// <see cref="McpSessionLifecycle.CompleteSession"/> does not interact with the pool.
+    /// The lifecycle is responsible only for MCP protocol-version tracking.
+    /// </summary>
     [Fact]
-    public void McpSessionLifecycle_NoOpCleanup_DoesNotDrainPool()
+    public void McpSessionLifecycle_CompleteSession_DoesNotDrainPool()
     {
         var pool = new Mock<IRunspacePool>();
-        var callbackInvocations = new List<string>();
-        var cleanupCallback = (string sessionId) => callbackInvocations.Add(sessionId);
 
-        var lifecycle = new McpSessionLifecycle(cleanupCallback);
+        var lifecycle = new McpSessionLifecycle();
+        lifecycle.TrackProtocolVersion("session-abc", "2025-11-25");
         lifecycle.CompleteSession("session-abc");
 
-        Assert.Contains("session-abc", callbackInvocations);
-        // Pool.DrainAsync was never called — the callback does not touch the pool.
+        // Protocol tracking removed:
+        Assert.False(lifecycle.TryGetProtocolVersion("session-abc", out _));
+        // Pool was never touched:
         pool.Verify(p => p.DrainAsync(It.IsAny<CancellationToken>()), Times.Never);
+        pool.Verify(p => p.DisposeAsync(), Times.Never);
     }
 
     [Fact]
     public void McpSessionLifecycle_NoOpCleanup_RemovesProtocolVersionTracking()
     {
-        var lifecycle = new McpSessionLifecycle(_ => { });
+        var lifecycle = new McpSessionLifecycle();
         lifecycle.TrackProtocolVersion("session-1", "2024-11-05");
         Assert.True(lifecycle.TryGetProtocolVersion("session-1", out _));
 
@@ -154,8 +165,8 @@ public sealed class HttpServerPoolWiringTests
     [Fact]
     public void McpSessionLifecycle_Stateless_NoOpCleanup_NoException()
     {
-        // Verify that a pure no-op cleanup (as used for pool mode) does not throw.
-        var lifecycle = new McpSessionLifecycle(_ => { });
+        // Verify that a parameterless lifecycle does not throw on untracked sessions.
+        var lifecycle = new McpSessionLifecycle();
 
         // No exception expected even when session has never been tracked.
         lifecycle.CompleteSession("unknown-session");
@@ -260,6 +271,35 @@ public sealed class HttpServerPoolWiringTests
 
         Assert.Equal(new[] { "drain", "dispose" }, order);
     }
+
+    // ─── Obsolete annotations: preserved types carry migration guidance ───────────
+
+    [Fact]
+#pragma warning disable CS0618 // Intentional: this test verifies the [Obsolete] attribute is present on the type.
+    public void SessionAwarePowerShellRunspace_HasObsoleteAttribute()
+    {
+        var obsolete = typeof(SessionAwarePowerShellRunspace)
+            .GetCustomAttributes(typeof(ObsoleteAttribute), inherit: false);
+        Assert.NotEmpty(obsolete);
+        var msg = ((ObsoleteAttribute)obsolete[0]).Message;
+        Assert.Contains("StatelessRunspacePool", msg, StringComparison.Ordinal);
+        Assert.Contains("IRunspacePool", msg, StringComparison.Ordinal);
+        Assert.Contains("RunspacePoolLifecycleService", msg, StringComparison.Ordinal);
+    }
+#pragma warning restore CS0618
+
+    [Fact]
+#pragma warning disable CS0618 // Intentional: this test verifies the [Obsolete] attribute is present on the type.
+    public void SessionRunspaceOptions_HasObsoleteAttribute()
+    {
+        var obsolete = typeof(SessionRunspaceOptions)
+            .GetCustomAttributes(typeof(ObsoleteAttribute), inherit: false);
+        Assert.NotEmpty(obsolete);
+        var msg = ((ObsoleteAttribute)obsolete[0]).Message;
+        Assert.Contains("RunspacePoolOptions", msg, StringComparison.Ordinal);
+        Assert.Contains("RunspacePoolLifecycleService", msg, StringComparison.Ordinal);
+    }
+#pragma warning restore CS0618
 
     // ─── Helpers ────────────────────────────────────────────────────────────────
 

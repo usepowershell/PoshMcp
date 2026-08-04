@@ -11,14 +11,18 @@ namespace PoshMcp;
 /// <summary>
 /// Tracks state associated with stateful HTTP MCP sessions and releases it when the SDK closes a session.
 /// </summary>
+/// <remarks>
+/// This type is responsible solely for MCP transport/session protocol-version tracking.
+/// It has no ownership of or cleanup responsibility for PowerShell workers;
+/// the <see cref="PoshMcp.Server.PowerShell.Pool.IRunspacePool"/> is lifecycle-managed by
+/// <see cref="RunspacePoolLifecycleService"/> through the host infrastructure.
+/// </remarks>
 internal sealed class McpSessionLifecycle
 {
     private readonly ConcurrentDictionary<string, string> _protocolVersions = new(StringComparer.Ordinal);
-    private readonly Action<string> _cleanupSession;
 
-    public McpSessionLifecycle(Action<string> cleanupSession)
+    public McpSessionLifecycle()
     {
-        _cleanupSession = cleanupSession ?? throw new ArgumentNullException(nameof(cleanupSession));
     }
 
     public bool TryGetProtocolVersion(string sessionId, [NotNullWhen(true)] out string? protocolVersion) =>
@@ -54,6 +58,5 @@ internal sealed class McpSessionLifecycle
         }
 
         RemoveProtocolVersion(sessionId);
-        _cleanupSession(sessionId);
     }
 }

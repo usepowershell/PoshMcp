@@ -9,6 +9,7 @@ using Xunit;
 
 namespace PoshMcp.Tests.Unit;
 
+#pragma warning disable CS0618 // This file intentionally uses the obsolete SessionAwarePowerShellRunspace to verify tool-factory parity until major-version removal.
 [Trait("Category", "Unit")]
 public class HttpToolFactoryParityTests
 {
@@ -114,3 +115,4 @@ public class HttpToolFactoryParityTests
         return null;
     }
 }
+#pragma warning restore CS0618

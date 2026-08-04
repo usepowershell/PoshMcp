@@ -134,14 +134,14 @@ public sealed class PooledHttpRunspaceLifecycleTests
     // ─── Session completion: pool is not drained/disposed ───────────────────
 
     [Fact]
-    public void SessionCompletion_Callback_DoesNotDrainOrDisposePool()
+    public void SessionCompletion_DoesNotDrainOrDisposePool()
     {
         var pool = new Mock<IRunspacePool>();
         pool.Setup(p => p.StartAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         pool.Setup(p => p.GetStats()).Returns(new RunspacePoolStats(1, 4, 1, 0, 0, 1));
 
-        // No-op callback as wired in HttpServerHost: never touches the pool.
-        var lifecycle = new McpSessionLifecycle(_ => { });
+        // McpSessionLifecycle has no PowerShell cleanup callback; it only tracks protocol versions.
+        var lifecycle = new McpSessionLifecycle();
 
         lifecycle.CompleteSession("session-xyz");
 
