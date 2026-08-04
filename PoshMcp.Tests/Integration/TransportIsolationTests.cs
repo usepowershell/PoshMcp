@@ -110,27 +110,68 @@ function Get-WorkerMarker { return $WorkerStartupMarker }
     [Fact]
     public async Task Stateless_Location_IsResetAfterRequest()
     {
-        var client = _statelessClient!;
+        // Create a test-owned GUID subdirectory under the platform temp directory.
+        // Using a unique subdir (not GetTempPath() itself) guarantees it differs from any
+        // valid process cwd or reset-to location, making the baseline != altDir assertion
+        // unconditionally true on any platform or working directory configuration.
+        var uniqueDir = new DirectoryInfo(
+            Path.Combine(Path.GetTempPath(), $"poshmcp-iso-{Guid.NewGuid():N}"));
+        uniqueDir.Create();
 
-        // Capture the worker's baseline location via the production HTTP/MCP path.
-        // The reset protocol sets location to drive root (Windows) or '/' (Linux),
-        // so repeated calls return a stable platform-appropriate path.
-        var baseline = await CallToolTextAsync(client, "iso_read_location");
+        // Build a dedicated single-worker host. With MaxPoolSize=1 every call serializes
+        // through the same worker, so baseline-capture and post-reset assertions are
+        // deterministic regardless of pool ordering or prior test state.
+        var (locationApp, locationClient) = await BuildLocationTestHostAsync();
+        try
+        {
+            // Prime the worker through one full reset cycle so the baseline reflects
+            // the reset protocol's target (drive root on Windows, '/' on Linux).
+            await CallToolAsync(locationClient, "iso_read_location");
 
-        // Change to a platform-guaranteed alternate directory (no $env:TEMP assumption).
-        // The tool returns (Get-Location).Path after the change in PS canonical form.
-        var altDir = await CallToolTextAsync(client, "iso_change_location");
+            // Capture the stable post-reset location as baseline.
+            var baseline = await CallToolTextAsync(locationClient, "iso_read_location");
 
-        // Verify the change was meaningful (altDir must differ from baseline).
-        static string Norm(string p) => p.Replace('\\', '/').TrimEnd('/');
-        Assert.True(!string.Equals(Norm(baseline), Norm(altDir), StringComparison.OrdinalIgnoreCase),
-            $"iso_change_location must move to a different directory; baseline='{baseline}' altDir='{altDir}'");
+            // Move to the unique test-owned directory via the production HTTP/MCP path.
+            // The tool does Set-Location -LiteralPath and returns (Get-Location).Path.
+            var altDir = await CallToolTextAsync(locationClient, "iso_change_location_to",
+                new { path = uniqueDir.FullName });
 
-        // After worker reset, location must no longer be the contaminated alternate directory.
-        // Fails against an implementation that omits location reset.
-        var afterReset = await CallToolTextAsync(client, "iso_read_location");
-        Assert.True(!string.Equals(Norm(altDir), Norm(afterReset), StringComparison.OrdinalIgnoreCase),
-            $"Location was not reset: still at altDir '{altDir}' after reset (got '{afterReset}')");
+            // The tool must have moved to our unique directory (proves path was honored).
+            Assert.True(PathsEqual(altDir, uniqueDir.FullName),
+                $"Expected iso_change_location_to to land at '{uniqueDir.FullName}' but got '{altDir}'");
+
+            // The unique subdir must differ from the reset-to baseline.
+            Assert.True(!PathsEqual(baseline, altDir),
+                $"baseline '{baseline}' must differ from altDir '{altDir}' (reset-to location cannot be the unique subdir)");
+
+            // After the pool resets the worker, location must be restored to exactly baseline.
+            // This assertion fails deterministically if Set-Location is removed from BuildResetScript.
+            var afterReset = await CallToolTextAsync(locationClient, "iso_read_location");
+            Assert.True(PathsEqual(afterReset, baseline),
+                $"afterReset '{afterReset}' must equal baseline '{baseline}' — reset protocol did not restore location");
+            Assert.True(!PathsEqual(afterReset, altDir),
+                $"afterReset '{afterReset}' must differ from altDir '{altDir}' — worker is stuck at the contaminated location");
+        }
+        finally
+        {
+            // Dispose host before deleting the directory: on a broken-reset scenario
+            // the worker's PS location may still be uniqueDir; stopping the host
+            // disposes the runspace, clearing any OS-level or PS-level directory hold.
+            locationClient.Dispose();
+            await locationApp.StopAsync();
+            await locationApp.DisposeAsync();
+
+            try
+            {
+                if (uniqueDir.Exists)
+                    uniqueDir.Delete(recursive: false);
+            }
+            catch (Exception cleanupEx)
+            {
+                _output.WriteLine(
+                    $"Cleanup warning: could not delete '{uniqueDir.FullName}': {cleanupEx.Message}");
+            }
+        }
     }
 
     [Fact]
@@ -528,7 +569,114 @@ function Get-WorkerMarker { return $WorkerStartupMarker }
         return (app, client);
     }
 
-    // ─── Tool definitions ──────────────────────────────────────────────────────
+    /// <summary>
+    /// Single-worker stateless host exclusively for the location isolation test.
+    /// MaxPoolSize=1 ensures every call serializes through one worker, making
+    /// baseline-capture and post-reset assertions fully deterministic.
+    /// Only iso_read_location and iso_change_location_to tools are registered.
+    /// </summary>
+    private static async Task<(WebApplication App, HttpClient Client)> BuildLocationTestHostAsync()
+    {
+        var opts = new RunspacePoolOptions
+        {
+            MinPoolSize = 1,
+            MaxPoolSize = 1,
+            EagerWarmCount = 1,
+            AcquisitionTimeout = TimeSpan.FromSeconds(10),
+            IdleTtl = TimeSpan.FromSeconds(300),
+            SweepInterval = TimeSpan.FromSeconds(60),
+            StopTimeout = TimeSpan.FromSeconds(5),
+            ShutdownDrainTimeout = TimeSpan.FromSeconds(10),
+            ReplenishCheckInterval = TimeSpan.FromSeconds(60),
+        };
+
+        var pool = new StatelessRunspacePool(opts, loggerFactory: null, startupScript: null);
+        var pooledRunspace = new PooledHttpRunspace(pool, (string?)null, NullLoggerFactory.Instance);
+        pooledRunspace.FinalizeDiscovery();
+
+        static Task<string> RunScript(IPowerShellRunspace rs, string script) =>
+            rs.ExecuteThreadSafeAsync(ps =>
+            {
+                ps.Commands.Clear();
+                ps.AddScript(script);
+                var results = ps.Invoke<string>();
+                ps.Commands.Clear();
+                ps.Streams.ClearStreams();
+                return Task.FromResult(results.Count > 0 ? results[0] ?? "null" : "null");
+            });
+
+        var readLocationTool = McpServerTool.Create(
+            (CancellationToken _) => RunScript(pooledRunspace, "(Get-Location).Path"),
+            new McpServerToolCreateOptions
+            {
+                Name = "iso_read_location",
+                Description = "Return current PS working directory path"
+            });
+
+        Func<string, CancellationToken, Task<string>> changeLocFn =
+            (path, _) => pooledRunspace.ExecuteThreadSafeAsync(ps =>
+            {
+                ps.Commands.Clear();
+                ps.AddScript(
+                    "param([string]$TargetPath) Set-Location -LiteralPath $TargetPath; (Get-Location).Path");
+                ps.AddParameter("TargetPath", path);
+                var results = ps.Invoke<string>();
+                ps.Commands.Clear();
+                ps.Streams.ClearStreams();
+                return Task.FromResult(results.Count > 0 ? results[0] ?? "error" : "error");
+            });
+
+        var changeLocationTool = McpServerTool.Create(
+            changeLocFn,
+            new McpServerToolCreateOptions
+            {
+                Name = "iso_change_location_to",
+                Description = "CD to specified path (arg: path) and return canonical location"
+            });
+
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Logging.SetMinimumLevel(LogLevel.Warning);
+        builder.Services.AddSingleton(new McpSessionLifecycle());
+        builder.Services.AddSingleton<IPowerShellRunspace>(pooledRunspace);
+        builder.Services.AddSingleton<IRunspacePool>(pool);
+        builder.Services.AddSingleton<IHostedService, RunspacePoolLifecycleService>();
+        builder.Services
+            .AddMcpServer()
+            .WithHttpTransport(o =>
+            {
+                o.Stateless = true;
+#pragma warning disable MCP9006
+                o.IdleTimeout = Timeout.InfiniteTimeSpan;
+#pragma warning restore MCP9006
+            })
+            .WithTools([readLocationTool, changeLocationTool]);
+
+        var app = builder.Build();
+        app.UseMiddleware<McpProtocolVersionMiddleware>((object)new[] { "/" });
+        app.MapMcp();
+        await app.StartAsync();
+
+        var client = app.GetTestClient();
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+        client.DefaultRequestHeaders.Accept.ParseAdd("text/event-stream");
+
+        return (app, client);
+    }
+
+    /// <summary>
+    /// Compares two filesystem paths platform-neutrally.
+    /// Uses Path.GetFullPath for normalization (resolves separators, trailing slashes)
+    /// and OrdinalIgnoreCase for comparison (safe on Linux since GUID paths are unique;
+    /// required on Windows where the FS is case-insensitive).
+    /// </summary>
+    private static bool PathsEqual(string a, string b) =>
+        string.Equals(
+            Path.GetFullPath(a.Trim()),
+            Path.GetFullPath(b.Trim()),
+            StringComparison.OrdinalIgnoreCase);
+
+
 
     private McpServerTool[] CreateIsolationTools(IPowerShellRunspace runspace)
     {
@@ -565,15 +713,31 @@ function Get-WorkerMarker { return $WorkerStartupMarker }
                 _ => RunScript(runspace, "$Error.Count.ToString()")),
 
             // Isolation: working location
-            // iso_change_location: moves to platform temp dir and returns the new path in PS canonical form.
-            // iso_read_location: returns the current path — used to capture baseline and post-reset value.
-            Tool("iso_change_location", "Change location to platform temp dir, return new path",
-                _ => RunScript(runspace,
-                    "Set-Location ([System.IO.Path]::GetTempPath()); (Get-Location).Path")),
+            // iso_read_location: returns the current PS working directory path.
+            // iso_change_location_to: accepts a 'path' argument (MCP arguments.path), moves to it,
+            //   and returns the canonical (Get-Location).Path so the caller can compare.
+            //   LiteralPath avoids glob/wildcard interpretation on both platforms.
             Tool("iso_read_location", "Return current working directory path",
                 _ => RunScript(runspace, "(Get-Location).Path")),
+            McpServerTool.Create(
+                (string path, CancellationToken _) =>
+                    runspace.ExecuteThreadSafeAsync(ps =>
+                    {
+                        ps.Commands.Clear();
+                        ps.AddScript(
+                            "param([string]$TargetPath) Set-Location -LiteralPath $TargetPath; (Get-Location).Path");
+                        ps.AddParameter("TargetPath", path);
+                        var results = ps.Invoke<string>();
+                        ps.Commands.Clear();
+                        ps.Streams.ClearStreams();
+                        return Task.FromResult(results.Count > 0 ? results[0] ?? "error" : "error");
+                    }),
+                new McpServerToolCreateOptions
+                {
+                    Name = "iso_change_location_to",
+                    Description = "CD to specified path (arg: path) and return canonical location"
+                }),
 
-            // Isolation: PSDrives
             Tool("iso_create_drive", "Create request-scoped PSDrive",
                 _ => RunScript(runspace,
                     "New-PSDrive -Name IsoTestDrive -PSProvider FileSystem -Root ([System.IO.Path]::GetTempPath()) -ErrorAction SilentlyContinue; 'ok'")),
@@ -649,14 +813,15 @@ $f = if (Get-Command IsoTestFunc -ErrorAction Ignore) { IsoTestFunc } else { 'no
 
     // ─── HTTP helpers ─────────────────────────────────────────────────────────
 
-    private static async Task<JObject> CallToolAsync(HttpClient client, string toolName)
+    private static async Task<JObject> CallToolAsync(HttpClient client, string toolName,
+        object? args = null)
     {
         var payload = new
         {
             jsonrpc = "2.0",
             id = Guid.NewGuid().ToString("N")[..8],
             method = "tools/call",
-            @params = new { name = toolName, arguments = new { } }
+            @params = new { name = toolName, arguments = args ?? (object)new { } }
         };
         using var resp = await client.PostAsync("/",
             new StringContent(JsonConvert.SerializeObject(payload), Encoding.UTF8, "application/json"));
@@ -664,9 +829,10 @@ $f = if (Get-Command IsoTestFunc -ErrorAction Ignore) { IsoTestFunc } else { 'no
         return ParseJsonOrSse(body, resp.Content.Headers.ContentType?.MediaType);
     }
 
-    private static async Task<string> CallToolTextAsync(HttpClient client, string toolName)
+    private static async Task<string> CallToolTextAsync(HttpClient client, string toolName,
+        object? args = null)
     {
-        var result = await CallToolAsync(client, toolName);
+        var result = await CallToolAsync(client, toolName, args);
         return ExtractText(result);
     }
 
