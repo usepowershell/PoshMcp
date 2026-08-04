@@ -307,6 +307,8 @@ public sealed class RunspacePoolHealthCheckFunctionalTests
             },
             snapshotCapture: _ => new HashSet<string>(),
             driveSnapshotCapture: _ => new HashSet<string>(),
+            functionSnapshotCapture: _ => new HashSet<string>(),
+            aliasSnapshotCapture: _ => new HashSet<string>(),
             resetProtocol: (_, _, _) => Task.CompletedTask);
 
         // StartAsync must throw because warm (1) < EagerWarmCount (3).
@@ -371,6 +373,8 @@ public sealed class RunspacePoolHealthCheckFunctionalTests
             },
             snapshotCapture: _ => new HashSet<string>(),
             driveSnapshotCapture: _ => new HashSet<string>(),
+            functionSnapshotCapture: _ => new HashSet<string>(),
+            aliasSnapshotCapture: _ => new HashSet<string>(),
             resetProtocol: (_, _, _) => Task.CompletedTask);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
@@ -404,6 +408,8 @@ public sealed class RunspacePoolHealthCheckFunctionalTests
             workerFactory: () => new Mock<IPowerShellRunspace>().Object,
             snapshotCapture: _ => new HashSet<string>(),
             driveSnapshotCapture: _ => new HashSet<string>(),
+            functionSnapshotCapture: _ => new HashSet<string>(),
+            aliasSnapshotCapture: _ => new HashSet<string>(),
             resetProtocol: (_, _, _) => Task.CompletedTask);
 
         await pool.StartAsync(CancellationToken.None);  // Must not throw.
@@ -436,6 +442,8 @@ public sealed class RunspacePoolHealthCheckFunctionalTests
             },
             snapshotCapture: _ => new HashSet<string>(),
             driveSnapshotCapture: _ => new HashSet<string>(),
+            functionSnapshotCapture: _ => new HashSet<string>(),
+            aliasSnapshotCapture: _ => new HashSet<string>(),
             resetProtocol: (_, _, _) => Task.CompletedTask);
 
         var builder = WebApplication.CreateBuilder();
@@ -496,6 +504,8 @@ public sealed class RunspacePoolHealthCheckFunctionalTests
             workerFactory: () => new Mock<IPowerShellRunspace>().Object,
             snapshotCapture: _ => new HashSet<string>(),
             driveSnapshotCapture: _ => new HashSet<string>(),
+            functionSnapshotCapture: _ => new HashSet<string>(),
+            aliasSnapshotCapture: _ => new HashSet<string>(),
             resetProtocol: (_, _, _) => Task.CompletedTask);
 
         var builder = WebApplication.CreateBuilder();
