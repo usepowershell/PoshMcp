@@ -58,8 +58,7 @@ Or via environment variables:
 export PowerShellConfiguration__Environment__StartupScriptPath=/app/startup.ps1
 ```
 
-`StartupScript` (inline string) and `StartupScriptPath` (file) are mutually
-exclusive — if both are set, `StartupScriptPath` takes precedence.
+Both `StartupScript` (inline string) and `StartupScriptPath` (file) execute sequentially if both are configured (file first, then inline). Because both run for every created worker, external side effects will duplicate. We recommend configuring only one unless you specifically require composition (e.g., using a file for base setup and the inline script for overrides).
 
 ---
 
@@ -292,8 +291,7 @@ curl https://poshmcp.example/health
 curl https://poshmcp.example/health/ready
 ```
 
-`/health/ready` passes only after the pool has at least the minimum number of
-warm workers. If it remains unhealthy, check startup-script failure warnings.
+`/health/ready` passes only when the pool reaches its minimum capacity (`WarmWorkers + LeasedWorkers >= MinPoolSize`). Workers that are still resetting or being created do not count. At startup, the common case is that all minimum capacity is warm. If the endpoint remains unhealthy, check logs for startup-script failure warnings.
 
 ---
 

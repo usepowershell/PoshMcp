@@ -23,8 +23,8 @@ export POSHMCP_LOG_LEVEL=debug
 # Configuration file path
 export POSHMCP_CONFIGURATION=/config/appsettings.json
 
-# Docker module pre-install
-export POSHMCP_MODULES="Az.Accounts Az.Resources"
+# Build-time Docker module pre-install (used only during docker build, not at runtime)
+export INSTALL_PS_MODULES="Az.Accounts Az.Resources"
 ```
 
 ### Startup Scripts

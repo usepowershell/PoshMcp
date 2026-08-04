@@ -213,8 +213,9 @@ clients to protocol `2026-07-28` Stateless mode.
    curl https://poshmcp.example/health/ready
    ```
 
-   `/health/ready` passes only after the pool has warm workers and all
-   registered checks pass. If the server does not reach ready, inspect logs for
+   `/health/ready` passes only when the pool reaches its minimum capacity
+   (`WarmWorkers + LeasedWorkers >= MinPoolSize`) and all registered checks pass.
+   If the server does not reach ready, inspect logs for
    `Starting StatelessRunspacePool` and `Startup complete` events.
 
 7. **Check for deprecation warnings** in startup logs — one warning per

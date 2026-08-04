@@ -273,8 +273,8 @@ export POSHMCP_CONFIGURATION=/config/appsettings.json
 # Override an appsettings key with the standard .NET environment-variable form
 export McpServer__IdleSessionTimeoutSeconds=120
 
-# Container module pre-install
-export POSHMCP_MODULES="Az.Accounts Az.Resources Az.Storage"
+# Build-time container module pre-install (used only during docker build, not at runtime)
+export INSTALL_PS_MODULES="Az.Accounts Az.Resources Az.Storage"
 ```
 
 You can also provide full appsettings-style configuration purely through environment variables (no physical `appsettings.json` required):
