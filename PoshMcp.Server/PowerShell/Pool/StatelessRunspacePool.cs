@@ -69,6 +69,10 @@ public sealed class StatelessRunspacePool : IRunspacePool
     // Incremented before creation begins; decremented when Evicted.
     private int _totalCount;
 
+    // Lifecycle / creating counters.
+    private int _started;        // 1 after StartAsync completes successfully
+    private int _creatingCount;  // number of in-flight factory calls
+
     // Drain/dispose state.
     private int _draining;   // 1 after DrainAsync is called
     private int _disposed;   // 1 after DisposeAsync completes
@@ -202,6 +206,7 @@ public sealed class StatelessRunspacePool : IRunspacePool
         var ct = _shutdownToken;
         _sweeperTask = Task.Run(() => SweeperLoopAsync(ct), ct);
         _replenisherTask = Task.Run(() => ReplenisherLoopAsync(ct), ct);
+        Interlocked.Exchange(ref _started, 1);
     }
 
     // ─── IRunspacePool ─────────────────────────────────────────────────────────
@@ -341,7 +346,10 @@ public sealed class StatelessRunspacePool : IRunspacePool
             Volatile.Read(ref _warmCount),
             Volatile.Read(ref _leasedCount),
             Volatile.Read(ref _resettingCount),
-            Volatile.Read(ref _totalCount));
+            Volatile.Read(ref _totalCount),
+            CreatingWorkers: Volatile.Read(ref _creatingCount),
+            IsDraining: Volatile.Read(ref _draining) != 0,
+            IsStarted: Volatile.Read(ref _started) != 0);
 
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
@@ -508,10 +516,14 @@ public sealed class StatelessRunspacePool : IRunspacePool
             return;
         }
 
+        Interlocked.Increment(ref _creatingCount);
+        bool factoryCompleted = false;
         RunspaceWorker? worker = null;
         try
         {
             var runspace = await Task.Run(_workerFactory, ct).ConfigureAwait(false);
+            factoryCompleted = true;
+            Interlocked.Decrement(ref _creatingCount);
             worker = new RunspaceWorker(runspace);
 
             // Capture variable and drive snapshots immediately after factory construction
@@ -552,6 +564,7 @@ public sealed class StatelessRunspacePool : IRunspacePool
         }
         catch (OperationCanceledException)
         {
+            if (!factoryCompleted) Interlocked.Decrement(ref _creatingCount);
             _logger.LogDebug("Worker creation cancelled.");
             Interlocked.Decrement(ref _totalCount);
 
@@ -566,6 +579,7 @@ public sealed class StatelessRunspacePool : IRunspacePool
         }
         catch (Exception ex)
         {
+            if (!factoryCompleted) Interlocked.Decrement(ref _creatingCount);
             _logger.LogWarning(ex, "Worker startup failed; evicting without entering pool.");
             _metrics.StartupFailures.Add(1);
             Interlocked.Decrement(ref _totalCount);
