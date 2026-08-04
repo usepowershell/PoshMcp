@@ -565,6 +565,10 @@ jobs:
     - name: Run Phase 4 Performance Comparison (counterbalanced mode order)
       env:
         POSHMCP_REQUIRE_SDK_MIGRATION_PAIR: "1"
+        # Baseline (Phase 0) and current (HEAD) are built AND measured on THIS runner in THIS
+        # job, so the comparison is genuinely same-job paired. The merge step and
+        # Phase4MergeValidator require both per-mode artifacts to report sameJobPaired=true.
+        POSHMCP_SAME_JOB_PAIRED: "1"
       run: |
         set +e
         run_mode() {
