@@ -23,16 +23,15 @@ export POSHMCP_LOG_LEVEL=debug
 # Configuration file path
 export POSHMCP_CONFIGURATION=/config/appsettings.json
 
-# Session timeout (minutes)
-export POSHMCP_SESSION_TIMEOUT_MINUTES=120
-
-# Docker module pre-install
-export POSHMCP_MODULES="Az.Accounts Az.Resources"
+# Build-time Docker module pre-install (used only during docker build, not at runtime)
+export INSTALL_PS_MODULES="Az.Accounts Az.Resources"
 ```
 
 ### Startup Scripts
 
-Run custom PowerShell code at server startup:
+Runs custom PowerShell **per pooled runspace worker** at warm-up and
+replenishment (not once at server startup). See the
+[Startup Scripts Guide](startup-scripts.md) for idempotency requirements:
 
 ```json
 {

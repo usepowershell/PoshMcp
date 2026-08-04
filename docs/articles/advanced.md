@@ -9,7 +9,10 @@ Advanced topics for power users and enterprise deployments.
 
 ## Custom Startup Scripts
 
-Define PowerShell functions and utilities available to all sessions:
+Startup scripts run **per pooled runspace worker** at warm-up and replenishment.
+Define functions and utilities that each fresh worker should have — not a
+shared cross-session scope. See [Startup Scripts Guide](startup-scripts.md) for
+safe patterns, idempotency requirements, and anti-patterns.
 
 ```powershell
 # startup.ps1
@@ -175,9 +178,10 @@ Automatically reload tool definitions when configuration changes (experimental):
 }
 ```
 
-**Note:** This can be slow; use sparingly. In HTTP mode, reload releases all
-managed session runspaces. Established clients must initialize a new MCP
-session afterwards and should treat session-scoped PowerShell state as lost.
+**Note:** This can be slow; use sparingly. In HTTP mode, reload drains and
+replenishes the **runspace pool**; because HTTP is stateless, there is no
+session-scoped PowerShell state to lose — in-flight leases simply complete
+before workers cycle.
 
 ---
 

@@ -13,6 +13,12 @@
 - name: Session Management
   href: session-management.md
 
+- name: Migration v1 → v2
+  href: migration-v1-v2.md
+
+- name: Startup Scripts Guide
+  href: startup-scripts.md
+
 - name: Security
   href: security.md
 

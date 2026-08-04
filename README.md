@@ -45,6 +45,7 @@ PoshMcp automatically:
 
 ### For PowerShell Experts
 - **Zero Boilerplate**: Existing scripts work without modification
+- **Migration Guide**: Upgrading from v1? See the [v1 to v2 Migration Guide](docs/articles/migration-v1-v2.md)
 - **State handling**: HTTP is stateless (pooled, reset-before-reuse) — variables/functions do **not** carry between calls; use **stdio** for a persistent session runspace.
 - **Pattern-Based Filtering**: Include/exclude commands via configuration
 - **Rich Metadata**: Automatic extraction from `Get-Help` and `Get-Command` ([description precedence](docs/articles/exposing-tools.md#description-precedence))
