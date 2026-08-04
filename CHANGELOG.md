@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented here.
 
+## [Unreleased]
+
+> **Pre-release status.** Two release blockers remain open: [#349](https://github.com/usepowershell/PoshMcp/issues/349) (Windows soak run) and [#380](https://github.com/usepowershell/PoshMcp/issues/380) (SDK v2 warm-call throughput gate). This entry documents the scope of changes queued for the next release.
+
+### Added
+- **Stateless HTTP transport (default)** — HTTP now defaults to `Stateless` mode, aligning with MCP SDK v2 semantics. Each tool call leases a clean worker from the shared warm `StatelessRunspacePool`, resets it before use, and returns it after use. No cross-call PowerShell state is preserved.
+- **Shared warm runspace pool** — HTTP tool calls are served from a single `StatelessRunspacePool` shared across all sessions. Pool behaviour is controlled by the `McpServer:RunspacePool:*` configuration keys (see Configuration Reference).
+- **Health and readiness endpoints** — `/health` reports `runspace_pool` status; `/health/ready` tags pool readiness. Metrics expose pool depth, lease latency, and eviction counts.
+- **Explicit Stateful HTTP mode (compatibility option)** — Setting `McpServer:HttpTransportMode` to `Stateful` retains MCP protocol/session lifecycle for clients that require `Mcp-Session-Id` continuity. This mode does **not** select or retain a PowerShell worker per session; all calls still lease from the shared pool and PowerShell variables, modules, and working directory are not preserved across calls.
+- **Migration and startup-script documentation** — Added `docs/articles/migration-v1-v2.md` and `docs/articles/startup-scripts.md`.
+
+### Changed
+- **MCP SDK upgrade** — `ModelContextProtocol` and `ModelContextProtocol.AspNetCore` updated to **2.0.0**. Default protocol version for Stateless HTTP is `2026-07-28`; `2025-11-25` and `2024-11-05` remain supported.
+- **Startup script scope** — Startup scripts run once per warm worker during pool initialisation. Scripts must be idempotent and thread-safe; they do not run once per process or per tool call.
+- **`CommandNames` replaces `FunctionNames`** — The canonical configuration key is now `CommandNames`. The legacy `FunctionNames` key is accepted with a deprecation warning and will be removed in a future major version.
+
+### Deprecated
+- **`SessionRunspace*` configuration keys** — `SessionRunspaceCapacity`, `SessionRunspaceWarmStandbyCount`, `SessionRunspaceIdleTtlSeconds`, `SessionRunspaceSweepIntervalSeconds`, and `SessionRunspaceAcquisitionTimeoutSeconds` are translated to their `McpServer:RunspacePool:*` equivalents at startup with a `LogWarning` for each key used. These keys will be removed in a future major version. Migrate to the current keys (see configuration reference).
+- **`SessionAwarePowerShellRunspace` and `SessionRunspaceOptions` public types** — Deprecated compatibility surfaces; retained until next major version.
+- **HTTP-with-SSE transport** — Available only via `McpServer:EnableLegacySse`; not recommended for new deployments.
+- **Tasks extension** — Deferred; not shipped in this release.
+
+### Breaking
+- **HTTP cross-call PowerShell state is no longer preserved** — Stateless HTTP does not retain PowerShell variables, modules, or working directory between tool calls. Workflows that relied on per-session runspace affinity must migrate to explicit request arguments, external state keyed by authenticated identity, or stdio process-scoped mode. Restoring per-session runspace affinity requires reverting to the previous code and package versions; no configuration switch re-enables it.
+- **Worker affinity removed** — `Mcp-Session-Id` is no longer used to route requests to a specific PowerShell worker.
+
+### Upgrade Notes
+- Run `McpServer:HttpTransportMode=Stateful` only to preserve MCP protocol/session lifecycle for clients that require it. It does not preserve PowerShell execution state.
+- Migrate `SessionRunspace*` keys to `McpServer:RunspacePool:*` to silence deprecation warnings. See [migration guide](docs/articles/migration-v1-v2.md).
+- Update startup scripts to assume once-per-warm-worker execution. See [startup-script guide](docs/articles/startup-scripts.md).
+- See the [SDK v2 pre-release notes](docs/release-notes/sdk-v2-upgrade.md) for the full scope and rollback instructions.
+
 ## [0.18.0] - 2026-07-17
 
 ### Added

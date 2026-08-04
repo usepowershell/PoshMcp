@@ -26,7 +26,7 @@ PoshMcp is a Model Context Protocol (MCP) server implementation that exposes Pow
 ## Development Guidelines
 
 ### PowerShell Function Integration
-- Functions are configured in `appsettings.json` under `FunctionNames` array
+- Functions are configured in `appsettings.json` under `CommandNames` array (`FunctionNames` is accepted as a deprecated alias)
 - The server dynamically discovers function signatures using PowerShell reflection
 - Parameter types are mapped to JSON Schema types automatically
 - Use `McpToolFactoryV2` for adding new PowerShell function support
@@ -58,7 +58,7 @@ PoshMcp is a Model Context Protocol (MCP) server implementation that exposes Pow
 ## Common Patterns
 
 ### Adding New PowerShell Functions
-1. Add function name to `appsettings.json` `FunctionNames` array
+1. Add function name to `appsettings.json` `CommandNames` array
 2. The server will automatically discover and expose the function
 3. Add integration tests to verify the new function works via MCP
 4. Update documentation if the function has special requirements

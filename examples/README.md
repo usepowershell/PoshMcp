@@ -12,7 +12,7 @@ This directory contains examples demonstrating how to customize the PowerShell e
 - **For local development and testing only**
 - Uses `integration/Modules` — a test-asset corpus, not production content
 - Not for end-user deployment
-- See [docs/OUT-OF-PROCESS.md](../docs/OUT-OF-PROCESS.md) for out-of-process deployment guide
+- See [docs/articles/advanced.md](../docs/articles/advanced.md) for out-of-process deployment guide
 
 **Example usage:**
 ```bash
@@ -465,7 +465,7 @@ dotnet run --project PoshMcp.Server -- --ASPNETCORE_ENVIRONMENT=Development
 
 ## Next steps
 
-- Read the [environment customization guide](../docs/ENVIRONMENT-CUSTOMIZATION.md)
+- Read the [environment customization guide](../docs/articles/environment.md)
 - Check the [Docker deployment guide](../DOCKER.md)
 - Review the [main README](../README.md)
 - Explore [infrastructure/azure/](../infrastructure/azure/) for cloud deployment
