@@ -5,7 +5,7 @@ namespace PoshMcp.Tests.Soak;
 /// <summary>
 /// Immutable fixed-interval snapshot recorded during a soak run.
 /// All fields are nullable only when genuinely unsupported on the current OS.
-/// Schema version 1.
+/// Schema version 2.
 /// </summary>
 public sealed record SoakSample
 {
@@ -20,6 +20,18 @@ public sealed record SoakSample
     public long TotalRequests { get; init; }
     public long SuccessRequests { get; init; }
     public long ErrorRequests { get; init; }
+
+    // ─── Per-request-type counters (cumulative) ───────────────────────────────
+
+    public long InitializeRequests { get; init; }
+    public long ToolsListRequests { get; init; }
+    public long ToolsCallRequests { get; init; }
+
+    /// <summary>
+    /// Cumulative count of tools/call responses that had no JSON-RPC error, reported
+    /// result.isError == false, and returned non-empty parseable Get-Date output.
+    /// </summary>
+    public long ToolsCallPsSuccess { get; init; }
 
     // ─── Interval counters (since previous sample) ────────────────────────────
 

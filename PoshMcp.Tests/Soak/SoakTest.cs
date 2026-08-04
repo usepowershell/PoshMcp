@@ -4,12 +4,11 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Runtime;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Xunit;
@@ -20,20 +19,18 @@ namespace PoshMcp.Tests.Soak;
 /// <summary>
 /// Sustained-load soak test for issue #349.
 ///
-/// Acceptance contract (pre-declared before run):
-///   1. ≥ 60 continuous minutes of load after 5-minute warmup
-///   2. Error rate &lt; 0.1% (errors / total requests &lt; 0.001)
-///   3. No server crash
-///   4. Memory growth slope &lt; 1 MB/s (OLS regression on post-warmup WorkingSet samples)
-///   5. Plateau delta &lt; 100 MB (mean of last 10% minus mean of first 10% of post-warmup samples)
-///   6. Process handle slope &lt; 0.01/s (Windows); UNSUPPORTED on Linux/macOS
-///   7. Process thread slope &lt; 0.01/s
-///   8. TotalWorkers ≤ MaxPoolSize at every sample
-///   9. Pool recovers to ≥ MinPoolSize within 6 samples (3 min) after any dip
-///  10. Last 5 samples: WarmWorkers+LeasedWorkers ≥ MinPoolSize (stable end state)
+/// <para>Run shape (phases): <c>baseline → warmup → load → cooldown</c>. Only the load phase
+/// feeds the memory/handle-floor/thread trend gates; warmup is excluded; the cooldown idle floor
+/// is compared to the baseline idle floor to prove handle recovery. See <see cref="SoakConfig"/>
+/// for the full mathematical contract, including why the handle gate regresses per-window floors
+/// rather than the raw sawtooth series.</para>
 ///
-/// Run category: "Soak" — excluded from PR CI. Execute via soak.yml workflow or
-/// dotnet test --filter "Category=Soak".
+/// <para>Phase durations are the release contract (in <see cref="SoakConfig"/> defaults) but may be
+/// shortened for a smoke/plumbing run via <c>SOAK_*_MINUTES</c> / <c>SOAK_SAMPLE_SECONDS</c>
+/// environment overrides. Acceptance <em>thresholds</em> are never overridable.</para>
+///
+/// <para>Run category: "Soak" — excluded from PR CI. Execute via soak.yml or
+/// <c>dotnet test --filter "Category=Soak"</c>.</para>
 /// </summary>
 [Trait("Category", "Soak")]
 public sealed class SoakTest
@@ -42,62 +39,51 @@ public sealed class SoakTest
 
     public SoakTest(ITestOutputHelper output) => _output = output;
 
-    [Fact(Timeout = 5_760_000)] // 96 min hard timeout (5+60 min + 31 min buffer)
+    [Fact(Timeout = 7_200_000)] // 120 min hard timeout (release run ≈ 74 min + build/start + buffer)
     public async Task SustainedLoad_SixtyMinutes_MeetsAllAcceptanceCriteria()
     {
-        // ── Pre-declare criteria ─────────────────────────────────────────────
-        // These rules are recorded here before execution so reviewers can audit
-        // the gate definition independently of run results.
+        // ── Pre-declared contract (durations overridable for smoke; thresholds fixed) ──
         var cfg = new SoakConfig
         {
-            WarmupDuration = TimeSpan.FromMinutes(5),
-            SoakDuration = TimeSpan.FromMinutes(60),
-            SampleInterval = TimeSpan.FromSeconds(30),
-            ConcurrencyLevel = 4,
-            MinRequestDelayMs = 50,
-            MaxRequestDelayMs = 200,
-            EvictionPhaseDuration = TimeSpan.FromMinutes(2),
-            NormalPhaseDuration = TimeSpan.FromMinutes(13),
-            MaxMemorySlopeBytesPerSecond = 1_048_576, // 1 MB/s
-            MaxMemoryPlateauDeltaBytes = 100L * 1024 * 1024, // 100 MB
-            PlateauWindowFraction = 0.10,
-            MaxErrorRate = 0.001, // 0.1%
-            MaxHandleSlopePerSecond = 0.01,
-            MaxThreadSlopePerSecond = 0.01,
-            EnforceWorkerUpperBound = true,
-            ReplenishmentRecoverySamples = 6,
-            StableEndSamples = 5,
+            BaselineDuration = EnvMinutes("SOAK_BASELINE_MINUTES", TimeSpan.FromMinutes(3)),
+            WarmupDuration = EnvMinutes("SOAK_WARMUP_MINUTES", TimeSpan.FromMinutes(5)),
+            LoadDuration = EnvMinutes("SOAK_LOAD_MINUTES", TimeSpan.FromMinutes(61)),
+            CooldownDuration = EnvMinutes("SOAK_COOLDOWN_MINUTES", TimeSpan.FromMinutes(5)),
+            MinLoadDuration = EnvMinutes("SOAK_MIN_LOAD_MINUTES", TimeSpan.FromMinutes(60)),
+            SampleInterval = EnvSeconds("SOAK_SAMPLE_SECONDS", TimeSpan.FromSeconds(30)),
+            NormalPhaseDuration = EnvMinutes("SOAK_NORMAL_MINUTES", TimeSpan.FromMinutes(13)),
+            EvictionPhaseDuration = EnvMinutes("SOAK_EVICTION_MINUTES", TimeSpan.FromMinutes(2)),
+            HandleFloorWindow = EnvMinutes("SOAK_FLOOR_WINDOW_MINUTES", TimeSpan.FromMinutes(5)),
         };
+        cfg.Validate();
 
-        _output.WriteLine("=== Soak Test #349 — Pre-declared Acceptance Criteria ===");
-        _output.WriteLine($"  Duration: warmup {cfg.WarmupDuration.TotalMinutes:F0} min + soak {cfg.SoakDuration.TotalMinutes:F0} min");
+        _output.WriteLine("=== Soak Test #349 — Pre-declared Acceptance Contract (schema v2) ===");
+        _output.WriteLine($"  Phases: baseline {cfg.BaselineDuration.TotalMinutes:F0}m → warmup {cfg.WarmupDuration.TotalMinutes:F0}m → load {cfg.LoadDuration.TotalMinutes:F0}m → cooldown {cfg.CooldownDuration.TotalMinutes:F0}m");
         _output.WriteLine($"  Sample interval: {cfg.SampleInterval.TotalSeconds:F0}s");
-        _output.WriteLine($"  Concurrency: {cfg.ConcurrencyLevel} workers");
-        _output.WriteLine($"  Error rate threshold: {cfg.MaxErrorRate * 100:F1}% (denominator: all requests)");
-        _output.WriteLine($"  Memory slope threshold: {cfg.MaxMemorySlopeBytesPerSecond / 1024.0:F0} KB/s (OLS, warmup excluded)");
-        _output.WriteLine($"  Memory plateau delta threshold: {cfg.MaxMemoryPlateauDeltaBytes / (1024 * 1024.0):F0} MB");
-        _output.WriteLine($"  Handle slope threshold: {cfg.MaxHandleSlopePerSecond:F3}/s (OS support required)");
-        _output.WriteLine($"  Thread slope threshold: {cfg.MaxThreadSlopePerSecond:F3}/s");
-        _output.WriteLine($"  Worker upper bound: TotalWorkers ≤ MaxPoolSize always");
-        _output.WriteLine($"  Recovery: pool back to ≥ MinPoolSize within {cfg.ReplenishmentRecoverySamples} samples");
+        _output.WriteLine($"  Min measured load: {cfg.MinLoadDuration.TotalMinutes:F0}m (load phase only)");
+        _output.WriteLine($"  Error rate ≤ {cfg.MaxErrorRate * 100:F1}% (all traffic)");
+        _output.WriteLine($"  Memory slope ≤ {cfg.MaxMemorySlopeBytesPerSecond / 1024.0:F0} KB/s; plateau ≤ {cfg.MaxMemoryPlateauDeltaBytes / (1024 * 1024.0):F0} MB (load, warmup excluded)");
+        _output.WriteLine($"  Handle FLOOR slope ≤ {cfg.MaxHandleFloorSlopePerSecond:F3}/s over {cfg.HandleFloorWindow.TotalMinutes:F0}m windows, p{cfg.HandleFloorQuantile * 100:F0} floor (Windows)");
+        _output.WriteLine($"  Handle cooldown plateau ≤ max({cfg.HandleCooldownPlateauMaxDeltaAbsolute:F0} abs, {cfg.HandleCooldownPlateauMaxDeltaRelative * 100:F0}% rel) vs baseline floor");
+        _output.WriteLine($"  Thread slope ≤ {cfg.MaxThreadSlopePerSecond:F3}/s");
+        _output.WriteLine($"  Pool/health coverage ≥ {cfg.MinPoolStatsCoverage * 100:F0}% of load samples");
+        _output.WriteLine($"  Worker upper bound: TotalWorkers ≤ MaxPoolSize; recovery within {cfg.ReplenishmentRecoverySamples} samples");
 
-        // ── Environment metadata ─────────────────────────────────────────────
-        var commitSha = GetCommitSha();
-        var runtimeInfo = RuntimeInformation.FrameworkDescription;
-        var osInfo = RuntimeInformation.OSDescription;
-        var cpuCount = Environment.ProcessorCount;
+        // ── Provenance ───────────────────────────────────────────────────────
+        var provenance = CaptureProvenance();
         var startedAt = DateTimeOffset.UtcNow;
         var runId = startedAt.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
 
-        _output.WriteLine($"\n  Commit: {commitSha}");
-        _output.WriteLine($"  Runtime: {runtimeInfo}");
-        _output.WriteLine($"  OS: {osInfo}");
-        _output.WriteLine($"  CPUs: {cpuCount}");
+        _output.WriteLine($"\n  Commit: {provenance.CommitSha} (dirty={provenance.Dirty})");
+        _output.WriteLine($"  Runtime: {provenance.Runtime}");
+        _output.WriteLine($"  OS: {provenance.Os}");
+        _output.WriteLine($"  CPUs: {provenance.CpuCount}");
+        _output.WriteLine($"  Server DLL: {provenance.ServerDllPath} (sha256={provenance.ServerDllSha256})");
+        _output.WriteLine($"  Config: {provenance.ConfigPath} (sha256={provenance.ConfigSha256})");
+        _output.WriteLine($"  Workflow: run={provenance.WorkflowRunId} attempt={provenance.WorkflowRunAttempt} job={provenance.WorkflowJob}");
         _output.WriteLine($"  Run ID: {runId}");
 
-        // ── Locate config ────────────────────────────────────────────────────
-        var configPath = Path.Combine(AppContext.BaseDirectory, "Soak", "Assets", "soak-appsettings.json");
-        Assert.True(File.Exists(configPath), $"Soak config not found at {configPath}");
+        Assert.True(File.Exists(provenance.ConfigPath), $"Soak config not found at {provenance.ConfigPath}");
 
         // ── Artifact directory ────────────────────────────────────────────────
         var artifactDir = DetermineArtifactDir(runId);
@@ -114,7 +100,7 @@ public sealed class SoakTest
 
         // ── Run soak ─────────────────────────────────────────────────────────
         IReadOnlyList<SoakSample> samples;
-        var harness = new SoakHarness(cfg, log, configPath);
+        var harness = new SoakHarness(cfg, log, provenance.ConfigPath);
         try
         {
             samples = await harness.RunAsync();
@@ -122,10 +108,11 @@ public sealed class SoakTest
         catch (Exception ex)
         {
             _output.WriteLine($"\nSoak run failed with exception: {ex}");
-            // Write partial artifacts before re-throwing
+            provenance = provenance with { ServerPid = harness.ServerProcessId, ServerStartTimeUtc = harness.ServerStartTimeUtc };
             var partial = harness.Samples;
-            if (partial.Count > 0)
-                WriteArtifacts(artifactDir, runId, cfg, partial, commitSha, runtimeInfo, osInfo, cpuCount, startedAt, DateTimeOffset.UtcNow, new List<SoakGateResult>(), failed: true);
+            // Always emit an explicit FAILED summary so a partial/aborted run never disappears.
+            WriteArtifacts(artifactDir, runId, cfg, partial, provenance, startedAt, DateTimeOffset.UtcNow,
+                new List<SoakGateResult>(), failed: true, failureReason: ex.GetType().Name + ": " + ex.Message);
             throw;
         }
         finally
@@ -134,27 +121,33 @@ public sealed class SoakTest
             loggerFactory.Dispose();
         }
 
+        provenance = provenance with { ServerPid = harness.ServerProcessId, ServerStartTimeUtc = harness.ServerStartTimeUtc };
         var endedAt = DateTimeOffset.UtcNow;
 
         // ── Evaluate gates ───────────────────────────────────────────────────
         _output.WriteLine($"\n=== Soak Run Complete: {samples.Count} samples ===");
+        var byPhase = samples.GroupBy(s => s.Phase).ToDictionary(g => g.Key, g => g.Count());
+        foreach (var kv in byPhase.OrderBy(k => k.Key))
+            _output.WriteLine($"  phase '{kv.Key}': {kv.Value} samples");
 
         var gates = SoakAnalyzer.Evaluate(samples, cfg);
 
         _output.WriteLine("\n=== Gate Results ===");
         foreach (var gate in gates)
         {
-            var marker = gate.Passed ? "✓" : (gate.Status == "UNSUPPORTED" || gate.Status == "SKIP" ? "~" : "✗");
-            _output.WriteLine($"  [{marker}] {gate.Gate,-28} {gate.Status,-12} {gate.Detail}");
+            var marker = gate.Status == "DIAGNOSTIC" ? "i"
+                : gate.Passed ? "PASS"
+                : gate.Status is "UNSUPPORTED" or "SKIP" ? "~" : "FAIL";
+            _output.WriteLine($"  [{marker,-4}] {gate.Gate,-28} {gate.Status,-12} {gate.Detail}");
         }
 
-        // ── Write artifacts ──────────────────────────────────────────────────
-        WriteArtifacts(artifactDir, runId, cfg, samples, commitSha, runtimeInfo, osInfo, cpuCount, startedAt, endedAt, gates, failed: false);
+        // ── Write artifacts (before asserting) ────────────────────────────────
+        WriteArtifacts(artifactDir, runId, cfg, samples, provenance, startedAt, endedAt, gates, failed: false, failureReason: null);
         _output.WriteLine($"\nArtifacts written to: {artifactDir}");
 
-        // ── Assert all gates pass ────────────────────────────────────────────
+        // ── Assert all real gates pass (DIAGNOSTIC/SKIP/UNSUPPORTED excluded) ──
         var failedGates = gates
-            .Where(g => !g.Passed && g.Status != "UNSUPPORTED" && g.Status != "SKIP")
+            .Where(g => !g.Passed && g.Status is not ("UNSUPPORTED" or "SKIP" or "DIAGNOSTIC"))
             .ToList();
 
         if (failedGates.Count > 0)
@@ -167,7 +160,50 @@ public sealed class SoakTest
             Assert.Fail(sb.ToString());
         }
 
-        _output.WriteLine("\n✓ All soak acceptance gates passed.");
+        _output.WriteLine("\nAll soak acceptance gates passed.");
+    }
+
+    // ─── Provenance ─────────────────────────────────────────────────────────
+
+    private sealed record Provenance
+    {
+        public string CommitSha { get; init; } = "unknown";
+        public bool Dirty { get; init; }
+        public string Runtime { get; init; } = "";
+        public string Os { get; init; } = "";
+        public int CpuCount { get; init; }
+        public string ServerDllPath { get; init; } = "";
+        public string ServerDllSha256 { get; init; } = "";
+        public string ConfigPath { get; init; } = "";
+        public string ConfigSha256 { get; init; } = "";
+        public string? WorkflowRunId { get; init; }
+        public string? WorkflowRunAttempt { get; init; }
+        public string? WorkflowJob { get; init; }
+        public string? WorkflowName { get; init; }
+        public int? ServerPid { get; init; }
+        public DateTime? ServerStartTimeUtc { get; init; }
+    }
+
+    private static Provenance CaptureProvenance()
+    {
+        var serverDll = typeof(PoshMcp.Server.PowerShell.PowerShellConfiguration).Assembly.Location;
+        var configPath = Path.Combine(AppContext.BaseDirectory, "Soak", "Assets", "soak-appsettings.json");
+        return new Provenance
+        {
+            CommitSha = GetCommitSha(),
+            Dirty = IsWorkingTreeDirty(),
+            Runtime = RuntimeInformation.FrameworkDescription,
+            Os = RuntimeInformation.OSDescription,
+            CpuCount = Environment.ProcessorCount,
+            ServerDllPath = serverDll,
+            ServerDllSha256 = Sha256File(serverDll),
+            ConfigPath = configPath,
+            ConfigSha256 = Sha256File(configPath),
+            WorkflowRunId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
+            WorkflowRunAttempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
+            WorkflowJob = Environment.GetEnvironmentVariable("GITHUB_JOB"),
+            WorkflowName = Environment.GetEnvironmentVariable("GITHUB_WORKFLOW"),
+        };
     }
 
     // ─── Artifact writing ─────────────────────────────────────────────────────
@@ -177,14 +213,12 @@ public sealed class SoakTest
         string runId,
         SoakConfig cfg,
         IReadOnlyList<SoakSample> samples,
-        string commitSha,
-        string runtimeInfo,
-        string osInfo,
-        int cpuCount,
+        Provenance prov,
         DateTimeOffset startedAt,
         DateTimeOffset endedAt,
         IReadOnlyList<SoakGateResult> gates,
-        bool failed)
+        bool failed,
+        string? failureReason)
     {
         var opts = new JsonSerializerOptions
         {
@@ -193,35 +227,70 @@ public sealed class SoakTest
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         };
 
-        // ── summary.json ──────────────────────────────────────────────────────
-        var lastSample = samples.OrderBy(s => s.ElapsedMs).LastOrDefault();
+        var ordered = samples.OrderBy(s => s.ElapsedMs).ToList();
+        var lastSample = ordered.LastOrDefault();
         var totalRequests = lastSample?.TotalRequests ?? 0;
         var errorRequests = lastSample?.ErrorRequests ?? 0;
         var errorRate = totalRequests > 0 ? (double)errorRequests / totalRequests : 0;
 
+        var loadSamples = ordered.Where(s => s.Phase == SoakAnalyzer.PhaseLoad).ToList();
+        var loadSpanMinutes = loadSamples.Count >= 2
+            ? (loadSamples[^1].ElapsedMs - loadSamples[0].ElapsedMs) / 60000.0
+            : 0.0;
+
+        var status = failed
+            ? "FAILED"
+            : gates.Count > 0 && gates.All(g => g.Passed || g.Status is "UNSUPPORTED" or "SKIP" or "DIAGNOSTIC")
+                ? "PASSED"
+                : "FAILED";
+
         var summary = new
         {
-            schema = "poshmcp-soak-v1",
+            schema = "poshmcp-soak-v2",
             run_id = runId,
             started_at = startedAt,
             ended_at = endedAt,
             total_duration_seconds = (endedAt - startedAt).TotalSeconds,
-            status = failed ? "FAILED" : (gates.All(g => g.Passed || g.Status == "UNSUPPORTED" || g.Status == "SKIP") ? "PASSED" : "FAILED"),
-            commit_sha = commitSha,
-            runtime = runtimeInfo,
-            os = osInfo,
-            cpu_count = cpuCount,
+            status,
+            failure_reason = failureReason,
+            provenance = new
+            {
+                source_commit_sha = prov.CommitSha,
+                dirty_working_tree = prov.Dirty,
+                runtime = prov.Runtime,
+                os = prov.Os,
+                cpu_count = prov.CpuCount,
+                server_dll_path = prov.ServerDllPath,
+                server_dll_sha256 = prov.ServerDllSha256,
+                config_path = prov.ConfigPath,
+                config_sha256 = prov.ConfigSha256,
+                server_pid = prov.ServerPid,
+                server_start_time_utc = prov.ServerStartTimeUtc,
+                workflow_run_id = prov.WorkflowRunId,
+                workflow_run_attempt = prov.WorkflowRunAttempt,
+                workflow_job = prov.WorkflowJob,
+                workflow_name = prov.WorkflowName,
+            },
             config = new
             {
-                soak_duration_minutes = cfg.SoakDuration.TotalMinutes,
-                warmup_duration_minutes = cfg.WarmupDuration.TotalMinutes,
+                schema_version = SoakConfig.SchemaVersion,
+                baseline_minutes = cfg.BaselineDuration.TotalMinutes,
+                warmup_minutes = cfg.WarmupDuration.TotalMinutes,
+                load_minutes = cfg.LoadDuration.TotalMinutes,
+                cooldown_minutes = cfg.CooldownDuration.TotalMinutes,
+                min_load_minutes = cfg.MinLoadDuration.TotalMinutes,
                 sample_interval_seconds = cfg.SampleInterval.TotalSeconds,
                 concurrency = cfg.ConcurrencyLevel,
                 max_error_rate_pct = cfg.MaxErrorRate * 100,
                 max_memory_slope_kbps = cfg.MaxMemorySlopeBytesPerSecond / 1024.0,
                 max_memory_plateau_delta_mb = cfg.MaxMemoryPlateauDeltaBytes / (1024 * 1024.0),
-                max_handle_slope_per_sec = cfg.MaxHandleSlopePerSecond,
+                handle_floor_window_minutes = cfg.HandleFloorWindow.TotalMinutes,
+                handle_floor_quantile = cfg.HandleFloorQuantile,
+                max_handle_floor_slope_per_sec = cfg.MaxHandleFloorSlopePerSecond,
+                handle_cooldown_plateau_abs = cfg.HandleCooldownPlateauMaxDeltaAbsolute,
+                handle_cooldown_plateau_rel = cfg.HandleCooldownPlateauMaxDeltaRelative,
                 max_thread_slope_per_sec = cfg.MaxThreadSlopePerSecond,
+                min_pool_stats_coverage = cfg.MinPoolStatsCoverage,
             },
             totals = new
             {
@@ -229,6 +298,12 @@ public sealed class SoakTest
                 error_requests = errorRequests,
                 error_rate_pct = errorRate * 100,
                 sample_count = samples.Count,
+                load_sample_count = loadSamples.Count,
+                load_span_minutes = loadSpanMinutes,
+                initialize_requests = lastSample?.InitializeRequests ?? 0,
+                tools_list_requests = lastSample?.ToolsListRequests ?? 0,
+                tools_call_requests = lastSample?.ToolsCallRequests ?? 0,
+                tools_call_ps_success = lastSample?.ToolsCallPsSuccess ?? 0,
             },
             gates = gates.Select(g => new
             {
@@ -239,7 +314,7 @@ public sealed class SoakTest
                 measured = g.MeasuredValue,
                 threshold = g.Threshold,
             }),
-            samples = samples.Select(s => new
+            samples = ordered.Select(s => new
             {
                 ts = s.Timestamp,
                 elapsed_ms = s.ElapsedMs,
@@ -247,6 +322,10 @@ public sealed class SoakTest
                 req_total = s.TotalRequests,
                 req_success = s.SuccessRequests,
                 req_error = s.ErrorRequests,
+                req_initialize = s.InitializeRequests,
+                req_tools_list = s.ToolsListRequests,
+                req_tools_call = s.ToolsCallRequests,
+                req_tools_call_ps_success = s.ToolsCallPsSuccess,
                 int_req = s.IntervalRequests,
                 int_err = s.IntervalErrors,
                 p50_ms = s.P50LatencyMs,
@@ -260,17 +339,17 @@ public sealed class SoakTest
                 pool_min = s.PoolStatsAvailable ? s.PoolMin : (int?)null,
                 pool_max = s.PoolStatsAvailable ? s.PoolMax : (int?)null,
                 pool_started = s.PoolStatsAvailable ? s.PoolIsStarted : (bool?)null,
+                pool_available = s.PoolStatsAvailable,
                 note = s.Note,
             }),
         };
 
-        var summaryJson = JsonSerializer.Serialize(summary, opts);
-        File.WriteAllText(Path.Combine(dir, "summary.json"), summaryJson);
+        File.WriteAllText(Path.Combine(dir, "summary.json"), JsonSerializer.Serialize(summary, opts));
 
         // ── samples.csv ───────────────────────────────────────────────────────
         var csv = new StringBuilder();
-        csv.AppendLine("timestamp,elapsed_ms,phase,req_total,req_success,req_error,int_req,int_err,p50_ms,p99_ms,ws_bytes,handles,threads,pool_warm,pool_leased,pool_total,pool_min,pool_max,pool_started,note");
-        foreach (var s in samples.OrderBy(s => s.ElapsedMs))
+        csv.AppendLine("timestamp,elapsed_ms,phase,req_total,req_success,req_error,req_initialize,req_tools_list,req_tools_call,req_tools_call_ps_success,int_req,int_err,p50_ms,p99_ms,ws_bytes,handles,threads,pool_warm,pool_leased,pool_total,pool_min,pool_max,pool_started,pool_available,note");
+        foreach (var s in ordered)
         {
             csv.AppendLine(string.Join(",",
                 s.Timestamp.ToString("o", CultureInfo.InvariantCulture),
@@ -279,19 +358,24 @@ public sealed class SoakTest
                 s.TotalRequests,
                 s.SuccessRequests,
                 s.ErrorRequests,
+                s.InitializeRequests,
+                s.ToolsListRequests,
+                s.ToolsCallRequests,
+                s.ToolsCallPsSuccess,
                 s.IntervalRequests,
                 s.IntervalErrors,
                 s.P50LatencyMs?.ToString("F1", CultureInfo.InvariantCulture) ?? "",
                 s.P99LatencyMs?.ToString("F1", CultureInfo.InvariantCulture) ?? "",
                 s.WorkingSetBytes,
-                s.HandleCountSupported ? s.ProcessHandleCount.ToString() : "N/A",
+                s.HandleCountSupported ? s.ProcessHandleCount.ToString(CultureInfo.InvariantCulture) : "N/A",
                 s.ProcessThreadCount,
-                s.PoolStatsAvailable ? s.PoolWarm.ToString() : "N/A",
-                s.PoolStatsAvailable ? s.PoolLeased.ToString() : "N/A",
-                s.PoolStatsAvailable ? s.PoolTotal.ToString() : "N/A",
-                s.PoolStatsAvailable ? s.PoolMin.ToString() : "N/A",
-                s.PoolStatsAvailable ? s.PoolMax.ToString() : "N/A",
+                s.PoolStatsAvailable ? s.PoolWarm.ToString(CultureInfo.InvariantCulture) : "N/A",
+                s.PoolStatsAvailable ? s.PoolLeased.ToString(CultureInfo.InvariantCulture) : "N/A",
+                s.PoolStatsAvailable ? s.PoolTotal.ToString(CultureInfo.InvariantCulture) : "N/A",
+                s.PoolStatsAvailable ? s.PoolMin.ToString(CultureInfo.InvariantCulture) : "N/A",
+                s.PoolStatsAvailable ? s.PoolMax.ToString(CultureInfo.InvariantCulture) : "N/A",
                 s.PoolStatsAvailable ? s.PoolIsStarted.ToString() : "N/A",
+                s.PoolStatsAvailable,
                 s.Note ?? ""));
         }
 
@@ -300,38 +384,75 @@ public sealed class SoakTest
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
-    private static string GetCommitSha()
+    private static TimeSpan EnvMinutes(string name, TimeSpan fallback)
+    {
+        var v = Environment.GetEnvironmentVariable(name);
+        return double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out var m) && m > 0
+            ? TimeSpan.FromMinutes(m)
+            : fallback;
+    }
+
+    private static TimeSpan EnvSeconds(string name, TimeSpan fallback)
+    {
+        var v = Environment.GetEnvironmentVariable(name);
+        return double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out var s) && s > 0
+            ? TimeSpan.FromSeconds(s)
+            : fallback;
+    }
+
+    private static string Sha256File(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var sha = SHA256.Create();
+            return Convert.ToHexString(sha.ComputeHash(stream)).ToLowerInvariant();
+        }
+        catch
+        {
+            return "unavailable";
+        }
+    }
+
+    private static string GetCommitSha() => RunGit("rev-parse HEAD") is { Length: > 0 } sha ? sha : "unknown";
+
+    private static bool IsWorkingTreeDirty()
+    {
+        var status = RunGit("status --porcelain");
+        return !string.IsNullOrWhiteSpace(status);
+    }
+
+    private static string RunGit(string args)
     {
         try
         {
             var psi = new ProcessStartInfo("git")
             {
-                Arguments = "rev-parse HEAD",
+                Arguments = args,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
+                RedirectStandardError = true,
                 CreateNoWindow = true,
                 WorkingDirectory = AppContext.BaseDirectory,
             };
             using var p = Process.Start(psi);
-            if (p is null) return "unknown";
-            var sha = p.StandardOutput.ReadToEnd().Trim();
-            p.WaitForExit(3000);
-            return string.IsNullOrWhiteSpace(sha) ? "unknown" : sha;
+            if (p is null) return "";
+            var outText = p.StandardOutput.ReadToEnd().Trim();
+            p.WaitForExit(5000);
+            return outText;
         }
         catch
         {
-            return "unknown";
+            return "";
         }
     }
 
     private static string DetermineArtifactDir(string runId)
     {
-        // Allow CI to override via SOAK_ARTIFACT_DIR
         var envDir = Environment.GetEnvironmentVariable("SOAK_ARTIFACT_DIR");
         if (!string.IsNullOrWhiteSpace(envDir))
             return Path.Combine(envDir, runId);
 
-        // Default: bench-runs/soak/<runId> relative to repo root
         var repoRoot = FindRepoRoot(AppContext.BaseDirectory)
             ?? Path.Combine(Path.GetTempPath(), "poshmcp-soak");
         return Path.Combine(repoRoot, "bench-runs", "soak", runId);

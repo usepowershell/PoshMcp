@@ -36,13 +36,29 @@ public sealed class SoakHarness : IAsyncDisposable
     private readonly Uri _baseUri;
 
     private Process? _serverProcess;
+    private HttpClient? _monitorClient;
     private readonly List<SoakSample> _samples = new();
     private readonly object _samplesLock = new();
+
+    /// <summary>Current run phase, read by the continuous sampler. Written on phase transitions.</summary>
+    private volatile string _currentPhase = SoakAnalyzer.PhaseBaseline;
 
     // Cumulative counters (interlocked)
     private long _totalRequests;
     private long _successRequests;
     private long _errorRequests;
+
+    // Per-request-type cumulative counters (interlocked)
+    private long _initializeRequests;
+    private long _toolsListRequests;
+    private long _toolsCallRequests;
+    private long _toolsCallPsSuccess;
+
+    /// <summary>Server process id captured once at startup (for provenance).</summary>
+    public int? ServerProcessId { get; private set; }
+
+    /// <summary>Server process start time captured once at startup (for provenance).</summary>
+    public DateTime? ServerStartTimeUtc { get; private set; }
 
     // Interval state (protected by _intervalLock)
     private readonly object _intervalLock = new();
@@ -77,57 +93,85 @@ public sealed class SoakHarness : IAsyncDisposable
     // ─── Run ─────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Starts the server, runs warmup + soak, and returns all recorded samples.
-    /// Calls <see cref="DisposeAsync"/> should be made in a finally block.
+    /// Starts the server and runs the full four-phase soak
+    /// (<c>baseline → warmup → load → cooldown</c>) with a single continuous background sampler.
+    /// Returns all recorded samples. <see cref="DisposeAsync"/> should be called in a finally block.
     /// </summary>
     public async Task<IReadOnlyList<SoakSample>> RunAsync(CancellationToken ct = default)
     {
         await StartServerAsync(ct);
 
-        _log.LogInformation("Server ready at {Url}. Starting warmup ({Duration})...",
-            _baseUrl, _config.WarmupDuration);
-
         _elapsed.Restart();
 
-        // ── Warmup phase ─────────────────────────────────────────────────────
-        using var warmupCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        warmupCts.CancelAfter(_config.WarmupDuration);
-
-        await RunTrafficPhaseAsync("warmup", _config.ConcurrencyLevel, warmupCts.Token);
-
-        _log.LogInformation("Warmup complete. Starting soak ({Duration})...", _config.SoakDuration);
-
-        // ── Soak phase ───────────────────────────────────────────────────────
-        var phaseSchedule = BuildPhaseSchedule();
-        var soakCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        soakCts.CancelAfter(_config.SoakDuration);
-
+        // One continuous sampler for the whole run; it tags each sample with _currentPhase.
         using var samplerCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var samplerTask = RunSamplerAsync(samplerCts.Token);
 
-        // Start sampler background loop
-        var samplerTask = RunSamplerAsync("soak", samplerCts.Token);
+        try
+        {
+            // ── Baseline phase (no load traffic; establishes pre-load idle floor) ──
+            _currentPhase = SoakAnalyzer.PhaseBaseline;
+            _log.LogInformation("Baseline phase ({Duration}) — server idle, pool warm, no load traffic.", _config.BaselineDuration);
+            await QuietPhaseAsync(_config.BaselineDuration, ct);
 
-        // Run traffic phases
-        await RunPhasedTrafficAsync(phaseSchedule, soakCts.Token);
+            // ── Warmup phase (full traffic; excluded from trend gates) ────────────
+            _currentPhase = SoakAnalyzer.PhaseWarmup;
+            _log.LogInformation("Warmup phase ({Duration}) — full traffic, excluded from analysis.", _config.WarmupDuration);
+            await RunBoundedTrafficAsync(_config.WarmupDuration, _config.ConcurrencyLevel, ct);
 
-        // Stop sampler
-        samplerCts.Cancel();
-        try { await samplerTask; } catch (OperationCanceledException) { }
+            // ── Load phase (measured; ≥ MinLoadDuration) ─────────────────────────
+            _currentPhase = SoakAnalyzer.PhaseLoad;
+            _log.LogInformation("Load phase ({Duration}) — measured sustained load.", _config.LoadDuration);
+            var loadSchedule = BuildPhaseSchedule(_config.LoadDuration);
+            using (var loadCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
+            {
+                loadCts.CancelAfter(_config.LoadDuration);
+                await RunPhasedTrafficAsync(loadSchedule, loadCts.Token);
+            }
 
-        // Collect final sample
-        await TakeSampleAsync("soak", "final");
+            // ── Cooldown phase (NO traffic, NO forced GC; observe natural recovery) ──
+            _currentPhase = SoakAnalyzer.PhaseCooldown;
+            _log.LogInformation("Cooldown phase ({Duration}) — traffic stopped, no forced GC, observing natural recovery.", _config.CooldownDuration);
+            await QuietPhaseAsync(_config.CooldownDuration, ct);
+        }
+        finally
+        {
+            samplerCts.Cancel();
+            try { await samplerTask; } catch (OperationCanceledException) { }
+        }
+
+        // Final terminal sample (cooldown).
+        await TakeSampleAsync("final");
 
         return Samples;
+    }
+
+    /// <summary>Idle wait with no load traffic; the continuous sampler keeps recording.</summary>
+    private static async Task QuietPhaseAsync(TimeSpan duration, CancellationToken ct)
+    {
+        if (duration <= TimeSpan.Zero) return;
+        try { await Task.Delay(duration, ct); }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
+    }
+
+    /// <summary>Runs full-concurrency traffic for a bounded duration (used for warmup).</summary>
+    private async Task RunBoundedTrafficAsync(TimeSpan duration, int workers, CancellationToken ct)
+    {
+        if (duration <= TimeSpan.Zero) return;
+        using var phaseCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        phaseCts.CancelAfter(duration);
+        try { await RunTrafficPhaseAsync("warmup", workers, phaseCts.Token); }
+        catch (OperationCanceledException) when (phaseCts.IsCancellationRequested && !ct.IsCancellationRequested) { }
     }
 
     // ─── Phase schedule ──────────────────────────────────────────────────────
 
     private sealed record PhaseEntry(string Name, int Workers, TimeSpan Duration);
 
-    private List<PhaseEntry> BuildPhaseSchedule()
+    private List<PhaseEntry> BuildPhaseSchedule(TimeSpan totalDuration)
     {
         var phases = new List<PhaseEntry>();
-        var remaining = _config.SoakDuration;
+        var remaining = totalDuration;
 
         while (remaining > TimeSpan.Zero)
         {
@@ -190,24 +234,28 @@ public sealed class SoakHarness : IAsyncDisposable
 
         while (!ct.IsCancellationRequested)
         {
-            // Mixed workload: 50% tools/list, 40% tools/call, 10% initialize
+            // Mixed workload: ~10% initialize, ~50% tools/list, ~40% tools/call (real PS)
             var roll = rng.NextDouble();
             try
             {
                 var sw = Stopwatch.StartNew();
                 if (roll < 0.10)
                 {
+                    Interlocked.Increment(ref _initializeRequests);
                     await SendInitializeAsync(client, ct);
                 }
                 else if (roll < 0.60)
                 {
+                    Interlocked.Increment(ref _toolsListRequests);
                     await SendToolsListAsync(client, ct);
                 }
                 else
                 {
                     // "Get-Date" is registered per parameter set; "get_date_date_and_format" is the
                     // variant with -Date and -Format parameters (all optional), exercising real PS execution.
-                    await SendToolCallAsync(client, "get_date_date_and_format", new { }, ct);
+                    Interlocked.Increment(ref _toolsCallRequests);
+                    var psOk = await SendToolCallAsync(client, "get_date_date_and_format", new { }, ct);
+                    if (psOk) Interlocked.Increment(ref _toolsCallPsSuccess);
                 }
 
                 sw.Stop();
@@ -231,14 +279,14 @@ public sealed class SoakHarness : IAsyncDisposable
 
     // ─── Sampling ─────────────────────────────────────────────────────────────
 
-    private async Task RunSamplerAsync(string phase, CancellationToken ct)
+    private async Task RunSamplerAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
             try
             {
                 await Task.Delay(_config.SampleInterval, ct);
-                await TakeSampleAsync(phase, null);
+                await TakeSampleAsync(null);
             }
             catch (OperationCanceledException)
             {
@@ -251,8 +299,9 @@ public sealed class SoakHarness : IAsyncDisposable
         }
     }
 
-    private async Task TakeSampleAsync(string phase, string? note)
+    private async Task TakeSampleAsync(string? note)
     {
+        var phase = _currentPhase;
         var now = DateTimeOffset.UtcNow;
         var elapsedMs = _elapsed.ElapsedMilliseconds;
 
@@ -334,6 +383,10 @@ public sealed class SoakHarness : IAsyncDisposable
             TotalRequests = Interlocked.Read(ref _totalRequests),
             SuccessRequests = Interlocked.Read(ref _successRequests),
             ErrorRequests = Interlocked.Read(ref _errorRequests),
+            InitializeRequests = Interlocked.Read(ref _initializeRequests),
+            ToolsListRequests = Interlocked.Read(ref _toolsListRequests),
+            ToolsCallRequests = Interlocked.Read(ref _toolsCallRequests),
+            ToolsCallPsSuccess = Interlocked.Read(ref _toolsCallPsSuccess),
             IntervalRequests = intRequests,
             IntervalErrors = intErrors,
             P50LatencyMs = p50,
@@ -376,9 +429,10 @@ public sealed class SoakHarness : IAsyncDisposable
 
     private async Task<PoolStatsSnapshot?> TryGetPoolStatsAsync()
     {
+        var client = _monitorClient;
+        if (client is null) return null;
         try
         {
-            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
             using var response = await client.GetAsync(new Uri(_baseUri, "health")).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode) return null;
 
@@ -473,7 +527,7 @@ public sealed class SoakHarness : IAsyncDisposable
         response.EnsureSuccessStatusCode();
     }
 
-    private async Task SendToolCallAsync(HttpClient client, string toolName, object args, CancellationToken ct)
+    private async Task<bool> SendToolCallAsync(HttpClient client, string toolName, object args, CancellationToken ct)
     {
         var payload = new
         {
@@ -485,17 +539,61 @@ public sealed class SoakHarness : IAsyncDisposable
         using var response = await SendMcpAsync(client, payload, ct);
         response.EnsureSuccessStatusCode();
 
-        // Isolation check: verify response is valid JSON-RPC with a result
-        var body = await response.Content.ReadAsStringAsync();
+        // Traffic proof: parse response, reject top-level JSON-RPC error, require result.isError == false,
+        // and require non-empty parseable Get-Date output in the result content.
+        var body = await response.Content.ReadAsStringAsync(ct);
         var bodyText = body.StartsWith("event:", StringComparison.Ordinal)
             ? body.Split('\n').FirstOrDefault(l => l.StartsWith("data:", StringComparison.Ordinal))?[5..].TrimStart() ?? body
             : body;
         using var doc = JsonDocument.Parse(bodyText);
-        if (doc.RootElement.TryGetProperty("error", out _))
-        {
-            throw new InvalidOperationException($"MCP tool call returned error: {bodyText[..Math.Min(200, bodyText.Length)]}");
-        }
+        var root = doc.RootElement;
+
+        if (root.TryGetProperty("error", out _))
+            throw new InvalidOperationException($"MCP tool call returned JSON-RPC error: {Truncate(bodyText)}");
+
+        if (!root.TryGetProperty("result", out var result))
+            throw new InvalidOperationException($"MCP tool call response missing 'result': {Truncate(bodyText)}");
+
+        // isError is optional in MCP; absent means success. A true value is a tool-level failure.
+        if (result.TryGetProperty("isError", out var isErr) && isErr.ValueKind == JsonValueKind.True)
+            throw new InvalidOperationException($"MCP tool call result.isError == true: {Truncate(bodyText)}");
+
+        var text = ExtractContentText(result);
+        if (string.IsNullOrWhiteSpace(text) || !LooksLikeDate(text))
+            throw new InvalidOperationException($"MCP tool call produced no parseable Get-Date output: {Truncate(bodyText)}");
+
+        return true;
     }
+
+    private static string? ExtractContentText(JsonElement result)
+    {
+        if (!result.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array)
+            return null;
+        var sb = new StringBuilder();
+        foreach (var item in content.EnumerateArray())
+        {
+            if (item.TryGetProperty("text", out var t) && t.ValueKind == JsonValueKind.String)
+                sb.Append(t.GetString());
+        }
+        return sb.Length == 0 ? null : sb.ToString();
+    }
+
+    private static bool LooksLikeDate(string text)
+    {
+        if (DateTime.TryParse(text, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out _))
+            return true;
+        if (DateTime.TryParse(text, System.Globalization.CultureInfo.CurrentCulture,
+                System.Globalization.DateTimeStyles.None, out _))
+            return true;
+        // Get-Date custom/culture formats may not round-trip through TryParse; require a year-like
+        // 4-digit run plus at least one separator as a conservative non-empty-output proxy.
+        var hasFourDigits = System.Text.RegularExpressions.Regex.IsMatch(text, "\\d{4}");
+        var hasDigitCluster = System.Text.RegularExpressions.Regex.IsMatch(text, "\\d{1,2}[:/\\- ]\\d{1,2}");
+        return hasFourDigits || hasDigitCluster;
+    }
+
+    private static string Truncate(string s) => s[..Math.Min(200, s.Length)];
 
     private Task<HttpResponseMessage> SendMcpAsync(HttpClient client, object payload, CancellationToken ct)
     {
@@ -546,6 +644,14 @@ public sealed class SoakHarness : IAsyncDisposable
         };
         _serverProcess.BeginOutputReadLine();
         _serverProcess.BeginErrorReadLine();
+
+        ServerProcessId = _serverProcess.Id;
+        try { ServerStartTimeUtc = _serverProcess.StartTime.ToUniversalTime(); }
+        catch { ServerStartTimeUtc = null; }
+
+        // Dedicated monitoring client, isolated from load so heavy traffic cannot starve health polls.
+        _monitorClient = new HttpClient { BaseAddress = _baseUri, Timeout = TimeSpan.FromSeconds(10) };
+        _monitorClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         await WaitForReadyAsync(ct);
         _log.LogInformation("Server ready (PID {Pid})", _serverProcess.Id);
@@ -610,6 +716,9 @@ public sealed class SoakHarness : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        _monitorClient?.Dispose();
+        _monitorClient = null;
+
         if (_serverProcess is not null)
         {
             if (!_serverProcess.HasExited)

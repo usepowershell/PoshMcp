@@ -1,10 +1,22 @@
 name: Soak Test
 
+# Authoritative sustained-load soak + handle/memory stability run for issue #349.
+#
+# This workflow runs on windows-latest because the authoritative handle signal is
+# Process.HandleCount (a Windows-specific metric). It is manual/nightly only and is
+# NEVER part of ordinary PR CI (the SoakTest carries [Trait("Category","Soak")], which
+# PR CI excludes). The full release run is ~74 minutes of wall clock
+# (baseline 3 + warmup 5 + load 61 + cooldown 5).
+
 on:
   workflow_dispatch:
     inputs:
-      soak_minutes:
-        description: "Soak duration in minutes (default 60)"
+      load_minutes:
+        description: "Measured load-phase minutes (release default 61; must yield >= 60 min measured span)"
+        required: false
+        default: "61"
+      min_load_minutes:
+        description: "Minimum measured load span required to pass the duration gate"
         required: false
         default: "60"
   schedule:
@@ -14,11 +26,15 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: pwsh
+
 jobs:
   soak:
-    name: Sustained-load soak (#349)
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
+    name: Sustained-load soak (#349, windows/HandleCount)
+    runs-on: windows-latest
+    timeout-minutes: 150
 
     steps:
       - uses: actions/checkout@v4
@@ -47,13 +63,16 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: soak-unit-results
+          name: soak-unit-results-${{ github.run_id }}-${{ github.run_attempt }}
           path: ./TestResults/soak-unit.trx
+          if-no-files-found: warn
 
-      - name: Run one-hour soak test
-        timeout-minutes: 100
+      - name: Run authoritative soak test (windows-latest, Process.HandleCount)
+        timeout-minutes: 130
         env:
           SOAK_ARTIFACT_DIR: ${{ github.workspace }}/soak-artifacts
+          SOAK_LOAD_MINUTES: ${{ github.event.inputs.load_minutes || '61' }}
+          SOAK_MIN_LOAD_MINUTES: ${{ github.event.inputs.min_load_minutes || '60' }}
         run: >
           dotnet test
           --no-build
@@ -62,11 +81,35 @@ jobs:
           --logger "trx;LogFileName=soak-run.trx"
           --results-directory ./TestResults
 
+      - name: Ensure a summary exists (write explicit failed summary if missing)
+        if: always()
+        run: |
+          $dir = "${{ github.workspace }}/soak-artifacts"
+          $summary = Get-ChildItem -Path $dir -Recurse -Filter summary.json -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $summary) {
+            Write-Host "::warning::No summary.json produced — writing explicit failed summary so evidence is never silently absent."
+            $fallbackDir = Join-Path $dir "no-summary-$($env:GITHUB_RUN_ID)"
+            New-Item -ItemType Directory -Force -Path $fallbackDir | Out-Null
+            $obj = [ordered]@{
+              schema         = "poshmcp-soak-v2"
+              status         = "FAILED"
+              failure_reason = "Soak process did not produce a summary.json (setup/build/crash before artifact write)."
+              provenance     = [ordered]@{
+                source_commit_sha  = "${{ github.sha }}"
+                workflow_run_id    = "${{ github.run_id }}"
+                workflow_run_attempt = "${{ github.run_attempt }}"
+                workflow_job       = "${{ github.job }}"
+                os                 = "windows-latest"
+              }
+            }
+            $obj | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $fallbackDir "summary.json")
+          }
+
       - name: Upload soak artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: soak-artifacts-${{ github.run_id }}
+          name: soak-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ github.workspace }}/soak-artifacts/**/*
             ./TestResults/soak-run.trx
@@ -75,17 +118,25 @@ jobs:
       - name: Check gate status
         if: always()
         run: |
-          SUMMARY=$(find "${{ github.workspace }}/soak-artifacts" -name "summary.json" | head -1)
-          if [ -z "$SUMMARY" ]; then
-            echo "::error::No soak summary.json found — soak run did not complete"
+          $dir = "${{ github.workspace }}/soak-artifacts"
+          $summary = Get-ChildItem -Path $dir -Recurse -Filter summary.json -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $summary) {
+            Write-Host "::error::No soak summary.json found — soak run did not complete"
             exit 1
-          fi
-          STATUS=$(jq -r '.status' "$SUMMARY")
-          COMMIT=$(jq -r '.commit_sha' "$SUMMARY" | head -c 8)
-          DURATION=$(jq -r '.total_duration_seconds' "$SUMMARY")
-          ERRORS=$(jq -r '.totals.error_rate_pct' "$SUMMARY")
-          echo "Run status: $STATUS (commit=$COMMIT duration=${DURATION}s error_rate=${ERRORS}%)"
-          if [ "$STATUS" != "PASSED" ]; then
-            echo "::error::Soak gate FAILED — see summary.json in artifacts"
+          }
+          $json = Get-Content -Raw $summary.FullName | ConvertFrom-Json
+          $status  = $json.status
+          $commit  = $json.provenance.source_commit_sha
+          $dirty   = $json.provenance.dirty_working_tree
+          $span    = $json.totals.load_span_minutes
+          $errors  = $json.totals.error_rate_pct
+          Write-Host "Run status: $status (commit=$commit dirty=$dirty load_span=${span}min error_rate=${errors}%)"
+          Write-Host "Gates:"
+          foreach ($g in $json.gates) {
+            Write-Host ("  [{0,-12}] {1,-28} {2}" -f $g.status, $g.gate, $g.detail)
+          }
+          if ($status -ne "PASSED") {
+            Write-Host "::error::Soak gate FAILED — see summary.json in artifacts"
             exit 1
-          fi
+          }
