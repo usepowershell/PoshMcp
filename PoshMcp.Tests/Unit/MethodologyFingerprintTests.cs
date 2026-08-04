@@ -287,4 +287,72 @@ public class MethodologyFingerprintTests
         var violations = MethodologyContractValidator.Validate(baseline, current);
         Assert.Contains(violations, v => v.Contains("mcpProtocolVersion"));
     }
+
+    // ── Fail-closed key detection (#380 AC3 revision) ─────────────────────────
+
+    [Fact]
+    public void WarmupCounts_MissingKeyInCurrent_IsViolation()
+    {
+        var baseline = CreateBaseContract(1);
+        var current = CreateBaseContract(2);
+        // Remove a key from current that baseline has
+        current.WarmupCounts.Remove("warm_call");
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.Contains(violations, v => v.Contains("warmupCounts[warm_call]") && v.Contains("missing from current"));
+    }
+
+    [Fact]
+    public void WarmupCounts_ExtraKeyInCurrent_IsViolation()
+    {
+        var baseline = CreateBaseContract(1);
+        var current = CreateBaseContract(2);
+        // Add a key to current that baseline doesn't have
+        current.WarmupCounts["extra_diagnostic"] = 5;
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.Contains(violations, v => v.Contains("warmupCounts[extra_diagnostic]") && v.Contains("missing from baseline"));
+    }
+
+    [Fact]
+    public void WarmupCounts_RenamedKey_DetectedAsTwoViolations()
+    {
+        // This is the exact bug that existed: baseline has "warm_call_latency_ms"
+        // but current has "warm_call". Both should be detected.
+        var baseline = CreateBaseContract(1);
+        baseline.WarmupCounts.Clear();
+        baseline.WarmupCounts["warm_call_latency_ms"] = 3;
+        baseline.WarmupCounts["concurrent_throughput_ms"] = 4;
+
+        var current = CreateBaseContract(2);
+        current.WarmupCounts.Clear();
+        current.WarmupCounts["warm_call"] = 3;
+        current.WarmupCounts["throughput_per_client"] = 1;
+
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        // Should detect: warm_call_latency_ms missing from current, concurrent_throughput_ms missing from current
+        // and: warm_call missing from baseline, throughput_per_client missing from baseline
+        Assert.Contains(violations, v => v.Contains("warmupCounts[warm_call_latency_ms]") && v.Contains("missing from current"));
+        Assert.Contains(violations, v => v.Contains("warmupCounts[concurrent_throughput_ms]") && v.Contains("missing from current"));
+        Assert.Contains(violations, v => v.Contains("warmupCounts[warm_call]") && v.Contains("missing from baseline"));
+        Assert.Contains(violations, v => v.Contains("warmupCounts[throughput_per_client]") && v.Contains("missing from baseline"));
+    }
+
+    [Fact]
+    public void MeasuredIterations_MissingKeyInCurrent_IsViolation()
+    {
+        var baseline = CreateBaseContract(1);
+        var current = CreateBaseContract(2);
+        current.MeasuredIterations.Remove("cold_start");
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.Contains(violations, v => v.Contains("measuredIterations[cold_start]") && v.Contains("missing from current"));
+    }
+
+    [Fact]
+    public void MeasuredIterations_ExtraKeyInCurrent_IsViolation()
+    {
+        var baseline = CreateBaseContract(1);
+        var current = CreateBaseContract(2);
+        current.MeasuredIterations["new_scenario"] = 10;
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.Contains(violations, v => v.Contains("measuredIterations[new_scenario]") && v.Contains("missing from baseline"));
+    }
 }

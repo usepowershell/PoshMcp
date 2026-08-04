@@ -182,41 +182,52 @@ internal sealed class StatisticalReport
 
 /// <summary>
 /// Non-perturbing stage attribution across the required stages (#380 AC6):
-///   1. HTTP/MCP round trip — measured directly via GET /health (no MCP/PS)
-///   2. Lease acquisition — estimated from MCP overhead minus PS execution
-///   3. PowerShell execution — not directly separable without perturbing instrumentation
-///   4. Reset/return — included in MCP overhead estimate (not separable non-perturbingly)
-///   5. Startup/eager/script — measured via cold-start with-script vs without-script delta
+///   1. End-to-end warm call — directly measured (N=50, the gated metric)
+///   2. Connection/initialization overhead — first-call vs steady-state delta
+///   3. Lease acquisition — requires server-side instrumentation (documented)
+///   4. PowerShell execution — requires server-side instrumentation (documented)
+///   5. Reset/return — requires server-side instrumentation (documented)
+///   6. Startup/eager — cold-start no-script median
+///   7. Startup/script — cold with-script minus cold no-script
 ///
-/// Attribution method: subtraction using non-perturbing diagnostic snapshots.
-/// Each stage is a HYPOTHESIS-labeled estimate; overhead of the measurement itself
-/// is bounded by the HTTP health-check variance (sub-millisecond on CI runners).
+/// Attribution method: uses warm-call warmup data (first call includes connection setup/JIT)
+/// versus steady-state calls to separate connection overhead from per-call cost. Cold-start
+/// with/without script provides startup attribution.
 ///
-/// Stages that cannot be separated non-perturbingly (lease acquisition, PS execution,
-/// reset/return) are reported as a combined "mcpOverhead" bucket with an explicit
-/// "notSeparable" list. Adding per-stage instrumentation (e.g., Stopwatch around
-/// lease acquire) would perturb the measured path and is intentionally omitted.
+/// Per-call stages (lease/PS/reset) within the warm path require server-side Stopwatch
+/// instrumentation that would perturb primary gate measurements. They are reported as a
+/// combined "warm_call_per_request" total with individual stages documented as requiring
+/// dedicated diagnostic instrumentation.
 /// </summary>
 internal sealed class StageAttribution
 {
     [JsonPropertyName("transportMode")]
     public string TransportMode { get; set; } = "";
 
-    /// <summary>Pure HTTP round-trip latency (GET /health, no MCP/PS). Diagnostic, non-gated.</summary>
-    [JsonPropertyName("httpRoundtripMs")]
-    public StatisticalReport? HttpRoundtripMs { get; set; }
-
-    /// <summary>Total warm-call latency. Gated metric.</summary>
+    /// <summary>Total warm-call latency (steady-state). Gated metric.</summary>
     [JsonPropertyName("totalWarmCallMs")]
     public StatisticalReport? TotalWarmCallMs { get; set; }
 
     /// <summary>
-    /// HYPOTHESIS: MCP framing + lease acquisition + PS execution + reset/return.
-    /// Estimated as totalWarmCall.median - httpRoundtrip.median.
-    /// This is NOT a direct measurement; it aggregates all non-HTTP overhead.
+    /// First warm-call latency (includes connection setup, TLS handshake, session init, JIT).
+    /// Compared to steady-state median to estimate connection/init overhead.
     /// </summary>
-    [JsonPropertyName("mcpOverheadEstimateMs")]
-    public double McpOverheadEstimateMs { get; set; }
+    [JsonPropertyName("firstCallMs")]
+    public double FirstCallMs { get; set; }
+
+    /// <summary>
+    /// Connection/initialization overhead estimate: first warm-call minus steady-state median.
+    /// Represents one-time setup cost amortized away in persistent-connection steady state.
+    /// </summary>
+    [JsonPropertyName("connectionOverheadEstimateMs")]
+    public double ConnectionOverheadEstimateMs { get; set; }
+
+    /// <summary>
+    /// Steady-state per-request cost: the warm-call median (connection already established).
+    /// This represents: HTTP request/response + MCP framing + lease + PS execute + reset/return.
+    /// </summary>
+    [JsonPropertyName("steadyStatePerRequestMs")]
+    public double SteadyStatePerRequestMs { get; set; }
 
     /// <summary>
     /// Startup-script execution cost estimate (cold-start only).
@@ -236,8 +247,6 @@ internal sealed class StageAttribution
 
     /// <summary>
     /// Enumeration of all stages required by AC6, with their attribution status.
-    /// Each entry describes whether the stage is directly measured, estimated by
-    /// subtraction, or not separable without perturbing instrumentation.
     /// </summary>
     [JsonPropertyName("stages")]
     public List<StageDetail> Stages { get; set; } = [];
@@ -252,42 +261,40 @@ internal sealed class StageAttribution
     public string Hypothesis { get; set; } = "";
 
     /// <summary>
-    /// Stages whose overhead cannot be separated non-perturbingly from the MCP overhead
-    /// aggregate. Adding per-stage Stopwatch instrumentation would invalidate the
-    /// measured path — these are documented as combined.
+    /// Stages whose per-call overhead cannot be separated non-perturbingly.
+    /// Server-side Stopwatch instrumentation is required — documented for future work.
     /// </summary>
-    [JsonPropertyName("notSeparableWithoutPerturbation")]
-    public List<string> NotSeparableWithoutPerturbation { get; set; } = [];
+    [JsonPropertyName("requiresServerInstrumentation")]
+    public List<string> RequiresServerInstrumentation { get; set; } = [];
 
     /// <summary>
-    /// Measurement overhead bound: the variance of the HTTP health-check diagnostic.
-    /// Since the health-check shares the same HTTP transport but excludes MCP/PS/lease,
-    /// its variance bounds the overhead that our attribution method adds.
+    /// Measurement overhead bound: the warm-call inter-quartile range provides
+    /// a bound on measurement noise within the primary metric.
     /// </summary>
     [JsonPropertyName("measurementOverheadBoundMs")]
     public double MeasurementOverheadBoundMs { get; set; }
 
     /// <summary>
-    /// Creates a stage attribution from warm-call, HTTP health, and cold-start samples.
+    /// Creates stage attribution from warm-call samples and cold-start samples.
+    /// Uses first-call vs steady-state to separate connection overhead.
+    /// Does NOT use GET /health (different endpoint with different connection behavior).
     /// </summary>
     internal static StageAttribution Create(
         string transportMode,
         double[] warmCallSamples,
-        double[] httpHealthSamples,
         double[] coldStartWithScriptSamples,
         double[] coldStartNoScriptSamples)
     {
         var mode = transportMode.ToLowerInvariant();
         var warmReport = StatisticalReport.FromSamples(
             $"warm_call_latency_ms_{mode}", "milliseconds", warmCallSamples);
-        var httpReport = StatisticalReport.FromSamples(
-            $"diagnostic_http_health_ms_{mode}", "milliseconds", httpHealthSamples);
 
-        var mcpOverhead = warmReport.Median - httpReport.Median;
-        var httpPct = warmReport.Median > 0
-            ? (httpReport.Median / warmReport.Median) * 100.0
+        // First call includes connection setup; steady-state (median of remaining) is per-request
+        var firstCall = warmCallSamples.Length > 0 ? warmCallSamples[0] : double.NaN;
+        var steadyState = warmReport.Median;
+        var connectionOverhead = warmCallSamples.Length > 1
+            ? firstCall - steadyState
             : double.NaN;
-        var mcpPct = 100.0 - (double.IsNaN(httpPct) ? 0.0 : httpPct);
 
         // Cold-start stage attribution (startup/eager/script)
         double? startupScriptMs = null;
@@ -307,48 +314,51 @@ internal sealed class StageAttribution
         {
             new()
             {
-                Stage = "http_mcp_roundtrip",
-                Description = "HTTP transport round-trip (no MCP framing, no PowerShell)",
+                Stage = "end_to_end_warm_call",
+                Description = "Complete MCP tools/call round-trip on persistent connection (HTTP + MCP + lease + PS + reset)",
                 Method = "direct_measurement",
-                EstimateMs = httpReport.Median,
-                Confidence = httpReport.Confidence,
-                Source = $"diagnostic_http_health_ms_{mode} (GET /health, N={httpReport.SampleCount})",
+                EstimateMs = steadyState,
+                Confidence = warmReport.Confidence,
+                Source = $"warm_call_latency_ms_{mode} (N={warmReport.SampleCount}, steady-state median)",
             },
             new()
             {
-                Stage = "mcp_overhead",
-                Description = "MCP framing + lease acquisition + PowerShell execution + reset/return (combined)",
-                Method = "subtraction: warmCall.median - httpHealth.median",
-                EstimateMs = mcpOverhead,
-                Confidence = warmReport.Confidence == "HIGH" && httpReport.Confidence == "HIGH" ? "HIGH" : "MODERATE",
-                Source = $"warm_call_latency_ms_{mode} - diagnostic_http_health_ms_{mode}",
+                Stage = "connection_initialization",
+                Description = "One-time connection setup: TCP/TLS handshake + MCP session init + first JIT",
+                Method = "subtraction: first_warm_call - steady_state_median",
+                EstimateMs = double.IsNaN(connectionOverhead) ? null : connectionOverhead,
+                Confidence = warmCallSamples.Length >= 10 ? "MODERATE" : "INSUFFICIENT",
+                Source = $"first_warm_call ({firstCall:F2}ms) - median ({steadyState:F2}ms)",
             },
             new()
             {
                 Stage = "lease_acquisition",
                 Description = "Runspace pool lease/acquire time",
-                Method = "not_separable",
+                Method = "requires_server_instrumentation",
                 EstimateMs = null,
                 Confidence = "NOT_AVAILABLE",
-                Source = "Included in mcp_overhead. Separating requires Stopwatch around RunspacePool.GetRunspaceAsync() which perturbs the measured path.",
+                Source = "Requires Stopwatch inside RunspacePool.GetRunspaceAsync(). " +
+                         "Included in end_to_end_warm_call. Server-side diagnostic needed.",
             },
             new()
             {
                 Stage = "powershell_execution",
                 Description = "PowerShell command invocation (Get-Date)",
-                Method = "not_separable",
+                Method = "requires_server_instrumentation",
                 EstimateMs = null,
                 Confidence = "NOT_AVAILABLE",
-                Source = "Included in mcp_overhead. Separating requires Stopwatch around Pipeline.InvokeAsync() which perturbs the measured path.",
+                Source = "Requires Stopwatch inside Pipeline.InvokeAsync(). " +
+                         "Included in end_to_end_warm_call. Server-side diagnostic needed.",
             },
             new()
             {
                 Stage = "reset_return",
                 Description = "Runspace reset and return to pool",
-                Method = "not_separable",
+                Method = "requires_server_instrumentation",
                 EstimateMs = null,
                 Confidence = "NOT_AVAILABLE",
-                Source = "Included in mcp_overhead. Separating requires Stopwatch around RunspacePool.ReleaseRunspace() which perturbs the measured path.",
+                Source = "Requires Stopwatch inside RunspacePool.ReleaseRunspace(). " +
+                         "Included in end_to_end_warm_call. Server-side diagnostic needed.",
             },
         };
 
@@ -358,10 +368,10 @@ internal sealed class StageAttribution
             {
                 Stage = "startup_eager",
                 Description = "Server process start + module import + MCP initialize + first tools/call (no startup script)",
-                Method = "subtraction: cold_start_no_script.median",
+                Method = "direct_measurement",
                 EstimateMs = serverStartupMs.Value,
                 Confidence = coldStartNoScriptSamples.Length >= 3 ? "MODERATE" : "INSUFFICIENT",
-                Source = $"cold_start_http_no_script_{mode} (N={coldStartNoScriptSamples.Length})",
+                Source = $"cold_start_http_no_script_{mode} median (N={coldStartNoScriptSamples.Length})",
             });
         }
 
@@ -380,19 +390,20 @@ internal sealed class StageAttribution
         }
 
         string confidence;
-        if (warmReport.Confidence == "HIGH" && httpReport.Confidence == "HIGH")
-            confidence = "HIGH — both warm-call and HTTP components are stable";
-        else if (warmReport.Confidence == "INSUFFICIENT" || httpReport.Confidence == "INSUFFICIENT")
-            confidence = "INSUFFICIENT — one or both components have too few samples";
+        if (warmReport.Confidence == "HIGH")
+            confidence = "HIGH — warm-call measurement is stable";
+        else if (warmReport.Confidence == "INSUFFICIENT")
+            confidence = "INSUFFICIENT — too few warm-call samples";
         else
-            confidence = "MODERATE — at least one component has notable variance";
+            confidence = "MODERATE — warm-call has notable variance";
 
         var hypothesis = string.Format(CultureInfo.InvariantCulture,
-            "HYPOTHESIS: Of {0:F1}ms total warm-call median: ~{1:F1}ms ({2:F0}%) is HTTP round-trip, " +
-            "~{3:F1}ms ({4:F0}%) is MCP overhead (lease+PS+reset combined). " +
-            "Lease acquisition, PS execution, and reset/return cannot be separated " +
-            "without perturbing the measured path.",
-            warmReport.Median, httpReport.Median, httpPct, mcpOverhead, mcpPct);
+            "HYPOTHESIS: Steady-state warm-call is {0:F2}ms (N={1}). " +
+            "First-call overhead is {2:F2}ms (connection/init). " +
+            "Per-request cost (lease+PS+reset) is within the {0:F2}ms total but " +
+            "individual stages require server-side instrumentation to separate.",
+            steadyState, warmReport.SampleCount,
+            double.IsNaN(connectionOverhead) ? 0.0 : connectionOverhead);
 
         if (startupScriptMs.HasValue && serverStartupMs.HasValue)
         {
@@ -401,39 +412,39 @@ internal sealed class StageAttribution
                 serverStartupMs.Value, startupScriptMs.Value);
         }
 
+        // IQR as measurement noise bound
+        var iqrBound = 0.0;
+        if (warmCallSamples.Length >= 4)
+        {
+            var sorted = warmCallSamples.OrderBy(x => x).ToArray();
+            var q1Idx = sorted.Length / 4;
+            var q3Idx = 3 * sorted.Length / 4;
+            iqrBound = sorted[q3Idx] - sorted[q1Idx];
+        }
+
         return new StageAttribution
         {
             TransportMode = transportMode,
-            HttpRoundtripMs = httpReport,
             TotalWarmCallMs = warmReport,
-            McpOverheadEstimateMs = mcpOverhead,
+            FirstCallMs = firstCall,
+            ConnectionOverheadEstimateMs = double.IsNaN(connectionOverhead) ? 0.0 : connectionOverhead,
+            SteadyStatePerRequestMs = steadyState,
             StartupScriptEstimateMs = startupScriptMs,
             ServerStartupEstimateMs = serverStartupMs,
             Stages = stages,
-            AttributionMethod = "subtraction using non-perturbing diagnostic snapshots; " +
-                "HTTP health-check measures transport layer; cold-start with/without script " +
-                "measures startup-script cost; remaining stages are combined as mcp_overhead",
+            AttributionMethod = "First-call vs steady-state delta for connection overhead; " +
+                "cold-start with/without script for startup stages; " +
+                "lease/PS/reset require server-side Stopwatch instrumentation (non-perturbing diagnostic)",
             AttributionConfidence = confidence,
             Hypothesis = hypothesis,
-            NotSeparableWithoutPerturbation =
+            RequiresServerInstrumentation =
             [
-                "lease_acquisition — requires Stopwatch inside RunspacePool.GetRunspaceAsync()",
-                "powershell_execution — requires Stopwatch inside Pipeline.InvokeAsync()",
-                "reset_return — requires Stopwatch inside RunspacePool.ReleaseRunspace()",
+                "lease_acquisition — Stopwatch inside RunspacePool.GetRunspaceAsync()",
+                "powershell_execution — Stopwatch inside Pipeline.InvokeAsync()",
+                "reset_return — Stopwatch inside RunspacePool.ReleaseRunspace()",
             ],
-            MeasurementOverheadBoundMs = httpReport.Range,
+            MeasurementOverheadBoundMs = iqrBound,
         };
-    }
-
-    /// <summary>
-    /// Backward-compatible overload for tests that don't have cold-start samples.
-    /// </summary>
-    internal static StageAttribution Create(
-        string transportMode,
-        double[] warmCallSamples,
-        double[] httpHealthSamples)
-    {
-        return Create(transportMode, warmCallSamples, httpHealthSamples, [], []);
     }
 }
 

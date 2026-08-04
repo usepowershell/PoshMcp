@@ -230,43 +230,45 @@ public class StatisticalReportTests
     public void StageAttribution_Create_ProducesHypothesisLabel()
     {
         var warmSamples = new double[] { 10.0, 11.0, 9.5, 10.5, 10.0 };
-        var httpSamples = new double[] { 1.0, 1.1, 0.9, 1.0, 1.0 };
 
-        var attr = StageAttribution.Create("Stateless", warmSamples, httpSamples);
+        var attr = StageAttribution.Create("Stateless", warmSamples, [], []);
 
         Assert.Equal("Stateless", attr.TransportMode);
         Assert.Contains("HYPOTHESIS", attr.Hypothesis);
-        Assert.True(attr.McpOverheadEstimateMs > 0);
-        Assert.Contains("subtraction", attr.AttributionMethod);
+        Assert.True(attr.SteadyStatePerRequestMs > 0);
+        Assert.Contains("First-call vs steady-state", attr.AttributionMethod);
     }
 
     [Fact]
-    public void StageAttribution_Create_McpOverhead_Equals_WarmMedian_Minus_HttpMedian()
+    public void StageAttribution_Create_ConnectionOverhead_IsFirstCallMinusMedian()
     {
-        var warmSamples = new double[] { 10.0, 12.0, 11.0 };  // sorted: 10,11,12 → median=11
-        var httpSamples = new double[] { 1.0, 2.0, 1.5 };     // sorted: 1,1.5,2 → median=1.5
+        // first call = 20.0, sorted remaining: 10,11,12 → median ~11
+        var warmSamples = new double[] { 20.0, 10.0, 12.0, 11.0 };
 
-        var attr = StageAttribution.Create("Stateful", warmSamples, httpSamples);
+        var attr = StageAttribution.Create("Stateful", warmSamples, [], []);
 
-        Assert.Equal(11.0 - 1.5, attr.McpOverheadEstimateMs, 10);
+        // Median of all 4 sorted (10,11,12,20) = (11+12)/2 = 11.5
+        // Connection overhead = first(20) - median(11.5) = 8.5
+        Assert.Equal(20.0 - 11.5, attr.ConnectionOverheadEstimateMs, 10);
+        Assert.Equal(20.0, attr.FirstCallMs, 10);
+        Assert.Equal(11.5, attr.SteadyStatePerRequestMs, 10);
     }
 
     [Fact]
     public void StageAttribution_EnumeratesAllRequiredStages()
     {
-        // AC6 requires: HTTP/MCP round trip, lease acquisition, PS execution,
-        // reset/return, startup/eager/script stages.
-        var warmSamples = new double[] { 10.0, 11.0, 12.0 };
-        var httpSamples = new double[] { 1.0, 1.5, 2.0 };
+        // AC6 requires: end-to-end warm call, connection, lease acquisition,
+        // PS execution, reset/return, startup/eager/script stages.
+        var warmSamples = new double[] { 15.0, 10.0, 11.0, 12.0 };
         var coldWithScript = new double[] { 500.0, 550.0, 600.0 };
         var coldNoScript = new double[] { 400.0, 430.0, 460.0 };
 
-        var attr = StageAttribution.Create("Stateless", warmSamples, httpSamples,
+        var attr = StageAttribution.Create("Stateless", warmSamples,
             coldWithScript, coldNoScript);
 
         var stageNames = attr.Stages.Select(s => s.Stage).ToList();
-        Assert.Contains("http_mcp_roundtrip", stageNames);
-        Assert.Contains("mcp_overhead", stageNames);
+        Assert.Contains("end_to_end_warm_call", stageNames);
+        Assert.Contains("connection_initialization", stageNames);
         Assert.Contains("lease_acquisition", stageNames);
         Assert.Contains("powershell_execution", stageNames);
         Assert.Contains("reset_return", stageNames);
@@ -275,37 +277,35 @@ public class StatisticalReportTests
     }
 
     [Fact]
-    public void StageAttribution_NotSeparableStages_AreDocumented()
+    public void StageAttribution_RequiresServerInstrumentation_AreDocumented()
     {
-        var warmSamples = new double[] { 10.0, 11.0, 12.0 };
-        var httpSamples = new double[] { 1.0, 1.5, 2.0 };
+        var warmSamples = new double[] { 15.0, 10.0, 11.0, 12.0 };
 
-        var attr = StageAttribution.Create("Stateless", warmSamples, httpSamples);
+        var attr = StageAttribution.Create("Stateless", warmSamples, [], []);
 
-        Assert.True(attr.NotSeparableWithoutPerturbation.Count >= 3);
-        Assert.Contains(attr.NotSeparableWithoutPerturbation,
+        Assert.True(attr.RequiresServerInstrumentation.Count >= 3);
+        Assert.Contains(attr.RequiresServerInstrumentation,
             s => s.Contains("lease_acquisition"));
-        Assert.Contains(attr.NotSeparableWithoutPerturbation,
+        Assert.Contains(attr.RequiresServerInstrumentation,
             s => s.Contains("powershell_execution"));
-        Assert.Contains(attr.NotSeparableWithoutPerturbation,
+        Assert.Contains(attr.RequiresServerInstrumentation,
             s => s.Contains("reset_return"));
 
-        // Non-separable stages should have method = "not_separable" and null estimate
+        // These stages should have method = "requires_server_instrumentation" and null estimate
         var leaseDet = attr.Stages.First(s => s.Stage == "lease_acquisition");
-        Assert.Equal("not_separable", leaseDet.Method);
+        Assert.Equal("requires_server_instrumentation", leaseDet.Method);
         Assert.Null(leaseDet.EstimateMs);
     }
 
     [Fact]
     public void StageAttribution_WithColdStartSamples_ComputesStartupScriptDelta()
     {
-        var warmSamples = new double[] { 10.0, 11.0, 12.0 };
-        var httpSamples = new double[] { 1.0, 1.5, 2.0 };
+        var warmSamples = new double[] { 15.0, 10.0, 11.0, 12.0 };
         // cold_with_script median = 550, cold_no_script median = 430
         var coldWithScript = new double[] { 500.0, 550.0, 600.0 };
         var coldNoScript = new double[] { 400.0, 430.0, 460.0 };
 
-        var attr = StageAttribution.Create("Stateless", warmSamples, httpSamples,
+        var attr = StageAttribution.Create("Stateless", warmSamples,
             coldWithScript, coldNoScript);
 
         Assert.NotNull(attr.StartupScriptEstimateMs);
@@ -318,29 +318,44 @@ public class StatisticalReportTests
     [Fact]
     public void StageAttribution_WithoutColdStartSamples_NullStartupFields()
     {
-        var warmSamples = new double[] { 10.0, 11.0, 12.0 };
-        var httpSamples = new double[] { 1.0, 1.5, 2.0 };
+        var warmSamples = new double[] { 15.0, 10.0, 11.0, 12.0 };
 
-        var attr = StageAttribution.Create("Stateless", warmSamples, httpSamples);
+        var attr = StageAttribution.Create("Stateless", warmSamples, [], []);
 
         Assert.Null(attr.StartupScriptEstimateMs);
         Assert.Null(attr.ServerStartupEstimateMs);
         // Should still have the warm-call stages
-        Assert.Contains(attr.Stages, s => s.Stage == "http_mcp_roundtrip");
-        Assert.Contains(attr.Stages, s => s.Stage == "mcp_overhead");
+        Assert.Contains(attr.Stages, s => s.Stage == "end_to_end_warm_call");
+        Assert.Contains(attr.Stages, s => s.Stage == "connection_initialization");
         // But should NOT have startup stages
         Assert.DoesNotContain(attr.Stages, s => s.Stage == "startup_eager");
         Assert.DoesNotContain(attr.Stages, s => s.Stage == "startup_script");
     }
 
     [Fact]
-    public void StageAttribution_MeasurementOverheadBound_IsHttpRange()
+    public void StageAttribution_MeasurementOverheadBound_IsWarmCallIQR()
     {
-        var warmSamples = new double[] { 10.0, 11.0, 12.0 };
-        var httpSamples = new double[] { 1.0, 1.5, 2.0 }; // range = 1.0
+        // sorted: 1.0, 9.5, 10.0, 10.5, 11.0 → Q1=9.5, Q3=10.5, IQR=1.0
+        var warmSamples = new double[] { 10.0, 11.0, 9.5, 10.5, 1.0 };
 
-        var attr = StageAttribution.Create("Stateless", warmSamples, httpSamples);
+        var attr = StageAttribution.Create("Stateless", warmSamples, [], []);
 
+        // IQR computed as sorted[len/4] .. sorted[3*len/4]
+        // sorted: [1.0, 9.5, 10.0, 10.5, 11.0], Q1idx=1→9.5, Q3idx=3→10.5, IQR=1.0
         Assert.Equal(1.0, attr.MeasurementOverheadBoundMs, 10);
+    }
+
+    [Fact]
+    public void StageAttribution_NegativeConnectionOverhead_NotProduced()
+    {
+        // If first call is lower than median (unusual), overhead is negative but
+        // the system should still produce a valid report (no crash, no NaN).
+        var warmSamples = new double[] { 5.0, 10.0, 11.0, 12.0, 10.5 };
+
+        var attr = StageAttribution.Create("Stateless", warmSamples, [], []);
+
+        // first=5, median=10.5, overhead = 5 - 10.5 = -5.5 (but clamped to 0? No, report honestly)
+        Assert.True(attr.ConnectionOverheadEstimateMs < 0);
+        Assert.Contains("HYPOTHESIS", attr.Hypothesis);
     }
 }

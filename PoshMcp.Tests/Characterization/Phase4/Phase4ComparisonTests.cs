@@ -285,10 +285,41 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
             RawSamples = [modMb],
         });
 
-        // ── Compare to Phase 0 baseline ────────────────────────────────────────
-        _output.WriteLine($"[{transportMode}] Comparing to Phase 0 baseline…");
-        var comparison = PerformanceComparator.Compare(transportMode, _fixture.Baseline, scenarios);
-        _fixture.RecordModeComparison(comparison);
+        // ── Compare to Phase 0 baseline (skipped in collect-only mode) ─────────
+        if (_fixture.CollectOnly || _fixture.Baseline is null)
+        {
+            _output.WriteLine($"[{transportMode}] COLLECT-ONLY mode: skipping comparison (baseline deferred).");
+            // Record a deferred comparison placeholder so artifact is written with scenarios.
+            _fixture.RecordModeComparison(new Phase4ModeComparison
+            {
+                TransportMode = transportMode,
+                AllPassed = false,
+                Scenarios = scenarios,
+                ThresholdChecks = [],
+            });
+        }
+        else
+        {
+            _output.WriteLine($"[{transportMode}] Comparing to Phase 0 baseline…");
+            var comparison = PerformanceComparator.Compare(transportMode, _fixture.Baseline, scenarios);
+            _fixture.RecordModeComparison(comparison);
+
+            LogComparisonResults(transportMode, comparison);
+
+            if (!comparison.AllPassed)
+            {
+                var failures = comparison.ThresholdChecks
+                    .Where(c => !c.Passed)
+                    .Select(c =>
+                        $"  {c.Metric}: measured={c.MeasuredValue:F3} {c.Unit}, " +
+                        $"baseline={c.BaselineValue:F3} {c.Unit}, " +
+                        $"ratio={c.Ratio * 100:F1}% (max {c.MaxRatio * 100:F1}%)");
+                Assert.Fail(
+                    $"Phase 4 [{transportMode}] performance gate breached. " +
+                    $"One or more thresholds exceeded the Phase 0 baseline:\n" +
+                    string.Join("\n", failures));
+            }
+        }
 
         // ── Record statistical reports for warm-call and throughput (#380 AC5) ──
         _fixture.RecordStatisticalReport(
@@ -299,41 +330,19 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
                 $"concurrent_throughput_ms_{modeLabel}", "milliseconds", thrSamples));
 
         // ── Record stage attribution (#380 AC6) ────────────────────────────────
-        // Pass cold-start samples for startup/eager/script attribution.
-        var healthScenario = scenarios.FirstOrDefault(
-            s => s.Scenario == $"diagnostic_http_health_ms_{modeLabel}");
-        if (healthScenario is not null)
-        {
-            var coldWithScriptScenario = scenarios.FirstOrDefault(
-                s => s.Scenario == $"cold_start_http_with_script_{modeLabel}");
-            var coldNoScriptScenario = scenarios.FirstOrDefault(
-                s => s.Scenario == $"cold_start_http_no_script_{modeLabel}");
-
-            var attribution = StageAttribution.Create(
-                transportMode,
-                warmSamples,
-                healthScenario.RawSamples,
-                coldWithScriptScenario?.RawSamples ?? [],
-                coldNoScriptScenario?.RawSamples ?? []);
-            _fixture.RecordStageAttribution(attribution);
-            _output.WriteLine($"[{transportMode}] Stage attribution: {attribution.Hypothesis}");
-        }
-
-        LogComparisonResults(transportMode, comparison);
-
-        if (!comparison.AllPassed)
-        {
-            var failures = comparison.ThresholdChecks
-                .Where(c => !c.Passed)
-                .Select(c =>
-                    $"  {c.Metric}: measured={c.MeasuredValue:F3} {c.Unit}, " +
-                    $"baseline={c.BaselineValue:F3} {c.Unit}, " +
-                    $"ratio={c.Ratio * 100:F1}% (max {c.MaxRatio * 100:F1}%)");
-            Assert.Fail(
-                $"Phase 4 [{transportMode}] performance gate breached. " +
-                $"One or more thresholds exceeded the Phase 0 baseline:\n" +
-                string.Join("\n", failures));
-        }
+        // Use first warm-call (includes connection setup/JIT) vs steady-state calls as
+        // a connection-overhead estimate. Cold-start with/without script for startup.
+        var coldWithScriptScenario = scenarios.FirstOrDefault(
+            s => s.Scenario == $"cold_start_http_with_script_{modeLabel}");
+        var coldNoScriptScenario = scenarios.FirstOrDefault(
+            s => s.Scenario == $"cold_start_http_no_script_{modeLabel}");
+        var attribution = StageAttribution.Create(
+            transportMode,
+            warmSamples,
+            coldWithScriptScenario?.RawSamples ?? [],
+            coldNoScriptScenario?.RawSamples ?? []);
+        _fixture.RecordStageAttribution(attribution);
+        _output.WriteLine($"[{transportMode}] Stage attribution: {attribution.Hypothesis}");
     }
 
     private void LogComparisonResults(string transportMode, Phase4ModeComparison comparison)

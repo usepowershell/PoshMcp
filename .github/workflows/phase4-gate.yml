@@ -242,58 +242,100 @@ jobs:
         fi
         echo "SDK migration-pair guard passed: baseline v${PHASE0_SDK_MAJOR} vs current v${HEAD_SDK_MAJOR}, distinct binaries."
 
-    # Run Phase 0 characterization using the Phase 0 binary on this runner.
-    # This is the fresh "same-runner" baseline for Phase 4 comparisons.
-    # POSHMCP_SERVER_DLL and POSHMCP_SAME_JOB_PAIRED are step-local (not written to GITHUB_ENV)
-    # so they do not leak into Phase 4 comparison steps.
+    # ═══════════════════════════════════════════════════════════════════════════
+    # TRUE COUNTERBALANCING (#380 AC1 Revision 2):
     #
-    # TRUE COUNTERBALANCING (#380 AC1): For current_first attempts, a v2 server touch
-    # runs BEFORE this step (see below), so v2 JIT/caches are populated first. For
-    # baseline_first, Phase 0 (v1) runs first as before.
+    # baseline_first (attempts 1, 3): Phase 0 (v1) full measurement → Phase 4 (v2) full measurement
+    # current_first  (attempt 2):     Phase 4 (v2) full measurement → Phase 0 (v1) full measurement
+    #
+    # "Full measurement" means the complete N=50 warm calls, N=15 throughput bursts, N=5 cold starts.
+    # A pre-touch, health probe, or warmup does NOT satisfy counterbalancing.
+    #
+    # For current_first: Phase 4 runs in COLLECT_ONLY mode (measurement only, deferred comparison).
+    # After BOTH Phase 4 and Phase 0 complete, a deferred comparison step produces the gate artifact.
+    # ═══════════════════════════════════════════════════════════════════════════
 
-    # current_first: Pre-touch the runner with v2 code to reverse JIT/cache ordering.
-    # This builds and briefly starts a v2 HTTP server, makes one health check, and tears
-    # it down — purely to ensure v2 .NET assemblies are JIT-compiled and cached first.
-    # Non-perturbing: the actual Phase 4 measurement runs fresh servers later.
-    - name: "Pre-touch v2 server (current_first counterbalancing)"
-      if: matrix.product_order == 'current_first'
-      continue-on-error: true
-      run: |
-        echo "current_first: touching v2 server before Phase 0 (v1) measurement"
-        echo "This ensures v2 JIT/cache effects precede v1 on this runner."
-        # Record pre-touch timestamp for observed product order derivation (#380 AC1).
-        echo "PRE_TOUCH_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
-        # Start the v2 server briefly to JIT-compile its assemblies on this runner.
-        V2_DLL="${{ github.workspace }}/PoshMcp.Server/bin/Release/net10.0/PoshMcp.dll"
-        dotnet "$V2_DLL" --urls "http://localhost:15199" &
-        V2_PID=$!
-        sleep 3
-        # One health check to force the HTTP pipeline through JIT
-        curl -sf http://localhost:15199/health || echo "health check returned non-zero (expected for pre-touch)"
-        # Tear down
-        kill $V2_PID 2>/dev/null || true
-        wait $V2_PID 2>/dev/null || true
-        echo "v2 pre-touch complete (exit code ignored — this is a counterbalancing step)"
-
-    - name: Run Phase 0 characterization (same-runner fresh baseline)
+    # ─── BASELINE_FIRST path: Phase 0 (v1) runs first ──────────────────────────
+    - name: "Run Phase 0 characterization (baseline_first)"
+      if: matrix.product_order == 'baseline_first'
       env:
         POSHMCP_SERVER_DLL: ${{ env.PHASE0_SERVER_DLL }}
         POSHMCP_SAME_JOB_PAIRED: "1"
         GITHUB_SHA: ${{ env.PHASE0_SHA }}
         CHARACTERIZATION_ARTIFACT_PATH: ${{ github.workspace }}/TestResults/phase0-fresh-baseline.json
       run: |
-        # Record Phase 0 start timestamp for observed product order verification (#380 AC1).
-        echo "PHASE0_START_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
+        echo "COLLECTION_ORDER=baseline_first" >> "$GITHUB_ENV"
+        echo "V1_COLLECTION_START_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
         dotnet test --no-build --configuration Release \
           --filter "Category=Characterization" \
           --logger "trx;LogFileName=phase0-fresh-baseline.trx" \
           --results-directory ./TestResults
+        echo "V1_COLLECTION_END_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
 
-    # The fresh, same-runner Phase 0 baseline is authoritative. Verify it exists and carries
-    # positive sample counts, then expose it to the Phase 4 comparison steps. (Cross-run N
-    # agreement with a published artifact is intentionally dropped: the previously "published"
-    # baseline came from a post-migration v2 run and is not a valid v1 reference.)
+    # ─── CURRENT_FIRST path: Phase 4 (v2) measurement runs first ───────────────
+    - name: "Run Phase 4 measurement FIRST (current_first collect-only)"
+      if: matrix.product_order == 'current_first'
+      continue-on-error: true
+      env:
+        POSHMCP_REQUIRE_SDK_MIGRATION_PAIR: "1"
+        POSHMCP_SAME_JOB_PAIRED: "1"
+        PHASE4_COLLECT_ONLY: "1"
+        PHASE4_PRODUCT_ORDER: ${{ matrix.product_order }}
+        PHASE4_MODE_ORDER: ${{ matrix.phase4_order }}
+      run: |
+        echo "COLLECTION_ORDER=current_first" >> "$GITHUB_ENV"
+        V2_START=$(date +%s)
+        echo "V2_COLLECTION_START_EPOCH=$V2_START" >> "$GITHUB_ENV"
+
+        set +e
+        run_mode() {
+          local mode="$1"
+          local lower
+          lower=$(echo "$mode" | tr '[:upper:]' '[:lower:]')
+          PHASE4_ARTIFACT_PATH="${{ github.workspace }}/TestResults/phase4-${lower}.json" \
+          dotnet test --no-build --configuration Release \
+            --filter "Category=PerformanceComparison&FullyQualifiedName~${mode}" \
+            --logger "trx;LogFileName=phase4-${lower}.trx" \
+            --results-directory ./TestResults
+          return $?
+        }
+        RC=0
+        if [ "${{ matrix.phase4_order }}" = "stateful_first" ]; then
+          echo "Mode order for attempt ${{ matrix.attempt }}: Stateful -> Stateless (COLLECT-ONLY)"
+          run_mode Stateful;  RC=$(( RC | $? ))
+          run_mode Stateless; RC=$(( RC | $? ))
+        else
+          echo "Mode order for attempt ${{ matrix.attempt }}: Stateless -> Stateful (COLLECT-ONLY)"
+          run_mode Stateless; RC=$(( RC | $? ))
+          run_mode Stateful;  RC=$(( RC | $? ))
+        fi
+
+        V2_END=$(date +%s)
+        echo "V2_COLLECTION_END_EPOCH=$V2_END" >> "$GITHUB_ENV"
+        echo "Phase 4 collect-only complete (v2 measurement). Duration: $((V2_END - V2_START))s, exit=$RC"
+        exit $RC
+
+    - name: "Run Phase 0 characterization SECOND (current_first)"
+      if: matrix.product_order == 'current_first'
+      env:
+        POSHMCP_SERVER_DLL: ${{ env.PHASE0_SERVER_DLL }}
+        POSHMCP_SAME_JOB_PAIRED: "1"
+        GITHUB_SHA: ${{ env.PHASE0_SHA }}
+        CHARACTERIZATION_ARTIFACT_PATH: ${{ github.workspace }}/TestResults/phase0-fresh-baseline.json
+      run: |
+        V1_START=$(date +%s)
+        echo "V1_COLLECTION_START_EPOCH=$V1_START" >> "$GITHUB_ENV"
+        dotnet test --no-build --configuration Release \
+          --filter "Category=Characterization" \
+          --logger "trx;LogFileName=phase0-fresh-baseline.trx" \
+          --results-directory ./TestResults
+        V1_END=$(date +%s)
+        echo "V1_COLLECTION_END_EPOCH=$V1_END" >> "$GITHUB_ENV"
+        echo "Phase 0 characterization complete (v1 baseline). Duration: $((V1_END - V1_START))s"
+
+    # ─── Validate fresh Phase 0 baseline (both paths) ────────────────────────
     - name: Validate fresh Phase 0 baseline and export path
+      if: always()
       run: |
         FRESH_JSON="${{ github.workspace }}/TestResults/phase0-fresh-baseline.json"
         if [ ! -f "$FRESH_JSON" ]; then
@@ -301,7 +343,6 @@ jobs:
           exit 1
         fi
 
-        # Confirm the fresh baseline recorded the v1 SDK provenance we detect at runtime.
         BASE_SDK_MAJOR=$(jq -r '.sdkAssembly.majorVersion // 0' "$FRESH_JSON")
         BASE_SDK_SHA=$(jq -r '.sdkAssembly.sha256 // ""' "$FRESH_JSON")
         echo "Fresh baseline runtime-detected SDK: major=${BASE_SDK_MAJOR} sha256=${BASE_SDK_SHA}"
@@ -318,18 +359,9 @@ jobs:
         echo "Fresh Phase 0 baseline warm-call N=$FRESH_WARM_N"
         echo "V1_BASELINE_PATH=$FRESH_JSON" >> "$GITHUB_ENV"
 
-    # Run Stateless and Stateful in SEPARATE dotnet test invocations (separate processes),
-    # in the matrix-counterbalanced order. Running each mode in its own process prevents one
-    # mode's cold-start subprocess spawning and GC/thread-pool pressure from contaminating the
-    # other mode's warm-call or throughput measurements. Both modes ALWAYS run (even if the
-    # first fails) so the two independent gates are both evaluated; the step exits non-zero if
-    # either mode failed.
-    #
-    # continue-on-error: true — a red PERFORMANCE threshold makes this step non-zero, but the
-    # advisory/release decision is deferred to the classifier step below. Infrastructure and
-    # methodology failures do NOT slip through: the classifier validates the merged artifact
-    # (provenance, completeness, parity) and fails when the comparison is not genuinely valid.
-    - name: Run Phase 4 Performance Comparison (counterbalanced mode order)
+    # ─── BASELINE_FIRST: Phase 4 (v2) runs SECOND (with comparison) ────────────
+    - name: "Run Phase 4 Performance Comparison (baseline_first)"
+      if: matrix.product_order == 'baseline_first'
       continue-on-error: true
       env:
         POSHMCP_REQUIRE_SDK_MIGRATION_PAIR: "1"
@@ -337,25 +369,9 @@ jobs:
         PHASE4_PRODUCT_ORDER: ${{ matrix.product_order }}
         PHASE4_MODE_ORDER: ${{ matrix.phase4_order }}
       run: |
-        # Record Phase 4 start timestamp for observed product order verification (#380 AC1).
-        PHASE4_START_EPOCH=$(date +%s)
-        echo "PHASE4_START_EPOCH=$PHASE4_START_EPOCH" >> "$GITHUB_ENV"
-
-        # Derive observed product order from actual execution timestamps.
-        # For current_first: the pre-touch step ran v2 code BEFORE Phase 0 (v1),
-        # so if PRE_TOUCH_EPOCH < PHASE0_START_EPOCH, observed is current_first.
-        # For baseline_first: no pre-touch, so Phase 0 (v1) < Phase 4 (v2) = baseline_first.
-        if [ -n "$PRE_TOUCH_EPOCH" ] && [ -n "$PHASE0_START_EPOCH" ] && \
-           [ "$PRE_TOUCH_EPOCH" -le "$PHASE0_START_EPOCH" ]; then
-          OBSERVED="current_first"
-        elif [ -n "$PHASE0_START_EPOCH" ] && [ "$PHASE0_START_EPOCH" -le "$PHASE4_START_EPOCH" ]; then
-          OBSERVED="baseline_first"
-        else
-          OBSERVED="current_first"
-        fi
-        echo "PHASE4_OBSERVED_PRODUCT_ORDER=$OBSERVED" >> "$GITHUB_ENV"
-        echo "Observed product order: $OBSERVED (PreTouch@${PRE_TOUCH_EPOCH:-none} Phase0@${PHASE0_START_EPOCH:-?} Phase4@${PHASE4_START_EPOCH})"
-        export PHASE4_OBSERVED_PRODUCT_ORDER="$OBSERVED"
+        V2_START=$(date +%s)
+        echo "V2_COLLECTION_START_EPOCH=$V2_START" >> "$GITHUB_ENV"
+        echo "PHASE4_OBSERVED_PRODUCT_ORDER=baseline_first" >> "$GITHUB_ENV"
 
         set +e
         run_mode() {
@@ -379,8 +395,90 @@ jobs:
           run_mode Stateless; RC=$(( RC | $? ))
           run_mode Stateful;  RC=$(( RC | $? ))
         fi
-        echo "Phase 4 measurement step raw exit code: $RC (threshold breaches are classified below)."
+        V2_END=$(date +%s)
+        echo "V2_COLLECTION_END_EPOCH=$V2_END" >> "$GITHUB_ENV"
+        echo "Phase 4 comparison step exit code: $RC (v2 duration: $((V2_END - V2_START))s)"
         exit $RC
+
+    # ─── CURRENT_FIRST: Deferred comparison after both measurements complete ────
+    # Phase 4 collect-only ran FIRST (above). Phase 0 ran SECOND.
+    # Now rerun Phase 4 with the baseline available for actual ratio comparison.
+    - name: "Run Phase 4 deferred comparison (current_first)"
+      if: matrix.product_order == 'current_first'
+      continue-on-error: true
+      env:
+        POSHMCP_REQUIRE_SDK_MIGRATION_PAIR: "1"
+        POSHMCP_SAME_JOB_PAIRED: "1"
+        PHASE4_PRODUCT_ORDER: ${{ matrix.product_order }}
+        PHASE4_MODE_ORDER: ${{ matrix.phase4_order }}
+        PHASE4_OBSERVED_PRODUCT_ORDER: "current_first"
+      run: |
+        echo "PHASE4_OBSERVED_PRODUCT_ORDER=current_first" >> "$GITHUB_ENV"
+        # The collect-only artifacts already have raw measurements.
+        # Re-run Phase 4 with baseline available for comparison (not collect-only).
+        set +e
+        run_mode() {
+          local mode="$1"
+          local lower
+          lower=$(echo "$mode" | tr '[:upper:]' '[:lower:]')
+          PHASE4_ARTIFACT_PATH="${{ github.workspace }}/TestResults/phase4-${lower}.json" \
+          dotnet test --no-build --configuration Release \
+            --filter "Category=PerformanceComparison&FullyQualifiedName~${mode}" \
+            --logger "trx;LogFileName=phase4-${lower}.trx" \
+            --results-directory ./TestResults
+          return $?
+        }
+        RC=0
+        if [ "${{ matrix.phase4_order }}" = "stateful_first" ]; then
+          echo "Mode order for attempt ${{ matrix.attempt }}: Stateful -> Stateless (deferred comparison)"
+          run_mode Stateful;  RC=$(( RC | $? ))
+          run_mode Stateless; RC=$(( RC | $? ))
+        else
+          echo "Mode order for attempt ${{ matrix.attempt }}: Stateless -> Stateful (deferred comparison)"
+          run_mode Stateless; RC=$(( RC | $? ))
+          run_mode Stateful;  RC=$(( RC | $? ))
+        fi
+        echo "Phase 4 deferred comparison exit code: $RC"
+        exit $RC
+
+    # ─── Validate collection order (fail-closed) ───────────────────────────────
+    - name: Validate collection order epochs
+      if: always()
+      run: |
+        echo "Collection order: ${COLLECTION_ORDER}"
+        echo "V1 start: ${V1_COLLECTION_START_EPOCH:-not_set}, V1 end: ${V1_COLLECTION_END_EPOCH:-not_set}"
+        echo "V2 start: ${V2_COLLECTION_START_EPOCH:-not_set}, V2 end: ${V2_COLLECTION_END_EPOCH:-not_set}"
+
+        if [ "$COLLECTION_ORDER" = "current_first" ]; then
+          # V2 must have COMPLETED before V1 started
+          if [ -n "$V2_COLLECTION_END_EPOCH" ] && [ -n "$V1_COLLECTION_START_EPOCH" ]; then
+            if [ "$V2_COLLECTION_END_EPOCH" -gt "$V1_COLLECTION_START_EPOCH" ]; then
+              echo "ERROR: current_first order violated — V2 end ($V2_COLLECTION_END_EPOCH) > V1 start ($V1_COLLECTION_START_EPOCH)"
+              echo "Collections overlapped or were misordered. This is a methodology failure."
+              exit 2
+            fi
+            echo "PASS: V2 completed ($V2_COLLECTION_END_EPOCH) before V1 started ($V1_COLLECTION_START_EPOCH)"
+          else
+            echo "ERROR: Missing collection timestamps for current_first validation."
+            exit 2
+          fi
+        elif [ "$COLLECTION_ORDER" = "baseline_first" ]; then
+          # V1 must have COMPLETED before V2 started
+          if [ -n "$V1_COLLECTION_END_EPOCH" ] && [ -n "$V2_COLLECTION_START_EPOCH" ]; then
+            if [ "$V1_COLLECTION_END_EPOCH" -gt "$V2_COLLECTION_START_EPOCH" ]; then
+              echo "ERROR: baseline_first order violated — V1 end ($V1_COLLECTION_END_EPOCH) > V2 start ($V2_COLLECTION_START_EPOCH)"
+              echo "Collections overlapped or were misordered. This is a methodology failure."
+              exit 2
+            fi
+            echo "PASS: V1 completed ($V1_COLLECTION_END_EPOCH) before V2 started ($V2_COLLECTION_START_EPOCH)"
+          else
+            echo "ERROR: Missing collection timestamps for baseline_first validation."
+            exit 2
+          fi
+        else
+          echo "ERROR: Unknown collection order: ${COLLECTION_ORDER}"
+          exit 2
+        fi
 
     # Merge the two mode artifacts into one combined artifact.
     # Runs even when tests fail so CI always has an artifact to upload/inspect.
@@ -477,7 +575,7 @@ jobs:
       if: always()
       run: |
         MANIFEST="${{ github.workspace }}/TestResults/artifact-manifest.json"
-        echo '{"manifest_version":"1.0","attempt":${{ matrix.attempt }},"product_order":"${{ matrix.product_order }}","observed_product_order":"'"${PHASE4_OBSERVED_PRODUCT_ORDER:-unknown}"'","mode_order":"${{ matrix.phase4_order }}","source_head":"'"$PR_HEAD_SHA"'","merge_sha":"'"$MERGE_SHA"'","pre_touch_epoch":'"${PRE_TOUCH_EPOCH:-0}"',"phase0_start_epoch":'"${PHASE0_START_EPOCH:-0}"',"phase4_start_epoch":'"${PHASE4_START_EPOCH:-0}"',"files":[' > "$MANIFEST"
+        echo '{"manifest_version":"2.0","attempt":${{ matrix.attempt }},"product_order":"${{ matrix.product_order }}","observed_product_order":"'"${PHASE4_OBSERVED_PRODUCT_ORDER:-unknown}"'","collection_order":"'"${COLLECTION_ORDER:-unknown}"'","mode_order":"${{ matrix.phase4_order }}","source_head":"'"$PR_HEAD_SHA"'","merge_sha":"'"$MERGE_SHA"'","v1_collection_start_epoch":'"${V1_COLLECTION_START_EPOCH:-0}"',"v1_collection_end_epoch":'"${V1_COLLECTION_END_EPOCH:-0}"',"v2_collection_start_epoch":'"${V2_COLLECTION_START_EPOCH:-0}"',"v2_collection_end_epoch":'"${V2_COLLECTION_END_EPOCH:-0}"',"files":[' > "$MANIFEST"
         FIRST=true
         # Core artifacts + TRX + DLL provenance
         for f in \

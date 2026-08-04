@@ -30,20 +30,39 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
     private readonly ConcurrentBag<StatisticalReport> _statisticalReports = new();
     private readonly ConcurrentBag<StageAttribution> _stageAttributions = new();
 
-    internal CharacterizationArtifact Baseline =>
-        _baseline ?? throw new InvalidOperationException(
-            "Phase4ComparisonFixture was not successfully initialized. " +
-            "Check that V1_BASELINE_PATH is set and points to a valid Phase 0 artifact.");
+    /// <summary>
+    /// When true, the fixture runs in collect-only mode: measurements proceed with predeclared
+    /// N values, baseline is not required, and comparison is deferred to a post-hoc step.
+    /// Set via PHASE4_COLLECT_ONLY=1 environment variable. Used for TRUE counterbalancing (#380 AC1)
+    /// where v2 measurement must complete before v1 baseline is available.
+    /// </summary>
+    internal bool CollectOnly { get; private set; }
+
+    // Predeclared N values matching V1BaselineCharacterizationTests constants.
+    // These are used when CollectOnly=true (baseline not yet available).
+    private const int PredeclaredColdStartN = 5;
+    private const int PredeclaredWarmCallN = 50;
+    private const int PredeclaredThroughputN = 15;
+
+    internal CharacterizationArtifact? Baseline => _baseline;
 
     /// <summary>
-    /// Returns the sample count (<c>Iterations</c>) from the Phase 0 baseline for the given
-    /// canonical scenario key (no mode suffix). Phase 4 tests use this to match Phase 0 N
-    /// automatically, ensuring the methodology fingerprint passes the comparator check.
+    /// Returns the sample count for the given scenario. When baseline is loaded, derives from
+    /// baseline. In collect-only mode, returns predeclared constants.
     /// </summary>
     internal int GetBaselineSampleCount(string baselineScenarioKey)
     {
-        if (_baseline is null)
-            throw new InvalidOperationException("Fixture not initialized — call after InitializeAsync.");
+        if (CollectOnly || _baseline is null)
+        {
+            return baselineScenarioKey switch
+            {
+                "cold_start_http_with_script" or "cold_start_http_no_script" => PredeclaredColdStartN,
+                "warm_call_latency_ms" => PredeclaredWarmCallN,
+                "concurrent_throughput_ms" => PredeclaredThroughputN,
+                _ => throw new KeyNotFoundException(
+                    $"No predeclared N for scenario '{baselineScenarioKey}' in collect-only mode.")
+            };
+        }
         var scenario = _baseline.Scenarios.FirstOrDefault(s => s.Scenario == baselineScenarioKey);
         if (scenario is null)
             throw new KeyNotFoundException(
@@ -67,7 +86,24 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
+        // Collect-only mode: baseline not required. Used for TRUE counterbalancing (#380 AC1)
+        // where v2 measurement must run before v1 baseline exists.
+        CollectOnly = Environment.GetEnvironmentVariable("PHASE4_COLLECT_ONLY") == "1";
+
         var baselinePath = Environment.GetEnvironmentVariable("V1_BASELINE_PATH");
+        if (CollectOnly)
+        {
+            // In collect-only mode, baseline is optional. If present, load it; otherwise proceed
+            // with predeclared N values and skip comparison.
+            if (!string.IsNullOrEmpty(baselinePath) && File.Exists(baselinePath))
+            {
+                var bjson = await File.ReadAllTextAsync(baselinePath);
+                _baseline = JsonSerializer.Deserialize<CharacterizationArtifact>(bjson);
+            }
+            _baselineRunId = "collect-only";
+            return;
+        }
+
         if (string.IsNullOrEmpty(baselinePath))
             throw new InvalidOperationException(
                 "V1_BASELINE_PATH environment variable is not set. " +
@@ -103,7 +139,9 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        if (_baseline is null) return;
+        // Always write artifact: in collect-only mode the raw samples are needed even without baseline.
+        // In normal mode, baseline is always loaded (enforced by InitializeAsync).
+        if (!CollectOnly && _baseline is null) return;
 
         await WriteArtifactAsync();
     }
@@ -121,7 +159,7 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
         var overallPassed = modes.Count > 0 && modes.All(m => m.AllPassed);
 
         var warnings = new List<string>();
-        var baselineOs = _baseline!.RuntimeInfo?.Os ?? "";
+        var baselineOs = _baseline?.RuntimeInfo?.Os ?? "";
         var currentOs = Environment.OSVersion.ToString();
         if (!string.IsNullOrEmpty(baselineOs) &&
             !baselineOs.Equals(currentOs, StringComparison.OrdinalIgnoreCase))
@@ -132,7 +170,7 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
                 "Use the Linux CI job for authoritative comparisons.");
         }
 
-        var baselineProcs = _baseline!.RuntimeInfo?.LogicalProcessors ?? 0;
+        var baselineProcs = _baseline?.RuntimeInfo?.LogicalProcessors ?? 0;
         if (baselineProcs > 0 && baselineProcs != Environment.ProcessorCount)
         {
             warnings.Add(
@@ -146,7 +184,7 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
         var modeOrder = Environment.GetEnvironmentVariable("PHASE4_MODE_ORDER") ?? "unknown";
 
         // Build methodology contracts for baseline and current
-        var baselineContract = _baseline.MethodologyFingerprint is not null
+        var baselineContract = _baseline?.MethodologyFingerprint is not null
             ? BuildBaselineContract()
             : null;
         var currentContract = BuildCurrentContract(currentSdk, productOrder, modeOrder);
@@ -180,16 +218,16 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
                 LogicalProcessors = Environment.ProcessorCount,
                 MachineName = Environment.MachineName,
             },
-            BaselineProvenance = new Phase4BaselineProvenance
+            BaselineProvenance = _baseline is not null ? new Phase4BaselineProvenance
             {
-                SchemaVersion = _baseline!.SchemaVersion,
+                SchemaVersion = _baseline.SchemaVersion,
                 CapturedAt = _baseline.CapturedAt,
                 SdkPackageVersion = _baseline.SdkPackageVersion,
                 SdkAssembly = _baseline.SdkAssembly,
                 RuntimeInfo = _baseline.RuntimeInfo,
                 ArtifactRunId = _baselineRunId ?? "unknown",
                 ArtifactSource = $"github-actions/v1-baseline-characterization/run/{_baselineRunId}",
-            },
+            } : null,
             Modes = modes,
             Warnings = warnings,
             OverallPassed = overallPassed,
@@ -209,11 +247,12 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
         string productOrder,
         string modeOrder)
     {
+        // Keys MUST match V1BaselineCharacterizationTests.RecordWarmupCount() calls exactly.
+        // Fail-closed validator rejects mismatched keys (#380 AC3).
         var warmupCounts = new Dictionary<string, int>
         {
-            ["warm_call"] = 3,
-            ["throughput_per_client"] = 1,
-            ["diagnostic_http_health"] = 3,
+            ["warm_call_latency_ms"] = 3,
+            ["concurrent_throughput_ms"] = 4,  // PerClientWarmupCalls(1) * ThroughputConcurrency(4)
         };
         var measuredIterations = new Dictionary<string, int>();
         foreach (var s in _baseline!.Scenarios)

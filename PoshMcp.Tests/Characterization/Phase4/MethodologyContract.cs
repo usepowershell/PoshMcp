@@ -253,22 +253,34 @@ internal static class MethodologyContractValidator
         MustMatch(violations, "serverLifecycle", baseline.ServerLifecycle, current.ServerLifecycle);
 
         // ── Must-match: iteration counts (per gated scenario) ────────────────────
-        foreach (var kvp in baseline.MeasuredIterations)
+        // Fail-closed: ALL keys from both sides must be present and match (#380 AC3 fix).
+        var allIterKeys = new HashSet<string>(baseline.MeasuredIterations.Keys);
+        allIterKeys.UnionWith(current.MeasuredIterations.Keys);
+        foreach (var key in allIterKeys)
         {
-            if (current.MeasuredIterations.TryGetValue(kvp.Key, out var currentN))
-            {
-                if (kvp.Value != currentN)
-                    violations.Add($"measuredIterations[{kvp.Key}]: baseline={kvp.Value}, current={currentN}");
-            }
+            var bHas = baseline.MeasuredIterations.TryGetValue(key, out var bVal);
+            var cHas = current.MeasuredIterations.TryGetValue(key, out var cVal);
+            if (!bHas)
+                violations.Add($"measuredIterations[{key}]: missing from baseline (present in current={cVal})");
+            else if (!cHas)
+                violations.Add($"measuredIterations[{key}]: missing from current (present in baseline={bVal})");
+            else if (bVal != cVal)
+                violations.Add($"measuredIterations[{key}]: baseline={bVal}, current={cVal}");
         }
 
-        foreach (var kvp in baseline.WarmupCounts)
+        // Fail-closed: ALL warmup keys from both sides must be present and match.
+        var allWarmupKeys = new HashSet<string>(baseline.WarmupCounts.Keys);
+        allWarmupKeys.UnionWith(current.WarmupCounts.Keys);
+        foreach (var key in allWarmupKeys)
         {
-            if (current.WarmupCounts.TryGetValue(kvp.Key, out var currentW))
-            {
-                if (kvp.Value != currentW)
-                    violations.Add($"warmupCounts[{kvp.Key}]: baseline={kvp.Value}, current={currentW}");
-            }
+            var bHas = baseline.WarmupCounts.TryGetValue(key, out var bW);
+            var cHas = current.WarmupCounts.TryGetValue(key, out var cW);
+            if (!bHas)
+                violations.Add($"warmupCounts[{key}]: missing from baseline (present in current={cW})");
+            else if (!cHas)
+                violations.Add($"warmupCounts[{key}]: missing from current (present in baseline={bW})");
+            else if (bW != cW)
+                violations.Add($"warmupCounts[{key}]: baseline={bW}, current={cW}");
         }
 
         // ── Intentional differences: validated against expected values ────────────
