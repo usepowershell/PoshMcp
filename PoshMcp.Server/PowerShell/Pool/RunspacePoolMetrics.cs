@@ -14,6 +14,13 @@ internal sealed class RunspacePoolMetrics : IDisposable
     private readonly Meter _meter;
 
     /// <summary>
+    /// The <see cref="Meter"/> instance backing this pool's instruments. Exposed so tests can
+    /// filter a <see cref="MeterListener"/> by meter <em>instance</em> (not name) and never
+    /// attribute measurements from another pool that shares the same meter name.
+    /// </summary>
+    internal Meter Meter => _meter;
+
+    /// <summary>
     /// Current number of pool workers by lifecycle state.
     /// Tag <c>state</c> values: <c>warm</c>, <c>leased</c>, <c>resetting</c>.
     /// </summary>

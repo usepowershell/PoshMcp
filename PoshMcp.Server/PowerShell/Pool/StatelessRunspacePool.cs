@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -88,6 +89,11 @@ public sealed class StatelessRunspacePool : IRunspacePool
     private readonly CancellationToken _shutdownToken;
     private Task? _sweeperTask;
     private Task? _replenisherTask;
+
+    // Guards the deterministic ReplenishOnceAsync test seam against overlapping passes.
+    // Never touched by the production replenisher loop (which is single-threaded per pool),
+    // so it has zero effect on runtime behavior.
+    private int _replenishPassActive;
 
     /// <summary>
     /// Creates a new <see cref="StatelessRunspacePool"/>.
@@ -638,9 +644,16 @@ public sealed class StatelessRunspacePool : IRunspacePool
     /// and silently swallows <see cref="OperationCanceledException"/> (expected on shutdown).
     /// </summary>
     private void FireAndForgetCreateWorkerAsync(CancellationToken ct)
+        => ObserveCreation(CreateWorkerAsync(ct));
+
+    /// <summary>
+    /// Observes a fire-and-forget worker-creation task so an <see cref="OperationCanceledException"/>
+    /// on shutdown is expected/ignored and only genuine faults surface. Shared by the replenisher
+    /// loop and any other caller that starts a worker without awaiting it.
+    /// </summary>
+    private static void ObserveCreation(Task creation)
     {
-        var task = CreateWorkerAsync(ct);
-        task.ContinueWith(
+        creation.ContinueWith(
             static t => { /* OCE on shutdown is expected; log only faults */ },
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
@@ -733,29 +746,78 @@ public sealed class StatelessRunspacePool : IRunspacePool
         }
     }
 
-    private async Task TryReplenishAsync(CancellationToken ct)
+    private Task TryReplenishAsync(CancellationToken ct)
+    {
+        // Production path: start any deficit workers and observe each fire-and-forget so an
+        // OCE on shutdown is swallowed. The counter is incremented inside the shared core.
+        foreach (var creation in StartReplenishmentWorkers(ct))
+            ObserveCreation(creation);
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Shared replenishment core used by both the production loop and the
+    /// <see cref="ReplenishOnceAsync"/> test seam. Computes the current deficit against
+    /// <see cref="RunspacePoolOptions.MinPoolSize"/>, starts one <see cref="CreateWorkerAsync"/>
+    /// per missing worker (bounded by <see cref="RunspacePoolOptions.MaxPoolSize"/>), and
+    /// increments <c>replenishments_total</c> exactly once when at least one worker was started.
+    /// Returns the started creation tasks so callers can fire-and-forget (loop) or await
+    /// completion (seam) — the observable side effects are identical in both cases.
+    /// </summary>
+    private Task[] StartReplenishmentWorkers(CancellationToken ct)
     {
         if (Volatile.Read(ref _draining) != 0 || ct.IsCancellationRequested)
-            return;
+            return Array.Empty<Task>();
 
         int deficit = _options.MinPoolSize - Volatile.Read(ref _totalCount);
-        if (deficit <= 0) return;
+        if (deficit <= 0) return Array.Empty<Task>();
 
-        bool started = false;
+        var creations = new List<Task>(deficit);
         for (int i = 0; i < deficit; i++)
         {
             int current = Volatile.Read(ref _totalCount);
             if (current >= _options.MaxPoolSize) break;
 
-            // CreateWorkerAsync increments _totalCount itself; use fire-and-forget wrapper
-            // so OCE on shutdown is silently swallowed rather than appearing unobserved.
-            started = true;
-            FireAndForgetCreateWorkerAsync(ct);
+            // CreateWorkerAsync increments _totalCount itself.
+            creations.Add(CreateWorkerAsync(ct));
         }
 
-        if (started)
+        if (creations.Count > 0)
             _metrics.Replenishments.Add(1);
+
+        return creations.ToArray();
     }
+
+    /// <summary>
+    /// Deterministic test seam mirroring <see cref="SweepOnce"/>. Runs exactly one replenishment
+    /// pass through the same <see cref="StartReplenishmentWorkers"/> core the background loop uses,
+    /// then awaits worker creation so callers observe terminal warm/worker-gauge restoration
+    /// without polling or sleeps. The reentrancy guard guarantees a single caller cannot launch
+    /// overlapping passes. Internal — for tests only; production replenishment is driven solely
+    /// by the timer loop, which never calls this method.
+    /// </summary>
+    internal async Task ReplenishOnceAsync(CancellationToken ct = default)
+    {
+        if (Interlocked.Exchange(ref _replenishPassActive, 1) != 0)
+            throw new InvalidOperationException(
+                "A replenishment pass is already in progress; overlapping passes are not permitted.");
+        try
+        {
+            await Task.WhenAll(StartReplenishmentWorkers(ct)).ConfigureAwait(false);
+        }
+        finally
+        {
+            Volatile.Write(ref _replenishPassActive, 0);
+        }
+    }
+
+    /// <summary>
+    /// The <see cref="Meter"/> instance backing this pool's instruments. Exposed so tests can
+    /// filter a <see cref="MeterListener"/> by meter <em>instance</em> (not name) and never
+    /// attribute measurements from another pool sharing the same meter name.
+    /// </summary>
+    internal Meter MetricsMeter => _metrics.Meter;
 
     // ─── Idle sweep ─────────────────────────────────────────────────────────────
 

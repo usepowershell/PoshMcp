@@ -17,12 +17,30 @@ using PSPowerShell = System.Management.Automation.PowerShell;
 namespace PoshMcp.Tests.Unit;
 
 /// <summary>
-/// Validates every RunspacePoolMetrics instrument and HttpTransportMetrics gauge using
-/// <see cref="MeterListener"/> with before/after delta assertions against actual pool activity.
-/// All tests use test-double factories (no real PowerShell runspaces).
+/// Validates all nine <see cref="RunspacePoolMetrics"/> instruments and the
+/// <see cref="HttpTransportMetrics"/> gauge using <see cref="MeterListener"/> with before/after
+/// delta assertions against actual pool activity. All tests use test-double factories (no real
+/// PowerShell runspaces).
+/// <para>
+/// The nine pool instruments, each with production-driven coverage:
+/// <list type="number">
+/// <item><c>poshmcp.runspace_pool.workers</c> (UpDownCounter, tag <c>state</c>) — WorkerCount_* tests.</item>
+/// <item><c>poshmcp.runspace_pool.acquisitions_total</c> (Counter) — Acquisition_* tests.</item>
+/// <item><c>poshmcp.runspace_pool.acquisition_duration_seconds</c> (Histogram, s) — AcquisitionDuration_* test.</item>
+/// <item><c>poshmcp.runspace_pool.acquisition_timeouts_total</c> (Counter) — timeout tests.</item>
+/// <item><c>poshmcp.runspace_pool.lease_duration_seconds</c> (Histogram, s) — lease-duration test.</item>
+/// <item><c>poshmcp.runspace_pool.startup_failures_total</c> (Counter) — startup-failure test.</item>
+/// <item><c>poshmcp.runspace_pool.evictions_total</c> (Counter, tag <c>reason</c>) — eviction tests.</item>
+/// <item><c>poshmcp.runspace_pool.reset_duration_seconds</c> (Histogram, s) — reset tests.</item>
+/// <item><c>poshmcp.runspace_pool.replenishments_total</c> (Counter) — Replenishment_* test.</item>
+/// </list>
+/// <see cref="Instruments_ExactlyNine_PublishedOnPoolMeter"/> pins this set by meter <em>instance</em>
+/// so any future instrument added to or removed from <see cref="RunspacePoolMetrics"/> fails the
+/// build intentionally instead of silently drifting from the 9/9 class/PR claim.
+/// </para>
 /// Eviction reasons tested: idle (via SweepOnce), reset_failure, explicit, stop_timeout,
-/// cancel, drain, startup_partial_failure. "broken" is a concurrent race path documented as
-/// not deterministically triggerable without reflection.
+/// cancel, drain, startup_partial_failure. "broken"/"channel_full" are concurrent accounting-race
+/// paths documented as not deterministically triggerable without reflection.
 /// No per-request instrument creation is verified by asserting InstrumentPublished fires
 /// once per instrument class per pool instance.
 /// </summary>
@@ -80,6 +98,121 @@ public sealed class PoolMetricsInstrumentTests
         var delta = capture.SumLong("poshmcp.runspace_pool.acquisitions_total");
         _output.WriteLine($"acquisitions_total after {rounds} rounds: {delta}");
         Assert.Equal(rounds, delta);
+    }
+
+    // ─── Acquisition duration histogram ───────────────────────────────────────
+
+    [Fact]
+    public async Task AcquisitionDuration_SuccessfulAcquire_RecordsFiniteNonNegativeSeconds()
+    {
+        using var capture = new MetricsCapture("poshmcp.runspace_pool.");
+        await using var pool = MakePool(eager: 1);
+        await pool.StartAsync();
+
+        // Drive a real successful Acquire path — the histogram is recorded in FinalizeLease
+        // immediately after the acquisition counter.
+        await using var lease = await pool.AcquireAsync();
+
+        // Preserve the acquisition-counter assertion (blocker-2 acceptance).
+        Assert.Equal(1L, capture.SumLong("poshmcp.runspace_pool.acquisitions_total"));
+
+        var durations = capture.GetDoubleValues("poshmcp.runspace_pool.acquisition_duration_seconds");
+        _output.WriteLine(
+            $"acquisition_duration_seconds samples: [{string.Join(", ", durations)}]");
+
+        // Exactly one acquire → exactly one histogram sample.
+        var seconds = Assert.Single(durations);
+        Assert.True(double.IsFinite(seconds), $"duration must be finite, was {seconds}");
+        Assert.True(seconds >= 0.0, $"duration must be non-negative, was {seconds}");
+    }
+
+    // ─── Replenishment counter ────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Replenishment_DeficitBelowMinPoolSize_EmitsOnceAndRestoresWarmToMinimum()
+    {
+        // EagerWarmCount (1) < MinPoolSize (2) creates a deterministic 1-worker deficit after
+        // StartAsync with no eviction/auto-replacement noise (RunspacePoolOptions.Validate permits
+        // EagerWarmCount < MinPoolSize). ReplenishCheckInterval is 300 s so the production loop
+        // never fires during the test; only the deterministic ReplenishOnceAsync seam runs.
+        var opts = new RunspacePoolOptions
+        {
+            MinPoolSize = 2,
+            MaxPoolSize = 2,
+            EagerWarmCount = 1,
+            AcquisitionTimeout = TimeSpan.FromSeconds(10),
+            IdleTtl = TimeSpan.FromSeconds(300),
+            SweepInterval = TimeSpan.FromSeconds(300),
+            StopTimeout = TimeSpan.FromSeconds(5),
+            ShutdownDrainTimeout = TimeSpan.FromSeconds(10),
+            ReplenishCheckInterval = TimeSpan.FromSeconds(300),
+        };
+
+        using var capture = new MetricsCapture("poshmcp.runspace_pool.");
+        await using var pool = MakePoolWithOptions(opts);
+        await pool.StartAsync();
+
+        // Baseline: one warm worker, no replenishment yet.
+        Assert.Equal(1L, capture.SumLong("poshmcp.runspace_pool.workers", "warm"));
+        Assert.Equal(0L, capture.SumLong("poshmcp.runspace_pool.replenishments_total"));
+
+        // One deterministic replenishment pass through the same core the loop uses; awaits
+        // worker creation so the terminal warm gauge is observed without polling or sleeps.
+        await pool.ReplenishOnceAsync();
+
+        Assert.Equal(1L, capture.SumLong("poshmcp.runspace_pool.replenishments_total"));
+        Assert.Equal(2L, capture.SumLong("poshmcp.runspace_pool.workers", "warm")); // restored to MinPoolSize
+        Assert.Equal(0L, capture.SumLong("poshmcp.runspace_pool.workers", "leased"));
+        Assert.Equal(0L, capture.SumLong("poshmcp.runspace_pool.workers", "resetting"));
+
+        // At capacity, a second pass must not create a worker or emit a spurious increment.
+        await pool.ReplenishOnceAsync();
+        Assert.Equal(1L, capture.SumLong("poshmcp.runspace_pool.replenishments_total"));
+        Assert.Equal(2L, capture.SumLong("poshmcp.runspace_pool.workers", "warm"));
+
+        AssertNoUnknownEvictionLabels(capture);
+    }
+
+    // ─── Exact instrument inventory (9/9 claim guard) ─────────────────────────
+
+    [Fact]
+    public async Task Instruments_ExactlyNine_PublishedOnPoolMeter()
+    {
+        // Filter by meter INSTANCE (not name) so instruments from other pools that share the
+        // McpMetrics meter name are never attributed here — contamination-free under parallel runs.
+        await using var pool = MakePool(eager: 1);
+
+        var expected = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "poshmcp.runspace_pool.workers",
+            "poshmcp.runspace_pool.acquisitions_total",
+            "poshmcp.runspace_pool.acquisition_duration_seconds",
+            "poshmcp.runspace_pool.acquisition_timeouts_total",
+            "poshmcp.runspace_pool.lease_duration_seconds",
+            "poshmcp.runspace_pool.startup_failures_total",
+            "poshmcp.runspace_pool.evictions_total",
+            "poshmcp.runspace_pool.reset_duration_seconds",
+            "poshmcp.runspace_pool.replenishments_total",
+        };
+
+        var published = new HashSet<string>(StringComparer.Ordinal);
+        using (var listener = new MeterListener())
+        {
+            listener.InstrumentPublished = (instrument, _) =>
+            {
+                if (ReferenceEquals(instrument.Meter, pool.MetricsMeter))
+                    published.Add(instrument.Name);
+            };
+            // Start() synchronously publishes all instruments already created by the pool's
+            // RunspacePoolMetrics constructor.
+            listener.Start();
+        }
+
+        _output.WriteLine($"Published on pool meter: {string.Join(", ", published.OrderBy(n => n))}");
+
+        // Set equality catches BOTH a removed instrument (missing name) and any newly added or
+        // inline-created instrument (extra name) — future drift fails intentionally.
+        Assert.Equal(expected, published);
     }
 
     // ─── WorkerCount UpDownCounter transitions ────────────────────────────────
@@ -663,8 +796,11 @@ public sealed class PoolMetricsInstrumentTests
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
     private static StatelessRunspacePool MakePool(int eager = 1, int max = 4) =>
+        MakePoolWithOptions(FastOpts(eager, max));
+
+    private static StatelessRunspacePool MakePoolWithOptions(RunspacePoolOptions opts) =>
         new StatelessRunspacePool(
-            FastOpts(eager, max),
+            opts,
             loggerFactory: null,
             workerFactory: () => new NoopRunspace(),
             snapshotCapture: _ => EmptySet(),
