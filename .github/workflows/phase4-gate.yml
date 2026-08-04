@@ -280,6 +280,8 @@ jobs:
         GITHUB_SHA: ${{ env.PHASE0_SHA }}
         CHARACTERIZATION_ARTIFACT_PATH: ${{ github.workspace }}/TestResults/phase0-fresh-baseline.json
       run: |
+        # Record Phase 0 start timestamp for observed product order verification (#380 AC1).
+        echo "PHASE0_START_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
         dotnet test --no-build --configuration Release \
           --filter "Category=Characterization" \
           --logger "trx;LogFileName=phase0-fresh-baseline.trx" \
@@ -333,6 +335,23 @@ jobs:
         PHASE4_PRODUCT_ORDER: ${{ matrix.product_order }}
         PHASE4_MODE_ORDER: ${{ matrix.phase4_order }}
       run: |
+        # Record Phase 4 start timestamp for observed product order verification (#380 AC1).
+        PHASE4_START_EPOCH=$(date +%s)
+        echo "PHASE4_START_EPOCH=$PHASE4_START_EPOCH" >> "$GITHUB_ENV"
+
+        # Derive observed product order from actual execution timestamps.
+        # Phase 0 always runs before Phase 4 in the workflow step sequence
+        # (except current_first has a pre-touch step before Phase 0).
+        # The observed order is: if Phase 0 started before Phase 4, baseline was first.
+        if [ -n "$PHASE0_START_EPOCH" ] && [ "$PHASE0_START_EPOCH" -le "$PHASE4_START_EPOCH" ]; then
+          OBSERVED="baseline_first"
+        else
+          OBSERVED="current_first"
+        fi
+        echo "PHASE4_OBSERVED_PRODUCT_ORDER=$OBSERVED" >> "$GITHUB_ENV"
+        echo "Observed product order: $OBSERVED (Phase0@${PHASE0_START_EPOCH:-?} Phase4@${PHASE4_START_EPOCH})"
+        export PHASE4_OBSERVED_PRODUCT_ORDER="$OBSERVED"
+
         set +e
         run_mode() {
           local mode="$1"
@@ -383,7 +402,10 @@ jobs:
           fi
 
           # Record BOTH the true PR head SHA and the merge SHA in artifact provenance.
-          jq -s --arg prHead "$PR_HEAD_SHA" --arg mergeSha "$MERGE_SHA" --arg productOrder "$PRODUCT_ORDER" --arg modeOrder "${{ matrix.phase4_order }}" '
+          # Use PHASE4_OBSERVED_PRODUCT_ORDER (derived from actual execution timestamps)
+          # rather than trusting the matrix label for observedProductOrder (#380 AC1).
+          OBSERVED_ORDER="${PHASE4_OBSERVED_PRODUCT_ORDER:-$PRODUCT_ORDER}"
+          jq -s --arg prHead "$PR_HEAD_SHA" --arg mergeSha "$MERGE_SHA" --arg productOrder "$PRODUCT_ORDER" --arg observedOrder "$OBSERVED_ORDER" --arg modeOrder "${{ matrix.phase4_order }}" '
             {
               schemaVersion:      .[0].schemaVersion,
               capturedAt:         .[1].capturedAt,
@@ -396,7 +418,7 @@ jobs:
               baselineProvenance: .[0].baselineProvenance,
               sameJobPaired:      (.[0].sameJobPaired and .[1].sameJobPaired),
               plannedProductOrder: $productOrder,
-              observedProductOrder: $productOrder,
+              observedProductOrder: $observedOrder,
               modeOrder:          $modeOrder,
               methodologyContract: .[0].methodologyContract,
               baselineMethodologyContract: .[0].baselineMethodologyContract,
@@ -445,13 +467,25 @@ jobs:
           -BaselineArtifactPath "${{ github.workspace }}/TestResults/phase0-fresh-baseline.json"
 
     # Generate artifact manifest with SHA-256 hashes for completeness verification (#380 AC4).
+    # Includes per-attempt raw artifacts, DLL provenance, and effective configs.
     - name: Generate artifact manifest
       if: always()
       run: |
         MANIFEST="${{ github.workspace }}/TestResults/artifact-manifest.json"
-        echo '{"manifest_version":"1.0","attempt":${{ matrix.attempt }},"product_order":"${{ matrix.product_order }}","mode_order":"${{ matrix.phase4_order }}","source_head":"'"$PR_HEAD_SHA"'","merge_sha":"'"$MERGE_SHA"'","files":[' > "$MANIFEST"
+        echo '{"manifest_version":"1.0","attempt":${{ matrix.attempt }},"product_order":"${{ matrix.product_order }}","observed_product_order":"'"${PHASE4_OBSERVED_PRODUCT_ORDER:-unknown}"'","mode_order":"${{ matrix.phase4_order }}","source_head":"'"$PR_HEAD_SHA"'","merge_sha":"'"$MERGE_SHA"'","phase0_start_epoch":'"${PHASE0_START_EPOCH:-0}"',"phase4_start_epoch":'"${PHASE4_START_EPOCH:-0}"',"files":[' > "$MANIFEST"
         FIRST=true
-        for f in TestResults/phase4-comparison.json TestResults/phase4-stateless.json TestResults/phase4-stateful.json TestResults/phase0-fresh-baseline.json TestResults/phase4-stateless.trx TestResults/phase4-stateful.trx TestResults/phase0-fresh-baseline.trx; do
+        # Core artifacts + TRX + DLL provenance
+        for f in \
+          TestResults/phase4-comparison.json \
+          TestResults/phase4-stateless.json \
+          TestResults/phase4-stateful.json \
+          TestResults/phase0-fresh-baseline.json \
+          TestResults/phase4-stateless.trx \
+          TestResults/phase4-stateful.trx \
+          TestResults/phase0-fresh-baseline.trx \
+          PoshMcp.Server/bin/Release/net10.0/PoshMcp.dll \
+          PoshMcp.Server/bin/Release/net10.0/ModelContextProtocol.dll \
+          ; do
           FULL="${{ github.workspace }}/$f"
           if [ -f "$FULL" ]; then
             SHA=$(sha256sum "$FULL" | cut -d' ' -f1)
@@ -460,6 +494,19 @@ jobs:
             echo "{\"path\":\"$f\",\"sha256\":\"$SHA\",\"size\":$SIZE}" >> "$MANIFEST"
           fi
         done
+        # Phase 0 DLLs (from the pinned baseline build)
+        if [ -n "$PHASE0_SERVER_DLL" ] && [ -f "$PHASE0_SERVER_DLL" ]; then
+          PHASE0_DIR=$(dirname "$PHASE0_SERVER_DLL")
+          for dll in "$PHASE0_SERVER_DLL" "$PHASE0_DIR/ModelContextProtocol.dll"; do
+            if [ -f "$dll" ]; then
+              SHA=$(sha256sum "$dll" | cut -d' ' -f1)
+              SIZE=$(stat --printf="%s" "$dll" 2>/dev/null || stat -f "%z" "$dll" 2>/dev/null || echo "0")
+              RELPATH=$(echo "$dll" | sed "s|${{ github.workspace }}/||")
+              echo ',' >> "$MANIFEST"
+              echo "{\"path\":\"$RELPATH\",\"sha256\":\"$SHA\",\"size\":$SIZE}" >> "$MANIFEST"
+            fi
+          done
+        fi
         echo ']}' >> "$MANIFEST"
         echo "Artifact manifest:"
         cat "$MANIFEST"

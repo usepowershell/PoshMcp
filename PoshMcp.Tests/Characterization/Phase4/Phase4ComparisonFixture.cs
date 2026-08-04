@@ -141,6 +141,7 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
 
         var currentSdk = SdkAssemblyInfo.DetectFromMeasuredServer();
         var productOrder = Environment.GetEnvironmentVariable("PHASE4_PRODUCT_ORDER") ?? "baseline_first";
+        var observedProductOrder = Environment.GetEnvironmentVariable("PHASE4_OBSERVED_PRODUCT_ORDER") ?? productOrder;
         var modeOrder = Environment.GetEnvironmentVariable("PHASE4_MODE_ORDER") ?? "unknown";
 
         // Build methodology contracts for baseline and current
@@ -164,7 +165,7 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
             CommitSha = Environment.GetEnvironmentVariable("GITHUB_SHA") ?? "local",
             SameJobPaired = Environment.GetEnvironmentVariable("POSHMCP_SAME_JOB_PAIRED") == "1",
             PlannedProductOrder = productOrder,
-            ObservedProductOrder = productOrder,
+            ObservedProductOrder = observedProductOrder,
             ModeOrder = modeOrder,
             MethodologyContract = currentContract,
             BaselineMethodologyContract = baselineContract,

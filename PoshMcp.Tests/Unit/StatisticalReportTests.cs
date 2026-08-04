@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using PoshMcp.Tests.Characterization.Phase4;
 using Xunit;
 
@@ -235,18 +236,111 @@ public class StatisticalReportTests
 
         Assert.Equal("Stateless", attr.TransportMode);
         Assert.Contains("HYPOTHESIS", attr.Hypothesis);
-        Assert.True(attr.McpPlusPsEstimateMs > 0);
-        Assert.Equal("subtraction: warmCall.median - httpHealth.median", attr.AttributionMethod);
+        Assert.True(attr.McpOverheadEstimateMs > 0);
+        Assert.Contains("subtraction", attr.AttributionMethod);
     }
 
     [Fact]
-    public void StageAttribution_Create_McpPlusPs_Equals_WarmMedian_Minus_HttpMedian()
+    public void StageAttribution_Create_McpOverhead_Equals_WarmMedian_Minus_HttpMedian()
     {
         var warmSamples = new double[] { 10.0, 12.0, 11.0 };  // sorted: 10,11,12 → median=11
         var httpSamples = new double[] { 1.0, 2.0, 1.5 };     // sorted: 1,1.5,2 → median=1.5
 
         var attr = StageAttribution.Create("Stateful", warmSamples, httpSamples);
 
-        Assert.Equal(11.0 - 1.5, attr.McpPlusPsEstimateMs, 10);
+        Assert.Equal(11.0 - 1.5, attr.McpOverheadEstimateMs, 10);
+    }
+
+    [Fact]
+    public void StageAttribution_EnumeratesAllRequiredStages()
+    {
+        // AC6 requires: HTTP/MCP round trip, lease acquisition, PS execution,
+        // reset/return, startup/eager/script stages.
+        var warmSamples = new double[] { 10.0, 11.0, 12.0 };
+        var httpSamples = new double[] { 1.0, 1.5, 2.0 };
+        var coldWithScript = new double[] { 500.0, 550.0, 600.0 };
+        var coldNoScript = new double[] { 400.0, 430.0, 460.0 };
+
+        var attr = StageAttribution.Create("Stateless", warmSamples, httpSamples,
+            coldWithScript, coldNoScript);
+
+        var stageNames = attr.Stages.Select(s => s.Stage).ToList();
+        Assert.Contains("http_mcp_roundtrip", stageNames);
+        Assert.Contains("mcp_overhead", stageNames);
+        Assert.Contains("lease_acquisition", stageNames);
+        Assert.Contains("powershell_execution", stageNames);
+        Assert.Contains("reset_return", stageNames);
+        Assert.Contains("startup_eager", stageNames);
+        Assert.Contains("startup_script", stageNames);
+    }
+
+    [Fact]
+    public void StageAttribution_NotSeparableStages_AreDocumented()
+    {
+        var warmSamples = new double[] { 10.0, 11.0, 12.0 };
+        var httpSamples = new double[] { 1.0, 1.5, 2.0 };
+
+        var attr = StageAttribution.Create("Stateless", warmSamples, httpSamples);
+
+        Assert.True(attr.NotSeparableWithoutPerturbation.Count >= 3);
+        Assert.Contains(attr.NotSeparableWithoutPerturbation,
+            s => s.Contains("lease_acquisition"));
+        Assert.Contains(attr.NotSeparableWithoutPerturbation,
+            s => s.Contains("powershell_execution"));
+        Assert.Contains(attr.NotSeparableWithoutPerturbation,
+            s => s.Contains("reset_return"));
+
+        // Non-separable stages should have method = "not_separable" and NaN estimate
+        var leaseDet = attr.Stages.First(s => s.Stage == "lease_acquisition");
+        Assert.Equal("not_separable", leaseDet.Method);
+        Assert.True(double.IsNaN(leaseDet.EstimateMs));
+    }
+
+    [Fact]
+    public void StageAttribution_WithColdStartSamples_ComputesStartupScriptDelta()
+    {
+        var warmSamples = new double[] { 10.0, 11.0, 12.0 };
+        var httpSamples = new double[] { 1.0, 1.5, 2.0 };
+        // cold_with_script median = 550, cold_no_script median = 430
+        var coldWithScript = new double[] { 500.0, 550.0, 600.0 };
+        var coldNoScript = new double[] { 400.0, 430.0, 460.0 };
+
+        var attr = StageAttribution.Create("Stateless", warmSamples, httpSamples,
+            coldWithScript, coldNoScript);
+
+        Assert.NotNull(attr.StartupScriptEstimateMs);
+        Assert.Equal(550.0 - 430.0, attr.StartupScriptEstimateMs!.Value, 10);
+        Assert.NotNull(attr.ServerStartupEstimateMs);
+        Assert.Equal(430.0, attr.ServerStartupEstimateMs!.Value, 10);
+        Assert.Contains("startup script", attr.Hypothesis);
+    }
+
+    [Fact]
+    public void StageAttribution_WithoutColdStartSamples_NullStartupFields()
+    {
+        var warmSamples = new double[] { 10.0, 11.0, 12.0 };
+        var httpSamples = new double[] { 1.0, 1.5, 2.0 };
+
+        var attr = StageAttribution.Create("Stateless", warmSamples, httpSamples);
+
+        Assert.Null(attr.StartupScriptEstimateMs);
+        Assert.Null(attr.ServerStartupEstimateMs);
+        // Should still have the warm-call stages
+        Assert.Contains(attr.Stages, s => s.Stage == "http_mcp_roundtrip");
+        Assert.Contains(attr.Stages, s => s.Stage == "mcp_overhead");
+        // But should NOT have startup stages
+        Assert.DoesNotContain(attr.Stages, s => s.Stage == "startup_eager");
+        Assert.DoesNotContain(attr.Stages, s => s.Stage == "startup_script");
+    }
+
+    [Fact]
+    public void StageAttribution_MeasurementOverheadBound_IsHttpRange()
+    {
+        var warmSamples = new double[] { 10.0, 11.0, 12.0 };
+        var httpSamples = new double[] { 1.0, 1.5, 2.0 }; // range = 1.0
+
+        var attr = StageAttribution.Create("Stateless", warmSamples, httpSamples);
+
+        Assert.Equal(1.0, attr.MeasurementOverheadBoundMs, 10);
     }
 }
