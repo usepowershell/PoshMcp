@@ -435,3 +435,5 @@ integration/Modules
 integration/appsettings.json
 docs/_site
 nupkg
+server-stderr.txt
+server-test-stderr.txt

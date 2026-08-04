@@ -186,8 +186,8 @@ public sealed class McpServerConfigurationStartupTests
     [Fact]
     public void RegisterResolvedMcpConfiguration_LegacyConfig_LegacyPropertiesAccessibleForSessionRunspace()
     {
-        // The session-affine runspace construction reads mcpServerConfig.SessionRunspaceCapacity etc.
-        // These raw bound values must still be accessible after resolver integration.
+        // The obsolete SessionRunspace* properties are still bound from config during the migration window
+        // (major-version removal gate). Verify they remain accessible while the [Obsolete] attribute warns.
         using var dir = new TempDirectory("cfg-startup-session");
         var config = BuildUserConfig(dir, """
             { "McpServer": { "SessionRunspaceCapacity": 24, "SessionRunspaceIdleTtlSeconds": 600 } }
@@ -196,8 +196,10 @@ public sealed class McpServerConfigurationStartupTests
 
         var returned = HttpServerHost.RegisterResolvedMcpConfiguration(services, config, new CollectingLogger());
 
+#pragma warning disable CS0618 // Intentional: verifying the obsolete bound values are still accessible during the removal window.
         Assert.Equal(24, returned.SessionRunspaceCapacity);
         Assert.Equal(600, returned.SessionRunspaceIdleTtlSeconds);
+#pragma warning restore CS0618
         // Pool options also reflect resolved legacy mapping
         Assert.Equal(24, returned.RunspacePool.MaxPoolSize);
         Assert.Equal(TimeSpan.FromSeconds(600), returned.RunspacePool.IdleTtl);
