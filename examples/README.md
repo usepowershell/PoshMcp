@@ -237,7 +237,7 @@ Simple configuration for basic usage:
     }
   },
   "PowerShellConfiguration": {
-    "FunctionNames": [
+    "CommandNames": [
       "Get-Process",
       "Get-Service",
       "Get-ChildItem"
@@ -273,7 +273,7 @@ Full-featured configuration with Azure integration:
     }
   },
   "PowerShellConfiguration": {
-    "FunctionNames": [
+    "CommandNames": [
       "Get-AzResource",
       "Get-AzVM",
       "New-AzResourceGroup"
@@ -362,7 +362,7 @@ Write-Host "PoshMcp environment ready for tenant: $tenantId"
 ```
 
 **Called by:** appsettings.json `StartupScriptPath` setting  
-**Executed:** During PowerShel runspace initialization (once per container lifecycle)
+**Executed:** Per pooled runspace worker at warm-up and replenishment — runs each time a new worker is initialized, which may be many times during a container's lifetime.
 
 ### azure-managed-identity-startup.ps1
 

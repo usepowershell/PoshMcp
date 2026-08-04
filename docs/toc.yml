@@ -30,6 +30,10 @@
     href: articles/transport-modes.md
   - name: Session Management
     href: articles/session-management.md
+  - name: Migration v1 → v2
+    href: articles/migration-v1-v2.md
+  - name: Startup Scripts Guide
+    href: articles/startup-scripts.md
     
 - name: Advanced Topics
   items:

@@ -1,5 +1,5 @@
 # Company-specific PowerShell environment setup script
-# This script runs at container startup to initialize the PowerShell session
+# Runs for each pooled PowerShell runspace worker at warm-up/replenishment (not once at container startup).
 
 Write-Host "🚀 Initializing Company PowerShell Environment..." -ForegroundColor Cyan
 

@@ -2,7 +2,8 @@
 
 This isolated `net10.0` console project evaluates `ModelContextProtocol` 2.0.0-preview.3 and
 `ModelContextProtocol.Extensions.Tasks` 2.0.0-preview.3. It is intentionally not in
-`PoshMcp.sln`; production remains on SDK 1.4.1 and protocol 2025-11-25.
+`PoshMcp.sln`; production is on SDK **2.0.0** and default protocol **2026-07-28** (Tasks
+extension remains deferred — see Findings below).
 
 Run:
 
@@ -45,7 +46,8 @@ retention, cleanup, ownership, authorization, and observability policies. The pr
 experimental (`MCPEXP001`, `MCPEXP002`, `MCPEXP004`) extensibility seams and moves Tasks into a
 new package. SDK 2 also changes Streamable HTTP behavior (including standalone GET-stream
 configuration), so its transport upgrade needs separate HTTP/session lifecycle validation. It
-cannot be safely mixed into the stable 1.4.1/2025-11-25 server path.
+cannot be safely introduced without a separate HTTP/session-lifecycle validation
+and durable-store design against the production 2.0.0/2026-07-28 server.
 
 **Recommendation: defer adoption.** Revisit after the Tasks protocol and SDK 2 APIs stabilize,
 with a separate durable-store and HTTP/session-lifecycle design.

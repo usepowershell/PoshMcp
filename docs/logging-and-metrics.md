@@ -155,19 +155,24 @@ The `errorType` field on error/warning log events can be one of:
 | `PowerShell runspace disposed successfully` | Information | `PowerShellCleanupService` |
 | `Error disposing PowerShell runspace` | Warning | `PowerShellCleanupService` |
 
-#### HTTP Session Runspaces
+#### HTTP Runspace Pool
 
-HTTP transport also logs the session-runspace manager lifecycle:
+HTTP transport logs the `StatelessRunspacePool` lifecycle:
 
 | Event | Level | Source |
 |-------|-------|--------|
-| `Session runspace manager started with capacity {Capacity}, idle TTL {IdleTtl}, and {WarmStandbyCount} warm standbys` | Information | `SessionAwarePowerShellRunspace` |
-| `Assigned clean PowerShell runspace to session {SessionId}` | Information | `SessionAwarePowerShellRunspace` |
-| `Releasing PowerShell runspace for session {SessionId}: {Reason}` | Information | `SessionAwarePowerShellRunspace` |
+| `Starting StatelessRunspacePool: min={Min}, max={Max}, eager={Eager}.` | Information | `StatelessRunspacePool` |
+| `Startup complete: {Warm}/{Eager} workers initialized.` | Information | `StatelessRunspacePool` |
+| `Worker reset complete; returned to pool.` | Debug | `StatelessRunspacePool` |
+| `Worker {CreatedAt} evicted (reason={Reason}). Total={Total}.` | Information | `StatelessRunspacePool` |
+| `Idle sweep evicted worker {CreatedAt} (idle since {LastActive}). Remaining warm={Warm}.` | Information | `StatelessRunspacePool` |
+| `Pool draining: stopping new acquisitions.` | Information | `StatelessRunspacePool` |
+| `All leases returned; drain complete.` | Information | `StatelessRunspacePool` |
+| `Reset failed for worker created at {CreatedAt}; evicting.` | Warning | `StatelessRunspacePool` |
 
-Use these events to correlate capacity configuration with session assignment and
-release. Session IDs are identifiers; protect HTTP logs according to
-your organization's telemetry-retention policy. For lifecycle semantics and
+Use these events to correlate pool configuration with worker warm-up, reset,
+eviction, and drain. Workers are identified by creation timestamp; no session
+ID is logged for HTTP pool events. For pool lifecycle semantics and
 configuration defaults, see [Session Management](articles/session-management.md)
 and [Configuration](articles/configuration.md#mcp-server-http-sessions).
 
