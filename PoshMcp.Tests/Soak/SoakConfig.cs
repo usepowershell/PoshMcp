@@ -138,6 +138,19 @@ public sealed record SoakConfig
     /// </summary>
     public double MaxHandleFloorSlopePerSecond { get; init; } = 0.010;
 
+    /// <summary>
+    /// Minimum number of samples required for a window to be included in the floor OLS regression.
+    /// A terminal window cut short by the load-phase boundary typically contains far fewer samples
+    /// than a full window (2 samples in the authoritative run vs. ~10 for full 5-minute windows)
+    /// and produces an unrepresentative floor estimate that inflates the reported slope. Windows
+    /// with fewer than this many samples are excluded from the OLS; the excluded count is reported
+    /// in the gate detail. Must be ≥ 2.
+    ///
+    /// <para>Default 5: filters any terminal bin that captured less than half a normal window's
+    /// samples, while retaining all full and near-full windows (≥ 50% populated).</para>
+    /// </summary>
+    public int MinHandleFloorWindowSamples { get; init; } = 5;
+
     // ─── Handle cooldown-plateau gate ──────────────────────────────────────────
 
     /// <summary>
@@ -173,6 +186,20 @@ public sealed record SoakConfig
     /// <summary>Last N load samples must show WarmWorkers+LeasedWorkers ≥ MinPoolSize (stable end state).</summary>
     public int StableEndSamples { get; init; } = 5;
 
+    // ─── Burst-scaling profile (opt-in, diagnostic; does not alter thresholds) ──
+
+    /// <summary>
+    /// Concurrent workers during burst phases, interspersed within the load phase to exercise
+    /// pool replenishment under short spikes. A value of 0 (default) disables burst phases so
+    /// the load schedule remains identical to the production contract. When enabled, set to a
+    /// value above <c>ConcurrencyLevel</c> but ≤ MaxPoolSize configured in soak-appsettings.json
+    /// to avoid worker_upper_bound failures. Override via <c>SOAK_BURST_WORKERS</c>.
+    /// </summary>
+    public int BurstConcurrencyLevel { get; init; } = 0;
+
+    /// <summary>Duration of each burst phase within the load schedule.</summary>
+    public TimeSpan BurstPhaseDuration { get; init; } = TimeSpan.FromMinutes(2);
+
     // ─── Validation ────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -197,6 +224,7 @@ public sealed record SoakConfig
         Require(HandleFloorWindow >= SampleInterval, "HandleFloorWindow must be ≥ SampleInterval");
         Require(HandleFloorQuantile > 0 && HandleFloorQuantile < 1, "HandleFloorQuantile must be in (0,1)");
         Require(MaxHandleFloorSlopePerSecond >= 0, "MaxHandleFloorSlopePerSecond must be ≥ 0");
+        Require(MinHandleFloorWindowSamples >= 2, "MinHandleFloorWindowSamples must be ≥ 2");
         Require(HandleCooldownPlateauMaxDeltaAbsolute >= 0, "HandleCooldownPlateauMaxDeltaAbsolute must be ≥ 0");
         Require(HandleCooldownPlateauMaxDeltaRelative >= 0, "HandleCooldownPlateauMaxDeltaRelative must be ≥ 0");
         Require(MaxMemorySlopeBytesPerSecond >= 0, "MaxMemorySlopeBytesPerSecond must be ≥ 0");
@@ -206,5 +234,7 @@ public sealed record SoakConfig
         Require(MinPoolStatsCoverage > 0 && MinPoolStatsCoverage <= 1, "MinPoolStatsCoverage must be in (0,1]");
         Require(ReplenishmentRecoverySamples >= 1, "ReplenishmentRecoverySamples must be ≥ 1");
         Require(StableEndSamples >= 1, "StableEndSamples must be ≥ 1");
+        Require(BurstConcurrencyLevel >= 0, "BurstConcurrencyLevel must be ≥ 0");
+        Require(BurstPhaseDuration > TimeSpan.Zero, "BurstPhaseDuration must be positive");
     }
 }

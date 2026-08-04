@@ -135,14 +135,20 @@ public static class SoakAnalyzer
     /// (X) and the <paramref name="quantile"/> floor of that window's handle counts (Y). Windows are
     /// anchored at the first sample's elapsed time so results are deterministic and irregular sample
     /// spacing is handled by true elapsed time.
+    ///
+    /// <para>Windows with fewer than <paramref name="minSamples"/> data points are excluded from the
+    /// result. This prevents a short terminal bin (e.g. 2 samples in the last partially-filled window)
+    /// from producing an unrepresentative floor estimate that inflates the reported OLS slope.</para>
     /// </summary>
     public static IReadOnlyList<(double CenterSeconds, double Floor)> WindowFloors(
         IReadOnlyList<(double ElapsedSeconds, double Handles)> handlePoints,
         double windowSeconds,
-        double quantile)
+        double quantile,
+        int minSamples = 1)
     {
         if (handlePoints is null) throw new ArgumentNullException(nameof(handlePoints));
         if (windowSeconds <= 0) throw new ArgumentOutOfRangeException(nameof(windowSeconds));
+        if (minSamples < 1) throw new ArgumentOutOfRangeException(nameof(minSamples), "minSamples must be ≥ 1.");
         var result = new List<(double, double)>();
         if (handlePoints.Count == 0) return result;
 
@@ -156,6 +162,7 @@ public static class SoakAnalyzer
         foreach (var g in groups)
         {
             var xs = g.Select(p => p.ElapsedSeconds).ToList();
+            if (xs.Count < minSamples) continue;
             var ys = g.Select(p => p.Handles).ToList();
             var center = Mean(xs)!.Value;
             var floor = Quantile(ys, quantile)!.Value;
@@ -273,10 +280,13 @@ public static class SoakAnalyzer
         results.Add(EvaluateStableEndState(load, cfg));
 
         // ── Gate: server stability (any phase) ────────────────────────────────
-        var crash = ordered.FirstOrDefault(s => s.Note != null && s.Note.Contains("SERVER_CRASH"));
+        // The harness marks samples with a SERVER_CRASH note when the server process exits
+        // unexpectedly (i.e., not killed by the harness as part of planned shutdown).
+        // Expected harness-initiated shutdown does not set this note.
+        var crash = ordered.FirstOrDefault(s => s.Note != null && s.Note.StartsWith("SERVER_CRASH", StringComparison.Ordinal));
         results.Add(crash is null
-            ? Pass("server_stability", "No server crash detected during run", 0, 0)
-            : Fail("server_stability", $"Server crash detected at {crash.ElapsedMs}ms", 1, 0));
+            ? Pass("server_stability", "No unexpected server exit detected during run", 0, 0)
+            : Fail("server_stability", $"Server exited unexpectedly at {crash.ElapsedMs}ms: {crash.Note}", 1, 0));
 
         return results.AsReadOnly();
     }
@@ -346,22 +356,33 @@ public static class SoakAnalyzer
         var points = supported
             .Select(s => (ElapsedSeconds: s.ElapsedMs / 1000.0, Handles: (double)s.ProcessHandleCount))
             .ToList();
-        var floors = WindowFloors(points, cfg.HandleFloorWindow.TotalSeconds, cfg.HandleFloorQuantile);
+
+        // Compute full set of windows (minSamples=1) to count excluded bins.
+        var allWindows = WindowFloors(points, cfg.HandleFloorWindow.TotalSeconds, cfg.HandleFloorQuantile, 1);
+        // Compute the filtered set that satisfies the minimum-sample contract.
+        var floors = WindowFloors(points, cfg.HandleFloorWindow.TotalSeconds, cfg.HandleFloorQuantile, cfg.MinHandleFloorWindowSamples);
+        var excludedCount = allWindows.Count - floors.Count;
+
         if (floors.Count < 2)
-            return Fail("handle_floor_slope",
-                $"Only {floors.Count} handle floor window(s); need ≥ 2 ({cfg.HandleFloorWindow.TotalMinutes:F0}-min windows)",
+        {
+            var reason = floors.Count == 0
+                ? $"No windows had ≥ {cfg.MinHandleFloorWindowSamples} samples; {allWindows.Count} total window(s) all excluded"
+                : $"Only {floors.Count} qualifying window(s) after excluding {excludedCount} undersized bin(s) (need ≥ 2)";
+            return Fail("handle_floor_slope", reason,
                 floors.Count, cfg.MaxHandleFloorSlopePerSecond);
+        }
 
         var slope = Slope(floors.Select(f => (f.CenterSeconds, f.Floor)).ToList());
+        var exclusionNote = excludedCount > 0 ? $"; {excludedCount} undersized bin(s) excluded" : "";
         var floorDesc = string.Join(", ", floors.Select(f => $"{f.Floor:F0}@{f.CenterSeconds / 60.0:F0}m"));
         return slope is null
             ? Fail("handle_floor_slope", "Insufficient floor windows for slope", null, cfg.MaxHandleFloorSlopePerSecond)
             : slope <= cfg.MaxHandleFloorSlopePerSecond
                 ? Pass("handle_floor_slope",
-                    $"Handle floor slope {slope:F5} /s ≤ {cfg.MaxHandleFloorSlopePerSecond:F3} /s over {floors.Count} windows [{floorDesc}]",
+                    $"Handle floor slope {slope:F5} /s ≤ {cfg.MaxHandleFloorSlopePerSecond:F3} /s over {floors.Count} windows [{floorDesc}]{exclusionNote}",
                     slope, cfg.MaxHandleFloorSlopePerSecond)
                 : Fail("handle_floor_slope",
-                    $"Handle floor slope {slope:F5} /s exceeds {cfg.MaxHandleFloorSlopePerSecond:F3} /s over {floors.Count} windows [{floorDesc}]",
+                    $"Handle floor slope {slope:F5} /s exceeds {cfg.MaxHandleFloorSlopePerSecond:F3} /s over {floors.Count} windows [{floorDesc}]{exclusionNote}",
                     slope, cfg.MaxHandleFloorSlopePerSecond);
     }
 

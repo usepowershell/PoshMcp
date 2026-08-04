@@ -7,6 +7,10 @@ name: Soak Test
 # NEVER part of ordinary PR CI (the SoakTest carries [Trait("Category","Soak")], which
 # PR CI excludes). The full release run is ~74 minutes of wall clock
 # (baseline 3 + warmup 5 + load 61 + cooldown 5).
+#
+# Diagnostic / investigation runs can request a longer cooldown (15-30 min) via
+# cooldown_minutes and enable burst-scaling exercises via burst_workers. Production
+# defaults are preserved; these inputs do not affect the acceptance thresholds.
 
 on:
   workflow_dispatch:
@@ -19,6 +23,14 @@ on:
         description: "Minimum measured load span required to pass the duration gate"
         required: false
         default: "60"
+      cooldown_minutes:
+        description: "Cooldown phase minutes (release default 5; use 15-30 for drift investigation runs)"
+        required: false
+        default: "5"
+      burst_workers:
+        description: "Burst concurrency workers interspersed within load phase (0 = disabled, default production)"
+        required: false
+        default: "0"
   schedule:
     # Nightly at 02:00 UTC on weekdays
     - cron: "0 2 * * 1-5"
@@ -34,7 +46,7 @@ jobs:
   soak:
     name: Sustained-load soak (#349, windows/HandleCount)
     runs-on: windows-latest
-    timeout-minutes: 150
+    timeout-minutes: 180
 
     steps:
       - uses: actions/checkout@v4
@@ -68,11 +80,13 @@ jobs:
           if-no-files-found: warn
 
       - name: Run authoritative soak test (windows-latest, Process.HandleCount)
-        timeout-minutes: 130
+        timeout-minutes: 160
         env:
           SOAK_ARTIFACT_DIR: ${{ github.workspace }}/soak-artifacts
           SOAK_LOAD_MINUTES: ${{ github.event.inputs.load_minutes || '61' }}
           SOAK_MIN_LOAD_MINUTES: ${{ github.event.inputs.min_load_minutes || '60' }}
+          SOAK_COOLDOWN_MINUTES: ${{ github.event.inputs.cooldown_minutes || '5' }}
+          SOAK_BURST_WORKERS: ${{ github.event.inputs.burst_workers || '0' }}
         run: >
           dotnet test
           --no-build
@@ -95,15 +109,34 @@ jobs:
               status         = "FAILED"
               failure_reason = "Soak process did not produce a summary.json (setup/build/crash before artifact write)."
               provenance     = [ordered]@{
-                source_commit_sha  = "${{ github.sha }}"
-                workflow_run_id    = "${{ github.run_id }}"
+                source_commit_sha    = "${{ github.sha }}"
+                workflow_run_id      = "${{ github.run_id }}"
                 workflow_run_attempt = "${{ github.run_attempt }}"
-                workflow_job       = "${{ github.job }}"
-                os                 = "windows-latest"
+                workflow_job         = "${{ github.job }}"
+                os                   = "windows-latest"
               }
             }
             $obj | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $fallbackDir "summary.json")
           }
+
+      - name: Compute artifact hashes for provenance
+        if: always()
+        run: |
+          $dir = "${{ github.workspace }}/soak-artifacts"
+          $hashFile = Join-Path $dir "artifact-hashes.txt"
+          $files = Get-ChildItem -Path $dir -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -in '.json','.csv','.txt','.trx' }
+          $lines = foreach ($f in $files) {
+            $hash = (Get-FileHash -Path $f.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($f.FullName.Substring($dir.Length).TrimStart('\/'))"
+          }
+          $trx = Get-ChildItem -Path ./TestResults -Filter soak-run.trx -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($trx) {
+            $hash = (Get-FileHash -Path $trx.FullName -Algorithm SHA256).Hash.ToLower()
+            $lines += "$hash  TestResults/soak-run.trx"
+          }
+          if ($lines) { $lines | Set-Content -Path $hashFile }
+          Write-Host "Hashes written to $hashFile"
 
       - name: Upload soak artifacts
         if: always()

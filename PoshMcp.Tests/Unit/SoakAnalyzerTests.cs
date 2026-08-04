@@ -140,6 +140,31 @@ public sealed class SoakAnalyzerTests
         Assert.Equal(1000.0, floors[1].Floor, precision: 6);
     }
 
+    [Fact]
+    public void WindowFloors_MinSamples_FiltersUndersizedBins()
+    {
+        // Two full windows (10 samples each) + one 2-sample terminal bin.
+        // With minSamples=5, the terminal bin must be excluded.
+        var pts = new List<(double, double)>();
+        for (var j = 0; j < 20; j++)
+            pts.Add((j * 30.0, 1000.0)); // windows 0 and 1: 10 samples each
+        // Add 2 samples in window 2 (offset 600s)
+        pts.Add((600.0, 2000.0));
+        pts.Add((615.0, 2000.0));
+
+        var allFloors = SoakAnalyzer.WindowFloors(pts, windowSeconds: 300, quantile: 0.10, minSamples: 1);
+        Assert.Equal(3, allFloors.Count); // all 3 windows included
+
+        var filteredFloors = SoakAnalyzer.WindowFloors(pts, windowSeconds: 300, quantile: 0.10, minSamples: 5);
+        Assert.Equal(2, filteredFloors.Count); // only 2 full windows (10 samples each)
+        Assert.All(filteredFloors, f => Assert.Equal(1000.0, f.Floor, precision: 6));
+    }
+
+    [Fact]
+    public void WindowFloors_MinSamples_InvalidArg_Throws() =>
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            SoakAnalyzer.WindowFloors(new List<(double, double)> { (0, 1.0) }, 300, 0.1, minSamples: 0));
+
     // ═══ PlateauDelta / ErrorRate ═══════════════════════════════════════════
 
     [Fact]
@@ -221,6 +246,87 @@ public sealed class SoakAnalyzerTests
         var run = RunWithLoadHandles((j, win) => 1000.0 + 60.0 * win + (j % 10 >= 8 ? 500.0 : 0.0));
         var floorGate = SoakAnalyzer.Evaluate(run, Cfg()).Single(g => g.Gate == "handle_floor_slope");
         Assert.False(floorGate.Passed, $"Ratcheting floor must fail: {floorGate.Detail}");
+    }
+
+    // ═══ Min-sample/full-window contract ════════════════════════════════════
+
+    [Fact]
+    public void Evaluate_TerminalUnderpopulatedWindow_ExcludedFromFloorSlope()
+    {
+        // Reproduces the authoritative run shape: 12 full 5-min windows (~10 samples each)
+        // plus a 2-sample terminal bin.  Without min-sample filtering the terminal bin's floor
+        // dominates the OLS; with filtering (MinHandleFloorWindowSamples=5) it is excluded.
+        //
+        // The 12 full windows have a flat floor at 1000 (slope ≈ 0).
+        // The 2-sample terminal has a dramatically higher floor (5000) which would inflate
+        // the slope far above the 0.010/s threshold if included.
+        var run = RunWithTerminalBin(fullWindowCount: 12, terminalSamples: 2,
+            fullWindowHandle: 1000, terminalWindowHandle: 5000);
+
+        // Gate must PASS because the 2-sample terminal bin is excluded.
+        var floorGate = SoakAnalyzer.Evaluate(run, Cfg()).Single(g => g.Gate == "handle_floor_slope");
+        Assert.True(floorGate.Passed,
+            $"Terminal 2-sample bin must be excluded (MinHandleFloorWindowSamples={Cfg().MinHandleFloorWindowSamples}): {floorGate.Detail}");
+        Assert.Contains("excluded", floorGate.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Evaluate_FullWindowsWithRatchetingFloor_StillFails()
+    {
+        // Confirm that filtering undersized windows does not suppress a genuine leak.
+        // 12 full windows, each with a ratcheting floor (+80 handles/window → slope well above threshold).
+        var run = RunWithTerminalBin(fullWindowCount: 12, terminalSamples: 0,
+            fullWindowHandle: 1000, terminalWindowHandle: 0,
+            fullWindowDrift: 80.0);
+
+        var floorGate = SoakAnalyzer.Evaluate(run, Cfg()).Single(g => g.Gate == "handle_floor_slope");
+        Assert.False(floorGate.Passed, $"Ratcheting floor across full windows must still fail: {floorGate.Detail}");
+    }
+
+    [Fact]
+    public void Evaluate_OnlyTerminalBin_InsufficientQualifyingWindows_Fails()
+    {
+        // Only a 2-sample terminal bin after filtering: cannot compute slope → FAIL.
+        var run = RunWithTerminalBin(fullWindowCount: 0, terminalSamples: 2,
+            fullWindowHandle: 1000, terminalWindowHandle: 1000);
+
+        var floorGate = SoakAnalyzer.Evaluate(run, Cfg()).Single(g => g.Gate == "handle_floor_slope");
+        Assert.False(floorGate.Passed, $"No qualifying windows must fail the gate: {floorGate.Detail}");
+    }
+
+    // ═══ Server stability gate (non-vacuous) ════════════════════════════════
+
+    [Fact]
+    public void Evaluate_UnexpectedServerExit_StabilityFails()
+    {
+        // Harness marks unexpected exits with SERVER_CRASH prefix in the note field.
+        var run = HealthyRun();
+        run[run.Count / 2] = run[run.Count / 2] with { Note = "SERVER_CRASH exit=1" };
+        var g = SoakAnalyzer.Evaluate(run, Cfg()).Single(x => x.Gate == "server_stability");
+        Assert.False(g.Passed, g.Detail);
+        Assert.Contains("SERVER_CRASH", g.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Evaluate_HarnessShutdownNote_StabilityPasses()
+    {
+        // The harness records "SERVER_CRASH" only for unexpected exits.
+        // A normal planned-shutdown note (e.g. pool_unavailable) must not trigger the gate.
+        var run = HealthyRun();
+        run[run.Count / 2] = run[run.Count / 2] with { Note = "pool_unavailable:no_client" };
+        var g = SoakAnalyzer.Evaluate(run, Cfg()).Single(x => x.Gate == "server_stability");
+        Assert.True(g.Passed, $"Non-crash note must not fail stability: {g.Detail}");
+    }
+
+    [Fact]
+    public void Evaluate_NoteContainingServerCrashMidstring_DoesNotTrigger()
+    {
+        // The gate matches on StartsWith("SERVER_CRASH") to avoid false positives from
+        // diagnostic notes that happen to mention "server_crash" in lowercase or mid-string.
+        var run = HealthyRun();
+        run[run.Count / 2] = run[run.Count / 2] with { Note = "info:previous_run_had_SERVER_CRASH_check" };
+        var g = SoakAnalyzer.Evaluate(run, Cfg()).Single(x => x.Gate == "server_stability");
+        Assert.True(g.Passed, $"Note not starting with SERVER_CRASH must not fail: {g.Detail}");
     }
 
     // ═══ Cooldown plateau ══════════════════════════════════════════════════
@@ -500,6 +606,81 @@ public sealed class SoakAnalyzerTests
             var win = j / 10;
             samples.Add(Make(SoakAnalyzer.PhaseLoad, (int)loadHandle(j, win), (long)g * Interval, traffic: true));
         }
+
+        for (var i = 0; i < cooldownCount; i++, g++)
+            samples.Add(Make(SoakAnalyzer.PhaseCooldown, 1000, (long)g * Interval, traffic: false));
+
+        return samples;
+    }
+
+    /// <summary>
+    /// Builds a run with <paramref name="fullWindowCount"/> complete 5-minute windows (10 samples
+    /// each at 30s intervals) followed by an optional <paramref name="terminalSamples"/>-sample
+    /// terminal bin. Reproduces the authoritative run shape (12 full + 2-sample terminal).
+    /// <para><paramref name="fullWindowDrift"/> adds a per-window ratchet to the floor of full windows
+    /// (0 = flat floor, positive = ratcheting up).</para>
+    /// </summary>
+    private static List<SoakSample> RunWithTerminalBin(
+        int fullWindowCount,
+        int terminalSamples,
+        int fullWindowHandle,
+        int terminalWindowHandle,
+        double fullWindowDrift = 0.0)
+    {
+        const int baselineCount = 6;
+        const int cooldownCount = 10;
+        const int samplesPerWindow = 10; // 10 × 30s = 300s = 5 min
+
+        var samples = new List<SoakSample>();
+        var g = 0;
+        long req = 0;
+
+        SoakSample Make(string phase, int handles, long elapsed, bool traffic)
+        {
+            if (traffic) req += 100;
+            return new SoakSample
+            {
+                Timestamp = DateTimeOffset.UnixEpoch.AddMilliseconds(elapsed),
+                ElapsedMs = elapsed,
+                Phase = phase,
+                TotalRequests = req,
+                SuccessRequests = req,
+                ErrorRequests = 0,
+                InitializeRequests = req / 10,
+                ToolsListRequests = req / 2,
+                ToolsCallRequests = (req * 4) / 10,
+                ToolsCallPsSuccess = (req * 4) / 10,
+                WorkingSetBytes = 100_000_000L,
+                ProcessHandleCount = handles,
+                HandleCountSupported = true,
+                ProcessThreadCount = 20,
+                PoolWarm = 3,
+                PoolLeased = 1,
+                PoolTotal = 4,
+                PoolMin = 2,
+                PoolMax = 6,
+                PoolIsStarted = true,
+                PoolStatsAvailable = true,
+            };
+        }
+
+        for (var i = 0; i < baselineCount; i++, g++)
+            samples.Add(Make(SoakAnalyzer.PhaseBaseline, 1000, (long)g * Interval, traffic: false));
+
+        // Full windows: each window has 10 samples; the floor drifts by fullWindowDrift per window.
+        for (var w = 0; w < fullWindowCount; w++)
+        {
+            for (var s = 0; s < samplesPerWindow; s++, g++)
+            {
+                // Add sawtooth on top of drift to ensure the floor is set by the low samples.
+                var handles = (int)(fullWindowHandle + fullWindowDrift * w + (s >= 8 ? 500.0 : 0.0));
+                samples.Add(Make(SoakAnalyzer.PhaseLoad, handles, (long)g * Interval, traffic: true));
+            }
+        }
+
+        // Terminal bin: terminalSamples samples in the next window slot.
+        for (var i = 0; i < terminalSamples; i++, g++)
+            samples.Add(Make(SoakAnalyzer.PhaseLoad, terminalWindowHandle, (long)g * Interval, traffic: true));
 
         for (var i = 0; i < cooldownCount; i++, g++)
             samples.Add(Make(SoakAnalyzer.PhaseCooldown, 1000, (long)g * Interval, traffic: false));
