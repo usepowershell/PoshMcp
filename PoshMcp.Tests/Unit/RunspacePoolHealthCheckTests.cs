@@ -123,7 +123,7 @@ public sealed class RunspacePoolHealthCheckTests
     [Fact]
     public async Task CheckHealth_WarmBelowMin_WithCreating_ReturnsDegraded()
     {
-        // G1 — below MinPoolSize but workers are being created → Degraded.
+        // G1 — (warm+leased)=1 < MinPoolSize=2 but workers are being created → Degraded.
         var stats = Defaults(min: 2, warm: 1, total: 3, creating: 2);
         var check = MakeCheck(MockPool(stats).Object);
 
@@ -137,7 +137,7 @@ public sealed class RunspacePoolHealthCheckTests
     [Fact]
     public async Task CheckHealth_WarmBelowMin_NoCreating_ReturnsUnhealthy()
     {
-        // G1 — below MinPoolSize with no workers creating → Unhealthy.
+        // G1 — (warm+leased)=0 < MinPoolSize=2, no workers creating → Unhealthy.
         var stats = Defaults(min: 2, warm: 0, total: 0, creating: 0);
         var check = MakeCheck(MockPool(stats).Object);
 
@@ -156,6 +156,67 @@ public sealed class RunspacePoolHealthCheckTests
         var result = await check.CheckHealthAsync(new HealthCheckContext());
 
         Assert.Equal(HealthStatus.Unhealthy, result.Status);
+    }
+
+    /// <summary>
+    /// All MinPoolSize workers are leased (actively serving requests).
+    /// The pool is at capacity — healthy, not degraded.
+    /// This is the key formula difference from the old warm-only threshold.
+    /// </summary>
+    [Fact]
+    public async Task CheckHealth_AllWorkersLeased_AtMin_ReturnsHealthy()
+    {
+        var stats = Defaults(min: 2, warm: 0, leased: 2, total: 2, creating: 0);
+        var check = MakeCheck(MockPool(stats).Object);
+
+        var result = await check.CheckHealthAsync(new HealthCheckContext());
+
+        Assert.Equal(HealthStatus.Healthy, result.Status);
+        Assert.Contains("healthy", result.Description, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Mix: 1 warm + 1 leased with min=2 → (warm+leased)=2 >= 2 → Healthy.
+    /// Concurrent checks hold one lease while pool still has one warm worker.
+    /// </summary>
+    [Fact]
+    public async Task CheckHealth_PartialWarmPartialLeased_AtMin_ReturnsHealthy()
+    {
+        var stats = Defaults(min: 2, warm: 1, leased: 1, total: 2, creating: 0);
+        var check = MakeCheck(MockPool(stats).Object);
+
+        var result = await check.CheckHealthAsync(new HealthCheckContext());
+
+        Assert.Equal(HealthStatus.Healthy, result.Status);
+    }
+
+    /// <summary>
+    /// Warm=0, Leased=1, min=2, creating=0 → total active=1 &lt; 2 → Unhealthy.
+    /// Leased is counted but total active capacity is still below min.
+    /// </summary>
+    [Fact]
+    public async Task CheckHealth_WarmZero_LeasedBelowMin_NoCreating_ReturnsUnhealthy()
+    {
+        var stats = Defaults(min: 2, warm: 0, leased: 1, total: 1, creating: 0);
+        var check = MakeCheck(MockPool(stats).Object);
+
+        var result = await check.CheckHealthAsync(new HealthCheckContext());
+
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+    }
+
+    /// <summary>
+    /// Warm=0, Leased=1, min=2, creating=1 → total active=1 &lt; 2 but rebuilding → Degraded.
+    /// </summary>
+    [Fact]
+    public async Task CheckHealth_WarmZero_LeasedBelowMin_WithCreating_ReturnsDegraded()
+    {
+        var stats = Defaults(min: 2, warm: 0, leased: 1, total: 2, creating: 1);
+        var check = MakeCheck(MockPool(stats).Object);
+
+        var result = await check.CheckHealthAsync(new HealthCheckContext());
+
+        Assert.Equal(HealthStatus.Degraded, result.Status);
     }
 
     // ─── G6: GetStats-only — AcquireAsync must never be called ────────────────

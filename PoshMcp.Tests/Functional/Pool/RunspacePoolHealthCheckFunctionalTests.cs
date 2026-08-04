@@ -210,31 +210,27 @@ public sealed class RunspacePoolHealthCheckFunctionalTests
     }
 
     [Fact]
-    public async Task G4_PoolBelowMinPoolSize_ReturnsReadiness503()
+    public async Task G4_AllWorkersLeased_AtCapacity_ReturnsReadiness200()
     {
-        // MaxPoolSize=MinPoolSize=1 so acquiring the sole worker drops warm below min.
+        // MaxPoolSize=MinPoolSize=1. Acquiring the only worker transitions it to Leased.
+        // (warm=0, leased=1). Formula: (0+1) >= min=1 → Healthy → 200.
+        // A pool fully-occupied serving its min concurrent requests is healthy, not degraded.
         await using var ctx = await BuildHealthCheckHostAsync(min: 1, max: 1, eager: 1);
 
-        // Acquire the only worker to make WarmWorkers=0 < MinPoolSize=1.
         var lease = await ctx.Pool.AcquireAsync();
+        var stats = ctx.Pool.GetStats();
+        _output.WriteLine($"G4 leased: warm={stats.WarmWorkers}, leased={stats.LeasedWorkers}, min={stats.MinPoolSize}");
 
         var response = await ctx.Client.GetAsync("/health/ready");
         var body = await response.Content.ReadAsStringAsync();
-        _output.WriteLine($"G4 below-min /health/ready: {response.StatusCode} — {body}");
+        _output.WriteLine($"G4 at-capacity /health/ready: {response.StatusCode} — {body}");
 
-        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        // (warm+leased)=1 >= min=1 → Healthy → 200
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var json = JsonDocument.Parse(body);
-        AssertHasCheck(json, "runspace_pool");  // present, regardless of status
+        AssertHasCheck(json, "runspace_pool", "Healthy");
 
-        // Return the lease and verify recovery.
         await lease.DisposeAsync();
-        await WaitForConditionAsync(
-            () => ctx.Pool.GetStats().WarmWorkers >= 1,
-            "WarmWorkers >= 1 after lease return");
-
-        var recoveryResponse = await ctx.Client.GetAsync("/health/ready");
-        _output.WriteLine($"G4 recovery /health/ready: {recoveryResponse.StatusCode}");
-        Assert.Equal(HttpStatusCode.OK, recoveryResponse.StatusCode);
     }
 
     [Fact]
@@ -480,6 +476,97 @@ public sealed class RunspacePoolHealthCheckFunctionalTests
         await app.DisposeAsync();
     }
 
+    // ─── G10: Concurrent liveness checks must not cause false-negative pool health ─
+
+    /// <summary>
+    /// Regression test for the CI failure in ApplicationInsightsIntegrationTests.
+    /// With min=2, eager=2 (both workers warm), two liveness checks that each acquire one
+    /// pool lease run concurrently with the runspace_pool check. Under the old warm-only
+    /// formula (WarmWorkers >= MinPoolSize), the pool check would see WarmWorkers=0 while
+    /// both leases are held and return Unhealthy → /health returns 503. The corrected formula
+    /// (WarmWorkers + LeasedWorkers >= MinPoolSize) reports Healthy throughout.
+    /// </summary>
+    [Fact]
+    public async Task G10_ConcurrentLeaseHoldingLivenessChecks_DoNotFalselyDegradePoolHealthCheck()
+    {
+        // Pool with min=eager=2: both workers warm after startup.
+        var poolOpts = OptionsFor(min: 2, max: 2, eager: 2);
+        var pool = new StatelessRunspacePool(
+            poolOpts, loggerFactory: null, startupScript: null,
+            workerFactory: () => new Mock<IPowerShellRunspace>().Object,
+            snapshotCapture: _ => new HashSet<string>(),
+            driveSnapshotCapture: _ => new HashSet<string>(),
+            resetProtocol: (_, _, _) => Task.CompletedTask);
+
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Logging.SetMinimumLevel(LogLevel.Warning);
+        builder.Services.AddSingleton<IRunspacePool>(pool);
+        builder.Services.AddSingleton<IHostedService, RunspacePoolLifecycleService>();
+
+        // Register two liveness-style checks that each hold a lease from the pool for the
+        // duration of the health call, plus the pool check that reads stats concurrently.
+        builder.Services.AddTransient<PoolLeasingHealthCheck>();
+        builder.Services.AddHealthChecks()
+            .AddCheck<PoolLeasingHealthCheck>("liveness_1")
+            .AddCheck<PoolLeasingHealthCheck>("liveness_2")
+            .AddCheck<RunspacePoolHealthCheck>("runspace_pool", tags: new[] { "ready" });
+        builder.Services.AddSingleton<RunspacePoolHealthCheck>();
+
+        var app = builder.Build();
+        app.MapHealthChecks("/health", new HealthCheckOptions
+        {
+            Predicate = _ => true,
+            ResponseWriter = WriteHealthJsonAsync,
+        }).AllowAnonymous();
+
+        await app.StartAsync();
+        using var client = app.GetTestClient();
+
+        // Hit /health multiple times to prove no timing-luck dependency.
+        for (var i = 0; i < 5; i++)
+        {
+            var response = await client.GetAsync("/health");
+            var body = await response.Content.ReadAsStringAsync();
+            _output.WriteLine($"G10 attempt {i + 1}: {response.StatusCode} — {body}");
+
+            // All checks on /health: /health returns 200 only if all checks succeed.
+            // Under old warm-only formula this would return 503 because the liveness checks
+            // temporarily hold both leases while pool check runs. Under the corrected
+            // (warm+leased) formula this is 200 throughout.
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+            var json = JsonDocument.Parse(body);
+            AssertHasCheck(json, "runspace_pool", "Healthy");
+        }
+
+        await app.StopAsync();
+        await app.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Test-only health check that acquires one pool lease and holds it for the duration of
+    /// the check. Simulates the observer-interference behaviour of
+    /// <c>PowerShellRunspaceHealthCheck</c> and <c>AssemblyGenerationHealthCheck</c>.
+    /// </summary>
+    private sealed class PoolLeasingHealthCheck : IHealthCheck
+    {
+        private readonly IRunspacePool _pool;
+
+        public PoolLeasingHealthCheck(IRunspacePool pool) => _pool = pool;
+
+        public async Task<HealthCheckResult> CheckHealthAsync(
+            HealthCheckContext context,
+            CancellationToken cancellationToken = default)
+        {
+            await using var lease = await _pool.AcquireAsync(cancellationToken);
+            // Yield so the scheduler can interleave: this forces overlap between the
+            // liveness checks holding leases and the runspace_pool stats read.
+            await Task.Yield();
+            return HealthCheckResult.Healthy("liveness check passed");
+        }
+    }
+
     // ─── G8: EagerWarmCount > MinPoolSize — thresholds are not conflated ──────
 
     [Fact]
@@ -511,13 +598,17 @@ public sealed class RunspacePoolHealthCheckFunctionalTests
         // Still Healthy: warm=1 ≥ min=1. EagerWarmCount=3 does NOT affect this.
         Assert.Equal(HealthStatus.Healthy, withLeasesResult.Status);
 
-        // Acquire the last lease: warm=0 < min=1 → Unhealthy (all leased, none creating).
+        // Acquire the last lease: warm=0, leased=3. (0+3) >= min=1 → Healthy.
+        // A pool fully-occupied serving all min workers as leases is healthy — at capacity.
         var lease3 = await pool.AcquireAsync();
         var exhaustedResult = await check.CheckHealthAsync(new HealthCheckContext());
         _output.WriteLine(
-            $"G8 exhausted warm={pool.GetStats().WarmWorkers}: {exhaustedResult.Status}");
+            $"G8 all-leased warm={pool.GetStats().WarmWorkers}, leased={pool.GetStats().LeasedWorkers}: " +
+            $"{exhaustedResult.Status}");
 
-        Assert.NotEqual(HealthStatus.Healthy, exhaustedResult.Status);
+        // All 3 workers leased → (warm+leased)=3 >= min=1 → still Healthy.
+        // EagerWarmCount=3 does NOT affect steady-state health; all workers serving = healthy.
+        Assert.Equal(HealthStatus.Healthy, exhaustedResult.Status);
 
         await lease1.DisposeAsync();
         await lease2.DisposeAsync();
