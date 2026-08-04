@@ -262,6 +262,9 @@ jobs:
         POSHMCP_SERVER_DLL: ${{ env.PHASE0_SERVER_DLL }}
         POSHMCP_SAME_JOB_PAIRED: "1"
         GITHUB_SHA: ${{ env.PHASE0_SHA }}
+        # Explicit provenance SHA for Phase 0 artifact (GITHUB_SHA may not be overrideable
+        # by step-level env in all GitHub Actions runner versions).
+        POSHMCP_SOURCE_COMMIT_SHA: ${{ env.PHASE0_SHA }}
         CHARACTERIZATION_ARTIFACT_PATH: ${{ github.workspace }}/TestResults/phase0-fresh-baseline.json
       run: |
         echo "COLLECTION_ORDER=baseline_first" >> "$GITHUB_ENV"
@@ -339,6 +342,7 @@ jobs:
         POSHMCP_SERVER_DLL: ${{ env.PHASE0_SERVER_DLL }}
         POSHMCP_SAME_JOB_PAIRED: "1"
         GITHUB_SHA: ${{ env.PHASE0_SHA }}
+        POSHMCP_SOURCE_COMMIT_SHA: ${{ env.PHASE0_SHA }}
         CHARACTERIZATION_ARTIFACT_PATH: ${{ github.workspace }}/TestResults/phase0-fresh-baseline.json
       run: |
         V1_START=$(date +%s)
