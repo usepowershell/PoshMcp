@@ -290,10 +290,10 @@ public class StatisticalReportTests
         Assert.Contains(attr.NotSeparableWithoutPerturbation,
             s => s.Contains("reset_return"));
 
-        // Non-separable stages should have method = "not_separable" and NaN estimate
+        // Non-separable stages should have method = "not_separable" and null estimate
         var leaseDet = attr.Stages.First(s => s.Stage == "lease_acquisition");
         Assert.Equal("not_separable", leaseDet.Method);
-        Assert.True(double.IsNaN(leaseDet.EstimateMs));
+        Assert.Null(leaseDet.EstimateMs);
     }
 
     [Fact]

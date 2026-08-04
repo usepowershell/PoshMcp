@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -195,7 +196,11 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
             ExitCode = overallPassed ? 0 : 1,
         };
 
-        var json = JsonSerializer.Serialize(artifact, new JsonSerializerOptions { WriteIndented = true });
+        var json = JsonSerializer.Serialize(artifact, new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
+        });
         return File.WriteAllTextAsync(path, json);
     }
 

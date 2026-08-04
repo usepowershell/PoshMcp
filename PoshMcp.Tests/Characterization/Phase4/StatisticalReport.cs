@@ -328,7 +328,7 @@ internal sealed class StageAttribution
                 Stage = "lease_acquisition",
                 Description = "Runspace pool lease/acquire time",
                 Method = "not_separable",
-                EstimateMs = double.NaN,
+                EstimateMs = null,
                 Confidence = "NOT_AVAILABLE",
                 Source = "Included in mcp_overhead. Separating requires Stopwatch around RunspacePool.GetRunspaceAsync() which perturbs the measured path.",
             },
@@ -337,7 +337,7 @@ internal sealed class StageAttribution
                 Stage = "powershell_execution",
                 Description = "PowerShell command invocation (Get-Date)",
                 Method = "not_separable",
-                EstimateMs = double.NaN,
+                EstimateMs = null,
                 Confidence = "NOT_AVAILABLE",
                 Source = "Included in mcp_overhead. Separating requires Stopwatch around Pipeline.InvokeAsync() which perturbs the measured path.",
             },
@@ -346,7 +346,7 @@ internal sealed class StageAttribution
                 Stage = "reset_return",
                 Description = "Runspace reset and return to pool",
                 Method = "not_separable",
-                EstimateMs = double.NaN,
+                EstimateMs = null,
                 Confidence = "NOT_AVAILABLE",
                 Source = "Included in mcp_overhead. Separating requires Stopwatch around RunspacePool.ReleaseRunspace() which perturbs the measured path.",
             },
@@ -456,9 +456,9 @@ internal sealed class StageDetail
     [JsonPropertyName("method")]
     public string Method { get; set; } = "";
 
-    /// <summary>Estimated milliseconds. NaN when not separable.</summary>
+    /// <summary>Estimated milliseconds. Null when not separable.</summary>
     [JsonPropertyName("estimateMs")]
-    public double EstimateMs { get; set; }
+    public double? EstimateMs { get; set; }
 
     /// <summary>Confidence level for this estimate.</summary>
     [JsonPropertyName("confidence")]
