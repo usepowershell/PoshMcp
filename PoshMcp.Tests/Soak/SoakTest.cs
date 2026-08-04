@@ -54,6 +54,7 @@ public sealed class SoakTest
             NormalPhaseDuration = EnvMinutes("SOAK_NORMAL_MINUTES", TimeSpan.FromMinutes(13)),
             EvictionPhaseDuration = EnvMinutes("SOAK_EVICTION_MINUTES", TimeSpan.FromMinutes(2)),
             HandleFloorWindow = EnvMinutes("SOAK_FLOOR_WINDOW_MINUTES", TimeSpan.FromMinutes(5)),
+            BurstConcurrencyLevel = EnvInt("SOAK_BURST_WORKERS", 0),
         };
         cfg.Validate();
 
@@ -63,11 +64,13 @@ public sealed class SoakTest
         _output.WriteLine($"  Min measured load: {cfg.MinLoadDuration.TotalMinutes:F0}m (load phase only)");
         _output.WriteLine($"  Error rate ≤ {cfg.MaxErrorRate * 100:F1}% (all traffic)");
         _output.WriteLine($"  Memory slope ≤ {cfg.MaxMemorySlopeBytesPerSecond / 1024.0:F0} KB/s; plateau ≤ {cfg.MaxMemoryPlateauDeltaBytes / (1024 * 1024.0):F0} MB (load, warmup excluded)");
-        _output.WriteLine($"  Handle FLOOR slope ≤ {cfg.MaxHandleFloorSlopePerSecond:F3}/s over {cfg.HandleFloorWindow.TotalMinutes:F0}m windows, p{cfg.HandleFloorQuantile * 100:F0} floor (Windows)");
+        _output.WriteLine($"  Handle FLOOR slope ≤ {cfg.MaxHandleFloorSlopePerSecond:F3}/s over {cfg.HandleFloorWindow.TotalMinutes:F0}m windows, p{cfg.HandleFloorQuantile * 100:F0} floor, ≥{cfg.MinHandleFloorWindowSamples} samples/window (Windows)");
         _output.WriteLine($"  Handle cooldown plateau ≤ max({cfg.HandleCooldownPlateauMaxDeltaAbsolute:F0} abs, {cfg.HandleCooldownPlateauMaxDeltaRelative * 100:F0}% rel) vs baseline floor");
         _output.WriteLine($"  Thread slope ≤ {cfg.MaxThreadSlopePerSecond:F3}/s");
         _output.WriteLine($"  Pool/health coverage ≥ {cfg.MinPoolStatsCoverage * 100:F0}% of load samples");
         _output.WriteLine($"  Worker upper bound: TotalWorkers ≤ MaxPoolSize; recovery within {cfg.ReplenishmentRecoverySamples} samples");
+        if (cfg.BurstConcurrencyLevel > 0)
+            _output.WriteLine($"  Burst workers: {cfg.BurstConcurrencyLevel} for {cfg.BurstPhaseDuration.TotalMinutes:F0}m per cycle (diagnostic; pool scaling exercise)");
 
         // ── Provenance ───────────────────────────────────────────────────────
         var provenance = CaptureProvenance();
@@ -100,7 +103,8 @@ public sealed class SoakTest
 
         // ── Run soak ─────────────────────────────────────────────────────────
         IReadOnlyList<SoakSample> samples;
-        var harness = new SoakHarness(cfg, log, provenance.ConfigPath);
+        // Pass artifactDir so the harness can capture server stdout/stderr to durable files.
+        var harness = new SoakHarness(cfg, log, provenance.ConfigPath, artifactDir);
         try
         {
             samples = await harness.RunAsync();
@@ -108,7 +112,7 @@ public sealed class SoakTest
         catch (Exception ex)
         {
             _output.WriteLine($"\nSoak run failed with exception: {ex}");
-            provenance = provenance with { ServerPid = harness.ServerProcessId, ServerStartTimeUtc = harness.ServerStartTimeUtc };
+            provenance = provenance with { ServerPid = harness.ServerProcessId, ServerStartTimeUtc = harness.ServerStartTimeUtc, ServerUnexpectedExitCode = harness.UnexpectedExitCode };
             var partial = harness.Samples;
             // Always emit an explicit FAILED summary so a partial/aborted run never disappears.
             WriteArtifacts(artifactDir, runId, cfg, partial, provenance, startedAt, DateTimeOffset.UtcNow,
@@ -121,7 +125,7 @@ public sealed class SoakTest
             loggerFactory.Dispose();
         }
 
-        provenance = provenance with { ServerPid = harness.ServerProcessId, ServerStartTimeUtc = harness.ServerStartTimeUtc };
+        provenance = provenance with { ServerPid = harness.ServerProcessId, ServerStartTimeUtc = harness.ServerStartTimeUtc, ServerUnexpectedExitCode = harness.UnexpectedExitCode };
         var endedAt = DateTimeOffset.UtcNow;
 
         // ── Evaluate gates ───────────────────────────────────────────────────
@@ -182,6 +186,8 @@ public sealed class SoakTest
         public string? WorkflowName { get; init; }
         public int? ServerPid { get; init; }
         public DateTime? ServerStartTimeUtc { get; init; }
+        /// <summary>Non-null when the server process exited unexpectedly during the run; null on normal harness shutdown.</summary>
+        public int? ServerUnexpectedExitCode { get; init; }
     }
 
     private static Provenance CaptureProvenance()
@@ -266,6 +272,9 @@ public sealed class SoakTest
                 config_sha256 = prov.ConfigSha256,
                 server_pid = prov.ServerPid,
                 server_start_time_utc = prov.ServerStartTimeUtc,
+                server_unexpected_exit_code = prov.ServerUnexpectedExitCode,
+                server_stdout_artifact = "server-stdout.txt",
+                server_stderr_artifact = "server-stderr.txt",
                 workflow_run_id = prov.WorkflowRunId,
                 workflow_run_attempt = prov.WorkflowRunAttempt,
                 workflow_job = prov.WorkflowJob,
@@ -281,6 +290,9 @@ public sealed class SoakTest
                 min_load_minutes = cfg.MinLoadDuration.TotalMinutes,
                 sample_interval_seconds = cfg.SampleInterval.TotalSeconds,
                 concurrency = cfg.ConcurrencyLevel,
+                burst_concurrency = cfg.BurstConcurrencyLevel,
+                burst_phase_minutes = cfg.BurstPhaseDuration.TotalMinutes,
+                min_handle_floor_window_samples = cfg.MinHandleFloorWindowSamples,
                 max_error_rate_pct = cfg.MaxErrorRate * 100,
                 max_memory_slope_kbps = cfg.MaxMemorySlopeBytesPerSecond / 1024.0,
                 max_memory_plateau_delta_mb = cfg.MaxMemoryPlateauDeltaBytes / (1024 * 1024.0),
@@ -346,6 +358,116 @@ public sealed class SoakTest
 
         File.WriteAllText(Path.Combine(dir, "summary.json"), JsonSerializer.Serialize(summary, opts));
 
+        // ── effective-config.json (standalone — reproducibility reference) ────
+        // The full runtime SoakConfig and server appsettings are captured separately so
+        // offline reproduction of the gate decisions does not require parsing summary.json.
+        var effectiveConfig = new
+        {
+            schema = "poshmcp-soak-effective-config-v1",
+            generated_at = DateTimeOffset.UtcNow,
+            run_id = runId,
+            soak_config = new
+            {
+                schema_version = SoakConfig.SchemaVersion,
+                baseline_duration_minutes = cfg.BaselineDuration.TotalMinutes,
+                warmup_duration_minutes = cfg.WarmupDuration.TotalMinutes,
+                load_duration_minutes = cfg.LoadDuration.TotalMinutes,
+                cooldown_duration_minutes = cfg.CooldownDuration.TotalMinutes,
+                min_load_duration_minutes = cfg.MinLoadDuration.TotalMinutes,
+                sample_interval_seconds = cfg.SampleInterval.TotalSeconds,
+                concurrency_level = cfg.ConcurrencyLevel,
+                burst_concurrency_level = cfg.BurstConcurrencyLevel,
+                burst_phase_duration_minutes = cfg.BurstPhaseDuration.TotalMinutes,
+                min_request_delay_ms = cfg.MinRequestDelayMs,
+                max_request_delay_ms = cfg.MaxRequestDelayMs,
+                normal_phase_duration_minutes = cfg.NormalPhaseDuration.TotalMinutes,
+                eviction_phase_duration_minutes = cfg.EvictionPhaseDuration.TotalMinutes,
+                // thresholds — these are fixed by contract and must not be post-hoc tuned
+                max_error_rate = cfg.MaxErrorRate,
+                max_memory_slope_bytes_per_second = cfg.MaxMemorySlopeBytesPerSecond,
+                max_memory_plateau_delta_bytes = cfg.MaxMemoryPlateauDeltaBytes,
+                plateau_window_fraction = cfg.PlateauWindowFraction,
+                handle_floor_window_minutes = cfg.HandleFloorWindow.TotalMinutes,
+                handle_floor_quantile = cfg.HandleFloorQuantile,
+                min_handle_floor_window_samples = cfg.MinHandleFloorWindowSamples,
+                max_handle_floor_slope_per_second = cfg.MaxHandleFloorSlopePerSecond,
+                handle_cooldown_plateau_max_delta_absolute = cfg.HandleCooldownPlateauMaxDeltaAbsolute,
+                handle_cooldown_plateau_max_delta_relative = cfg.HandleCooldownPlateauMaxDeltaRelative,
+                max_thread_slope_per_second = cfg.MaxThreadSlopePerSecond,
+                enforce_worker_upper_bound = cfg.EnforceWorkerUpperBound,
+                min_pool_stats_coverage = cfg.MinPoolStatsCoverage,
+                replenishment_recovery_samples = cfg.ReplenishmentRecoverySamples,
+                stable_end_samples = cfg.StableEndSamples,
+            },
+            server_config = new
+            {
+                path = prov.ConfigPath,
+                sha256 = prov.ConfigSha256,
+            },
+            server_dll = new
+            {
+                path = prov.ServerDllPath,
+                sha256 = prov.ServerDllSha256,
+            },
+        };
+        File.WriteAllText(Path.Combine(dir, "effective-config.json"), JsonSerializer.Serialize(effectiveConfig, opts));
+
+        // ── analyzer-inputs.json (decision evidence — raw gate inputs) ────────
+        // Captures the intermediate per-gate inputs so gate decisions can be reproduced
+        // and audited without re-running the soak: OLS points, window floors, and raw counts.
+        var loadSamplesWithHandles = loadSamples.Where(s => s.HandleCountSupported).ToList();
+        var handlePoints = loadSamplesWithHandles
+            .Select(s => (ElapsedSeconds: s.ElapsedMs / 1000.0, Handles: (double)s.ProcessHandleCount))
+            .ToList();
+        var allFloors = SoakAnalyzer.WindowFloors(handlePoints, cfg.HandleFloorWindow.TotalSeconds, cfg.HandleFloorQuantile, 1);
+        var qualifiedFloors = SoakAnalyzer.WindowFloors(handlePoints, cfg.HandleFloorWindow.TotalSeconds, cfg.HandleFloorQuantile, cfg.MinHandleFloorWindowSamples);
+        var analyzerInputs = new
+        {
+            schema = "poshmcp-soak-analyzer-inputs-v1",
+            generated_at = DateTimeOffset.UtcNow,
+            run_id = runId,
+            handle_floor_analysis = new
+            {
+                min_samples_per_window = cfg.MinHandleFloorWindowSamples,
+                window_seconds = cfg.HandleFloorWindow.TotalSeconds,
+                quantile = cfg.HandleFloorQuantile,
+                threshold_slope_per_second = cfg.MaxHandleFloorSlopePerSecond,
+                all_windows = allFloors.Select(f => new { center_seconds = f.CenterSeconds, floor = f.Floor }),
+                qualified_windows = qualifiedFloors.Select(f => new { center_seconds = f.CenterSeconds, floor = f.Floor }),
+                excluded_window_count = allFloors.Count - qualifiedFloors.Count,
+                raw_handle_points_count = handlePoints.Count,
+            },
+            gate_decisions = gates.Select(g => new
+            {
+                gate = g.Gate,
+                passed = g.Passed,
+                status = g.Status,
+                detail = g.Detail,
+                measured = g.MeasuredValue,
+                threshold = g.Threshold,
+            }),
+            handle_type_evidence = new
+            {
+                available = false,
+                limitation = "Process.HandleCount on Windows returns a single total across all kernel object types. " +
+                    "Type breakdown (File, Event, Mutex, etc.) requires ETW handle tracking or an external tool such as " +
+                    "Sysinternals handle.exe, which cannot be safely automated on hosted GitHub Actions runners without " +
+                    "a trusted binary dependency. A future investigation can enable ETW handle tracking via " +
+                    "'Start-Trace -ETW -Provider Microsoft-Windows-Kernel-Process' with the HandleCreate/HandleClose " +
+                    "events and correlate event IDs to object types. No fake signal is emitted here.",
+            },
+            comparison_modes = new
+            {
+                available = new[] { "full_http_powershell" },
+                current_mode = "full_http_powershell",
+                limitation = "No-op HTTP and direct-PowerShell comparison modes require either a registered no-op MCP tool " +
+                    "(product change) or a separate out-of-process PS execution path (architectural change). These cannot " +
+                    "be safely implemented as harness-only changes without introducing a false signal. They are deferred " +
+                    "to a follow-up investigation that can properly instrument each path.",
+            },
+        };
+        File.WriteAllText(Path.Combine(dir, "analyzer-inputs.json"), JsonSerializer.Serialize(analyzerInputs, opts));
+
         // ── samples.csv ───────────────────────────────────────────────────────
         var csv = new StringBuilder();
         csv.AppendLine("timestamp,elapsed_ms,phase,req_total,req_success,req_error,req_initialize,req_tools_list,req_tools_call,req_tools_call_ps_success,int_req,int_err,p50_ms,p99_ms,ws_bytes,handles,threads,pool_warm,pool_leased,pool_total,pool_min,pool_max,pool_started,pool_available,note");
@@ -398,6 +520,12 @@ public sealed class SoakTest
         return double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out var s) && s > 0
             ? TimeSpan.FromSeconds(s)
             : fallback;
+    }
+
+    private static int EnvInt(string name, int fallback)
+    {
+        var v = Environment.GetEnvironmentVariable(name);
+        return int.TryParse(v, out var i) && i >= 0 ? i : fallback;
     }
 
     private static string Sha256File(string path)

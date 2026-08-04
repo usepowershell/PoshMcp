@@ -32,6 +32,7 @@ public sealed class SoakHarness : IAsyncDisposable
     private readonly SoakConfig _config;
     private readonly ILogger _log;
     private readonly string _configPath;
+    private readonly string? _artifactDir;
     private readonly string _baseUrl;
     private readonly Uri _baseUri;
 
@@ -60,6 +61,23 @@ public sealed class SoakHarness : IAsyncDisposable
     /// <summary>Server process start time captured once at startup (for provenance).</summary>
     public DateTime? ServerStartTimeUtc { get; private set; }
 
+    /// <summary>
+    /// Set when the server process is detected to have exited without being killed by the harness.
+    /// Null when the server ran normally through to planned shutdown.
+    /// </summary>
+    public int? UnexpectedExitCode { get; private set; }
+
+    // Tracks whether the harness itself is performing shutdown (so normal Kill() is not a crash).
+    private volatile bool _harnessKilling;
+
+    // Prevents recording a duplicate SERVER_CRASH note across multiple sampler ticks.
+    private volatile bool _serverCrashRecorded;
+
+    // stdout / stderr writers (null when artifactDir is not supplied)
+    private readonly object _stdioLock = new();
+    private StreamWriter? _stdoutWriter;
+    private StreamWriter? _stderrWriter;
+
     // Interval state (protected by _intervalLock)
     private readonly object _intervalLock = new();
     private long _intervalStartRequests;
@@ -70,11 +88,23 @@ public sealed class SoakHarness : IAsyncDisposable
 
     // ─── Construction ────────────────────────────────────────────────────────
 
-    public SoakHarness(SoakConfig config, ILogger log, string configPath)
+    /// <summary>
+    /// Constructs the soak harness.
+    /// </summary>
+    /// <param name="config">Pre-declared soak configuration and acceptance criteria.</param>
+    /// <param name="log">Logger for harness diagnostics.</param>
+    /// <param name="configPath">Path to the soak server appsettings.json file.</param>
+    /// <param name="artifactDir">
+    /// Optional directory for durable artifacts. When provided, server stdout and stderr are
+    /// captured to <c>server-stdout.txt</c> and <c>server-stderr.txt</c> in this directory
+    /// in addition to being logged at Debug level. The directory must already exist.
+    /// </param>
+    public SoakHarness(SoakConfig config, ILogger log, string configPath, string? artifactDir = null)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _log = log ?? throw new ArgumentNullException(nameof(log));
         _configPath = configPath ?? throw new ArgumentNullException(nameof(configPath));
+        _artifactDir = artifactDir;
 
         var port = AllocatePort();
         _baseUrl = $"http://127.0.0.1:{port}";
@@ -178,6 +208,13 @@ public sealed class SoakHarness : IAsyncDisposable
             var normalDur = remaining > _config.NormalPhaseDuration ? _config.NormalPhaseDuration : remaining;
             phases.Add(new PhaseEntry("normal", _config.ConcurrencyLevel, normalDur));
             remaining -= normalDur;
+
+            if (remaining > TimeSpan.Zero && _config.BurstConcurrencyLevel > 0)
+            {
+                var burstDur = remaining > _config.BurstPhaseDuration ? _config.BurstPhaseDuration : remaining;
+                phases.Add(new PhaseEntry("burst", _config.BurstConcurrencyLevel, burstDur));
+                remaining -= burstDur;
+            }
 
             if (remaining > TimeSpan.Zero)
             {
@@ -325,6 +362,18 @@ public sealed class SoakHarness : IAsyncDisposable
         int handleCount = -1;
         var handleSupported = false;
         int threadCount = 0;
+
+        // Check for unexpected server exit before reading metrics.
+        // _harnessKilling is set before Kill() in DisposeAsync, so normal shutdown is excluded.
+        if (_serverProcess is { HasExited: true } && !_harnessKilling && !_serverCrashRecorded)
+        {
+            _serverCrashRecorded = true;
+            var exitCode = -1;
+            try { exitCode = _serverProcess.ExitCode; } catch { }
+            UnexpectedExitCode = exitCode;
+            note = $"SERVER_CRASH exit={exitCode}";
+            _log.LogError("Server process exited unexpectedly with exit code {Code}", exitCode);
+        }
 
         if (_serverProcess is not null && !_serverProcess.HasExited)
         {
@@ -641,6 +690,23 @@ public sealed class SoakHarness : IAsyncDisposable
         var serverDll = typeof(PowerShellConfiguration).Assembly.Location;
         _log.LogInformation("Starting server from {Dll} at {Url}", serverDll, _baseUrl);
 
+        // Open durable stdout/stderr capture files if an artifact directory was provided.
+        // Files are opened before BeginOutputReadLine so no early lines are missed.
+        if (_artifactDir is not null)
+        {
+            try
+            {
+                _stdoutWriter = new StreamWriter(Path.Combine(_artifactDir, "server-stdout.txt"), append: false, Encoding.UTF8)
+                    { AutoFlush = true };
+                _stderrWriter = new StreamWriter(Path.Combine(_artifactDir, "server-stderr.txt"), append: false, Encoding.UTF8)
+                    { AutoFlush = true };
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning("Could not open server stdio capture files: {Msg}", ex.Message);
+            }
+        }
+
         var psi = new ProcessStartInfo("dotnet")
         {
             UseShellExecute = false,
@@ -663,13 +729,25 @@ public sealed class SoakHarness : IAsyncDisposable
         _serverProcess = Process.Start(psi)
             ?? throw new InvalidOperationException("Failed to start soak server process.");
 
+        // Async readers prevent pipe-buffer deadlock. Each handler also writes durably to
+        // the artifact file (if available) under a lock so lines are not interleaved.
         _serverProcess.OutputDataReceived += (_, e) =>
         {
-            if (e.Data is not null) _log.LogDebug("[server stdout] {Line}", e.Data);
+            if (e.Data is null) return;
+            _log.LogDebug("[server stdout] {Line}", e.Data);
+            if (_stdoutWriter is not null)
+            {
+                lock (_stdioLock) { try { _stdoutWriter.WriteLine(e.Data); } catch { } }
+            }
         };
         _serverProcess.ErrorDataReceived += (_, e) =>
         {
-            if (e.Data is not null) _log.LogDebug("[server stderr] {Line}", e.Data);
+            if (e.Data is null) return;
+            _log.LogDebug("[server stderr] {Line}", e.Data);
+            if (_stderrWriter is not null)
+            {
+                lock (_stdioLock) { try { _stderrWriter.WriteLine(e.Data); } catch { } }
+            }
         };
         _serverProcess.BeginOutputReadLine();
         _serverProcess.BeginErrorReadLine();
@@ -752,6 +830,8 @@ public sealed class SoakHarness : IAsyncDisposable
         {
             if (!_serverProcess.HasExited)
             {
+                // Signal that this Kill() is an intentional harness shutdown, not a crash.
+                _harnessKilling = true;
                 _log.LogInformation("Stopping soak server (PID {Pid})...", _serverProcess.Id);
                 try
                 {
@@ -766,6 +846,15 @@ public sealed class SoakHarness : IAsyncDisposable
 
             _serverProcess.Dispose();
             _serverProcess = null;
+        }
+
+        // Close durable stdio writers after the process has exited so all async output is flushed.
+        lock (_stdioLock)
+        {
+            _stdoutWriter?.Dispose();
+            _stdoutWriter = null;
+            _stderrWriter?.Dispose();
+            _stderrWriter = null;
         }
     }
 }
