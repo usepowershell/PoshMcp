@@ -199,6 +199,33 @@ else {
     $script:failures++
 }
 
+# --- Case 16: env-derived parity CAPTURE GAP is non-blocking ----------------
+# Reproduces the real CI artifact: the current (Phase 4) run leaves processorModel empty and
+# totalMemoryKb 0 while the baseline captured them. A one-sided capture gap on ENV-derived
+# fields must NOT be a methodology violation — advisory stays 0, release stays 1 (breach), never 2.
+$bGap = New-BaseArtifact
+$bGap.modes[0].thresholdChecks[2].passed = $false
+$bGap.modes[0].thresholdChecks[2].ratio = 1.9
+$bGap.modes[0].allPassed = $false
+$bGap.overallPassed = $false
+$bGap.exitCode = 1
+$bGap.runtimeInfo.processorModel = ''
+$bGap.runtimeInfo.totalMemoryKb = 0
+$pgap = Join-Path $work 'breach-paritygap.json'; Write-Json $bGap $pgap
+$baselGap = New-BaselineArtifact   # baseline has processorModel/totalMemoryKb populated
+$pblgap = Join-Path $work 'baseline-paritygap.json'; Write-Json $baselGap $pblgap
+Assert-Exit "env-parity capture gap / advisory (non-blocking)" (Invoke-Gate $pgap 'advisory' $pblgap) 0
+Assert-Exit "env-parity capture gap / release (RED breach, not infra)" (Invoke-Gate $pgap 'release' $pblgap) 1
+
+# --- Case 17: env-derived parity present-on-both but DIFFERENT -> 2 both -----
+$bDiff = New-BaseArtifact
+$bDiff.runtimeInfo.processorModel = 'CPU-Y'   # baseline is CPU-X -> genuine contamination
+$pdiff = Join-Path $work 'parity-procdiff.json'; Write-Json $bDiff $pdiff
+$baselDiff = New-BaselineArtifact
+$pbldiff = Join-Path $work 'baseline-procdiff.json'; Write-Json $baselDiff $pbldiff
+Assert-Exit "env-parity present+differ / advisory" (Invoke-Gate $pdiff 'advisory' $pbldiff) 2
+Assert-Exit "env-parity present+differ / release"  (Invoke-Gate $pdiff 'release'  $pbldiff) 2
+
 Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
 
 Write-Host ""

@@ -194,15 +194,34 @@ if (-not [string]::IsNullOrWhiteSpace($BaselineArtifactPath)) {
             $violations.Add("baseline artifact for parity is not parseable JSON")
         }
         if ($null -ne $base -and (Has-Prop $base 'runtimeInfo') -and (Has-Prop $art 'runtimeInfo')) {
-            # These fields are recorded by the SAME test host on the SAME runner for both
-            # phases (only the measured server DLL differs), so they MUST match. A mismatch
-            # means cross-runner/toolchain contamination. SDK version and commit SHA are the
-            # only intentional migration differences and are NOT compared here.
-            foreach ($f in @('dotNetVersion', 'os', 'logicalProcessors', 'processorModel', 'totalMemoryKb', 'machineName')) {
+            # Core fields are derived from the .NET runtime on the SAME test host / SAME runner
+            # for both phases (only the measured server DLL differs), so they MUST match. A
+            # mismatch means cross-runner/toolchain contamination. SDK version and commit SHA are
+            # the only intentional migration differences and are NOT compared here.
+            foreach ($f in @('dotNetVersion', 'os', 'logicalProcessors', 'machineName')) {
                 $bv = if (Has-Prop $base.runtimeInfo $f) { [string]$base.runtimeInfo.$f } else { '<missing>' }
                 $cv = if (Has-Prop $art.runtimeInfo $f) { [string]$art.runtimeInfo.$f } else { '<missing>' }
                 if ($bv -ne $cv) {
                     $violations.Add("methodology parity mismatch on runtimeInfo.$f (baseline='$bv' current='$cv')")
+                }
+            }
+
+            # processorModel / totalMemoryKb are ENV-derived (populated from shell metadata on
+            # only one measurement path in this test-only harness), so one phase can legitimately
+            # leave them empty/zero. Compare them ONLY when BOTH sides carry a real value; a
+            # capture gap is a non-blocking notice, not a methodology violation. When both are
+            # present and differ, that IS cross-runner contamination and fails.
+            foreach ($f in @('processorModel', 'totalMemoryKb')) {
+                $bRaw = if (Has-Prop $base.runtimeInfo $f) { [string]$base.runtimeInfo.$f } else { '' }
+                $cRaw = if (Has-Prop $art.runtimeInfo $f) { [string]$art.runtimeInfo.$f } else { '' }
+                $bEmpty = [string]::IsNullOrWhiteSpace($bRaw) -or ($bRaw -eq '0')
+                $cEmpty = [string]::IsNullOrWhiteSpace($cRaw) -or ($cRaw -eq '0')
+                if ($bEmpty -or $cEmpty) {
+                    Emit-Annotation 'notice' "Phase 4 parity skipped for runtimeInfo.$f (not captured on both phases: baseline='$bRaw' current='$cRaw')."
+                    Add-Summary "- Parity note: runtimeInfo.$f not captured on both phases (baseline='$bRaw' current='$cRaw') — skipped, not a violation."
+                }
+                elseif ($bRaw -ne $cRaw) {
+                    $violations.Add("methodology parity mismatch on runtimeInfo.$f (baseline='$bRaw' current='$cRaw')")
                 }
             }
         }
