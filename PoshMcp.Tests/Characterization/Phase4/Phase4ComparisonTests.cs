@@ -93,6 +93,7 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
     {
         var scenarios = new List<CharacterizationScenario>();
         var modeLabel = transportMode.ToLowerInvariant();
+        var thresholdBreached = false;
 
         // ── Derive N from Phase 0 baseline (ensures methodology match) ───────
         // PerformanceComparator.ValidateMethodologyMatch() will fail if Phase 4 N
@@ -306,6 +307,9 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
 
             LogComparisonResults(transportMode, comparison);
 
+            // Record failures for deferred gate classification — do NOT Assert.Fail here
+            // because it prevents statistical reports/stage attribution from being recorded.
+            // The gate decision is made by Invoke-Phase4Gate.ps1 from the merged artifact.
             if (!comparison.AllPassed)
             {
                 var failures = comparison.ThresholdChecks
@@ -314,10 +318,10 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
                         $"  {c.Metric}: measured={c.MeasuredValue:F3} {c.Unit}, " +
                         $"baseline={c.BaselineValue:F3} {c.Unit}, " +
                         $"ratio={c.Ratio * 100:F1}% (max {c.MaxRatio * 100:F1}%)");
-                Assert.Fail(
-                    $"Phase 4 [{transportMode}] performance gate breached. " +
-                    $"One or more thresholds exceeded the Phase 0 baseline:\n" +
+                _output.WriteLine(
+                    $"[{transportMode}] THRESHOLD BREACH (deferred to classifier):\n" +
                     string.Join("\n", failures));
+                thresholdBreached = true;
             }
         }
 
@@ -343,6 +347,16 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
             coldNoScriptScenario?.RawSamples ?? []);
         _fixture.RecordStageAttribution(attribution);
         _output.WriteLine($"[{transportMode}] Stage attribution: {attribution.Hypothesis}");
+
+        // Deferred assertion: fail the test AFTER recording all evidence in the artifact.
+        // The classifier script uses the artifact for the actual gate decision; the test
+        // failure here makes the step exit non-zero so CI knows thresholds were breached.
+        if (thresholdBreached)
+        {
+            Assert.Fail(
+                $"Phase 4 [{transportMode}] performance gate breached. " +
+                "See comparison artifact for details. Gate decision deferred to Invoke-Phase4Gate.ps1.");
+        }
     }
 
     private void LogComparisonResults(string transportMode, Phase4ModeComparison comparison)
