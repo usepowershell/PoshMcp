@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
@@ -38,6 +39,18 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
     /// </summary>
     internal bool CollectOnly { get; private set; }
 
+    /// <summary>
+    /// When true, the fixture loads pre-collected V2 samples from collect-only artifacts instead
+    /// of re-measuring. Set via PHASE4_LOAD_SAMPLES_FROM env var pointing to a directory containing
+    /// per-mode collect-only artifact files. Implements fail-closed deferred comparison (#380 AC1).
+    /// Deferred comparison MUST NOT re-execute measurements.
+    /// </summary>
+    internal bool LoadSamplesFromArtifact { get; private set; }
+
+    private string? _preloadedArtifactDir;
+    private readonly ConcurrentDictionary<string, PreloadedModeData> _preloadedData = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentBag<PreloadedSampleProvenance> _preloadedProvenance = new();
+
     // Predeclared N values matching V1BaselineCharacterizationTests constants.
     // These are used when CollectOnly=true (baseline not yet available).
     private const int PredeclaredColdStartN = 5;
@@ -48,7 +61,7 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
 
     /// <summary>
     /// Returns the sample count for the given scenario. When baseline is loaded, derives from
-    /// baseline. In collect-only mode, returns predeclared constants.
+    /// baseline. In collect-only mode (or LoadSamplesFromArtifact), returns predeclared constants.
     /// </summary>
     internal int GetBaselineSampleCount(string baselineScenarioKey)
     {
@@ -84,11 +97,36 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
     internal static string ResolveAssetPath(string filename) =>
         CharacterizationFixture.ResolveAssetPath(filename);
 
+    /// <summary>
+    /// Returns pre-collected samples for the given mode. Fail-closed if LoadSamplesFromArtifact
+    /// is true but the mode's data was not loaded. Returns false when not in deferred mode.
+    /// </summary>
+    internal bool TryGetPreloadedData(string modeLabel, out PreloadedModeData? data)
+    {
+        if (!LoadSamplesFromArtifact)
+        {
+            data = null;
+            return false;
+        }
+        return _preloadedData.TryGetValue(modeLabel, out data);
+    }
+
     public async Task InitializeAsync()
     {
         // Collect-only mode: baseline not required. Used for TRUE counterbalancing (#380 AC1)
         // where v2 measurement must run before v1 baseline exists.
         CollectOnly = Environment.GetEnvironmentVariable("PHASE4_COLLECT_ONLY") == "1";
+
+        // Deferred comparison: load pre-collected V2 samples. Must NOT re-measure.
+        // Activated by PHASE4_LOAD_SAMPLES_FROM pointing to the directory containing
+        // per-mode collect-only artifacts (e.g. TestResults/phase4-stateless-collect-only.json).
+        var loadFrom = Environment.GetEnvironmentVariable("PHASE4_LOAD_SAMPLES_FROM");
+        if (!string.IsNullOrEmpty(loadFrom))
+        {
+            LoadSamplesFromArtifact = true;
+            _preloadedArtifactDir = loadFrom;
+            await LoadPreloadedSamplesAsync(loadFrom);
+        }
 
         var baselinePath = Environment.GetEnvironmentVariable("V1_BASELINE_PATH");
         if (CollectOnly)
@@ -230,6 +268,9 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
             } : null,
             Modes = modes,
             Warnings = warnings,
+            PreloadedSampleProvenance = _preloadedProvenance.Count > 0
+                ? _preloadedProvenance.OrderBy(p => p.Mode).FirstOrDefault()
+                : null,
             OverallPassed = overallPassed,
             ExitCode = overallPassed ? 0 : 1,
         };
@@ -306,4 +347,106 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
             MeasuredIterations = fp.ScenarioSampleCounts,
         };
     }
+
+    /// <summary>
+    /// Loads pre-collected V2 samples from per-mode collect-only artifacts in <paramref name="dir"/>.
+    /// Validates SHA-256 when PHASE4_COLLECT_ONLY_{MODE}_SHA256 env vars are set.
+    /// Fail-closed: throws if an artifact is missing, has wrong hash, or has empty required scenarios.
+    /// </summary>
+    private async Task LoadPreloadedSamplesAsync(string dir)
+    {
+        foreach (var mode in new[] { "stateless", "stateful" })
+        {
+            var artifactPath = Path.Combine(dir, $"phase4-{mode}-collect-only.json");
+            if (!File.Exists(artifactPath))
+                continue; // mode may not have a collect-only artifact if that test wasn't run
+
+            var expectedSha256 = Environment.GetEnvironmentVariable(
+                $"PHASE4_COLLECT_ONLY_{mode.ToUpperInvariant()}_SHA256");
+
+            // Read bytes first for hash validation, then deserialize.
+            var fileBytes = await File.ReadAllBytesAsync(artifactPath);
+
+            string actualSha256;
+            using (var sha = SHA256.Create())
+                actualSha256 = Convert.ToHexString(sha.ComputeHash(fileBytes));
+
+            if (!string.IsNullOrEmpty(expectedSha256) &&
+                !actualSha256.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"Collect-only artifact hash mismatch for mode '{mode}' at '{artifactPath}'. " +
+                    $"Expected SHA-256: {expectedSha256}, actual: {actualSha256}. " +
+                    "The artifact may have been overwritten or corrupted between the collect-only step " +
+                    "and the deferred comparison step. Fail-closed: cannot compare stale samples.");
+            }
+
+            var text = System.Text.Encoding.UTF8.GetString(fileBytes);
+            var artifact = JsonSerializer.Deserialize<Phase4ComparisonArtifact>(text)
+                ?? throw new InvalidOperationException(
+                    $"Collect-only artifact at '{artifactPath}' deserialized to null.");
+
+            var modeComparison = artifact.Modes.FirstOrDefault(
+                m => m.TransportMode.Equals(mode, StringComparison.OrdinalIgnoreCase)
+                  || m.TransportMode.Equals(
+                        char.ToUpperInvariant(mode[0]) + mode[1..], StringComparison.Ordinal));
+            if (modeComparison is null)
+                throw new InvalidOperationException(
+                    $"Collect-only artifact at '{artifactPath}' does not contain mode '{mode}'. " +
+                    $"Present modes: [{string.Join(", ", artifact.Modes.Select(m => m.TransportMode))}].");
+
+            // Validate required gated scenarios are present with non-empty samples.
+            var required = new[]
+            {
+                $"cold_start_http_with_script_{mode}",
+                $"cold_start_http_no_script_{mode}",
+                $"warm_call_latency_ms_{mode}",
+                $"concurrent_throughput_ms_{mode}",
+            };
+            foreach (var name in required)
+            {
+                var s = modeComparison.Scenarios.FirstOrDefault(sc => sc.Scenario == name);
+                if (s is null || s.RawSamples is null || s.RawSamples.Length == 0)
+                    throw new InvalidOperationException(
+                        $"Collect-only artifact missing or has empty RawSamples for scenario '{name}' " +
+                        $"in mode '{mode}'. Fail-closed: deferred comparison requires pre-collected samples.");
+            }
+
+            double[] GetSamples(string scenario) =>
+                modeComparison.Scenarios.First(s => s.Scenario == scenario).RawSamples!;
+
+            // Derive per-call PS execution estimates from all scenarios (for diagnostic use).
+            var allScenarios = modeComparison.Scenarios;
+
+            _preloadedData[mode] = new PreloadedModeData(
+                ColdWithScript: GetSamples($"cold_start_http_with_script_{mode}"),
+                ColdNoScript: GetSamples($"cold_start_http_no_script_{mode}"),
+                WarmSamples: GetSamples($"warm_call_latency_ms_{mode}"),
+                ThroughputSamples: GetSamples($"concurrent_throughput_ms_{mode}"),
+                AllScenarios: allScenarios,
+                CapturedAt: artifact.CapturedAt);
+
+            _preloadedProvenance.Add(new PreloadedSampleProvenance
+            {
+                ArtifactPath = artifactPath,
+                ArtifactSha256 = actualSha256,
+                ExpectedSha256 = expectedSha256 ?? "",
+                CollectOnlyCapturedAt = artifact.CapturedAt,
+                Mode = mode,
+            });
+        }
+    }
 }
+
+/// <summary>
+/// Pre-collected V2 samples for one transport mode, loaded from a collect-only artifact.
+/// Consumed by <see cref="Phase4ComparisonTests"/> in deferred comparison mode (#380 AC1).
+/// Deferred comparison MUST use these exact samples — do NOT re-measure V2.
+/// </summary>
+internal sealed record PreloadedModeData(
+    double[] ColdWithScript,
+    double[] ColdNoScript,
+    double[] WarmSamples,
+    double[] ThroughputSamples,
+    List<CharacterizationScenario> AllScenarios,
+    string CapturedAt);

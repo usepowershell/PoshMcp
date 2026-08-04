@@ -268,6 +268,14 @@ internal sealed class StageAttribution
     public List<string> RequiresServerInstrumentation { get; set; } = [];
 
     /// <summary>
+    /// In-process pool metrics from a separate diagnostic pass using StatelessRunspacePool
+    /// with MeterListener. NOT the gated subprocess measurement. Directional evidence only.
+    /// Collection uses poshmcp.runspace_pool.acquisition/lease/reset_duration_seconds instruments.
+    /// </summary>
+    [JsonPropertyName("inProcessPoolDiagnostic")]
+    public PoolDiagnosticData? InProcessPoolDiagnostic { get; set; }
+
+    /// <summary>
     /// Measurement overhead bound: the warm-call inter-quartile range provides
     /// a bound on measurement noise within the primary metric.
     /// </summary>
@@ -283,7 +291,8 @@ internal sealed class StageAttribution
         string transportMode,
         double[] warmCallSamples,
         double[] coldStartWithScriptSamples,
-        double[] coldStartNoScriptSamples)
+        double[] coldStartNoScriptSamples,
+        PoolDiagnosticData? poolDiagnostic = null)
     {
         var mode = transportMode.ToLowerInvariant();
         var warmReport = StatisticalReport.FromSamples(
@@ -297,16 +306,24 @@ internal sealed class StageAttribution
             : double.NaN;
 
         // Cold-start stage attribution (startup/eager/script)
+        // signedScriptDeltaMs: signed raw delta, always preserved regardless of sign.
+        // startupScriptMs: null when delta is negative (physically implausible — INCONCLUSIVE).
+        double? signedScriptDeltaMs = null;
         double? startupScriptMs = null;
         double? serverStartupMs = null;
+        StatisticalReport? withScriptReport = null;
+        StatisticalReport? noScriptReport = null;
         if (coldStartWithScriptSamples.Length > 0 && coldStartNoScriptSamples.Length > 0)
         {
-            var withScript = StatisticalReport.FromSamples(
+            withScriptReport = StatisticalReport.FromSamples(
                 $"cold_start_with_script_{mode}", "milliseconds", coldStartWithScriptSamples);
-            var noScript = StatisticalReport.FromSamples(
+            noScriptReport = StatisticalReport.FromSamples(
                 $"cold_start_no_script_{mode}", "milliseconds", coldStartNoScriptSamples);
-            startupScriptMs = withScript.Median - noScript.Median;
-            serverStartupMs = noScript.Median;
+            var rawDelta = withScriptReport.Median - noScriptReport.Median;
+            signedScriptDeltaMs = rawDelta;
+            if (rawDelta >= 0)
+                startupScriptMs = rawDelta;
+            serverStartupMs = noScriptReport.Median;
         }
 
         // Build the per-stage detail enumeration
@@ -333,32 +350,62 @@ internal sealed class StageAttribution
             new()
             {
                 Stage = "lease_acquisition",
-                Description = "Runspace pool lease/acquire time",
-                Method = "requires_server_instrumentation",
-                EstimateMs = null,
-                Confidence = "NOT_AVAILABLE",
-                Source = "Requires Stopwatch inside RunspacePool.GetRunspaceAsync(). " +
-                         "Included in end_to_end_warm_call. Server-side diagnostic needed.",
+                Description = "Runspace pool acquire time. " +
+                    "In-process diagnostic pool (poshmcp.runspace_pool.acquisition_duration_seconds). " +
+                    "NOT the gated subprocess measurement — directional evidence only.",
+                Method = poolDiagnostic?.AcquisitionMs is { Length: > 0 }
+                    ? "diagnostic_in_process_pool"
+                    : "requires_server_instrumentation",
+                EstimateMs = poolDiagnostic?.AcquisitionMs is { Length: > 0 }
+                    ? StatisticalReport.ComputeMedian([.. poolDiagnostic.AcquisitionMs.OrderBy(x => x)])
+                    : (double?)null,
+                Confidence = poolDiagnostic?.AcquisitionMs is { Length: > 0 } ? "DIAGNOSTIC_IN_PROCESS" : "NOT_AVAILABLE",
+                Source = poolDiagnostic?.AcquisitionMs is { Length: > 0 }
+                    ? string.Format(CultureInfo.InvariantCulture,
+                        "poshmcp.runspace_pool.acquisition_duration_seconds N={0} (in-process diagnostic, separate from gated N={1} subprocess measurement)",
+                        poolDiagnostic.AcquisitionMs.Length, warmCallSamples.Length)
+                    : "Requires poshmcp.runspace_pool.acquisition_duration_seconds from server process; " +
+                      "cross-process metric collection not yet wired (CharacterizationHttpServer is a subprocess). " +
+                      "Included in end_to_end_warm_call.",
             },
             new()
             {
                 Stage = "powershell_execution",
-                Description = "PowerShell command invocation (Get-Date)",
-                Method = "requires_server_instrumentation",
-                EstimateMs = null,
-                Confidence = "NOT_AVAILABLE",
-                Source = "Requires Stopwatch inside Pipeline.InvokeAsync(). " +
-                         "Included in end_to_end_warm_call. Server-side diagnostic needed.",
+                Description = "PowerShell command invocation time: lease_duration - reset_duration from in-process diagnostic. " +
+                    "NOT the gated subprocess measurement.",
+                Method = poolDiagnostic?.PsExecutionMs is { Length: > 0 }
+                    ? "diagnostic_in_process: lease_duration_seconds - reset_duration_seconds"
+                    : "requires_server_instrumentation",
+                EstimateMs = poolDiagnostic?.PsExecutionMs is { Length: > 0 }
+                    ? StatisticalReport.ComputeMedian([.. poolDiagnostic.PsExecutionMs.OrderBy(x => x)])
+                    : (double?)null,
+                Confidence = poolDiagnostic?.PsExecutionMs is { Length: > 0 } ? "DIAGNOSTIC_IN_PROCESS" : "NOT_AVAILABLE",
+                Source = poolDiagnostic?.PsExecutionMs is { Length: > 0 }
+                    ? string.Format(CultureInfo.InvariantCulture,
+                        "lease_duration - reset_duration N={0} (in-process diagnostic)",
+                        poolDiagnostic.PsExecutionMs.Length)
+                    : "Requires per-call lease_duration and reset_duration from server process. " +
+                      "Included in end_to_end_warm_call.",
             },
             new()
             {
                 Stage = "reset_return",
-                Description = "Runspace reset and return to pool",
-                Method = "requires_server_instrumentation",
-                EstimateMs = null,
-                Confidence = "NOT_AVAILABLE",
-                Source = "Requires Stopwatch inside RunspacePool.ReleaseRunspace(). " +
-                         "Included in end_to_end_warm_call. Server-side diagnostic needed.",
+                Description = "Pool reset protocol duration after lease return. " +
+                    "In-process diagnostic pool (poshmcp.runspace_pool.reset_duration_seconds). " +
+                    "NOT the gated subprocess measurement.",
+                Method = poolDiagnostic?.ResetMs is { Length: > 0 }
+                    ? "diagnostic_in_process_pool"
+                    : "requires_server_instrumentation",
+                EstimateMs = poolDiagnostic?.ResetMs is { Length: > 0 }
+                    ? StatisticalReport.ComputeMedian([.. poolDiagnostic.ResetMs.OrderBy(x => x)])
+                    : (double?)null,
+                Confidence = poolDiagnostic?.ResetMs is { Length: > 0 } ? "DIAGNOSTIC_IN_PROCESS" : "NOT_AVAILABLE",
+                Source = poolDiagnostic?.ResetMs is { Length: > 0 }
+                    ? string.Format(CultureInfo.InvariantCulture,
+                        "poshmcp.runspace_pool.reset_duration_seconds N={0} (in-process diagnostic)",
+                        poolDiagnostic.ResetMs.Length)
+                    : "Requires poshmcp.runspace_pool.reset_duration_seconds from server process. " +
+                      "Included in end_to_end_warm_call.",
             },
         };
 
@@ -375,17 +422,34 @@ internal sealed class StageAttribution
             });
         }
 
-        if (startupScriptMs.HasValue)
+        if (signedScriptDeltaMs.HasValue)
         {
+            var delta = signedScriptDeltaMs.Value;
+            bool positive = delta >= 0;
             stages.Add(new StageDetail
             {
                 Stage = "startup_script",
-                Description = "Startup-script execution cost (module import + inline script)",
+                Description = "Startup-script execution cost (module import + inline script). " +
+                    "Estimated as cold_with_script.median - cold_no_script.median. " +
+                    "Negative signed delta indicates arithmetic inconsistency (noise or small N); " +
+                    "cannot support causal attribution and is NOT clamped to zero.",
                 Method = "subtraction: cold_with_script.median - cold_no_script.median",
-                EstimateMs = startupScriptMs.Value,
-                Confidence = coldStartWithScriptSamples.Length >= 3 && coldStartNoScriptSamples.Length >= 3
-                    ? "MODERATE" : "INSUFFICIENT",
-                Source = $"cold_start_http_with_script_{mode} - cold_start_http_no_script_{mode}",
+                SignedRawDeltaMs = delta,
+                EstimateMs = positive ? delta : (double?)null,
+                Confidence = !positive
+                    ? "INCONCLUSIVE"
+                    : (coldStartWithScriptSamples.Length >= 3 && coldStartNoScriptSamples.Length >= 3
+                        ? "MODERATE"
+                        : "INSUFFICIENT"),
+                Source = positive
+                    ? string.Format(CultureInfo.InvariantCulture,
+                        "cold_start_http_with_script_{0} ({1:F2}ms) - cold_start_http_no_script_{0} ({2:F2}ms) = {3:F2}ms",
+                        mode, withScriptReport?.Median ?? double.NaN, noScriptReport?.Median ?? double.NaN, delta)
+                    : string.Format(CultureInfo.InvariantCulture,
+                        "cold_start_http_with_script_{0} ({1:F2}ms) - cold_start_http_no_script_{0} ({2:F2}ms) = {3:F2}ms " +
+                        "(NEGATIVE: arithmetic inconsistency — signed delta preserved; " +
+                        "estimateMs is null; cannot claim script cost from negative result)",
+                        mode, withScriptReport?.Median ?? double.NaN, noScriptReport?.Median ?? double.NaN, delta),
             });
         }
 
@@ -405,11 +469,16 @@ internal sealed class StageAttribution
             steadyState, warmReport.SampleCount,
             double.IsNaN(connectionOverhead) ? 0.0 : connectionOverhead);
 
-        if (startupScriptMs.HasValue && serverStartupMs.HasValue)
+        if (signedScriptDeltaMs.HasValue && serverStartupMs.HasValue)
         {
-            hypothesis += string.Format(CultureInfo.InvariantCulture,
-                " Cold-start: ~{0:F0}ms server startup/eager, ~{1:F0}ms startup script.",
-                serverStartupMs.Value, startupScriptMs.Value);
+            if (signedScriptDeltaMs.Value < 0)
+                hypothesis += string.Format(CultureInfo.InvariantCulture,
+                    " Cold-start startup-script: INCONCLUSIVE (signed delta={0:F2}ms, negative — arithmetic inconsistency, not a causal estimate).",
+                    signedScriptDeltaMs.Value);
+            else
+                hypothesis += string.Format(CultureInfo.InvariantCulture,
+                    " Cold-start: ~{0:F0}ms server startup/eager, ~{1:F0}ms startup script.",
+                    serverStartupMs.Value, signedScriptDeltaMs.Value);
         }
 
         // IQR as measurement noise bound
@@ -432,16 +501,17 @@ internal sealed class StageAttribution
             StartupScriptEstimateMs = startupScriptMs,
             ServerStartupEstimateMs = serverStartupMs,
             Stages = stages,
+            InProcessPoolDiagnostic = poolDiagnostic,
             AttributionMethod = "First-call vs steady-state delta for connection overhead; " +
                 "cold-start with/without script for startup stages; " +
-                "lease/PS/reset require server-side Stopwatch instrumentation (non-perturbing diagnostic)",
+                "lease/PS/reset via in-process StatelessRunspacePool MeterListener diagnostic (separate N, separate pool)",
             AttributionConfidence = confidence,
             Hypothesis = hypothesis,
             RequiresServerInstrumentation =
             [
-                "lease_acquisition — Stopwatch inside RunspacePool.GetRunspaceAsync()",
-                "powershell_execution — Stopwatch inside Pipeline.InvokeAsync()",
-                "reset_return — Stopwatch inside RunspacePool.ReleaseRunspace()",
+                "subprocess_lease_acquisition — poshmcp.runspace_pool.acquisition_duration_seconds cross-process collection requires OTLP/Prometheus endpoint on CharacterizationHttpServer",
+                "subprocess_powershell_execution — lease_duration - reset_duration for the actual gated subprocess server",
+                "subprocess_reset_return — poshmcp.runspace_pool.reset_duration_seconds from the gated subprocess server",
             ],
             MeasurementOverheadBoundMs = iqrBound,
         };
@@ -467,9 +537,17 @@ internal sealed class StageDetail
     [JsonPropertyName("method")]
     public string Method { get; set; } = "";
 
-    /// <summary>Estimated milliseconds. Null when not separable.</summary>
+    /// <summary>Estimated milliseconds. Null when not separable or when estimate is INCONCLUSIVE.</summary>
     [JsonPropertyName("estimateMs")]
     public double? EstimateMs { get; set; }
+
+    /// <summary>
+    /// Signed raw delta in milliseconds. Always preserved regardless of sign.
+    /// Present for subtraction-derived stages (startup_script). Null for directly-measured stages.
+    /// A negative value means the arithmetic result is implausible; EstimateMs will be null.
+    /// </summary>
+    [JsonPropertyName("signedRawDeltaMs")]
+    public double? SignedRawDeltaMs { get; set; }
 
     /// <summary>Confidence level for this estimate.</summary>
     [JsonPropertyName("confidence")]
@@ -478,4 +556,65 @@ internal sealed class StageDetail
     /// <summary>Data source / computation description.</summary>
     [JsonPropertyName("source")]
     public string Source { get; set; } = "";
+}
+
+/// <summary>
+/// Raw pool-stage metrics from a separate in-process diagnostic pass using
+/// <see cref="PoshMcp.Server.PowerShell.Pool.StatelessRunspacePool"/> and
+/// <see cref="System.Diagnostics.Metrics.MeterListener"/>.
+///
+/// IMPORTANT: These measurements are from an in-process diagnostic pool, NOT the
+/// subprocess server used for the gated N=50 measurements. They are directional
+/// evidence for acquisition/lease/reset stage durations under clean conditions,
+/// without HTTP/MCP overhead. Do not use as a direct substitute for subprocess metrics.
+/// </summary>
+internal sealed class PoolDiagnosticData
+{
+    /// <summary>
+    /// Raw acquisition durations in milliseconds (converted from seconds).
+    /// From poshmcp.runspace_pool.acquisition_duration_seconds.
+    /// </summary>
+    [JsonPropertyName("acquisitionMs")]
+    public double[] AcquisitionMs { get; init; } = [];
+
+    /// <summary>
+    /// Raw lease hold durations in milliseconds (converted from seconds).
+    /// From poshmcp.runspace_pool.lease_duration_seconds.
+    /// Includes PowerShell execution + any post-invoke overhead before lease return.
+    /// </summary>
+    [JsonPropertyName("leaseMs")]
+    public double[] LeaseMs { get; init; } = [];
+
+    /// <summary>
+    /// Raw reset durations in milliseconds (converted from seconds).
+    /// From poshmcp.runspace_pool.reset_duration_seconds.
+    /// </summary>
+    [JsonPropertyName("resetMs")]
+    public double[] ResetMs { get; init; } = [];
+
+    /// <summary>
+    /// Per-call PowerShell execution estimates: leaseMs[i] - resetMs[i].
+    /// Arithmetic derived from direct measurements. Negative values excluded.
+    /// </summary>
+    [JsonPropertyName("psExecutionMs")]
+    public double[] PsExecutionMs { get; init; } = [];
+
+    /// <summary>Number of warmup calls excluded from captured measurements.</summary>
+    [JsonPropertyName("warmupCallCount")]
+    public int WarmupCallCount { get; init; }
+
+    /// <summary>Number of diagnostic calls included in captured measurements.</summary>
+    [JsonPropertyName("measuredCallCount")]
+    public int MeasuredCallCount { get; init; }
+
+    /// <summary>Total elapsed time for the diagnostic phase in seconds.</summary>
+    [JsonPropertyName("totalDiagnosticSeconds")]
+    public double TotalDiagnosticSeconds { get; init; }
+
+    /// <summary>
+    /// Caveat note documenting the diagnostic methodology and its differences from
+    /// the gated subprocess measurement.
+    /// </summary>
+    [JsonPropertyName("note")]
+    public string Note { get; init; } = "";
 }

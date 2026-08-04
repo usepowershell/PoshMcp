@@ -292,7 +292,7 @@ jobs:
           local mode="$1"
           local lower
           lower=$(echo "$mode" | tr '[:upper:]' '[:lower:]')
-          PHASE4_ARTIFACT_PATH="${{ github.workspace }}/TestResults/phase4-${lower}.json" \
+          PHASE4_ARTIFACT_PATH="${{ github.workspace }}/TestResults/phase4-${lower}-collect-only.json" \
           dotnet test --no-build --configuration Release \
             --filter "Category=PerformanceComparison&FullyQualifiedName~${mode}" \
             --logger "trx;LogFileName=phase4-${lower}.trx" \
@@ -314,6 +314,24 @@ jobs:
         echo "V2_COLLECTION_END_EPOCH=$V2_END" >> "$GITHUB_ENV"
         echo "Phase 4 collect-only complete (v2 measurement). Duration: $((V2_END - V2_START))s, exit=$RC"
         exit $RC
+
+    - name: "Hash collect-only artifacts (current_first)"
+      if: matrix.product_order == 'current_first'
+      run: |
+        # Compute SHA-256 of each collect-only artifact and export to GITHUB_ENV.
+        # These hashes are validated by the fixture in the deferred comparison step
+        # to guarantee the pre-collected V2 samples have not been overwritten or corrupted.
+        for mode in stateless stateful; do
+          artifact="${{ github.workspace }}/TestResults/phase4-${mode}-collect-only.json"
+          if [ -f "$artifact" ]; then
+            sha=$(sha256sum "$artifact" | cut -d' ' -f1 | tr '[:lower:]' '[:upper:]')
+            key="PHASE4_COLLECT_ONLY_$(echo "$mode" | tr '[:lower:]' '[:upper:]')_SHA256"
+            echo "${key}=${sha}" >> "$GITHUB_ENV"
+            echo "Hashed collect-only artifact for mode=${mode}: ${sha}"
+          else
+            echo "WARNING: collect-only artifact not found for mode=${mode}: ${artifact}"
+          fi
+        done
 
     - name: "Run Phase 0 characterization SECOND (current_first)"
       if: matrix.product_order == 'current_first'
@@ -402,7 +420,9 @@ jobs:
 
     # ─── CURRENT_FIRST: Deferred comparison after both measurements complete ────
     # Phase 4 collect-only ran FIRST (above). Phase 0 ran SECOND.
-    # Now rerun Phase 4 with the baseline available for actual ratio comparison.
+    # The deferred comparison loads the pre-collected V2 samples via PHASE4_LOAD_SAMPLES_FROM
+    # and validates them against the hashes captured in the hash step.
+    # It does NOT re-run Phase 4 measurement (fail-closed if artifacts missing or hash mismatch).
     - name: "Run Phase 4 deferred comparison (current_first)"
       if: matrix.product_order == 'current_first'
       continue-on-error: true
@@ -412,10 +432,13 @@ jobs:
         PHASE4_PRODUCT_ORDER: ${{ matrix.product_order }}
         PHASE4_MODE_ORDER: ${{ matrix.phase4_order }}
         PHASE4_OBSERVED_PRODUCT_ORDER: "current_first"
+        # Tell the fixture to load pre-collected V2 samples from this directory.
+        # The fixture validates each artifact's SHA-256 against the env vars set by the hash step.
+        PHASE4_LOAD_SAMPLES_FROM: ${{ github.workspace }}/TestResults
+        PHASE4_COLLECT_ONLY_STATELESS_SHA256: ${{ env.PHASE4_COLLECT_ONLY_STATELESS_SHA256 }}
+        PHASE4_COLLECT_ONLY_STATEFUL_SHA256: ${{ env.PHASE4_COLLECT_ONLY_STATEFUL_SHA256 }}
       run: |
         echo "PHASE4_OBSERVED_PRODUCT_ORDER=current_first" >> "$GITHUB_ENV"
-        # The collect-only artifacts already have raw measurements.
-        # Re-run Phase 4 with baseline available for comparison (not collect-only).
         set +e
         run_mode() {
           local mode="$1"

@@ -295,6 +295,37 @@ internal static class MethodologyContractValidator
             string.Equals(baseline.SdkSha256, current.SdkSha256, StringComparison.OrdinalIgnoreCase))
             violations.Add("baseline and current sdkSha256 are identical — same binary");
 
+        // ── Previously unchecked fields: now fully validated (#380 AC4 Revision 3) ──────────────
+
+        // timingResolutionNs: ENV-derived (skip if either is 0 — pre-field-capture format).
+        EnvDerivedMatchLong(violations, "timingResolutionNs", baseline.TimingResolutionNs, current.TimingResolutionNs);
+
+        // startupScriptEnabled/effectivePoolSettings/contractVersion: must match (same methodology).
+        MustMatchBool(violations, "startupScriptEnabled", baseline.StartupScriptEnabled, current.StartupScriptEnabled);
+        MustMatch(violations, "effectivePoolSettings", baseline.EffectivePoolSettings, current.EffectivePoolSettings);
+        MustMatch(violations, "contractVersion", baseline.ContractVersion, current.ContractVersion);
+
+        // productOrder/modeOrder: per-attempt metadata that legitimately differs between attempts.
+        // Validate each side independently: must be non-empty (if set) AND a known value.
+        ValidateKnownValue(violations, "baseline.productOrder", baseline.ProductOrder,
+            ["baseline_first", "current_first"]);
+        ValidateKnownValue(violations, "current.productOrder", current.ProductOrder,
+            ["baseline_first", "current_first"]);
+        ValidateKnownValue(violations, "baseline.modeOrder", baseline.ModeOrder,
+            ["stateless_first", "stateful_first", "unknown"]);
+        ValidateKnownValue(violations, "current.modeOrder", current.ModeOrder,
+            ["stateless_first", "stateful_first", "unknown"]);
+
+        // sourceCommitSha: both must be non-empty AND must differ (comparing different code versions).
+        if (string.IsNullOrEmpty(baseline.SourceCommitSha))
+            violations.Add("sourceCommitSha: baseline is empty — provenance not captured");
+        if (string.IsNullOrEmpty(current.SourceCommitSha))
+            violations.Add("sourceCommitSha: current is empty — provenance not captured");
+        if (!string.IsNullOrEmpty(baseline.SourceCommitSha) &&
+            !string.IsNullOrEmpty(current.SourceCommitSha) &&
+            string.Equals(baseline.SourceCommitSha, current.SourceCommitSha, StringComparison.OrdinalIgnoreCase))
+            violations.Add($"sourceCommitSha: baseline and current are identical ('{baseline.SourceCommitSha}') — not a different-commit comparison");
+
         return violations;
     }
 
@@ -305,6 +336,12 @@ internal static class MethodologyContractValidator
     }
 
     private static void MustMatch(List<string> violations, string field, int baseline, int current)
+    {
+        if (baseline != current)
+            violations.Add($"{field}: baseline={baseline}, current={current}");
+    }
+
+    private static void MustMatchBool(List<string> violations, string field, bool baseline, bool current)
     {
         if (baseline != current)
             violations.Add($"{field}: baseline={baseline}, current={current}");
@@ -324,5 +361,23 @@ internal static class MethodologyContractValidator
         if (baseline == 0 || current == 0) return; // one-sided capture gap — not a violation
         if (baseline != current)
             violations.Add($"{field}: baseline={baseline}, current={current}");
+    }
+
+    /// <summary>
+    /// Validates that a per-side field contains a known value.
+    /// Empty/missing fields are skipped when they represent an allowed capture gap.
+    /// </summary>
+    private static void ValidateKnownValue(
+        List<string> violations,
+        string label,
+        string value,
+        string[] knownValues)
+    {
+        // Empty value treated as a capture gap (env var not set) — not a violation.
+        if (string.IsNullOrEmpty(value)) return;
+        if (!Array.Exists(knownValues, k => string.Equals(k, value, StringComparison.Ordinal)))
+            violations.Add(
+                $"{label}: '{value}' is not a recognized value " +
+                $"(expected one of: {string.Join(", ", knownValues)})");
     }
 }

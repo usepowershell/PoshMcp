@@ -36,6 +36,16 @@ public class MethodologyFingerprintTests
         ServerLifecycle = "per-iteration-cold|shared-warm",
         SdkMajorVersion = sdkMajor,
         SdkSha256 = sdkMajor == 1 ? "aaa111" : "bbb222",
+        // New in Revision 3: required fields for full fingerprint (#380 blocker 4).
+        TimingResolutionNs = 1,
+        StartupScriptEnabled = false,
+        EffectivePoolSettings = "min=1,max=4,eager=1",
+        ContractVersion = "1.0",
+        // productOrder and modeOrder legitimately DIFFER between attempts;
+        // baseline_first uses "baseline_first" for baseline, current_first uses "current_first".
+        // Validator checks each side independently (ValidateKnownValue), not MustMatch.
+        ProductOrder = "baseline_first",
+        ModeOrder = "stateless_first",
         SourceCommitSha = sdkMajor == 1 ? "baseline-sha" : "current-sha",
         WarmupCounts = new Dictionary<string, int>
         {
@@ -354,5 +364,110 @@ public class MethodologyFingerprintTests
         current.MeasuredIterations["new_scenario"] = 10;
         var violations = MethodologyContractValidator.Validate(baseline, current);
         Assert.Contains(violations, v => v.Contains("measuredIterations[new_scenario]") && v.Contains("missing from baseline"));
+    }
+
+    // ── New Revision 3 field checks (#380 blocker 4) ──────────────────────────
+
+    [Fact]
+    public void TimingResolutionNs_Mismatch_IsViolation()
+    {
+        var baseline = CreateBaseContract(1);
+        var current = CreateBaseContract(2);
+        current.TimingResolutionNs = 100;
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.Contains(violations, v => v.Contains("timingResolutionNs"));
+    }
+
+    [Fact]
+    public void TimingResolutionNs_OneZero_NotAViolation()
+    {
+        // Zero means field wasn't captured in pre-Revision-3 format — treat as capture gap.
+        var baseline = CreateBaseContract(1);
+        var current = CreateBaseContract(2);
+        baseline.TimingResolutionNs = 0;
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.DoesNotContain(violations, v => v.Contains("timingResolutionNs"));
+    }
+
+    [Fact]
+    public void StartupScriptEnabled_Mismatch_IsViolation()
+    {
+        var baseline = CreateBaseContract(1);
+        var current = CreateBaseContract(2);
+        current.StartupScriptEnabled = true;
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.Contains(violations, v => v.Contains("startupScriptEnabled"));
+    }
+
+    [Fact]
+    public void EffectivePoolSettings_Mismatch_IsViolation()
+    {
+        var baseline = CreateBaseContract(1);
+        var current = CreateBaseContract(2);
+        current.EffectivePoolSettings = "min=2,max=8,eager=2";
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.Contains(violations, v => v.Contains("effectivePoolSettings"));
+    }
+
+    [Fact]
+    public void ContractVersion_Mismatch_IsViolation()
+    {
+        var baseline = CreateBaseContract(1);
+        var current = CreateBaseContract(2);
+        current.ContractVersion = "2.0";
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.Contains(violations, v => v.Contains("contractVersion"));
+    }
+
+    [Fact]
+    public void ProductOrder_Invalid_IsViolation()
+    {
+        var baseline = CreateBaseContract(1);
+        var current = CreateBaseContract(2);
+        // "unknown_order" is not a recognized value.
+        baseline.ProductOrder = "unknown_order";
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.Contains(violations, v => v.Contains("productOrder") && v.Contains("baseline"));
+    }
+
+    [Fact]
+    public void ModeOrder_Invalid_IsViolation()
+    {
+        var baseline = CreateBaseContract(1);
+        var current = CreateBaseContract(2);
+        current.ModeOrder = "reverse_order";
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.Contains(violations, v => v.Contains("modeOrder") && v.Contains("current"));
+    }
+
+    [Fact]
+    public void SourceCommitSha_Empty_IsViolation()
+    {
+        var baseline = CreateBaseContract(1);
+        var current = CreateBaseContract(2);
+        baseline.SourceCommitSha = "";
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.Contains(violations, v => v.Contains("sourceCommitSha") && v.Contains("empty"));
+    }
+
+    [Fact]
+    public void SourceCommitSha_Identical_IsViolation()
+    {
+        // Comparing the same commit to itself is not a valid cross-version comparison.
+        var baseline = CreateBaseContract(1);
+        var current = CreateBaseContract(2);
+        current.SourceCommitSha = baseline.SourceCommitSha;
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.Contains(violations, v => v.Contains("sourceCommitSha") && v.Contains("identical"));
+    }
+
+    [Fact]
+    public void SourceCommitSha_Different_NotViolation()
+    {
+        // The base contract already has different SHAs per sdkMajor; must be clean.
+        var baseline = CreateBaseContract(1);
+        var current = CreateBaseContract(2);
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.DoesNotContain(violations, v => v.Contains("sourceCommitSha"));
     }
 }
