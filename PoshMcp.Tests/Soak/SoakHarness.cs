@@ -363,8 +363,8 @@ public sealed class SoakHarness : IAsyncDisposable
             }
         }
 
-        // Pool stats from /health
-        var poolStats = await TryGetPoolStatsAsync();
+        // Pool stats from /health (body parsed regardless of status; bounded retry)
+        var (poolStats, poolFailReason) = await TryGetPoolStatsAsync();
 
         // Compute latency percentiles
         var sortedLatencies = latencies.OrderBy(l => l).ToArray();
@@ -405,7 +405,7 @@ public sealed class SoakHarness : IAsyncDisposable
             PoolIsStarted = poolStats?.IsStarted ?? false,
             PoolIsDraining = poolStats?.IsDraining ?? false,
             PoolStatsAvailable = poolStats is not null,
-            Note = note,
+            Note = poolStats is null && note is null ? $"pool_unavailable:{poolFailReason}" : note,
         };
 
         lock (_samplesLock)
@@ -427,43 +427,72 @@ public sealed class SoakHarness : IAsyncDisposable
         int Warm, int Leased, int Resetting, int Creating,
         int Total, int Min, int Max, bool IsStarted, bool IsDraining);
 
-    private async Task<PoolStatsSnapshot?> TryGetPoolStatsAsync()
+    // Number of health-endpoint attempts per sample. Fills transient gaps
+    // (e.g. a connection reset) without masking a sustained outage: after all
+    // attempts fail the sample still records N/A plus the failure reason.
+    private const int PoolStatsAttempts = 3;
+
+    private async Task<(PoolStatsSnapshot? Snapshot, string? FailureReason)> TryGetPoolStatsAsync()
     {
         var client = _monitorClient;
-        if (client is null) return null;
-        try
+        if (client is null) return (null, "no_client");
+
+        string? lastReason = null;
+        for (var attempt = 1; attempt <= PoolStatsAttempts; attempt++)
         {
-            using var response = await client.GetAsync(new Uri(_baseUri, "health")).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode) return null;
-
-            var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-            using var doc = JsonDocument.Parse(body);
-
-            var checks = doc.RootElement.GetProperty("checks");
-            foreach (var check in checks.EnumerateArray())
+            try
             {
-                if (!check.TryGetProperty("name", out var nameProp)) continue;
-                if (nameProp.GetString() != "runspace_pool") continue;
-                if (!check.TryGetProperty("data", out var data)) return null;
+                // Read the body regardless of HTTP status: a Degraded/Unhealthy pool
+                // returns 503 but the response body still carries the runspace_pool
+                // check data we need. Gating on IsSuccessStatusCode would drop valid
+                // pool observations exactly when the pool is under pressure.
+                using var response = await client.GetAsync(new Uri(_baseUri, "health")).ConfigureAwait(false);
+                var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                using var doc = JsonDocument.Parse(body);
 
-                return new PoolStatsSnapshot(
-                    Warm: data.TryGetProperty("warm", out var w) ? w.GetInt32() : 0,
-                    Leased: data.TryGetProperty("leased", out var l) ? l.GetInt32() : 0,
-                    Resetting: data.TryGetProperty("resetting", out var r) ? r.GetInt32() : 0,
-                    Creating: data.TryGetProperty("creating", out var cr) ? cr.GetInt32() : 0,
-                    Total: data.TryGetProperty("total", out var tot) ? tot.GetInt32() : 0,
-                    Min: data.TryGetProperty("min", out var mn) ? mn.GetInt32() : 0,
-                    Max: data.TryGetProperty("max", out var mx) ? mx.GetInt32() : 0,
-                    IsStarted: data.TryGetProperty("is_started", out var st) && st.GetBoolean(),
-                    IsDraining: data.TryGetProperty("is_draining", out var dr) && dr.GetBoolean());
+                if (!doc.RootElement.TryGetProperty("checks", out var checks) || checks.ValueKind != JsonValueKind.Array)
+                {
+                    lastReason = $"no_checks_status{(int)response.StatusCode}";
+                }
+                else
+                {
+                    foreach (var check in checks.EnumerateArray())
+                    {
+                        if (!check.TryGetProperty("name", out var nameProp)) continue;
+                        if (nameProp.GetString() != "runspace_pool") continue;
+                        if (!check.TryGetProperty("data", out var data))
+                        {
+                            lastReason = "no_data";
+                            break;
+                        }
+
+                        return (new PoolStatsSnapshot(
+                            Warm: data.TryGetProperty("warm", out var w) ? w.GetInt32() : 0,
+                            Leased: data.TryGetProperty("leased", out var l) ? l.GetInt32() : 0,
+                            Resetting: data.TryGetProperty("resetting", out var r) ? r.GetInt32() : 0,
+                            Creating: data.TryGetProperty("creating", out var cr) ? cr.GetInt32() : 0,
+                            Total: data.TryGetProperty("total", out var tot) ? tot.GetInt32() : 0,
+                            Min: data.TryGetProperty("min", out var mn) ? mn.GetInt32() : 0,
+                            Max: data.TryGetProperty("max", out var mx) ? mx.GetInt32() : 0,
+                            IsStarted: data.TryGetProperty("is_started", out var st) && st.GetBoolean(),
+                            IsDraining: data.TryGetProperty("is_draining", out var dr) && dr.GetBoolean()), null);
+                    }
+
+                    lastReason ??= "no_runspace_pool_check";
+                }
+            }
+            catch (Exception ex)
+            {
+                lastReason = ex.GetType().Name;
             }
 
-            return null;
+            if (attempt < PoolStatsAttempts)
+            {
+                await Task.Delay(250).ConfigureAwait(false);
+            }
         }
-        catch
-        {
-            return null;
-        }
+
+        return (null, lastReason);
     }
 
     // ─── Counter management ──────────────────────────────────────────────────
