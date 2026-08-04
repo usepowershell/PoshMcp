@@ -25,6 +25,7 @@ using PoshMcp.Server.McpPrompts;
 using PoshMcp.Server.McpResources;
 using PoshMcp.Server.PowerShell;
 using PoshMcp.Server.PowerShell.Pool;
+using PoshMcp.Server.Server;
 using PoshMcp.Server.Metrics;
 using PoshMcp.Server.Observability;
 using OpenTelemetry;
@@ -99,35 +100,46 @@ internal static class HttpServerHost
         await using var executorLease = await McpToolSetupService.StartOutOfProcessExecutorIfNeededAsync(config, bootstrapLoggerFactory, logger, finalConfigPath);
 
         var mcpServerConfig = RegisterResolvedMcpConfiguration(builder.Services, authRootConfig, logger);
-        var sharedHttpContextAccessor = new HttpContextAccessor();
-        var sharedRunspaceLogger = bootstrapLoggerFactory.CreateLogger<SessionAwarePowerShellRunspace>();
-        using var sharedSessionRunspace = new SessionAwarePowerShellRunspace(
-            sharedHttpContextAccessor,
-            sharedRunspaceLogger,
-            new SessionRunspaceOptions
-            {
-                Capacity = mcpServerConfig.SessionRunspaceCapacity,
-                IdleTtl = TimeSpan.FromSeconds(mcpServerConfig.SessionRunspaceIdleTtlSeconds),
-                SweepInterval = TimeSpan.FromSeconds(mcpServerConfig.SessionRunspaceSweepIntervalSeconds),
-                WarmStandbyCount = mcpServerConfig.SessionRunspaceWarmStandbyCount,
-                AcquisitionTimeout = TimeSpan.FromSeconds(mcpServerConfig.SessionRunspaceAcquisitionTimeoutSeconds)
-            });
-        var sessionLifecycle = new McpSessionLifecycle(sharedSessionRunspace.CleanupSession);
 
+        // IHttpContextAccessor is kept for auth middleware; it is no longer used for runspace routing.
+        var sharedHttpContextAccessor = new HttpContextAccessor();
         builder.Services.AddSingleton<IHttpContextAccessor>(sharedHttpContextAccessor);
+
+        // Create and start the warm-worker pool before tool discovery so that the production
+        // PowerShell environment is available for Get-Command/Get-Help introspection, and so
+        // that the first incoming request finds ready workers without an additional warm-up delay.
+        var productionStartupScript = PowerShellRunspaceHolder.GetProductionInitializationScript();
+        await using var pool = new StatelessRunspacePool(
+            mcpServerConfig.RunspacePool,
+            bootstrapLoggerFactory,
+            productionStartupScript);
+        await pool.StartAsync();
+
+        // Pool-backed adapter: routes Execute* calls through per-call lease acquisition from
+        // the pool. The Instance property uses a dedicated discovery runspace for startup
+        // introspection only — it is never accessed at request time.
+        using var pooledRunspace = new PooledHttpRunspace(pool, productionStartupScript, bootstrapLoggerFactory);
+
+        // Session lifecycle: protocol-version tracking only. The pool has no per-session
+        // runspace state, so the cleanup callback is intentionally a no-op.
+        var sessionLifecycle = new McpSessionLifecycle(_ => { });
+
         builder.Services.AddSingleton(sessionLifecycle);
-        builder.Services.AddSingleton<IPowerShellRunspace>(sharedSessionRunspace);
+        builder.Services.AddSingleton<IPowerShellRunspace>(pooledRunspace);
+        builder.Services.AddSingleton<IRunspacePool>(pool);
+        // Lifecycle service: confirms pool readiness on host start and drains/disposes on stop.
+        builder.Services.AddSingleton<IHostedService, RunspacePoolLifecycleService>();
 
         logger.LogInformation("Using configuration source: {ConfigurationPath}", ConfigurationHelpers.DescribeConfigurationPath(finalConfigPath));
 
-        var toolSetup = await McpToolSetupService.SetupHttpMcpToolsAsync(bootstrapLoggerFactory, config, logger, finalConfigPath, configurationPathSource, sharedSessionRunspace, executorLease?.Executor, sharedHttpContextAccessor);
+        var toolSetup = await McpToolSetupService.SetupHttpMcpToolsAsync(bootstrapLoggerFactory, config, logger, finalConfigPath, configurationPathSource, pooledRunspace, executorLease?.Executor, sharedHttpContextAccessor);
         var tools = toolSetup.Tools;
         var resourcesConfig = ConfigurationLoader.LoadMcpResourcesConfiguration(finalConfigPath, logger);
         var resourcesConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? ".";
         var resourceLogger = bootstrapLoggerFactory.CreateLogger<McpResourceHandler>();
         var resourceHandler = new McpResourceHandler(
             resourcesConfig,
-            sharedSessionRunspace,
+            pooledRunspace,
             resourcesConfigDirectory,
             resourceLogger,
             executorLease?.Executor);
@@ -138,7 +150,7 @@ internal static class HttpServerHost
             var nounExecutor = executorLease?.Executor;
             nounHandler = new McpNounResourceHandler(
                 toolSetup.EffectiveNounResourceRegistry,
-                nounExecutor is null ? sharedSessionRunspace : null,
+                nounExecutor is null ? pooledRunspace : null,
                 nounExecutor,
                 bootstrapLoggerFactory.CreateLogger<McpNounResourceHandler>());
         }
@@ -147,25 +159,28 @@ internal static class HttpServerHost
         var promptsConfig = ConfigurationLoader.LoadPromptsConfiguration(finalConfigPath);
         var httpConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? Directory.GetCurrentDirectory();
         var httpPromptHandler = new McpPromptHandler(promptsConfig, httpConfigDirectory, bootstrapLoggerFactory.CreateLogger<McpPromptHandler>());
+        // Determine transport mode from configuration (#355). Default is Stateless.
+        var isStateless = mcpServerConfig.HttpTransportMode == HttpTransportMode.Stateless;
         var mcpBuilder = builder.Services
             .AddMcpServer()
             .WithHttpTransport(opts =>
             {
-                // Per maintainer decision 2026-08-03: stateless is the production default so that
-                // server/discover and protocol 2026-07-28 are available on the default HTTP path.
-                // Stateful HTTP is an operator-selectable backward-compatibility mode.
-                // IdleTimeout and RunSessionHandler are stateful-only; they are ignored when
-                // Stateless = true and become active if an operator configures Stateless = false.
-                opts.Stateless = true;
-#pragma warning disable MCP9006 // Intentional: stateful-only option; retained for operator compatibility mode.
+                // Per maintainer decision 2026-08-03: stateless is the default. Stateful HTTP is
+                // an operator-selectable backward-compatibility mode configured via HttpTransportMode.
+                // Transport session completion must never drain or dispose the shared pool.
+                opts.Stateless = isStateless;
+#pragma warning disable MCP9006 // Intentional: stateful-only option; set here but honoured by SDK only when Stateless = false.
                 opts.IdleTimeout = TimeSpan.FromSeconds(mcpServerConfig.IdleSessionTimeoutSeconds);
 #pragma warning restore MCP9006
 #pragma warning disable MCP9004 // Legacy SSE is opt-in, disabled by default, and documented for isolated trusted clients only.
                 opts.EnableLegacySse = mcpServerConfig.EnableLegacySse;
 #pragma warning restore MCP9004
-#pragma warning disable MCPEXP002 // Required to release session-scoped resources when the SDK ends a session.
-                opts.RunSessionHandler = sessionLifecycle.RunSessionAsync;
+                if (!isStateless)
+                {
+#pragma warning disable MCPEXP002 // Required to release session-scoped resources when the SDK ends a stateful session.
+                    opts.RunSessionHandler = sessionLifecycle.RunSessionAsync;
 #pragma warning restore MCPEXP002
+                }
             })
             .WithTools(tools)
             .WithListPromptsHandler(httpPromptHandler.HandleListPromptsAsync)
@@ -247,7 +262,6 @@ internal static class HttpServerHost
         builder.Services.AddPoshMcpAuthentication(authRootConfig);
 
         var app = builder.Build();
-        app.Lifetime.ApplicationStopped.Register(sharedSessionRunspace.Dispose);
 
         app.Use(async (context, next) =>
         {
