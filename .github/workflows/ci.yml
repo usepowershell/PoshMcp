@@ -8,6 +8,8 @@ on:
       - '**.csproj'
       - '**.sln'
       - '.github/workflows/ci.yml'
+      - '.github/workflows/phase4-gate.yml'
+      - 'scripts/**'
   pull_request:
     branches: [ main ]
     paths:
@@ -15,6 +17,8 @@ on:
       - '**.csproj'
       - '**.sln'
       - '.github/workflows/ci.yml'
+      - '.github/workflows/phase4-gate.yml'
+      - 'scripts/**'
 
 # Minimum permissions for the whole workflow. The build job only needs to read
 # repository contents; uploading test result artifacts via actions/upload-artifact@v4
@@ -304,369 +308,36 @@ jobs:
           TestResults/phase-characterization.trx
 
   # ---------------------------------------------------------------------------
-  # Phase 4 (issue #357): Performance comparison against Phase 0 baselines.
+  # Phase 4 (issue #357): Performance comparison against the genuine SDK 1.4.1 baseline.
   #
-  # SAME-JOB PAIRED MEASUREMENT DESIGN:
-  # To eliminate cross-runner variance and N-mismatch issues, this job measures
-  # BOTH the Phase 0 (published baseline commit) and Phase 4 (current HEAD) in
-  # the same CI job / same runner process, using identical iteration counts,
-  # warmup counts, tool/payload, config, and measurement boundaries.
-  #
-  # Steps:
-  #   1. Capture hardware metadata (CPU model, total memory).
-  #   2. Build Phase 4 (current HEAD) server.
-  #   3. Download authoritative Phase 0 published baseline (provenance/sanity).
-  #   4. Fetch Phase 0 commit SHA from the authoritative CI run.
-  #   5. Archive and build the Phase 0 server in an isolated directory.
-  #   6. Run Phase 0 characterization with POSHMCP_SERVER_DLL pointing to the
-  #      Phase 0 binary — same runner, same test binary, same N.
-  #   7. Validate fresh Phase 0 baseline N values against the published artifact.
-  #   8. Run Stateless and Stateful comparisons (both use the fresh Phase 0 baseline
-  #      as the comparison target; published artifact is provenance evidence only).
-  #   9. Upload all artifacts (published Phase 0, fresh Phase 0, per-mode, merged)
-  #      with if: always() so gate failures are still diagnosable.
-  #
-  # Gate failures cause the job to fail (blocking the release).
-  #
-  # Artifact: phase4-comparison — contains:
-  #   phase4-comparison.json       (merged schema poshmcp/v4-comparison/1.0)
-  #   phase4-stateless.json        (Stateless-only raw artifact)
-  #   phase4-stateful.json         (Stateful-only raw artifact)
-  #   phase0-fresh-baseline.json   (same-runner Phase 0 fresh measurement)
-  #   phase0-published-baseline.json  (provenance: authoritative published Phase 0)
-  #   *.trx                        (xUnit pass/fail evidence per mode)
+  # The full job now lives in the reusable workflow .github/workflows/phase4-gate.yml so the
+  # SAME comparison implementation backs both the advisory PR check and the enforceable release
+  # gate (#360). On PRs it runs in ADVISORY mode (enforceGate: false): a valid v1.4.1->v2.0.0
+  # comparison whose only failure is red performance thresholds does NOT block the PR, but the
+  # red status is preserved (annotations + job summary + uploaded artifacts). Infrastructure or
+  # methodology failures still fail. The release gate invokes the same workflow with
+  # enforceGate: true so any threshold breach stays RED.
   # ---------------------------------------------------------------------------
   performance-comparison:
     name: "Phase 4 Performance Comparison (#357)"
-    runs-on: ubuntu-latest
     needs: build
-
     permissions:
       contents: read
       actions: read
+    uses: ./.github/workflows/phase4-gate.yml
+    with:
+      enforceGate: false
 
-    # Three INDEPENDENT paired attempts at the SAME revision SHA (Finding #6/#10).
-    # Each attempt is its own matrix job on its own fresh runner — it builds BOTH the
-    # pinned v1.4.1 baseline and the v2.0.0 HEAD, so every attempt is a genuine v1-vs-v2
-    # pair on one runner from clean processes. These are NOT failed-job reruns.
-    #
-    # phase4_order counterbalances the sub-measurement order that this test-only harness
-    # can control: the Stateless/Stateful mode sequence. Full v1-before-v2 (Phase 0 before
-    # Phase 4) order reversal is architecturally fixed here because the Phase 4 comparison
-    # step consumes the Phase 0 baseline JSON produced earlier in the same job; splitting
-    # measurement from comparison to also reverse v1/v2 is tracked as follow-up and is NOT
-    # claimed to be resolved.
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - attempt: 1
-            phase4_order: "stateless_first"
-          - attempt: 2
-            phase4_order: "stateful_first"
-          - attempt: 3
-            phase4_order: "stateless_first"
-
+  # Deterministic checks for the advisory/release classifier (scripts/Invoke-Phase4Gate.ps1).
+  # Proves advisory succeeds only for a valid comparison, release fails on a breach, and both
+  # modes fail on infra/methodology/provenance/SDK-pair/parity errors (requirement 3).
+  phase4-gate-checks:
+    name: "Phase 4 Gate Classifier Checks (#357)"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
     - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0  # Need full history to archive Phase 0 commit
-
-    - name: Capture clean-process and environment evidence
-      run: |
-        echo "Attempt: ${{ matrix.attempt }} (phase4_order=${{ matrix.phase4_order }})"
-        echo "== Running dotnet processes (expect none at job start) =="
-        pgrep -a dotnet || echo "none"
-        echo "== Listening TCP ports =="
-        ss -ltnp 2>/dev/null | head -50 || true
-        echo "== Memory =="
-        free -m || true
-        echo "== Inherited DOTNET_/POSHMCP_ env (expect no leakage) =="
-        env | grep -iE 'DOTNET_|POSHMCP_' || echo "no dotnet/poshmcp env leakage"
-
-    - name: Capture hardware metadata
-      run: |
-        CPU_MODEL=$(grep -m1 "model name" /proc/cpuinfo | cut -d: -f2 | xargs || echo "unknown")
-        TOTAL_MEM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}' || echo "0")
-        echo "RUNNER_CPU_MODEL=${CPU_MODEL}" >> "$GITHUB_ENV"
-        echo "RUNNER_TOTAL_MEM_KB=${TOTAL_MEM_KB}" >> "$GITHUB_ENV"
-        echo "Runner CPU: ${CPU_MODEL}"
-        echo "Runner memory: ${TOTAL_MEM_KB} kB"
-        nproc && uname -r
-
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 10.x
-
-    - name: Restore dependencies
-      run: dotnet restore
-
-    - name: Build Phase 4 (current HEAD)
-      run: dotnet build --configuration Release --no-restore
-
-    # Pin the GENUINE pre-migration (SDK 1.4.1) baseline commit directly.
-    #
-    # Provenance (verified in git history):
-    #   4ccced1  feat: upgrade MCP SDK to v2.0.0   <- migration boundary (1.4.1 -> 2.0.0)
-    #   1669686  test: v1 baseline characterization suite (Phase 0 gate) (#364)
-    #            ^ immediate PARENT of the migration; PoshMcp.Server references
-    #              ModelContextProtocol[.AspNetCore] 1.4.1 AND already carries the
-    #              characterization harness. This is the authoritative v1 baseline.
-    #
-    # The prior workflow resolved the baseline from CI run 30896180897, which pointed at
-    # commit cc50524 — a POST-migration commit whose server references MCP 2.0.0. That made
-    # Phase 0 and Phase 4 both v2 (a meaningless v2-vs-v2 comparison). Do NOT resolve the
-    # baseline from a saved run id; pin the immutable commit and verify its SDK major below.
-    - name: Pin Phase 0 baseline commit (genuine SDK 1.4.1)
-      run: |
-        PHASE0_SHA="16696866441350198bd005199228ca40582af934"
-        echo "Pinned Phase 0 (SDK 1.4.1) commit: $PHASE0_SHA"
-        # Confirm the commit exists in the fetched history (fetch-depth: 0 above).
-        if ! git cat-file -e "${PHASE0_SHA}^{commit}" 2>/dev/null; then
-          echo "ERROR: Pinned Phase 0 commit $PHASE0_SHA not found in history."
-          exit 1
-        fi
-        echo "PHASE0_SHA=$PHASE0_SHA" >> "$GITHUB_ENV"
-
-    # Build Phase 0 server from the pinned commit in an isolated directory.
-    # This ensures the same runner and .NET toolchain measures both Phase 0 and Phase 4.
-    - name: Build Phase 0 server (pinned commit)
-      run: |
-        PHASE0_DIR="${{ github.workspace }}/phase0-build"
-        mkdir -p "$PHASE0_DIR"
-
-        # Archive only PoshMcp.Server/ and its dependencies from the Phase 0 commit.
-        # git archive handles missing/extra files gracefully; any build errors are fatal.
-        git archive "$PHASE0_SHA" | tar -x -C "$PHASE0_DIR"
-
-        if [ ! -f "$PHASE0_DIR/PoshMcp.sln" ]; then
-          echo "ERROR: Phase 0 archive does not contain PoshMcp.sln — commit may be wrong."
-          ls -la "$PHASE0_DIR/" || true
-          exit 1
-        fi
-
-        pushd "$PHASE0_DIR" > /dev/null
-        dotnet restore PoshMcp.sln
-        dotnet build PoshMcp.Server/ --configuration Release --no-restore
-        popd > /dev/null
-
-        PHASE0_DLL="$PHASE0_DIR/PoshMcp.Server/bin/Release/net10.0/PoshMcp.dll"
-        if [ ! -f "$PHASE0_DLL" ]; then
-          echo "ERROR: Phase 0 server DLL not found after build: $PHASE0_DLL"
-          find "$PHASE0_DIR/PoshMcp.Server/bin" -name "*.dll" || true
-          exit 1
-        fi
-
-        echo "Phase 0 server built: $PHASE0_DLL"
-        echo "PHASE0_SERVER_DLL=$PHASE0_DLL" >> "$GITHUB_ENV"
-
-        # Capture SDK provenance for the Phase 0 (baseline) binary: the ModelContextProtocol
-        # DLL that ships next to the server. Record its SHA-256 and major version.
-        PHASE0_SDK_DLL="$PHASE0_DIR/PoshMcp.Server/bin/Release/net10.0/ModelContextProtocol.dll"
-        if [ ! -f "$PHASE0_SDK_DLL" ]; then
-          echo "ERROR: Phase 0 ModelContextProtocol.dll not found: $PHASE0_SDK_DLL"
-          exit 1
-        fi
-        PHASE0_SDK_SHA=$(sha256sum "$PHASE0_SDK_DLL" | cut -d' ' -f1)
-        # Major version from the pinned commit's csproj (authoritative source of the package ref).
-        PHASE0_SDK_REF=$(git show "$PHASE0_SHA:PoshMcp.Server/PoshMcp.csproj" \
-          | grep -oE 'ModelContextProtocol"[^>]*Version="[0-9]+' | grep -oE 'Version="[0-9]+' | grep -oE '[0-9]+' | head -n1)
-        echo "Phase 0 SDK: ModelContextProtocol v${PHASE0_SDK_REF} sha256=${PHASE0_SDK_SHA}"
-        echo "PHASE0_SDK_MAJOR=$PHASE0_SDK_REF" >> "$GITHUB_ENV"
-        echo "PHASE0_SDK_SHA=$PHASE0_SDK_SHA" >> "$GITHUB_ENV"
-
-    # Machine gate: the baseline MUST be pre-migration (v1) and HEAD post-migration (v2), and
-    # the two SDK binaries MUST differ. This is the guard that would have caught the prior
-    # v2-vs-v2 comparison. Mirrors PerformanceComparator.ValidateSdkVersionPair in C#.
-    - name: Guard SDK migration pair (v1 baseline vs v2 current)
-      run: |
-        HEAD_SDK_DLL="${{ github.workspace }}/PoshMcp.Server/bin/Release/net10.0/ModelContextProtocol.dll"
-        if [ ! -f "$HEAD_SDK_DLL" ]; then
-          echo "ERROR: HEAD ModelContextProtocol.dll not found: $HEAD_SDK_DLL"
-          exit 1
-        fi
-        HEAD_SDK_SHA=$(sha256sum "$HEAD_SDK_DLL" | cut -d' ' -f1)
-        HEAD_SDK_MAJOR=$(grep -oE 'ModelContextProtocol"[^>]*Version="[0-9]+' PoshMcp.Server/PoshMcp.csproj \
-          | grep -oE 'Version="[0-9]+' | grep -oE '[0-9]+' | head -n1)
-        echo "HEAD SDK: ModelContextProtocol v${HEAD_SDK_MAJOR} sha256=${HEAD_SDK_SHA}"
-        echo "Baseline SDK major=${PHASE0_SDK_MAJOR} sha256=${PHASE0_SDK_SHA}"
-
-        FAIL=0
-        if [ "$PHASE0_SDK_MAJOR" != "1" ]; then
-          echo "ERROR: Phase 0 baseline SDK major is '${PHASE0_SDK_MAJOR}', expected 1 (pre-migration 1.4.1)."; FAIL=1
-        fi
-        if [ "$HEAD_SDK_MAJOR" != "2" ]; then
-          echo "ERROR: HEAD SDK major is '${HEAD_SDK_MAJOR}', expected 2 (post-migration 2.0.0)."; FAIL=1
-        fi
-        if [ "$PHASE0_SDK_MAJOR" = "$HEAD_SDK_MAJOR" ]; then
-          echo "ERROR: baseline and HEAD SDK majors are identical (both v${HEAD_SDK_MAJOR}) — not a migration comparison."; FAIL=1
-        fi
-        if [ "$PHASE0_SDK_SHA" = "$HEAD_SDK_SHA" ]; then
-          echo "ERROR: baseline and HEAD ModelContextProtocol.dll have identical SHA-256 — same binary."; FAIL=1
-        fi
-        if [ "$FAIL" = "1" ]; then
-          echo "SDK migration-pair guard FAILED. This blocks a false v2-vs-v2 (or v1-vs-v1) comparison."
-          exit 1
-        fi
-        echo "SDK migration-pair guard passed: baseline v${PHASE0_SDK_MAJOR} vs current v${HEAD_SDK_MAJOR}, distinct binaries."
-
-    # Run Phase 0 characterization using the Phase 0 binary on this runner.
-    # This is the fresh "same-runner" baseline for Phase 4 comparisons.
-    # POSHMCP_SERVER_DLL and POSHMCP_SAME_JOB_PAIRED are step-local (not written to GITHUB_ENV)
-    # so they do not leak into Phase 4 comparison steps.
-    - name: Run Phase 0 characterization (same-runner fresh baseline)
-      env:
-        POSHMCP_SERVER_DLL: ${{ env.PHASE0_SERVER_DLL }}
-        POSHMCP_SAME_JOB_PAIRED: "1"
-        GITHUB_SHA: ${{ env.PHASE0_SHA }}
-        CHARACTERIZATION_ARTIFACT_PATH: ${{ github.workspace }}/TestResults/phase0-fresh-baseline.json
-      run: |
-        dotnet test --no-build --configuration Release \
-          --filter "Category=Characterization" \
-          --logger "trx;LogFileName=phase0-fresh-baseline.trx" \
-          --results-directory ./TestResults
-
-    # The fresh, same-runner Phase 0 baseline is authoritative. Verify it exists and carries
-    # positive sample counts, then expose it to the Phase 4 comparison steps. (Cross-run N
-    # agreement with a published artifact is intentionally dropped: the previously "published"
-    # baseline came from a post-migration v2 run and is not a valid v1 reference.)
-    - name: Validate fresh Phase 0 baseline and export path
-      run: |
-        FRESH_JSON="${{ github.workspace }}/TestResults/phase0-fresh-baseline.json"
-        if [ ! -f "$FRESH_JSON" ]; then
-          echo "ERROR: Fresh Phase 0 baseline not found — characterization step may have failed."
-          exit 1
-        fi
-
-        # Confirm the fresh baseline recorded the v1 SDK provenance we detect at runtime.
-        BASE_SDK_MAJOR=$(jq -r '.sdkAssembly.majorVersion // 0' "$FRESH_JSON")
-        BASE_SDK_SHA=$(jq -r '.sdkAssembly.sha256 // ""' "$FRESH_JSON")
-        echo "Fresh baseline runtime-detected SDK: major=${BASE_SDK_MAJOR} sha256=${BASE_SDK_SHA}"
-        if [ "$BASE_SDK_MAJOR" != "1" ]; then
-          echo "ERROR: fresh Phase 0 baseline runtime SDK major is '${BASE_SDK_MAJOR}', expected 1."
-          exit 1
-        fi
-
-        FRESH_WARM_N=$(jq -r '[.scenarios[] | select(.scenario == "warm_call_latency_ms")] | .[0].iterations // 0' "$FRESH_JSON")
-        if [ "$FRESH_WARM_N" = "0" ]; then
-          echo "ERROR: fresh Phase 0 baseline has zero warm-call iterations — measurement failed."
-          exit 1
-        fi
-        echo "Fresh Phase 0 baseline warm-call N=$FRESH_WARM_N"
-        echo "V1_BASELINE_PATH=$FRESH_JSON" >> "$GITHUB_ENV"
-
-    # Run Stateless and Stateful in SEPARATE dotnet test invocations (separate processes),
-    # in the matrix-counterbalanced order. Running each mode in its own process prevents one
-    # mode's cold-start subprocess spawning and GC/thread-pool pressure from contaminating the
-    # other mode's warm-call or throughput measurements. Both modes ALWAYS run (even if the
-    # first fails) so the two independent gates are both evaluated; the step exits non-zero if
-    # either mode failed. Each invocation writes its own artifact file; they are merged below.
-    - name: Run Phase 4 Performance Comparison (counterbalanced mode order)
-      env:
-        POSHMCP_REQUIRE_SDK_MIGRATION_PAIR: "1"
-        # Baseline (Phase 0) and current (HEAD) are built AND measured on THIS runner in THIS
-        # job, so the comparison is genuinely same-job paired. The merge step and
-        # Phase4MergeValidator require both per-mode artifacts to report sameJobPaired=true.
-        POSHMCP_SAME_JOB_PAIRED: "1"
-      run: |
-        set +e
-        run_mode() {
-          local mode="$1"
-          local lower
-          lower=$(echo "$mode" | tr '[:upper:]' '[:lower:]')
-          PHASE4_ARTIFACT_PATH="${{ github.workspace }}/TestResults/phase4-${lower}.json" \
-          dotnet test --no-build --configuration Release \
-            --filter "Category=PerformanceComparison&FullyQualifiedName~${mode}" \
-            --logger "trx;LogFileName=phase4-${lower}.trx" \
-            --results-directory ./TestResults
-          return $?
-        }
-        RC=0
-        if [ "${{ matrix.phase4_order }}" = "stateful_first" ]; then
-          echo "Mode order for attempt ${{ matrix.attempt }}: Stateful -> Stateless"
-          run_mode Stateful;  RC=$(( RC | $? ))
-          run_mode Stateless; RC=$(( RC | $? ))
-        else
-          echo "Mode order for attempt ${{ matrix.attempt }}: Stateless -> Stateful"
-          run_mode Stateless; RC=$(( RC | $? ))
-          run_mode Stateful;  RC=$(( RC | $? ))
-        fi
-        exit $RC
-
-    # Merge the two mode artifacts into one combined artifact.
-    # Runs even when tests fail so CI always has an artifact to upload/inspect.
-    - name: Merge Phase 4 comparison artifacts
-      if: always()
-      run: |
-        STATELESS="${{ github.workspace }}/TestResults/phase4-stateless.json"
-        STATEFUL="${{ github.workspace }}/TestResults/phase4-stateful.json"
-        COMBINED="${{ github.workspace }}/TestResults/phase4-comparison.json"
-
-        if [ -f "$STATELESS" ] && [ -f "$STATEFUL" ]; then
-          # sameJobPaired must be derived, never hardcoded. Require BOTH per-mode inputs to be
-          # present and true (mirrors Phase4MergeValidator.MergeSameJobPaired in C#). A missing
-          # or false flag fails the merge deterministically — the merged artifact must never
-          # claim same-job pairing that the measurements did not actually report.
-          SL_PAIR=$(jq -r 'if has("sameJobPaired") then (.sameJobPaired|tostring) else "missing" end' "$STATELESS")
-          SF_PAIR=$(jq -r 'if has("sameJobPaired") then (.sameJobPaired|tostring) else "missing" end' "$STATEFUL")
-          echo "Per-mode sameJobPaired: stateless=$SL_PAIR stateful=$SF_PAIR"
-          if [ "$SL_PAIR" != "true" ] || [ "$SF_PAIR" != "true" ]; then
-            echo "ERROR: sameJobPaired merge failed — both modes must report sameJobPaired=true."
-            echo "  stateless=$SL_PAIR stateful=$SF_PAIR (missing or false is not authoritative)."
-            exit 1
-          fi
-
-          jq -s '
-            {
-              schemaVersion:      .[0].schemaVersion,
-              capturedAt:         .[1].capturedAt,
-              sdkPackageVersion:  .[0].sdkPackageVersion,
-              sdkAssembly:        .[0].sdkAssembly,
-              commitSha:          .[0].commitSha,
-              runtimeInfo:        .[0].runtimeInfo,
-              baselineProvenance: .[0].baselineProvenance,
-              sameJobPaired:      (.[0].sameJobPaired and .[1].sameJobPaired),
-              modes:              (.[0].modes + .[1].modes),
-              warnings:           (.[0].warnings + .[1].warnings | unique),
-              overallPassed:      (.[0].overallPassed and .[1].overallPassed),
-              exitCode:           (if (.[0].overallPassed and .[1].overallPassed) then 0 else 1 end)
-            }
-          ' "$STATELESS" "$STATEFUL" > "$COMBINED"
-          echo "Merged Phase 4 artifact written to $COMBINED"
-          jq -r '
-            "overallPassed=\(.overallPassed) exitCode=\(.exitCode) sameJobPaired=\(.sameJobPaired)",
-            (.modes[] | "  mode=\(.transportMode) allPassed=\(.allPassed)")
-          ' "$COMBINED"
-        elif [ -f "$STATELESS" ]; then
-          cp "$STATELESS" "$COMBINED"
-          echo "WARNING: Stateful artifact missing; combined artifact contains Stateless only."
-          echo "ERROR: A partial merge is not authoritative — both modes are required."
-          exit 1
-        elif [ -f "$STATEFUL" ]; then
-          cp "$STATEFUL" "$COMBINED"
-          echo "WARNING: Stateless artifact missing; combined artifact contains Stateful only."
-          echo "ERROR: A partial merge is not authoritative — both modes are required."
-          exit 1
-        else
-          echo "ERROR: No Phase 4 mode artifacts produced — merge cannot proceed."
-          exit 1
-        fi
-
-    - name: Upload Phase 4 Comparison Artifact
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        # Unique per-attempt name — no overwrite across the 3 independent attempts (Finding #7).
-        name: phase4-comparison-attempt-${{ matrix.attempt }}
-        # if-no-files-found: warn keeps the always() upload resilient when a step failed early.
-        if-no-files-found: warn
-        path: |
-          TestResults/phase4-comparison.json
-          TestResults/phase4-stateless.json
-          TestResults/phase4-stateful.json
-          TestResults/phase4-stateless.trx
-          TestResults/phase4-stateful.trx
-          TestResults/phase0-fresh-baseline.json
-          TestResults/phase0-fresh-baseline.trx
-
+    - name: Run Phase 4 gate classifier checks
+      shell: pwsh
+      run: ./scripts/Test-Phase4Gate.ps1
