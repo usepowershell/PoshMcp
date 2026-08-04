@@ -448,7 +448,7 @@ jobs:
 
         pushd "$PHASE0_DIR" > /dev/null
         dotnet restore PoshMcp.sln
-        dotnet build PoshMcp.Server/PoshMcp.Server.csproj --configuration Release --no-restore
+        dotnet build PoshMcp.Server/ --configuration Release --no-restore
         popd > /dev/null
 
         PHASE0_DLL="$PHASE0_DIR/PoshMcp.Server/bin/Release/net10.0/PoshMcp.dll"
