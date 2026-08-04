@@ -7,7 +7,8 @@ title: Transport Modes
 
 PoshMcp supports two transport modes for different deployment scenarios.
 The production implementation uses `ModelContextProtocol` and
-`ModelContextProtocol.AspNetCore` 1.4.1 and targets MCP 2025-11-25.
+`ModelContextProtocol.AspNetCore` **2.0.0** and defaults to MCP protocol **2026-07-28** (Stateless mode).
+Protocol `2025-11-25` remains available for legacy clients via Stateful mode.
 
 ## Stdio Mode
 
@@ -43,8 +44,8 @@ poshmcp serve --transport stdio
 **Best for:** Multi-user deployments, web integration, cloud infrastructure.
 
 **Characteristics:**
-- MCP Streamable HTTP (2025-11-25)
-- Per-user isolation
+- MCP Streamable HTTP (**2026-07-28**, Stateless default)
+- Per-**call** isolation via reset-before-reuse pool
 - Horizontal scaling capable
 - Built-in health checks
 
@@ -61,39 +62,42 @@ compatibility alias. For a production deployment, set a dedicated endpoint with
 `--mcp-path /mcp` (or `POSHMCP_MCP_PATH=/mcp`) and publish only that endpoint
 through the reverse proxy or ingress.
 
-Clients initialize with a JSON-RPC `POST` containing
-`protocolVersion: "2025-11-25"` and `Accept:
-application/json, text/event-stream`. The response provides
-`Mcp-Session-Id`; 2025-11-25 clients must send that header and the negotiated
-`MCP-Protocol-Version` header on all subsequent `POST`, `GET`, and `DELETE`
-requests. Responses may be JSON or Server-Sent Events, according to the
-client's `Accept` header.
+In **Stateless** (default) mode, clients initialize with a JSON-RPC `POST`
+containing `protocolVersion: "2026-07-28"` and `Accept:
+application/json, text/event-stream`. No `Mcp-Session-Id` is issued and none is
+required; each tool call is served by a pooled runspace that is reset before
+reuse — PowerShell state does **not** persist between calls. In **Stateful**
+mode (opt-in), the server issues a `Mcp-Session-Id` for MCP protocol session
+continuity; even then, `Mcp-Session-Id` does **not** bind a caller to a
+specific PowerShell runspace or preserve variables across calls. Responses may
+be JSON or Server-Sent Events, according to the client's `Accept` header.
 
 ```bash
-# Initialize a Streamable HTTP session.
+# Initialize a Stateless HTTP session (default).
 curl -i https://poshmcp.example/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
-  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"example","version":"1.0"}}}'
+  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28","capabilities":{},"clientInfo":{"name":"example","version":"1.0"}}}'
 
-# Open the optional server-to-client event stream with the negotiated headers.
+# Open the optional server-to-client event stream.
 curl -N https://poshmcp.example/mcp \
   -H "Accept: text/event-stream" \
-  -H "Mcp-Session-Id: <session-id>" \
-  -H "MCP-Protocol-Version: 2025-11-25"
+  -H "MCP-Protocol-Version: 2026-07-28"
 
-# Explicitly end the session.
+# Stateful mode only — explicitly end the MCP session.
 curl -X DELETE https://poshmcp.example/mcp \
   -H "Mcp-Session-Id: <session-id>" \
-  -H "MCP-Protocol-Version: 2025-11-25"
+  -H "MCP-Protocol-Version: 2026-07-28"
 ```
 
 The server returns `400` for a missing, invalid, or unsupported negotiated
-protocol version. `DELETE` returns `200` for a live session; requests made
-after deletion or idle expiry return `404` and the client must initialize a new
-session. `McpServer:IdleSessionTimeoutSeconds` controls expiry (60 seconds by
-default); the SDK checks expired sessions in the background approximately every
-five seconds.
+protocol version. In **Stateful** mode, `DELETE` returns `200` for a live session;
+requests made after deletion or idle expiry return `404` and the client must
+initialize a new session. `McpServer:IdleSessionTimeoutSeconds` applies
+**only in Stateful mode** and governs MCP session idle expiry — not a dedicated
+runspace. Pool worker lifetime is governed by `McpServer:RunspacePool:IdleTtl`
+(default `00:05:00`); the pool replenishment sweep runs at
+`McpServer:RunspacePool:SweepInterval` (default `00:00:30`).
 
 `2024-11-05` Streamable HTTP clients remain supported for compatibility and
 may omit the protocol-version header after initialization. The deprecated

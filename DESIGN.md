@@ -30,7 +30,7 @@ This project bridges traditional scripting with modern AI interfaces, extending 
 - Parameter extraction and prompting for missing values
 
 ### Execution engine
-- Isolated PowerShell runspace per session for resource isolation
+- Isolated, reset-before-reuse runspaces drawn from a bounded pool (`StatelessRunspacePool`); isolation is per-call, not per-session. Process-level isolation via OutOfProcess `SubprocessHostMode`.
 - Runtime mode support: in-process (default) and out-of-process PowerShell execution. Out-of-process mode launches a runspace-pool host (`SubprocessHostMode: Pool`) by default; `ProcessPool` and `Single` remain available as opt-in topologies. Default rationale and benchmark data are recorded in [`specs/004-out-of-process-execution/benchmark-findings.md`](specs/004-out-of-process-execution/benchmark-findings.md).
 - Input/output translation for AI consumption
 - Azure Managed Identity support when deployed as a container in Azure (no code changes required)
@@ -62,7 +62,7 @@ This project bridges traditional scripting with modern AI interfaces, extending 
 
 ## Security and governance
 
-- Isolated PowerShell runspaces per session (multi-user isolation in web mode)
+- Pooled runspaces with reset-before-reuse provide per-call isolation in web mode; no per-session affinity. (stdio = one process-scoped runspace.)
 - Comprehensive logging for audit trails
 - Azure Managed Identity support when running as containers in Azure
 - Configurable command filtering via include/exclude patterns
