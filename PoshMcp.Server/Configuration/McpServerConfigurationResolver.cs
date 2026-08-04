@@ -114,7 +114,7 @@ internal static class McpServerConfigurationResolver
             return HttpTransportMode.Stateless;
         }
 
-        if (Enum.TryParse<HttpTransportMode>(rawValue, ignoreCase: true, out var mode))
+        if (Enum.TryParse<HttpTransportMode>(rawValue, ignoreCase: true, out var mode) && Enum.IsDefined(mode))
         {
             return mode;
         }
