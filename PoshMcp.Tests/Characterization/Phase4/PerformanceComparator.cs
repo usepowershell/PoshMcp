@@ -27,6 +27,65 @@ internal static class PerformanceComparator
     internal const string ExpectedBaselineSchemaVersion = "poshmcp/v1-characterization/1.0";
 
     /// <summary>
+    /// Machine gate that rejects a non-migration SDK pairing — the exact failure that made the
+    /// prior "v2-vs-v2" runs meaningless. Given the runtime-detected SDK descriptors for the
+    /// Phase 0 baseline and the Phase 4 current server, this throws when:
+    /// <list type="bullet">
+    ///   <item>either descriptor is null or its major version is undetectable (0),</item>
+    ///   <item>both majors are identical (v2-vs-v2 or v1-vs-v1),</item>
+    ///   <item>the two DLLs share a SHA-256 (literally the same binary compared to itself),</item>
+    ///   <item>the baseline major is not <paramref name="expectedBaselineMajor"/> (e.g. swapped v2 baseline),</item>
+    ///   <item>the current major is not <paramref name="expectedCurrentMajor"/>.</item>
+    /// </list>
+    /// Defaults enforce the intended 1.x → 2.x migration comparison.
+    /// </summary>
+    internal static void ValidateSdkVersionPair(
+        SdkAssemblyDescriptor? baseline,
+        SdkAssemblyDescriptor? current,
+        int expectedBaselineMajor = 1,
+        int expectedCurrentMajor = 2)
+    {
+        if (baseline is null)
+            throw new InvalidOperationException(
+                "Baseline SDK descriptor is missing. Runtime SDK detection is required for an " +
+                "authoritative comparison; a legacy artifact without sdkAssembly cannot prove it is v1. " +
+                "Re-capture the Phase 0 baseline from a genuine pre-migration (1.4.1) commit.");
+
+        if (current is null)
+            throw new InvalidOperationException(
+                "Current SDK descriptor is missing. The Phase 4 fixture must detect the loaded " +
+                "ModelContextProtocol assembly at runtime.");
+
+        if (baseline.MajorVersion <= 0 || current.MajorVersion <= 0)
+            throw new InvalidOperationException(
+                $"SDK major version could not be detected (baseline='{baseline.PackageDisplay}' major={baseline.MajorVersion}, " +
+                $"current='{current.PackageDisplay}' major={current.MajorVersion}). " +
+                "Detection must resolve a real version from the DLL; a hardcoded label is not accepted.");
+
+        if (baseline.MajorVersion == current.MajorVersion)
+            throw new InvalidOperationException(
+                $"Baseline and current MCP SDK major versions are identical (both v{current.MajorVersion}). " +
+                $"This is NOT a migration comparison — baseline='{baseline.PackageDisplay}', current='{current.PackageDisplay}'. " +
+                "This guard exists specifically to prevent v2-vs-v2 (or v1-vs-v1) false comparisons.");
+
+        if (!string.IsNullOrEmpty(baseline.Sha256) &&
+            string.Equals(baseline.Sha256, current.Sha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                $"Baseline and current MCP SDK DLLs have identical SHA-256 ({baseline.Sha256}). " +
+                "The same binary is being compared to itself — the baseline archive/build is wrong.");
+
+        if (baseline.MajorVersion != expectedBaselineMajor)
+            throw new InvalidOperationException(
+                $"Baseline MCP SDK major is v{baseline.MajorVersion} but v{expectedBaselineMajor} was expected " +
+                $"(baseline='{baseline.PackageDisplay}'). The baseline may be swapped with the current build.");
+
+        if (current.MajorVersion != expectedCurrentMajor)
+            throw new InvalidOperationException(
+                $"Current MCP SDK major is v{current.MajorVersion} but v{expectedCurrentMajor} was expected " +
+                $"(current='{current.PackageDisplay}').");
+    }
+
+    /// <summary>
     /// Validates the Phase 0 baseline artifact. Throws <see cref="InvalidOperationException"/>
     /// with an actionable message when the artifact is null, has the wrong schema version,
     /// has no scenarios, or has non-positive/non-finite values in any measured stat.

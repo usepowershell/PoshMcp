@@ -18,6 +18,13 @@ internal sealed class Phase4ComparisonArtifact
     [JsonPropertyName("sdkPackageVersion")]
     public string SdkPackageVersion { get; set; } = "";
 
+    /// <summary>
+    /// Runtime-detected provenance of the ModelContextProtocol SDK DLL loaded by the current
+    /// (Phase 4) server. Enables a machine gate that the baseline is v1 and current is v2.
+    /// </summary>
+    [JsonPropertyName("sdkAssembly")]
+    public SdkAssemblyDescriptor? SdkAssembly { get; set; }
+
     [JsonPropertyName("commitSha")]
     public string CommitSha { get; set; } = "";
 
@@ -68,6 +75,10 @@ internal sealed class Phase4BaselineProvenance
 
     [JsonPropertyName("sdkPackageVersion")]
     public string SdkPackageVersion { get; set; } = "";
+
+    /// <summary>Runtime-detected SDK provenance of the baseline (v1) server binary.</summary>
+    [JsonPropertyName("sdkAssembly")]
+    public SdkAssemblyDescriptor? SdkAssembly { get; set; }
 
     [JsonPropertyName("runtimeInfo")]
     public CharacterizationRuntimeInfo? RuntimeInfo { get; set; }

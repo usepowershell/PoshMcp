@@ -80,10 +80,17 @@ public sealed class CharacterizationFixture : IAsyncLifetime
             SameJobPaired = _sameJobPaired,
         };
 
+        // Runtime-detect the SDK the measured server actually loaded, rather than hardcoding
+        // a version label. For a genuine v1 baseline this reports ModelContextProtocol 1.x;
+        // built from a post-migration commit it reports 2.x. Detection failure is fatal —
+        // provenance must be real. (The server was started successfully above, so the DLL exists.)
+        var sdk = SdkAssemblyInfo.DetectFromMeasuredServer();
+
         var artifact = new CharacterizationArtifact
         {
             CapturedAt = DateTime.UtcNow.ToString("O"),
-            SdkPackageVersion = "ModelContextProtocol 1.4.1",
+            SdkPackageVersion = sdk.PackageDisplay,
+            SdkAssembly = sdk,
             CommitSha = Environment.GetEnvironmentVariable("GITHUB_SHA") ?? "",
             RuntimeInfo = new CharacterizationRuntimeInfo
             {

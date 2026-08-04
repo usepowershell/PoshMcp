@@ -59,20 +59,17 @@ internal sealed class CharacterizationHttpServer : IAsyncDisposable
         // it is intentionally NOT set in the environment for Phase 4 comparison steps.
         var dllOverride = Environment.GetEnvironmentVariable("POSHMCP_SERVER_DLL");
 
-        string serverDllPath;
+        string serverDllPath = ResolveServerDllPath();
         string resolvedConfig;
         if (!string.IsNullOrEmpty(dllOverride))
         {
-            serverDllPath = dllOverride;
             // When using DLL override, callers always supply configPath explicitly.
             // The null fallback here is a last-resort that won't be reached in practice.
             resolvedConfig = configPath ?? Path.Combine(Path.GetDirectoryName(dllOverride)!, "appsettings.json");
         }
         else
         {
-            var (workspaceRoot, buildConfiguration) = ResolveWorkspace();
-            const string TargetFramework = "net10.0";
-            serverDllPath = Path.Combine(workspaceRoot, "PoshMcp.Server", "bin", buildConfiguration, TargetFramework, "PoshMcp.dll");
+            var (workspaceRoot, _) = ResolveWorkspace();
             resolvedConfig = configPath ?? Path.Combine(workspaceRoot, "PoshMcp.Server", "appsettings.json");
         }
 
@@ -141,6 +138,24 @@ internal sealed class CharacterizationHttpServer : IAsyncDisposable
         }
 
         throw new TimeoutException($"Characterization server at {ServerUrl} did not become ready within 60 seconds.");
+    }
+
+    /// <summary>
+    /// Resolves the path to the PoshMcp server DLL that characterization/Phase 4 tests launch.
+    /// Honors the <c>POSHMCP_SERVER_DLL</c> override (set for the Phase 0 same-job step) and
+    /// otherwise falls back to the current build output. Single source of truth reused by
+    /// <see cref="SdkAssemblyInfo.DetectFromMeasuredServer"/> so SDK provenance is derived
+    /// from the exact binary that is measured.
+    /// </summary>
+    internal static string ResolveServerDllPath()
+    {
+        var dllOverride = Environment.GetEnvironmentVariable("POSHMCP_SERVER_DLL");
+        if (!string.IsNullOrEmpty(dllOverride))
+            return dllOverride;
+
+        var (workspaceRoot, buildConfiguration) = ResolveWorkspace();
+        const string TargetFramework = "net10.0";
+        return Path.Combine(workspaceRoot, "PoshMcp.Server", "bin", buildConfiguration, TargetFramework, "PoshMcp.dll");
     }
 
     private static (string WorkspaceRoot, string BuildConfiguration) ResolveWorkspace()

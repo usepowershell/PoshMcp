@@ -81,6 +81,15 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
 
         PerformanceComparator.ValidateBaseline(_baseline);
         _baselineRunId = Environment.GetEnvironmentVariable("V1_BASELINE_RUN_ID") ?? "unknown";
+
+        // Authoritative CI runs set POSHMCP_REQUIRE_SDK_MIGRATION_PAIR=1 to enforce that the
+        // baseline is a genuine v1 (1.x) build and the current server is v2 (2.x). This is the
+        // machine gate that rejects the v2-vs-v2 pairing that invalidated the prior runs.
+        if (Environment.GetEnvironmentVariable("POSHMCP_REQUIRE_SDK_MIGRATION_PAIR") == "1")
+        {
+            var currentSdk = SdkAssemblyInfo.DetectFromMeasuredServer();
+            PerformanceComparator.ValidateSdkVersionPair(_baseline.SdkAssembly, currentSdk);
+        }
     }
 
     public async Task DisposeAsync()
@@ -122,10 +131,16 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
                 $"this run has {Environment.ProcessorCount}. Concurrency and throughput results may differ.");
         }
 
+        // Runtime-detect the current (Phase 4) SDK the measured server loaded. This is the
+        // post-migration binary and must report 2.x; the baseline provenance carries the v1
+        // descriptor from the Phase 0 artifact so a v2-vs-v2 pairing is machine-detectable.
+        var currentSdk = SdkAssemblyInfo.DetectFromMeasuredServer();
+
         var artifact = new Phase4ComparisonArtifact
         {
             CapturedAt = DateTime.UtcNow.ToString("O"),
-            SdkPackageVersion = "ModelContextProtocol 1.4.1",
+            SdkPackageVersion = currentSdk.PackageDisplay,
+            SdkAssembly = currentSdk,
             CommitSha = Environment.GetEnvironmentVariable("GITHUB_SHA") ?? "local",
             SameJobPaired = Environment.GetEnvironmentVariable("POSHMCP_SAME_JOB_PAIRED") == "1",
             RuntimeInfo = new CharacterizationRuntimeInfo
@@ -140,6 +155,7 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
                 SchemaVersion = _baseline!.SchemaVersion,
                 CapturedAt = _baseline.CapturedAt,
                 SdkPackageVersion = _baseline.SdkPackageVersion,
+                SdkAssembly = _baseline.SdkAssembly,
                 RuntimeInfo = _baseline.RuntimeInfo,
                 ArtifactRunId = _baselineRunId ?? "unknown",
                 ArtifactSource = $"github-actions/v1-baseline-characterization/run/{_baselineRunId}",

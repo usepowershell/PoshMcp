@@ -345,10 +345,44 @@ jobs:
       contents: read
       actions: read
 
+    # Three INDEPENDENT paired attempts at the SAME revision SHA (Finding #6/#10).
+    # Each attempt is its own matrix job on its own fresh runner — it builds BOTH the
+    # pinned v1.4.1 baseline and the v2.0.0 HEAD, so every attempt is a genuine v1-vs-v2
+    # pair on one runner from clean processes. These are NOT failed-job reruns.
+    #
+    # phase4_order counterbalances the sub-measurement order that this test-only harness
+    # can control: the Stateless/Stateful mode sequence. Full v1-before-v2 (Phase 0 before
+    # Phase 4) order reversal is architecturally fixed here because the Phase 4 comparison
+    # step consumes the Phase 0 baseline JSON produced earlier in the same job; splitting
+    # measurement from comparison to also reverse v1/v2 is tracked as follow-up and is NOT
+    # claimed to be resolved.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - attempt: 1
+            phase4_order: "stateless_first"
+          - attempt: 2
+            phase4_order: "stateful_first"
+          - attempt: 3
+            phase4_order: "stateless_first"
+
     steps:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0  # Need full history to archive Phase 0 commit
+
+    - name: Capture clean-process and environment evidence
+      run: |
+        echo "Attempt: ${{ matrix.attempt }} (phase4_order=${{ matrix.phase4_order }})"
+        echo "== Running dotnet processes (expect none at job start) =="
+        pgrep -a dotnet || echo "none"
+        echo "== Listening TCP ports =="
+        ss -ltnp 2>/dev/null | head -50 || true
+        echo "== Memory =="
+        free -m || true
+        echo "== Inherited DOTNET_/POSHMCP_ env (expect no leakage) =="
+        env | grep -iE 'DOTNET_|POSHMCP_' || echo "no dotnet/poshmcp env leakage"
 
     - name: Capture hardware metadata
       run: |
@@ -371,62 +405,28 @@ jobs:
     - name: Build Phase 4 (current HEAD)
       run: dotnet build --configuration Release --no-restore
 
-    # Download the authoritative Phase 0 published baseline for provenance/sanity.
-    # V1_BASELINE_RUN_ID is the authoritative run that captured SDK 1.4.1 metrics.
-    - name: Download authoritative Phase 0 published baseline
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        V1_BASELINE_RUN_ID: "30896180897"
+    # Pin the GENUINE pre-migration (SDK 1.4.1) baseline commit directly.
+    #
+    # Provenance (verified in git history):
+    #   4ccced1  feat: upgrade MCP SDK to v2.0.0   <- migration boundary (1.4.1 -> 2.0.0)
+    #   1669686  test: v1 baseline characterization suite (Phase 0 gate) (#364)
+    #            ^ immediate PARENT of the migration; PoshMcp.Server references
+    #              ModelContextProtocol[.AspNetCore] 1.4.1 AND already carries the
+    #              characterization harness. This is the authoritative v1 baseline.
+    #
+    # The prior workflow resolved the baseline from CI run 30896180897, which pointed at
+    # commit cc50524 — a POST-migration commit whose server references MCP 2.0.0. That made
+    # Phase 0 and Phase 4 both v2 (a meaningless v2-vs-v2 comparison). Do NOT resolve the
+    # baseline from a saved run id; pin the immutable commit and verify its SDK major below.
+    - name: Pin Phase 0 baseline commit (genuine SDK 1.4.1)
       run: |
-        echo "Downloading authoritative Phase 0 baseline from run $V1_BASELINE_RUN_ID"
-        mkdir -p TestResults/published-baseline
-
-        if ! gh run download "$V1_BASELINE_RUN_ID" \
-          --name v1-baseline-characterization \
-          --dir TestResults/published-baseline; then
-          echo "ERROR: Could not download 'v1-baseline-characterization' from run $V1_BASELINE_RUN_ID."
-          echo "  The artifact may have expired (GitHub default retention: 90 days)."
-          echo "  If expired, run the characterization job on the Phase 0 commit manually"
-          echo "  and update V1_BASELINE_RUN_ID in this workflow."
+        PHASE0_SHA="16696866441350198bd005199228ca40582af934"
+        echo "Pinned Phase 0 (SDK 1.4.1) commit: $PHASE0_SHA"
+        # Confirm the commit exists in the fetched history (fetch-depth: 0 above).
+        if ! git cat-file -e "${PHASE0_SHA}^{commit}" 2>/dev/null; then
+          echo "ERROR: Pinned Phase 0 commit $PHASE0_SHA not found in history."
           exit 1
         fi
-
-        PUBLISHED_JSON="TestResults/published-baseline/v1-baseline-characterization.json"
-        if [ ! -f "$PUBLISHED_JSON" ]; then
-          echo "ERROR: Artifact downloaded but v1-baseline-characterization.json not found."
-          ls -la TestResults/published-baseline/ || true
-          exit 1
-        fi
-
-        SCHEMA=$(jq -r '.schemaVersion // "missing"' "$PUBLISHED_JSON")
-        if [ "$SCHEMA" != "poshmcp/v1-characterization/1.0" ]; then
-          echo "ERROR: Published baseline schema mismatch. Expected 'poshmcp/v1-characterization/1.0', got '$SCHEMA'."
-          exit 1
-        fi
-
-        # Extract N values from published baseline for post-hoc validation of fresh measurement.
-        COLD_N=$(jq -r '[.scenarios[] | select(.scenario == "cold_start_http_with_script")] | .[0].iterations // 0' "$PUBLISHED_JSON")
-        WARM_N=$(jq -r '[.scenarios[] | select(.scenario == "warm_call_latency_ms")] | .[0].iterations // 0' "$PUBLISHED_JSON")
-        TPUT_N=$(jq -r '[.scenarios[] | select(.scenario == "concurrent_throughput_ms")] | .[0].iterations // 0' "$PUBLISHED_JSON")
-        echo "Published baseline N: cold=$COLD_N warm=$WARM_N throughput=$TPUT_N"
-        echo "PUBLISHED_BASELINE_JSON=${{ github.workspace }}/$PUBLISHED_JSON" >> "$GITHUB_ENV"
-        echo "PUBLISHED_COLD_N=$COLD_N" >> "$GITHUB_ENV"
-        echo "PUBLISHED_WARM_N=$WARM_N" >> "$GITHUB_ENV"
-        echo "PUBLISHED_TPUT_N=$TPUT_N" >> "$GITHUB_ENV"
-        cp "$PUBLISHED_JSON" "TestResults/phase0-published-baseline.json"
-
-    # Fetch Phase 0 commit SHA from the authoritative CI run.
-    - name: Fetch Phase 0 commit SHA
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        V1_BASELINE_RUN_ID: "30896180897"
-      run: |
-        PHASE0_SHA=$(gh run view "$V1_BASELINE_RUN_ID" --json headSha --jq '.headSha')
-        if [ -z "$PHASE0_SHA" ] || [ "$PHASE0_SHA" = "null" ]; then
-          echo "ERROR: Could not retrieve headSha for run $V1_BASELINE_RUN_ID."
-          exit 1
-        fi
-        echo "Phase 0 commit SHA: $PHASE0_SHA"
         echo "PHASE0_SHA=$PHASE0_SHA" >> "$GITHUB_ENV"
 
     # Build Phase 0 server from the pinned commit in an isolated directory.
@@ -461,6 +461,56 @@ jobs:
         echo "Phase 0 server built: $PHASE0_DLL"
         echo "PHASE0_SERVER_DLL=$PHASE0_DLL" >> "$GITHUB_ENV"
 
+        # Capture SDK provenance for the Phase 0 (baseline) binary: the ModelContextProtocol
+        # DLL that ships next to the server. Record its SHA-256 and major version.
+        PHASE0_SDK_DLL="$PHASE0_DIR/PoshMcp.Server/bin/Release/net10.0/ModelContextProtocol.dll"
+        if [ ! -f "$PHASE0_SDK_DLL" ]; then
+          echo "ERROR: Phase 0 ModelContextProtocol.dll not found: $PHASE0_SDK_DLL"
+          exit 1
+        fi
+        PHASE0_SDK_SHA=$(sha256sum "$PHASE0_SDK_DLL" | cut -d' ' -f1)
+        # Major version from the pinned commit's csproj (authoritative source of the package ref).
+        PHASE0_SDK_REF=$(git show "$PHASE0_SHA:PoshMcp.Server/PoshMcp.csproj" \
+          | grep -oE 'ModelContextProtocol"[^>]*Version="[0-9]+' | grep -oE 'Version="[0-9]+' | grep -oE '[0-9]+' | head -n1)
+        echo "Phase 0 SDK: ModelContextProtocol v${PHASE0_SDK_REF} sha256=${PHASE0_SDK_SHA}"
+        echo "PHASE0_SDK_MAJOR=$PHASE0_SDK_REF" >> "$GITHUB_ENV"
+        echo "PHASE0_SDK_SHA=$PHASE0_SDK_SHA" >> "$GITHUB_ENV"
+
+    # Machine gate: the baseline MUST be pre-migration (v1) and HEAD post-migration (v2), and
+    # the two SDK binaries MUST differ. This is the guard that would have caught the prior
+    # v2-vs-v2 comparison. Mirrors PerformanceComparator.ValidateSdkVersionPair in C#.
+    - name: Guard SDK migration pair (v1 baseline vs v2 current)
+      run: |
+        HEAD_SDK_DLL="${{ github.workspace }}/PoshMcp.Server/bin/Release/net10.0/ModelContextProtocol.dll"
+        if [ ! -f "$HEAD_SDK_DLL" ]; then
+          echo "ERROR: HEAD ModelContextProtocol.dll not found: $HEAD_SDK_DLL"
+          exit 1
+        fi
+        HEAD_SDK_SHA=$(sha256sum "$HEAD_SDK_DLL" | cut -d' ' -f1)
+        HEAD_SDK_MAJOR=$(grep -oE 'ModelContextProtocol"[^>]*Version="[0-9]+' PoshMcp.Server/PoshMcp.csproj \
+          | grep -oE 'Version="[0-9]+' | grep -oE '[0-9]+' | head -n1)
+        echo "HEAD SDK: ModelContextProtocol v${HEAD_SDK_MAJOR} sha256=${HEAD_SDK_SHA}"
+        echo "Baseline SDK major=${PHASE0_SDK_MAJOR} sha256=${PHASE0_SDK_SHA}"
+
+        FAIL=0
+        if [ "$PHASE0_SDK_MAJOR" != "1" ]; then
+          echo "ERROR: Phase 0 baseline SDK major is '${PHASE0_SDK_MAJOR}', expected 1 (pre-migration 1.4.1)."; FAIL=1
+        fi
+        if [ "$HEAD_SDK_MAJOR" != "2" ]; then
+          echo "ERROR: HEAD SDK major is '${HEAD_SDK_MAJOR}', expected 2 (post-migration 2.0.0)."; FAIL=1
+        fi
+        if [ "$PHASE0_SDK_MAJOR" = "$HEAD_SDK_MAJOR" ]; then
+          echo "ERROR: baseline and HEAD SDK majors are identical (both v${HEAD_SDK_MAJOR}) — not a migration comparison."; FAIL=1
+        fi
+        if [ "$PHASE0_SDK_SHA" = "$HEAD_SDK_SHA" ]; then
+          echo "ERROR: baseline and HEAD ModelContextProtocol.dll have identical SHA-256 — same binary."; FAIL=1
+        fi
+        if [ "$FAIL" = "1" ]; then
+          echo "SDK migration-pair guard FAILED. This blocks a false v2-vs-v2 (or v1-vs-v1) comparison."
+          exit 1
+        fi
+        echo "SDK migration-pair guard passed: baseline v${PHASE0_SDK_MAJOR} vs current v${HEAD_SDK_MAJOR}, distinct binaries."
+
     # Run Phase 0 characterization using the Phase 0 binary on this runner.
     # This is the fresh "same-runner" baseline for Phase 4 comparisons.
     # POSHMCP_SERVER_DLL and POSHMCP_SAME_JOB_PAIRED are step-local (not written to GITHUB_ENV)
@@ -477,11 +527,11 @@ jobs:
           --logger "trx;LogFileName=phase0-fresh-baseline.trx" \
           --results-directory ./TestResults
 
-    # Validate that the fresh Phase 0 N values match the published baseline.
-    # If they differ, the published artifact and fresh measurement are from different
-    # methodology versions — the comparator will catch this, but an explicit check here
-    # gives a clearer error message at the CI step level.
-    - name: Validate Phase 0 fresh vs published N agreement
+    # The fresh, same-runner Phase 0 baseline is authoritative. Verify it exists and carries
+    # positive sample counts, then expose it to the Phase 4 comparison steps. (Cross-run N
+    # agreement with a published artifact is intentionally dropped: the previously "published"
+    # baseline came from a post-migration v2 run and is not a valid v1 reference.)
+    - name: Validate fresh Phase 0 baseline and export path
       run: |
         FRESH_JSON="${{ github.workspace }}/TestResults/phase0-fresh-baseline.json"
         if [ ! -f "$FRESH_JSON" ]; then
@@ -489,61 +539,56 @@ jobs:
           exit 1
         fi
 
-        FRESH_COLD_N=$(jq -r '[.scenarios[] | select(.scenario == "cold_start_http_with_script")] | .[0].iterations // 0' "$FRESH_JSON")
-        FRESH_WARM_N=$(jq -r '[.scenarios[] | select(.scenario == "warm_call_latency_ms")] | .[0].iterations // 0' "$FRESH_JSON")
-        FRESH_TPUT_N=$(jq -r '[.scenarios[] | select(.scenario == "concurrent_throughput_ms")] | .[0].iterations // 0' "$FRESH_JSON")
-
-        echo "Fresh N: cold=$FRESH_COLD_N warm=$FRESH_WARM_N throughput=$FRESH_TPUT_N"
-        echo "Published N: cold=$PUBLISHED_COLD_N warm=$PUBLISHED_WARM_N throughput=$PUBLISHED_TPUT_N"
-
-        MISMATCH=0
-        if [ "$PUBLISHED_COLD_N" != "0" ] && [ "$FRESH_COLD_N" != "$PUBLISHED_COLD_N" ]; then
-          echo "WARNING: cold-start N mismatch: published=$PUBLISHED_COLD_N, fresh=$FRESH_COLD_N"
-          MISMATCH=1
-        fi
-        if [ "$PUBLISHED_WARM_N" != "0" ] && [ "$FRESH_WARM_N" != "$PUBLISHED_WARM_N" ]; then
-          echo "WARNING: warm-call N mismatch: published=$PUBLISHED_WARM_N, fresh=$FRESH_WARM_N"
-          MISMATCH=1
-        fi
-        if [ "$PUBLISHED_TPUT_N" != "0" ] && [ "$FRESH_TPUT_N" != "$PUBLISHED_TPUT_N" ]; then
-          echo "WARNING: throughput N mismatch: published=$PUBLISHED_TPUT_N, fresh=$FRESH_TPUT_N"
-          MISMATCH=1
-        fi
-
-        if [ "$MISMATCH" = "1" ]; then
-          echo "ERROR: N values differ between published and fresh Phase 0 baseline."
-          echo "  This means the Phase 0 characterization test methodology changed between"
-          echo "  the authoritative run and the current test code. The comparator will also"
-          echo "  flag this via ValidateMethodologyMatch. Investigate before proceeding."
+        # Confirm the fresh baseline recorded the v1 SDK provenance we detect at runtime.
+        BASE_SDK_MAJOR=$(jq -r '.sdkAssembly.majorVersion // 0' "$FRESH_JSON")
+        BASE_SDK_SHA=$(jq -r '.sdkAssembly.sha256 // ""' "$FRESH_JSON")
+        echo "Fresh baseline runtime-detected SDK: major=${BASE_SDK_MAJOR} sha256=${BASE_SDK_SHA}"
+        if [ "$BASE_SDK_MAJOR" != "1" ]; then
+          echo "ERROR: fresh Phase 0 baseline runtime SDK major is '${BASE_SDK_MAJOR}', expected 1."
           exit 1
         fi
 
-        echo "Phase 0 N values agree with published baseline."
-        echo "V1_BASELINE_PATH=${{ github.workspace }}/TestResults/phase0-fresh-baseline.json" >> "$GITHUB_ENV"
+        FRESH_WARM_N=$(jq -r '[.scenarios[] | select(.scenario == "warm_call_latency_ms")] | .[0].iterations // 0' "$FRESH_JSON")
+        if [ "$FRESH_WARM_N" = "0" ]; then
+          echo "ERROR: fresh Phase 0 baseline has zero warm-call iterations — measurement failed."
+          exit 1
+        fi
+        echo "Fresh Phase 0 baseline warm-call N=$FRESH_WARM_N"
+        echo "V1_BASELINE_PATH=$FRESH_JSON" >> "$GITHUB_ENV"
 
-    # Run Stateless and Stateful in SEPARATE dotnet test invocations (separate processes).
-    # This prevents one mode's cold-start subprocess spawning and GC/thread-pool pressure
-    # from contaminating the other mode's warm-call or throughput measurements.
-    # Each invocation writes its own artifact file; they are merged in the step below.
-    # if: always() ensures Stateful runs even if Stateless fails (independent gates).
-    - name: Run Phase 4 Performance Comparison — Stateless
+    # Run Stateless and Stateful in SEPARATE dotnet test invocations (separate processes),
+    # in the matrix-counterbalanced order. Running each mode in its own process prevents one
+    # mode's cold-start subprocess spawning and GC/thread-pool pressure from contaminating the
+    # other mode's warm-call or throughput measurements. Both modes ALWAYS run (even if the
+    # first fails) so the two independent gates are both evaluated; the step exits non-zero if
+    # either mode failed. Each invocation writes its own artifact file; they are merged below.
+    - name: Run Phase 4 Performance Comparison (counterbalanced mode order)
       env:
-        PHASE4_ARTIFACT_PATH: ${{ github.workspace }}/TestResults/phase4-stateless.json
+        POSHMCP_REQUIRE_SDK_MIGRATION_PAIR: "1"
       run: |
-        dotnet test --no-build --configuration Release \
-          --filter "Category=PerformanceComparison&FullyQualifiedName~Stateless" \
-          --logger "trx;LogFileName=phase4-stateless.trx" \
-          --results-directory ./TestResults
-
-    - name: Run Phase 4 Performance Comparison — Stateful
-      if: always()
-      env:
-        PHASE4_ARTIFACT_PATH: ${{ github.workspace }}/TestResults/phase4-stateful.json
-      run: |
-        dotnet test --no-build --configuration Release \
-          --filter "Category=PerformanceComparison&FullyQualifiedName~Stateful" \
-          --logger "trx;LogFileName=phase4-stateful.trx" \
-          --results-directory ./TestResults
+        set +e
+        run_mode() {
+          local mode="$1"
+          local lower
+          lower=$(echo "$mode" | tr '[:upper:]' '[:lower:]')
+          PHASE4_ARTIFACT_PATH="${{ github.workspace }}/TestResults/phase4-${lower}.json" \
+          dotnet test --no-build --configuration Release \
+            --filter "Category=PerformanceComparison&FullyQualifiedName~${mode}" \
+            --logger "trx;LogFileName=phase4-${lower}.trx" \
+            --results-directory ./TestResults
+          return $?
+        }
+        RC=0
+        if [ "${{ matrix.phase4_order }}" = "stateful_first" ]; then
+          echo "Mode order for attempt ${{ matrix.attempt }}: Stateful -> Stateless"
+          run_mode Stateful;  RC=$(( RC | $? ))
+          run_mode Stateless; RC=$(( RC | $? ))
+        else
+          echo "Mode order for attempt ${{ matrix.attempt }}: Stateless -> Stateful"
+          run_mode Stateless; RC=$(( RC | $? ))
+          run_mode Stateful;  RC=$(( RC | $? ))
+        fi
+        exit $RC
 
     # Merge the two mode artifacts into one combined artifact.
     # Runs even when tests fail so CI always has an artifact to upload/inspect.
@@ -555,15 +600,29 @@ jobs:
         COMBINED="${{ github.workspace }}/TestResults/phase4-comparison.json"
 
         if [ -f "$STATELESS" ] && [ -f "$STATEFUL" ]; then
+          # sameJobPaired must be derived, never hardcoded. Require BOTH per-mode inputs to be
+          # present and true (mirrors Phase4MergeValidator.MergeSameJobPaired in C#). A missing
+          # or false flag fails the merge deterministically — the merged artifact must never
+          # claim same-job pairing that the measurements did not actually report.
+          SL_PAIR=$(jq -r 'if has("sameJobPaired") then (.sameJobPaired|tostring) else "missing" end' "$STATELESS")
+          SF_PAIR=$(jq -r 'if has("sameJobPaired") then (.sameJobPaired|tostring) else "missing" end' "$STATEFUL")
+          echo "Per-mode sameJobPaired: stateless=$SL_PAIR stateful=$SF_PAIR"
+          if [ "$SL_PAIR" != "true" ] || [ "$SF_PAIR" != "true" ]; then
+            echo "ERROR: sameJobPaired merge failed — both modes must report sameJobPaired=true."
+            echo "  stateless=$SL_PAIR stateful=$SF_PAIR (missing or false is not authoritative)."
+            exit 1
+          fi
+
           jq -s '
             {
               schemaVersion:      .[0].schemaVersion,
               capturedAt:         .[1].capturedAt,
               sdkPackageVersion:  .[0].sdkPackageVersion,
+              sdkAssembly:        .[0].sdkAssembly,
               commitSha:          .[0].commitSha,
               runtimeInfo:        .[0].runtimeInfo,
               baselineProvenance: .[0].baselineProvenance,
-              sameJobPaired:      true,
+              sameJobPaired:      (.[0].sameJobPaired and .[1].sameJobPaired),
               modes:              (.[0].modes + .[1].modes),
               warnings:           (.[0].warnings + .[1].warnings | unique),
               overallPassed:      (.[0].overallPassed and .[1].overallPassed),
@@ -578,18 +637,26 @@ jobs:
         elif [ -f "$STATELESS" ]; then
           cp "$STATELESS" "$COMBINED"
           echo "WARNING: Stateful artifact missing; combined artifact contains Stateless only."
+          echo "ERROR: A partial merge is not authoritative — both modes are required."
+          exit 1
         elif [ -f "$STATEFUL" ]; then
           cp "$STATEFUL" "$COMBINED"
           echo "WARNING: Stateless artifact missing; combined artifact contains Stateful only."
+          echo "ERROR: A partial merge is not authoritative — both modes are required."
+          exit 1
         else
-          echo "WARNING: No Phase 4 mode artifacts produced."
+          echo "ERROR: No Phase 4 mode artifacts produced — merge cannot proceed."
+          exit 1
         fi
 
     - name: Upload Phase 4 Comparison Artifact
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: phase4-comparison
+        # Unique per-attempt name — no overwrite across the 3 independent attempts (Finding #7).
+        name: phase4-comparison-attempt-${{ matrix.attempt }}
+        # if-no-files-found: warn keeps the always() upload resilient when a step failed early.
+        if-no-files-found: warn
         path: |
           TestResults/phase4-comparison.json
           TestResults/phase4-stateless.json
@@ -597,6 +664,5 @@ jobs:
           TestResults/phase4-stateless.trx
           TestResults/phase4-stateful.trx
           TestResults/phase0-fresh-baseline.json
-          TestResults/phase0-published-baseline.json
           TestResults/phase0-fresh-baseline.trx
 

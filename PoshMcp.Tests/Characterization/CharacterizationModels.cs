@@ -20,6 +20,14 @@ internal sealed class CharacterizationArtifact
     [JsonPropertyName("sdkPackageVersion")]
     public string SdkPackageVersion { get; set; } = "";
 
+    /// <summary>
+    /// Runtime-detected provenance of the ModelContextProtocol SDK DLL loaded by the measured
+    /// server (name/version/path/SHA-256). Null on legacy artifacts produced before this field
+    /// existed. Populated from <see cref="SdkAssemblyInfo.DetectFromMeasuredServer"/>.
+    /// </summary>
+    [JsonPropertyName("sdkAssembly")]
+    public SdkAssemblyDescriptor? SdkAssembly { get; set; }
+
     /// <summary>Git commit SHA of the repository when this artifact was captured.</summary>
     [JsonPropertyName("commitSha")]
     public string CommitSha { get; set; } = "";
