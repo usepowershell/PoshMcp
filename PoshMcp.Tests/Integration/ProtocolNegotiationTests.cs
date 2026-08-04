@@ -325,7 +325,7 @@ public class ProtocolNegotiationTests : PowerShellTestBase
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
 
-        var lifecycle = new McpSessionLifecycle(_ => { });
+        var lifecycle = new McpSessionLifecycle();
         builder.Services.AddSingleton(lifecycle);
 
         var compatTool = McpServerTool.Create(

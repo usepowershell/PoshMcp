@@ -14,6 +14,16 @@ namespace PoshMcp.Server.PowerShell;
 /// <summary>
 /// Limits and maintains the isolated PowerShell runspaces used by HTTP MCP sessions.
 /// </summary>
+/// <remarks>
+/// <b>Obsolete.</b> HTTP execution is now handled by the server-owned stateless worker pool.
+/// Configure pool behaviour via <see cref="PoshMcp.Server.PowerShell.Pool.RunspacePoolOptions"/> and
+/// register it through <see cref="PoshMcp.Server.Server.RunspacePoolLifecycleService"/>.
+/// This type will be removed in the next major version.
+/// </remarks>
+[Obsolete(
+    "SessionRunspaceOptions is superseded by RunspacePoolOptions. " +
+    "Configure the stateless worker pool via RunspacePoolOptions and register it through RunspacePoolLifecycleService. " +
+    "This type will be removed in the next major version.")]
 public sealed class SessionRunspaceOptions
 {
     public int Capacity { get; set; } = 16;
@@ -27,6 +37,17 @@ public sealed class SessionRunspaceOptions
 /// Proxy PowerShell runspace that delegates to a bounded, session-specific isolated runspace.
 /// A runspace is never reassigned after it has served a session.
 /// </summary>
+/// <remarks>
+/// <b>Obsolete.</b> HTTP transport execution is now handled by the server-owned stateless worker pool.
+/// Use <see cref="PoshMcp.Server.PowerShell.Pool.IRunspacePool"/> and
+/// <see cref="PoshMcp.Server.PowerShell.Pool.StatelessRunspacePool"/> for HTTP execution.
+/// Register pool lifetime via <see cref="PoshMcp.Server.Server.RunspacePoolLifecycleService"/>.
+/// This type will be removed in the next major version.
+/// </remarks>
+[Obsolete(
+    "SessionAwarePowerShellRunspace is superseded by StatelessRunspacePool (IRunspacePool). " +
+    "Register IRunspacePool via RunspacePoolLifecycleService for HTTP execution. " +
+    "This type will be removed in the next major version.")]
 public class SessionAwarePowerShellRunspace : IPowerShellRunspace, IDisposable
 {
     private readonly IHttpContextAccessor _httpContextAccessor;

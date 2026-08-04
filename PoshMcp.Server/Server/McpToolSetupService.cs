@@ -120,9 +120,8 @@ internal static class McpToolSetupService
                 null,
                 () => tools,
                 importSourceTracker,
-                sessionAwareRunspace is SessionAwarePowerShellRunspace managedRunspace
-                    ? managedRunspace.ReleaseAllSessions
-                    : null);
+                // HTTP uses a stateless pool; no session-affine state needs releasing on reload.
+                null);
             AddConfigurationReloadToolsToList(tools, reloadTools);
             logger.LogInformation($"Added {tools.Count} total tools (including 3 configuration reload tools)");
         }

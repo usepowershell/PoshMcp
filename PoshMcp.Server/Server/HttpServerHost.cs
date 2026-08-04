@@ -122,9 +122,9 @@ internal static class HttpServerHost
             // introspection only — it is never accessed at request time.
             using var pooledRunspace = new PooledHttpRunspace(pool, productionStartupScript, bootstrapLoggerFactory);
 
-            // Session lifecycle: protocol-version tracking only. The pool has no per-session
-            // runspace state, so the cleanup callback is intentionally a no-op.
-            var sessionLifecycle = new McpSessionLifecycle(_ => { });
+            // Session lifecycle: protocol-version tracking only. The pool manages worker state
+            // independently; stateful session completion must never drain or dispose the pool.
+            var sessionLifecycle = new McpSessionLifecycle();
 
             builder.Services.AddSingleton(sessionLifecycle);
             builder.Services.AddSingleton<IPowerShellRunspace>(pooledRunspace);
