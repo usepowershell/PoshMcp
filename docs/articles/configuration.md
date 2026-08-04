@@ -180,12 +180,16 @@ Full configuration structure:
     "SubprocessRunspacePoolSize": 0
   },
   "McpServer": {
+    "HttpTransportMode": "Stateless",
     "IdleSessionTimeoutSeconds": 60,
-    "SessionRunspaceCapacity": 16,
-    "SessionRunspaceIdleTtlSeconds": 300,
-    "SessionRunspaceSweepIntervalSeconds": 30,
-    "SessionRunspaceWarmStandbyCount": 2,
-    "SessionRunspaceAcquisitionTimeoutSeconds": 15,
+    "RunspacePool": {
+      "MaxPoolSize": 16,
+      "MinPoolSize": 2,
+      "EagerWarmCount": 2,
+      "IdleTtl": "00:05:00",
+      "SweepInterval": "00:00:30",
+      "AcquisitionTimeout": "00:00:15"
+    },
     "EnableLegacySse": false
   }
 }
@@ -210,40 +214,47 @@ See [Advanced Configuration → Out-of-Process PowerShell](advanced.md#out-of-pr
 
 ### MCP Server HTTP Sessions
 
-`McpServer` applies to HTTP transport. Each request with an
-`Mcp-Session-Id` is assigned one clean, initialized PowerShell runspace for
-the lifetime of that MCP session; it is not reassigned to another session.
-Requests without that header use a one-shot runspace and do not retain
-PowerShell state.
+`McpServer` applies to HTTP transport. Each request leases a reset pooled
+worker from the shared `StatelessRunspacePool` for the duration of that call;
+workers are reused after reset. There is no session-lifetime runspace affinity
+and no cross-call PowerShell state persistence.
 
 | Setting | Default | Effect |
 |---------|--------:|--------|
-| `IdleSessionTimeoutSeconds` | 60 | Closes an inactive MCP session. |
-| `SessionRunspaceCapacity` | 16 | Maximum runspaces concurrently assigned to sessions or leased for one-shot requests. |
-| `SessionRunspaceIdleTtlSeconds` | 300 | Retains an inactive session runspace for this many seconds before release. |
-| `SessionRunspaceSweepIntervalSeconds` | 30 | Interval for checking idle session runspaces. |
-| `SessionRunspaceWarmStandbyCount` | 2 | Clean initialized runspaces kept ready for new sessions. |
-| `SessionRunspaceAcquisitionTimeoutSeconds` | 15 | Maximum time to wait for runspace capacity before the request fails. |
+| `HttpTransportMode` | `Stateless` | Transport mode: `Stateless` (default, protocol `2026-07-28`) or `Stateful` (opt-in, enables `Mcp-Session-Id` protocol sessions and `IdleSessionTimeoutSeconds`). |
+| `IdleSessionTimeoutSeconds` | 60 | **Stateful mode only.** Closes an inactive MCP protocol session. No effect in Stateless mode. |
+| `RunspacePool:MaxPoolSize` | 16 | Maximum pooled workers. Deprecated alias: `SessionRunspaceCapacity`. |
+| `RunspacePool:MinPoolSize` | 2 | Floor the pool replenishes to. Deprecated alias (shared): `SessionRunspaceWarmStandbyCount`. |
+| `RunspacePool:EagerWarmCount` | 2 | Workers pre-warmed at startup and after replenishment. Deprecated alias (shared): `SessionRunspaceWarmStandbyCount`. |
+| `RunspacePool:IdleTtl` | `00:05:00` | Evicts idle workers after this TimeSpan. Deprecated alias: `SessionRunspaceIdleTtlSeconds` (int seconds). |
+| `RunspacePool:SweepInterval` | `00:00:30` | Interval for the idle-eviction sweep. Deprecated alias: `SessionRunspaceSweepIntervalSeconds` (int seconds). |
+| `RunspacePool:AcquisitionTimeout` | `00:00:15` | Maximum wait for a pooled worker before the request fails. Deprecated alias: `SessionRunspaceAcquisitionTimeoutSeconds` (int seconds). |
+| `RunspacePool:StopTimeout` | `00:00:05` | Time to wait for a worker to stop cleanly. |
+| `RunspacePool:ShutdownDrainTimeout` | `00:00:30` | Drain window during graceful shutdown. |
+| `RunspacePool:ReplenishCheckInterval` | `00:00:05` | Interval between pool replenishment checks. |
 | `EnableLegacySse` | `false` | Enables deprecated HTTP-with-SSE endpoints for legacy clients. |
 
-Warm standbys are initialized separately and do not count against
-`SessionRunspaceCapacity`; the manager can therefore hold more initialized
-runspaces than the capacity setting. Account for both settings when sizing
-memory for module and startup-script initialization. Capacity limits only
-runspaces assigned to sessions or leased for one-shot work. When that limit is
-exhausted, a new session or one-shot request waits only for
-`SessionRunspaceAcquisitionTimeoutSeconds` before failing; it is not assigned
-another session's state.
+**Legacy key migration:** the deprecated `SessionRunspace*` keys still bind
+via per-key alias fallback and emit **one deprecation warning per present key**
+at startup. Migrate to the `McpServer:RunspacePool:*` keys above. The
+deprecated keys will be removed in a future major version. Restoring the old
+HTTP session-affine runspace model requires reverting the code and package to
+v1 — there is no runtime switch.
 
-The server releases a session runspace when the SDK session completes, the
-client explicitly sends `DELETE`, or the runspace reaches its idle TTL. A
-release requested during an active invocation completes after that invocation
-unwinds. Dynamic tool reload also releases all managed HTTP session runspaces,
-so clients must initialize a new session and should not rely on session state
-surviving a reload.
+`EagerWarmCount` pre-warms workers **within** `MaxPoolSize` (they count toward
+the max). `MinPoolSize` is the floor the pool replenishes to after idle
+eviction. When the pool is exhausted a request waits up to `AcquisitionTimeout`
+before failing; it is not assigned another request's worker.
 
-For Streamable HTTP negotiation, endpoint paths, and origin validation, see
-[Transport Modes](transport-modes.md#http-mode).
+The pool resets and returns a worker after each call and reclaims idle workers
+past `IdleTtl` via the periodic sweep — independent of any MCP session
+lifetime. Dynamic tool reload drains and replenishes the runspace pool; because
+HTTP is stateless there is no session-scoped state to lose.
+
+Pool health is exposed on `/health` (check name `runspace_pool`) and gated on
+`/health/ready` (check tag `ready`). See
+[Transport Modes](transport-modes.md#http-mode) for protocol negotiation,
+endpoint paths, and origin validation.
 
 ## Environment Variables
 
@@ -312,7 +323,8 @@ Example JSON output snippet (`poshmcp doctor --format json`):
 
 ## Startup Scripts
 
-Run PowerShell code when the server starts:
+Run PowerShell code for **each pooled runspace worker** at warm-up and
+replenishment (per-worker), not once at server start:
 
 **Inline startup script:**
 

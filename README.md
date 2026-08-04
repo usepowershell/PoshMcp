@@ -11,7 +11,7 @@ PoshMcp is a [Model Context Protocol](https://modelcontextprotocol.io) (MCP) ser
 PoshMcp bridges the gap between traditional PowerShell automation and modern AI interfaces. It provides:
 
 - **Automatic Tool Discovery**: PowerShell commands become AI tools without manual registration
-- **Persistent State**: Variables, functions, and modules persist across command executions
+- **Stateless by default**: each MCP call runs in a pooled runspace that is reset before reuse; PowerShell state does **not** persist across HTTP calls. Persistent per-connection state is available only in **stdio** mode (single process-scoped runspace).
 - **Flexible Deployment**: Run as stdio server (for MCP clients) or HTTP server (for web integration)
 - **Enterprise Ready**: Built on .NET 10 with OpenTelemetry, health checks, and Azure Managed Identity support
 
@@ -45,14 +45,14 @@ PoshMcp automatically:
 
 ### For PowerShell Experts
 - **Zero Boilerplate**: Existing scripts work without modification
-- **State Preservation**: Variables and custom functions persist between calls
+- **State handling**: HTTP is stateless (pooled, reset-before-reuse) — variables/functions do **not** carry between calls; use **stdio** for a persistent session runspace.
 - **Pattern-Based Filtering**: Include/exclude commands via configuration
 - **Rich Metadata**: Automatic extraction from `Get-Help` and `Get-Command` ([description precedence](docs/articles/exposing-tools.md#description-precedence))
 - **MCP Resources**: Expose files and live system state as readable resources
 - **MCP Prompts**: Define reusable prompt templates with dynamic arguments
 
 ### For Operations Teams
-- **Multi-User Isolation**: Separate PowerShell runspaces in web mode
+- **Multi-user isolation**: HTTP requests are served from a **reset-before-reuse runspace pool** (no cross-request state). For process-level isolation use OutOfProcess `SubprocessHostMode=ProcessPool`.
 - **Health Monitoring**: `/health` and `/health/ready` endpoints for Kubernetes
 - **Correlation IDs**: Request tracing across distributed systems
 - **OpenTelemetry**: Built-in metrics and observability
@@ -171,15 +171,15 @@ Configure which PowerShell commands to expose in `appsettings.json`:
 #### Production MCP compatibility
 
 The production server uses `ModelContextProtocol` and
-`ModelContextProtocol.AspNetCore` **1.4.1** and targets MCP
-**2025-11-25** Streamable HTTP. HTTP clients should use the negotiated
-session and protocol headers after `initialize`. PoshMcp also retains
-compatibility for 2024-11-05 Streamable HTTP clients and can opt into the
-deprecated HTTP-with-SSE endpoints for a transition period. See
+`ModelContextProtocol.AspNetCore` **2.0.0**; default protocol **2026-07-28**
+(Stateless). HTTP clients send `protocolVersion: "2026-07-28"` on
+`initialize`. PoshMcp also retains compatibility for `2024-11-05` Streamable
+HTTP clients and can opt into the deprecated HTTP-with-SSE endpoints for a
+transition period. See
 [Transport Modes](docs/articles/transport-modes.md#http-mode) for the
 endpoint, negotiation, origin-validation, and legacy-compatibility details,
 and [Configuration](docs/articles/configuration.md#mcp-server-http-sessions)
-for the bounded session-runspace settings.
+for the runspace pool settings.
 
 ### Configuration source diagnostics
 
@@ -281,17 +281,20 @@ Prompt metadata and behavior:
 
 See [Resources and Prompts Guide](https://usepowershell.github.io/PoshMcp/articles/resources-and-prompts.html) for complete examples and best practices.
 
-### Persistent State Example
+### Persistent State (stdio only)
 
-Variables persist across multiple calls:
+Variables persist across multiple calls **in stdio mode only**. Over HTTP, each
+call runs in a fresh pooled runspace and will **not** see variables from a
+previous call.
 
 ```powershell
-# Call 1: Set a variable
+# stdio session — Call 1: Set a variable
 $MyVariable = "Hello from PoshMcp"
 
-# Call 2: Access the variable
+# stdio session — Call 2: Access the variable
 Write-Output $MyVariable
 # Output: Hello from PoshMcp
+# Note: over HTTP, $MyVariable would be empty here — workers are reset between calls.
 ```
 
 ---

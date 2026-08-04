@@ -9,10 +9,13 @@ Follow these practices to secure your PoshMcp deployment.
 
 ## Isolated Runspaces
 
-Each session gets its own PowerShell runspace. Variables and functions persist within a session but are isolated from other sessions.
+HTTP requests are served from a **reset-before-reuse runspace pool**: no
+cross-request variable or function persistence, and each lease starts clean.
+Persistent per-connection state exists only in **stdio** mode (single
+process-scoped runspace).
 
 - **Stdio mode** (single connection): One runspace per client connection
-- **HTTP mode** (multi-user): Separate runspace per user session with automatic cleanup
+- **HTTP mode** (multi-user): pooled runspaces with reset-before-reuse; per-call cleanup via the reset protocol. For per-tenant process isolation use OutOfProcess `ProcessPool`.
 
 ## Command Filtering
 
@@ -108,11 +111,12 @@ curl -H "X-API-Key: your-secret-key" http://localhost:8080/tools
 
 ## Identity Separation (HTTP Mode)
 
-In HTTP mode, each user gets isolated execution:
+In HTTP mode, each call gets isolated execution via the reset-before-reuse
+pool:
 
-- Separate runspace per user/session
-- Variables don't bleed between users
-- Automatic cleanup on session timeout
+- Reset-before-reuse pooled runspace per **call** (not per user/session); optional per-tenant **process** isolation via `SubprocessHostMode=ProcessPool`
+- Variables don't bleed between calls (each worker starts clean)
+- Automatic worker **reset on return** to the pool and idle reclamation past `RunspacePool:IdleTtl`; MCP `IdleSessionTimeoutSeconds` cleanup applies only in Stateful mode
 - Audit trail via correlation IDs
 
 ## Deployment Security
