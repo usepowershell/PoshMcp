@@ -69,6 +69,10 @@ public sealed class StatelessRunspacePool : IRunspacePool
     // Incremented before creation begins; decremented when Evicted.
     private int _totalCount;
 
+    // Lifecycle / creating counters.
+    private int _started;        // 1 after StartAsync completes successfully
+    private int _creatingCount;  // number of in-flight factory calls
+
     // Drain/dispose state.
     private int _draining;   // 1 after DrainAsync is called
     private int _disposed;   // 1 after DisposeAsync completes
@@ -167,11 +171,16 @@ public sealed class StatelessRunspacePool : IRunspacePool
     /// and starting the sweeper and replenisher background loops.
     /// </summary>
     /// <remarks>
-    /// If all eager-warm workers fail initialization and <c>EagerWarmCount &gt; 0</c>,
-    /// this method throws. Partial success is allowed: at least one worker must start.
+    /// If any eager-warm worker fails initialization and <c>EagerWarmCount &gt; 0</c>,
+    /// this method throws. All <c>EagerWarmCount</c> workers must be warm before the host
+    /// is allowed to serve requests — partial success is not permitted.
+    /// Successfully-created partial workers are disposed before the exception is thrown.
+    /// After a failed startup the pool has no live workers, <c>_started</c> remains
+    /// <c>false</c>, and <see cref="DisposeAsync"/> may be called safely to release resources.
     /// </remarks>
     /// <exception cref="InvalidOperationException">
-    /// Pool has already been started, or all eager-warm workers failed initialization.
+    /// Pool has already been started, or fewer than <see cref="RunspacePoolOptions.EagerWarmCount"/>
+    /// workers were successfully initialized.
     /// </exception>
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
@@ -190,10 +199,16 @@ public sealed class StatelessRunspacePool : IRunspacePool
             await Task.WhenAll(startupTasks).ConfigureAwait(false);
 
             int warm = Volatile.Read(ref _warmCount);
-            if (warm == 0)
+            if (warm < _options.EagerWarmCount)
+            {
+                // Dispose any partial warm workers so they cannot be acquired and counters
+                // return to zero. Background loops have not started, so no races exist.
+                ForceDisposeAllWorkers("startup_partial_failure");
                 throw new InvalidOperationException(
-                    $"All {_options.EagerWarmCount} eager-warm worker(s) failed initialization. " +
-                    "Pool cannot start.");
+                    $"Only {warm}/{_options.EagerWarmCount} eager-warm worker(s) initialized. " +
+                    "Pool cannot start: all EagerWarmCount workers must be warm before the host " +
+                    "is allowed to serve requests.");
+            }
 
             _logger.LogInformation(
                 "Startup complete: {Warm}/{Eager} workers initialized.", warm, _options.EagerWarmCount);
@@ -202,6 +217,7 @@ public sealed class StatelessRunspacePool : IRunspacePool
         var ct = _shutdownToken;
         _sweeperTask = Task.Run(() => SweeperLoopAsync(ct), ct);
         _replenisherTask = Task.Run(() => ReplenisherLoopAsync(ct), ct);
+        Interlocked.Exchange(ref _started, 1);
     }
 
     // ─── IRunspacePool ─────────────────────────────────────────────────────────
@@ -341,7 +357,10 @@ public sealed class StatelessRunspacePool : IRunspacePool
             Volatile.Read(ref _warmCount),
             Volatile.Read(ref _leasedCount),
             Volatile.Read(ref _resettingCount),
-            Volatile.Read(ref _totalCount));
+            Volatile.Read(ref _totalCount),
+            CreatingWorkers: Volatile.Read(ref _creatingCount),
+            IsDraining: Volatile.Read(ref _draining) != 0,
+            IsStarted: Volatile.Read(ref _started) != 0);
 
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
@@ -508,10 +527,14 @@ public sealed class StatelessRunspacePool : IRunspacePool
             return;
         }
 
+        Interlocked.Increment(ref _creatingCount);
+        bool factoryCompleted = false;
         RunspaceWorker? worker = null;
         try
         {
             var runspace = await Task.Run(_workerFactory, ct).ConfigureAwait(false);
+            factoryCompleted = true;
+            Interlocked.Decrement(ref _creatingCount);
             worker = new RunspaceWorker(runspace);
 
             // Capture variable and drive snapshots immediately after factory construction
@@ -552,6 +575,7 @@ public sealed class StatelessRunspacePool : IRunspacePool
         }
         catch (OperationCanceledException)
         {
+            if (!factoryCompleted) Interlocked.Decrement(ref _creatingCount);
             _logger.LogDebug("Worker creation cancelled.");
             Interlocked.Decrement(ref _totalCount);
 
@@ -566,6 +590,7 @@ public sealed class StatelessRunspacePool : IRunspacePool
         }
         catch (Exception ex)
         {
+            if (!factoryCompleted) Interlocked.Decrement(ref _creatingCount);
             _logger.LogWarning(ex, "Worker startup failed; evicting without entering pool.");
             _metrics.StartupFailures.Add(1);
             Interlocked.Decrement(ref _totalCount);

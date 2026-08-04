@@ -171,23 +171,35 @@ public sealed class StatelessRunspacePoolTests
     }
 
     [Fact]
-    public async Task StartAsync_WhenSomeWorkersFail_SucceedsWithPartialCapacity()
+    public async Task StartAsync_WhenSomeWorkersFail_ThrowsAndDisposesPartialWorkers()
     {
+        // With EagerWarmCount=3 and one worker failing, the full eager target (3) is not met.
+        // StartAsync must throw — partial success is not allowed.
         int calls = 0;
-        await using var pool = MakePool(
+        int disposedCount = 0;
+        var pool = MakePool(
             options: DefaultOptions(min: 1, max: 4, eager: 3),
             factory: () =>
             {
-                if (++calls == 2) throw new InvalidOperationException("Worker 2 fails.");
-                return MockRunspace().Object;
+                if (Interlocked.Increment(ref calls) == 2)
+                    throw new InvalidOperationException("Worker 2 fails.");
+                var mock = new Mock<IPowerShellRunspace>();
+                mock.Setup(r => r.Dispose())
+                    .Callback(() => Interlocked.Increment(ref disposedCount));
+                return mock.Object;
             });
 
-        await pool.StartAsync(); // should not throw (2 out of 3 succeed)
+        // Must throw: warm (2) < EagerWarmCount (3).
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => pool.StartAsync());
+        Assert.Contains("EagerWarmCount", ex.Message, StringComparison.Ordinal);
 
         var stats = pool.GetStats();
-        Assert.Equal(2, stats.WarmWorkers);
+        Assert.False(stats.IsStarted, "Pool must not be started after partial eager failure.");
+        Assert.Equal(0, stats.WarmWorkers);
+        Assert.Equal(0, stats.TotalWorkers);
+        Assert.Equal(2, disposedCount); // The 2 partial warm workers disposed before throw.
 
-        await pool.DisposeAsync();
+        await pool.DisposeAsync(); // Must be safe on a never-started pool.
     }
 
     // ─── AcquireAsync — happy path ──────────────────────────────────────────────

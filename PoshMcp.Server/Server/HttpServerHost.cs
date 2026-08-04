@@ -295,7 +295,10 @@ internal static class HttpServerHost
             }).AllowAnonymous();
             app.MapHealthChecks("/health/ready", new HealthCheckOptions
             {
-                Predicate = _ => true,
+                // Only checks tagged "ready" gate readiness. This prevents liveness checks
+                // (e.g. powershell_runspace) from temporarily suppressing readiness by
+                // leasing a pool worker while runspace_pool evaluates warm-worker count.
+                Predicate = r => r.Tags.Contains("ready"),
                 ResponseWriter = WriteHealthCheckResponseAsync,
                 ResultStatusCodes =
             {
@@ -404,7 +407,8 @@ internal static class HttpServerHost
         builder.Services.AddHealthChecks()
             .AddCheck<PowerShellRunspaceHealthCheck>("powershell_runspace")
             .AddCheck<AssemblyGenerationHealthCheck>("assembly_generation")
-            .AddCheck<ConfigurationHealthCheck>("configuration");
+            .AddCheck<ConfigurationHealthCheck>("configuration")
+            .AddCheck<RunspacePoolHealthCheck>("runspace_pool", tags: new[] { "ready" });
     }
 
     /// <summary>
@@ -438,11 +442,15 @@ internal static class HttpServerHost
                 }
             });
 
+        builder.Services.AddSingleton<HttpTransportMetrics>();
         builder.Services.AddSingleton<IHostedService>(serviceProvider =>
         {
             var metrics = serviceProvider.GetRequiredService<McpMetrics>();
             McpToolFactoryV2.SetMetrics(metrics);
             PowerShellAssemblyGenerator.SetMetrics(metrics);
+            // Eagerly resolve HttpTransportMetrics so the gauge is registered before
+            // any MeterListener queries begin.
+            _ = serviceProvider.GetRequiredService<HttpTransportMetrics>();
             return new MetricsConfigurationService();
         });
     }

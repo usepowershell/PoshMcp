@@ -9,4 +9,7 @@ public sealed record RunspacePoolStats(
     int WarmWorkers,
     int LeasedWorkers,
     int ResettingWorkers,
-    int TotalWorkers);
+    int TotalWorkers,
+    int CreatingWorkers = 0,
+    bool IsDraining = false,
+    bool IsStarted = true);
