@@ -18,6 +18,16 @@ namespace PoshMcp.Server.PowerShell.Pool;
 public interface IRunspacePool : IAsyncDisposable
 {
     /// <summary>
+    /// Initialises the pool: creates <see cref="RunspacePoolOptions.EagerWarmCount"/> warm workers
+    /// and starts background sweeper/replenisher loops.
+    /// </summary>
+    /// <remarks>
+    /// Callers must await this before the first <see cref="AcquireAsync"/> call.
+    /// Throws <see cref="InvalidOperationException"/> if all eager workers fail to start.
+    /// </remarks>
+    Task StartAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Acquires a warm worker from the pool and returns a <see cref="RunspaceLease"/> that grants
     /// exclusive access to its <c>PSPowerShell</c> instance for one request.
     /// </summary>

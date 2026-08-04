@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -13,16 +14,14 @@ namespace PoshMcp.Server.Server;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The pool is started explicitly during bootstrap (before <c>WebApplication.RunAsync()</c>)
-/// so that tool discovery has warm workers available. <see cref="StartAsync"/> therefore only
-/// confirms the pool is ready and logs its initial stats; it does not re-start the pool.
+/// <b>Startup.</b> <see cref="StartAsync"/> calls <see cref="IRunspacePool.StartAsync"/> so that
+/// eager-warm workers are ready before the host begins accepting requests. If pool startup fails
+/// (all eager workers fail), the exception propagates and the host cannot start.
 /// </para>
 /// <para>
-/// <see cref="StopAsync"/> drains the pool (stops accepting new acquisitions, waits for all
-/// outstanding leases to be returned) and then disposes it asynchronously. This ensures all
-/// background loops (sweeper, replenisher) terminate and all worker resources are released
-/// before the process exits. Both <see cref="IRunspacePool.DrainAsync"/> and
-/// <see cref="IAsyncDisposable.DisposeAsync"/> are idempotent, so double-invocation is safe.
+/// <b>Shutdown.</b> <see cref="StopAsync"/> drains the pool (stops new acquisitions, awaits
+/// outstanding leases), then disposes it. Disposal is guaranteed even if drain fails; if both
+/// drain and dispose fail the exceptions are combined in an <see cref="AggregateException"/>.
 /// </para>
 /// </remarks>
 internal sealed class RunspacePoolLifecycleService : IHostedService
@@ -33,7 +32,7 @@ internal sealed class RunspacePoolLifecycleService : IHostedService
     /// <summary>
     /// Creates a <see cref="RunspacePoolLifecycleService"/>.
     /// </summary>
-    /// <param name="pool">The pool to manage; must already be started before host start.</param>
+    /// <param name="pool">The pool to manage.</param>
     /// <param name="logger">Logger for lifecycle events.</param>
     public RunspacePoolLifecycleService(IRunspacePool pool, ILogger<RunspacePoolLifecycleService> logger)
     {
@@ -44,35 +43,62 @@ internal sealed class RunspacePoolLifecycleService : IHostedService
     }
 
     /// <summary>
-    /// Logs initial pool stats to confirm the pool is warm before the server accepts requests.
-    /// The pool was already started during bootstrap so no startup work is performed here.
+    /// Starts the pool and blocks until eager-warm workers are ready.
+    /// The host will not accept requests until this method returns successfully.
+    /// Propagates any exception from <see cref="IRunspacePool.StartAsync"/> so that a
+    /// failed-startup condition (all eager workers dead) prevents the host from opening.
     /// </summary>
-    public Task StartAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
+        await _pool.StartAsync(cancellationToken).ConfigureAwait(false);
         var stats = _pool.GetStats();
         _logger.LogInformation(
             "RunspacePool ready: Warm={Warm}, Total={Total}.",
             stats.WarmWorkers, stats.TotalWorkers);
-        return Task.CompletedTask;
     }
 
     /// <summary>
     /// Drains the pool (prevents new acquisitions, awaits return of all outstanding leases),
     /// then disposes it to release all worker resources and stop background loops.
+    /// Disposal is guaranteed even if drain fails. If both drain and dispose fail, an
+    /// <see cref="AggregateException"/> containing both is thrown. If only one fails, that
+    /// exception is surfaced with its original stack trace preserved.
     /// </summary>
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Draining RunspacePool on host stop.");
+        Exception? drainException = null;
         try
         {
             await _pool.DrainAsync(cancellationToken).ConfigureAwait(false);
             _logger.LogInformation("RunspacePool drained; disposing.");
+        }
+        catch (Exception ex)
+        {
+            drainException = ex;
+            _logger.LogError(ex, "Error during RunspacePool drain; will still dispose.");
+        }
+
+        Exception? disposeException = null;
+        try
+        {
             await _pool.DisposeAsync().ConfigureAwait(false);
             _logger.LogInformation("RunspacePool disposed.");
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error during RunspacePool drain/dispose.");
+            disposeException = ex;
+            _logger.LogError(ex, "Error disposing RunspacePool.");
         }
+
+        if (drainException is not null && disposeException is not null)
+            throw new AggregateException(
+                "RunspacePool drain and dispose both failed.", drainException, disposeException);
+
+        if (disposeException is not null)
+            ExceptionDispatchInfo.Capture(disposeException).Throw();
+
+        if (drainException is not null)
+            ExceptionDispatchInfo.Capture(drainException).Throw();
     }
 }

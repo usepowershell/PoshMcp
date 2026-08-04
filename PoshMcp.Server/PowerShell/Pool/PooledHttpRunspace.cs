@@ -33,6 +33,7 @@ internal sealed class PooledHttpRunspace : IPowerShellRunspace, IDisposable
     private readonly ILogger<PooledHttpRunspace> _logger;
     private readonly Lazy<IPowerShellRunspace> _discoveryRunspace;
     private bool _disposed;
+    private bool _discoveryFinalized;
 
     /// <summary>
     /// Initialises a <see cref="PooledHttpRunspace"/>.
@@ -72,16 +73,37 @@ internal sealed class PooledHttpRunspace : IPowerShellRunspace, IDisposable
 
     /// <summary>
     /// Returns the dedicated startup discovery runspace.
-    /// Used only by <c>MccToolFactoryV2</c> during server initialisation to introspect
+    /// Used only by <c>McpToolFactoryV2</c> during server initialisation to introspect
     /// available PowerShell commands. Do NOT call during request handling.
     /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown if discovery has already been finalised via <see cref="FinalizeDiscovery"/>.
+    /// </exception>
     public PSPowerShell Instance
     {
         get
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_discoveryFinalized)
+                throw new InvalidOperationException(
+                    "Discovery runspace has been finalized. Instance is not accessible after FinalizeDiscovery() has been called.");
             return _discoveryRunspace.Value.Instance;
         }
+    }
+
+    /// <summary>
+    /// Finalises the startup discovery phase: disposes the discovery runspace and
+    /// permanently prevents further access via <see cref="Instance"/>.
+    /// Must be called exactly once, immediately after tool introspection completes.
+    /// After this point all <see cref="Instance"/> calls throw <see cref="InvalidOperationException"/>.
+    /// </summary>
+    public void FinalizeDiscovery()
+    {
+        if (_discoveryFinalized) return;
+        _discoveryFinalized = true;
+        if (_discoveryRunspace.IsValueCreated)
+            _discoveryRunspace.Value.Dispose();
+        _logger.LogDebug("Discovery runspace finalized and disposed.");
     }
 
     /// <summary>
@@ -155,7 +177,7 @@ internal sealed class PooledHttpRunspace : IPowerShellRunspace, IDisposable
     }
 
     /// <summary>
-    /// Disposes the discovery runspace if it was created.
+    /// Disposes the discovery runspace if it was created and not already finalized.
     /// The shared pool is owned by <see cref="RunspacePoolLifecycleService"/> and must be
     /// drained through host stop; it is not disposed here.
     /// </summary>
@@ -163,7 +185,7 @@ internal sealed class PooledHttpRunspace : IPowerShellRunspace, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        if (_discoveryRunspace.IsValueCreated && _discoveryRunspace.Value is IDisposable d)
-            d.Dispose();
+        if (!_discoveryFinalized && _discoveryRunspace.IsValueCreated)
+            _discoveryRunspace.Value.Dispose();
     }
 }

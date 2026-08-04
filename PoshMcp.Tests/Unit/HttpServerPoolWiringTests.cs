@@ -224,9 +224,10 @@ public sealed class HttpServerPoolWiringTests
     // ─── Lifecycle ordering: StartAsync / StopAsync ──────────────────────────────
 
     [Fact]
-    public async Task LifecycleService_StartAsync_DoesNotStartPoolAgain()
+    public async Task LifecycleService_StartAsync_CallsPoolStartAsync()
     {
         var pool = new Mock<IRunspacePool>();
+        pool.Setup(p => p.StartAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         pool.Setup(p => p.GetStats()).Returns(new RunspacePoolStats(1, 4, 1, 0, 0, 1));
         var svc = new RunspacePoolLifecycleService(
             pool.Object,
@@ -234,8 +235,8 @@ public sealed class HttpServerPoolWiringTests
 
         await svc.StartAsync(CancellationToken.None);
 
-        // The service only reads stats — it must not call StartAsync on the pool.
-        // (Pool doesn't expose StartAsync on IRunspacePool; this test proves no unexpected calls.)
+        // The service starts the pool and must not drain or dispose it.
+        pool.Verify(p => p.StartAsync(It.IsAny<CancellationToken>()), Times.Once);
         pool.Verify(p => p.DrainAsync(It.IsAny<CancellationToken>()), Times.Never);
         pool.Verify(p => p.DisposeAsync(), Times.Never);
     }
@@ -245,6 +246,7 @@ public sealed class HttpServerPoolWiringTests
     {
         var order = new List<string>();
         var pool = new Mock<IRunspacePool>();
+        pool.Setup(p => p.StartAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         pool.Setup(p => p.GetStats()).Returns(new RunspacePoolStats(1, 4, 1, 0, 0, 1));
         pool.Setup(p => p.DrainAsync(It.IsAny<CancellationToken>()))
             .Callback(() => order.Add("drain")).Returns(Task.CompletedTask);

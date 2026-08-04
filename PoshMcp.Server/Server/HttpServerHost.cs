@@ -105,243 +105,256 @@ internal static class HttpServerHost
         var sharedHttpContextAccessor = new HttpContextAccessor();
         builder.Services.AddSingleton<IHttpContextAccessor>(sharedHttpContextAccessor);
 
-        // Create and start the warm-worker pool before tool discovery so that the production
-        // PowerShell environment is available for Get-Command/Get-Help introspection, and so
-        // that the first incoming request finds ready workers without an additional warm-up delay.
+        // Create the warm-worker pool (not yet started; RunspacePoolLifecycleService.StartAsync
+        // starts it so eager warm-up completes before host request acceptance).
+        // The pool is NOT wrapped in await using here; RunspacePoolLifecycleService is the
+        // primary lifecycle owner (drain + dispose on host stop). The explicit DisposeAsync
+        // below serves as a safety net for early-failure paths before the host starts.
         var productionStartupScript = PowerShellRunspaceHolder.GetProductionInitializationScript();
-        await using var pool = new StatelessRunspacePool(
+        var pool = new StatelessRunspacePool(
             mcpServerConfig.RunspacePool,
             bootstrapLoggerFactory,
             productionStartupScript);
-        await pool.StartAsync();
-
-        // Pool-backed adapter: routes Execute* calls through per-call lease acquisition from
-        // the pool. The Instance property uses a dedicated discovery runspace for startup
-        // introspection only — it is never accessed at request time.
-        using var pooledRunspace = new PooledHttpRunspace(pool, productionStartupScript, bootstrapLoggerFactory);
-
-        // Session lifecycle: protocol-version tracking only. The pool has no per-session
-        // runspace state, so the cleanup callback is intentionally a no-op.
-        var sessionLifecycle = new McpSessionLifecycle(_ => { });
-
-        builder.Services.AddSingleton(sessionLifecycle);
-        builder.Services.AddSingleton<IPowerShellRunspace>(pooledRunspace);
-        builder.Services.AddSingleton<IRunspacePool>(pool);
-        // Lifecycle service: confirms pool readiness on host start and drains/disposes on stop.
-        builder.Services.AddSingleton<IHostedService, RunspacePoolLifecycleService>();
-
-        logger.LogInformation("Using configuration source: {ConfigurationPath}", ConfigurationHelpers.DescribeConfigurationPath(finalConfigPath));
-
-        var toolSetup = await McpToolSetupService.SetupHttpMcpToolsAsync(bootstrapLoggerFactory, config, logger, finalConfigPath, configurationPathSource, pooledRunspace, executorLease?.Executor, sharedHttpContextAccessor);
-        var tools = toolSetup.Tools;
-        var resourcesConfig = ConfigurationLoader.LoadMcpResourcesConfiguration(finalConfigPath, logger);
-        var resourcesConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? ".";
-        var resourceLogger = bootstrapLoggerFactory.CreateLogger<McpResourceHandler>();
-        var resourceHandler = new McpResourceHandler(
-            resourcesConfig,
-            pooledRunspace,
-            resourcesConfigDirectory,
-            resourceLogger,
-            executorLease?.Executor);
-
-        McpNounResourceHandler? nounHandler = null;
-        if (toolSetup.EffectiveNounResourceRegistry is not null)
+        try
         {
-            var nounExecutor = executorLease?.Executor;
-            nounHandler = new McpNounResourceHandler(
-                toolSetup.EffectiveNounResourceRegistry,
-                nounExecutor is null ? pooledRunspace : null,
-                nounExecutor,
-                bootstrapLoggerFactory.CreateLogger<McpNounResourceHandler>());
-        }
+            // Pool-backed adapter: routes Execute* calls through per-call lease acquisition from
+            // the pool. The Instance property uses a dedicated discovery runspace for startup
+            // introspection only — it is never accessed at request time.
+            using var pooledRunspace = new PooledHttpRunspace(pool, productionStartupScript, bootstrapLoggerFactory);
 
-        var authConfigValue = authRootConfig.GetSection("Authentication").Get<PoshMcp.Server.Authentication.AuthenticationConfiguration>() ?? new();
-        var promptsConfig = ConfigurationLoader.LoadPromptsConfiguration(finalConfigPath);
-        var httpConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? Directory.GetCurrentDirectory();
-        var httpPromptHandler = new McpPromptHandler(promptsConfig, httpConfigDirectory, bootstrapLoggerFactory.CreateLogger<McpPromptHandler>());
-        // Determine transport mode from configuration (#355). Default is Stateless.
-        var isStateless = mcpServerConfig.HttpTransportMode == HttpTransportMode.Stateless;
-        var mcpBuilder = builder.Services
-            .AddMcpServer()
-            .WithHttpTransport(opts =>
+            // Session lifecycle: protocol-version tracking only. The pool has no per-session
+            // runspace state, so the cleanup callback is intentionally a no-op.
+            var sessionLifecycle = new McpSessionLifecycle(_ => { });
+
+            builder.Services.AddSingleton(sessionLifecycle);
+            builder.Services.AddSingleton<IPowerShellRunspace>(pooledRunspace);
+            builder.Services.AddSingleton<IRunspacePool>(pool);
+            // Lifecycle service: confirms pool readiness on host start and drains/disposes on stop.
+            builder.Services.AddSingleton<IHostedService, RunspacePoolLifecycleService>();
+
+            logger.LogInformation("Using configuration source: {ConfigurationPath}", ConfigurationHelpers.DescribeConfigurationPath(finalConfigPath));
+
+            var toolSetup = await McpToolSetupService.SetupHttpMcpToolsAsync(bootstrapLoggerFactory, config, logger, finalConfigPath, configurationPathSource, pooledRunspace, executorLease?.Executor, sharedHttpContextAccessor);
+            // Discovery is complete. Dispose the discovery runspace immediately so it cannot
+            // be accessed at request time. From here, pooledRunspace.Instance throws.
+            pooledRunspace.FinalizeDiscovery();
+            var tools = toolSetup.Tools;
+            var resourcesConfig = ConfigurationLoader.LoadMcpResourcesConfiguration(finalConfigPath, logger);
+            var resourcesConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? ".";
+            var resourceLogger = bootstrapLoggerFactory.CreateLogger<McpResourceHandler>();
+            var resourceHandler = new McpResourceHandler(
+                resourcesConfig,
+                pooledRunspace,
+                resourcesConfigDirectory,
+                resourceLogger,
+                executorLease?.Executor);
+
+            McpNounResourceHandler? nounHandler = null;
+            if (toolSetup.EffectiveNounResourceRegistry is not null)
             {
-                // Per maintainer decision 2026-08-03: stateless is the default. Stateful HTTP is
-                // an operator-selectable backward-compatibility mode configured via HttpTransportMode.
-                // Transport session completion must never drain or dispose the shared pool.
-                opts.Stateless = isStateless;
+                var nounExecutor = executorLease?.Executor;
+                nounHandler = new McpNounResourceHandler(
+                    toolSetup.EffectiveNounResourceRegistry,
+                    nounExecutor is null ? pooledRunspace : null,
+                    nounExecutor,
+                    bootstrapLoggerFactory.CreateLogger<McpNounResourceHandler>());
+            }
+
+            var authConfigValue = authRootConfig.GetSection("Authentication").Get<PoshMcp.Server.Authentication.AuthenticationConfiguration>() ?? new();
+            var promptsConfig = ConfigurationLoader.LoadPromptsConfiguration(finalConfigPath);
+            var httpConfigDirectory = Path.GetDirectoryName(finalConfigPath) ?? Directory.GetCurrentDirectory();
+            var httpPromptHandler = new McpPromptHandler(promptsConfig, httpConfigDirectory, bootstrapLoggerFactory.CreateLogger<McpPromptHandler>());
+            // Determine transport mode from configuration (#355). Default is Stateless.
+            var isStateless = mcpServerConfig.HttpTransportMode == HttpTransportMode.Stateless;
+            var mcpBuilder = builder.Services
+                .AddMcpServer()
+                .WithHttpTransport(opts =>
+                {
+                    // Per maintainer decision 2026-08-03: stateless is the default. Stateful HTTP is
+                    // an operator-selectable backward-compatibility mode configured via HttpTransportMode.
+                    // Transport session completion must never drain or dispose the shared pool.
+                    opts.Stateless = isStateless;
 #pragma warning disable MCP9006 // Intentional: stateful-only option; set here but honoured by SDK only when Stateless = false.
-                opts.IdleTimeout = TimeSpan.FromSeconds(mcpServerConfig.IdleSessionTimeoutSeconds);
+                    opts.IdleTimeout = TimeSpan.FromSeconds(mcpServerConfig.IdleSessionTimeoutSeconds);
 #pragma warning restore MCP9006
 #pragma warning disable MCP9004 // Legacy SSE is opt-in, disabled by default, and documented for isolated trusted clients only.
-                opts.EnableLegacySse = mcpServerConfig.EnableLegacySse;
+                    opts.EnableLegacySse = mcpServerConfig.EnableLegacySse;
 #pragma warning restore MCP9004
-                if (!isStateless)
-                {
+                    if (!isStateless)
+                    {
 #pragma warning disable MCPEXP002 // Required to release session-scoped resources when the SDK ends a stateful session.
-                    opts.RunSessionHandler = sessionLifecycle.RunSessionAsync;
+                        opts.RunSessionHandler = sessionLifecycle.RunSessionAsync;
 #pragma warning restore MCPEXP002
-                }
-            })
-            .WithTools(tools)
-            .WithListPromptsHandler(httpPromptHandler.HandleListPromptsAsync)
-            .WithGetPromptHandler(httpPromptHandler.HandleGetPromptAsync);
-
-        var resourceListLogger = bootstrapLoggerFactory.CreateLogger("ResourceList");
-        if (nounHandler is not null)
-        {
-            var capturedNounHandler = nounHandler;
-            mcpBuilder
-                .WithListResourcesHandler(async (ctx, ct) =>
-                {
-                    var staticResult = await resourceHandler.HandleListAsync(ctx, ct);
-                    var nounResult = await capturedNounHandler.HandleListAsync(ctx, ct);
-                    var staticUris = staticResult.Resources
-                        .Select(r => r.Uri)
-                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                    var filteredNoun = nounResult.Resources
-                        .Where(r =>
-                        {
-                            if (!staticUris.Contains(r.Uri)) return true;
-                            resourceListLogger.LogWarning(
-                                "Duplicate resource URI {Uri}: static resource takes precedence over noun-derived resource.", r.Uri);
-                            return false;
-                        })
-                        .ToList();
-                    return new ListResourcesResult
-                    {
-                        Resources = staticResult.Resources.Concat(filteredNoun).ToList()
-                    };
-                })
-                .WithReadResourceHandler(async (ctx, ct) =>
-                {
-                    var uri = ctx.Params?.Uri ?? string.Empty;
-                    if (resourcesConfig.Resources.Any(r =>
-                            string.Equals(r.Uri, uri, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        return await resourceHandler.HandleReadAsync(ctx, ct);
                     }
-                    return await capturedNounHandler.HandleReadAsync(ctx, ct);
-                });
-        }
-        else
-        {
-            mcpBuilder
-                .WithListResourcesHandler(resourceHandler.HandleListAsync)
-                .WithReadResourceHandler(resourceHandler.HandleReadAsync);
-        }
+                })
+                .WithTools(tools)
+                .WithListPromptsHandler(httpPromptHandler.HandleListPromptsAsync)
+                .WithGetPromptHandler(httpPromptHandler.HandleGetPromptAsync);
 
-        ToolAuthorizationFilter? callToolFilter = null;
-        ToolListAuthorizationFilter? listToolFilter = null;
-
-        if (authConfigValue.Enabled)
-        {
-            builder.Services.AddSingleton<ToolAuthorizationFilter>(sp =>
-                new ToolAuthorizationFilter(
-                    authConfigValue,
-                    config,
-                    sp.GetRequiredService<IHttpContextAccessor>(),
-                    sp.GetRequiredService<McpMetrics>(),
-                    sp.GetRequiredService<ILogger<ToolAuthorizationFilter>>()));
-            builder.Services.AddSingleton<ToolListAuthorizationFilter>(sp =>
-                new ToolListAuthorizationFilter(
-                    authConfigValue,
-                    config,
-                    sp.GetRequiredService<IHttpContextAccessor>(),
-                    sp.GetRequiredService<ILogger<ToolListAuthorizationFilter>>()));
-            mcpBuilder.WithRequestFilters(fb =>
+            var resourceListLogger = bootstrapLoggerFactory.CreateLogger("ResourceList");
+            if (nounHandler is not null)
             {
-                fb.AddCallToolFilter((next) => async (context, ct) =>
-                    await callToolFilter!.AsFilter()(next)(context, ct));
-                fb.AddListToolsFilter((next) => async (context, ct) =>
-                    await listToolFilter!.AsFilter()(next)(context, ct));
+                var capturedNounHandler = nounHandler;
+                mcpBuilder
+                    .WithListResourcesHandler(async (ctx, ct) =>
+                    {
+                        var staticResult = await resourceHandler.HandleListAsync(ctx, ct);
+                        var nounResult = await capturedNounHandler.HandleListAsync(ctx, ct);
+                        var staticUris = staticResult.Resources
+                            .Select(r => r.Uri)
+                            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                        var filteredNoun = nounResult.Resources
+                            .Where(r =>
+                            {
+                                if (!staticUris.Contains(r.Uri)) return true;
+                                resourceListLogger.LogWarning(
+                                    "Duplicate resource URI {Uri}: static resource takes precedence over noun-derived resource.", r.Uri);
+                                return false;
+                            })
+                            .ToList();
+                        return new ListResourcesResult
+                        {
+                            Resources = staticResult.Resources.Concat(filteredNoun).ToList()
+                        };
+                    })
+                    .WithReadResourceHandler(async (ctx, ct) =>
+                    {
+                        var uri = ctx.Params?.Uri ?? string.Empty;
+                        if (resourcesConfig.Resources.Any(r =>
+                                string.Equals(r.Uri, uri, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            return await resourceHandler.HandleReadAsync(ctx, ct);
+                        }
+                        return await capturedNounHandler.HandleReadAsync(ctx, ct);
+                    });
+            }
+            else
+            {
+                mcpBuilder
+                    .WithListResourcesHandler(resourceHandler.HandleListAsync)
+                    .WithReadResourceHandler(resourceHandler.HandleReadAsync);
+            }
+
+            ToolAuthorizationFilter? callToolFilter = null;
+            ToolListAuthorizationFilter? listToolFilter = null;
+
+            if (authConfigValue.Enabled)
+            {
+                builder.Services.AddSingleton<ToolAuthorizationFilter>(sp =>
+                    new ToolAuthorizationFilter(
+                        authConfigValue,
+                        config,
+                        sp.GetRequiredService<IHttpContextAccessor>(),
+                        sp.GetRequiredService<McpMetrics>(),
+                        sp.GetRequiredService<ILogger<ToolAuthorizationFilter>>()));
+                builder.Services.AddSingleton<ToolListAuthorizationFilter>(sp =>
+                    new ToolListAuthorizationFilter(
+                        authConfigValue,
+                        config,
+                        sp.GetRequiredService<IHttpContextAccessor>(),
+                        sp.GetRequiredService<ILogger<ToolListAuthorizationFilter>>()));
+                mcpBuilder.WithRequestFilters(fb =>
+                {
+                    fb.AddCallToolFilter((next) => async (context, ct) =>
+                        await callToolFilter!.AsFilter()(next)(context, ct));
+                    fb.AddListToolsFilter((next) => async (context, ct) =>
+                        await listToolFilter!.AsFilter()(next)(context, ct));
+                });
+            }
+
+            RegisterCleanupServices(builder);
+
+            builder.Services.AddPoshMcpAuthentication(authRootConfig);
+
+            var app = builder.Build();
+
+            app.Use(async (context, next) =>
+            {
+                var correlationId = context.Request.Headers["X-Correlation-ID"].FirstOrDefault()
+                    ?? OperationContext.GenerateCorrelationId();
+                OperationContext.CorrelationId = correlationId;
+                context.Response.Headers["X-Correlation-ID"] = correlationId;
+
+                await next();
             });
-        }
 
-        RegisterCleanupServices(builder);
+            app.UseCors();
 
-        builder.Services.AddPoshMcpAuthentication(authRootConfig);
+            var authConfigForMiddleware = app.Services.GetRequiredService<IOptions<AuthenticationConfiguration>>();
+            if (authConfigForMiddleware.Value.Enabled)
+            {
+                callToolFilter = app.Services.GetRequiredService<ToolAuthorizationFilter>();
+                listToolFilter = app.Services.GetRequiredService<ToolListAuthorizationFilter>();
+                app.UseAuthentication();
+                app.UseAuthorization();
+            }
 
-        var app = builder.Build();
-
-        app.Use(async (context, next) =>
-        {
-            var correlationId = context.Request.Headers["X-Correlation-ID"].FirstOrDefault()
-                ?? OperationContext.GenerateCorrelationId();
-            OperationContext.CorrelationId = correlationId;
-            context.Response.Headers["X-Correlation-ID"] = correlationId;
-
-            await next();
-        });
-
-        app.UseCors();
-
-        var authConfigForMiddleware = app.Services.GetRequiredService<IOptions<AuthenticationConfiguration>>();
-        if (authConfigForMiddleware.Value.Enabled)
-        {
-            callToolFilter = app.Services.GetRequiredService<ToolAuthorizationFilter>();
-            listToolFilter = app.Services.GetRequiredService<ToolListAuthorizationFilter>();
-            app.UseAuthentication();
-            app.UseAuthorization();
-        }
-
-        app.MapHealthChecks("/health", new HealthCheckOptions
-        {
-            ResponseWriter = WriteHealthCheckResponseAsync
-        }).AllowAnonymous();
-        app.MapHealthChecks("/health/ready", new HealthCheckOptions
-        {
-            Predicate = _ => true,
-            ResponseWriter = WriteHealthCheckResponseAsync,
-            ResultStatusCodes =
+            app.MapHealthChecks("/health", new HealthCheckOptions
+            {
+                ResponseWriter = WriteHealthCheckResponseAsync
+            }).AllowAnonymous();
+            app.MapHealthChecks("/health/ready", new HealthCheckOptions
+            {
+                Predicate = _ => true,
+                ResponseWriter = WriteHealthCheckResponseAsync,
+                ResultStatusCodes =
             {
                 [Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Healthy] = StatusCodes.Status200OK,
                 [Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Degraded] = StatusCodes.Status503ServiceUnavailable,
                 [Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy] = StatusCodes.Status503ServiceUnavailable
             }
-        }).AllowAnonymous();
+            }).AllowAnonymous();
 
-        var normalizedMcpPath = SettingsResolver.NormalizeMcpPath(mcpPath);
-        var mcpEndpointPaths = string.IsNullOrWhiteSpace(normalizedMcpPath)
-            ? new[] { "/", "/mcp" }
-            : new[] { normalizedMcpPath };
-        app.UseMiddleware<McpOriginValidationMiddleware>(
-            mcpEndpointPaths,
-            authConfigValue.Cors?.AllowedOrigins ?? []);
-        app.UseMiddleware<McpProtocolVersionMiddleware>((object)mcpEndpointPaths);
+            var normalizedMcpPath = SettingsResolver.NormalizeMcpPath(mcpPath);
+            var mcpEndpointPaths = string.IsNullOrWhiteSpace(normalizedMcpPath)
+                ? new[] { "/", "/mcp" }
+                : new[] { normalizedMcpPath };
+            app.UseMiddleware<McpOriginValidationMiddleware>(
+                mcpEndpointPaths,
+                authConfigValue.Cors?.AllowedOrigins ?? []);
+            app.UseMiddleware<McpProtocolVersionMiddleware>((object)mcpEndpointPaths);
 
-        IEndpointConventionBuilder mcpEndpoint;
-        if (string.IsNullOrWhiteSpace(normalizedMcpPath))
-        {
-            mcpEndpoint = app.MapMcp();
-            var mcpAliasEndpoint = app.MapMcp("/mcp");
+            IEndpointConventionBuilder mcpEndpoint;
+            if (string.IsNullOrWhiteSpace(normalizedMcpPath))
+            {
+                mcpEndpoint = app.MapMcp();
+                var mcpAliasEndpoint = app.MapMcp("/mcp");
+                if (authConfigForMiddleware.Value.Enabled)
+                {
+                    mcpAliasEndpoint.RequireAuthorization("McpAccess");
+                }
+            }
+            else
+            {
+                mcpEndpoint = app.MapMcp(normalizedMcpPath);
+            }
             if (authConfigForMiddleware.Value.Enabled)
             {
-                mcpAliasEndpoint.RequireAuthorization("McpAccess");
+                mcpEndpoint.RequireAuthorization("McpAccess");
             }
-        }
-        else
-        {
-            mcpEndpoint = app.MapMcp(normalizedMcpPath);
-        }
-        if (authConfigForMiddleware.Value.Enabled)
-        {
-            mcpEndpoint.RequireAuthorization("McpAccess");
-        }
 
-        // RFC 9728 Protected Resource Metadata
-        var authConfigForEndpoints = app.Services
-            .GetRequiredService<IOptions<AuthenticationConfiguration>>();
-        app.MapProtectedResourceMetadata(authConfigForEndpoints.Value);
-        // OAuth proxy: /.well-known/oauth-authorization-server + /register (DCR)
-        app.MapOAuthProxyEndpoints(authConfigForEndpoints.Value);
+            // RFC 9728 Protected Resource Metadata
+            var authConfigForEndpoints = app.Services
+                .GetRequiredService<IOptions<AuthenticationConfiguration>>();
+            app.MapProtectedResourceMetadata(authConfigForEndpoints.Value);
+            // OAuth proxy: /.well-known/oauth-authorization-server + /register (DCR)
+            app.MapOAuthProxyEndpoints(authConfigForEndpoints.Value);
 
-        try
-        {
-            await app.RunAsync();
-        }
+            try
+            {
+                await app.RunAsync();
+            }
+            finally
+            {
+                await app.DisposeAsync();
+            }
+        } // end pool try
         finally
         {
-            await app.DisposeAsync();
+            // Safety net: if the host never started (build/tool-setup failure), the
+            // lifecycle service never ran, so we dispose the pool here. DisposeAsync
+            // is idempotent, so a second call after normal shutdown is harmless.
+            await pool.DisposeAsync();
         }
     }
 

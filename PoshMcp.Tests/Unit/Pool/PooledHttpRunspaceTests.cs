@@ -172,10 +172,53 @@ public sealed class PooledHttpRunspaceTests : IAsyncLifetime
         Assert.Equal(0, stats.LeasedWorkers);
     }
 
+    // ─── FinalizeDiscovery ───────────────────────────────────────────────────────
+
+    [Fact]
+    public void FinalizeDiscovery_DisposesDiscoveryRunspace()
+    {
+        var discoveryMock = MockWorker();
+        using var adapter = new PooledHttpRunspace(_pool, discoveryMock.Object, NullLoggerFactory.Instance);
+
+        // Access Instance to materialise the lazy discovery runspace.
+        _ = adapter.Instance;
+
+        adapter.FinalizeDiscovery();
+
+        discoveryMock.Verify(r => r.Dispose(), Times.Once);
+    }
+
+    [Fact]
+    public void FinalizeDiscovery_IsIdempotent()
+    {
+        using var adapter = new PooledHttpRunspace(_pool, MockWorker().Object, NullLoggerFactory.Instance);
+
+        adapter.FinalizeDiscovery();
+        adapter.FinalizeDiscovery(); // must not throw
+    }
+
+    [Fact]
+    public void FinalizeDiscovery_WhenDiscoveryNotAccessed_DoesNotThrow()
+    {
+        using var adapter = new PooledHttpRunspace(_pool, MockWorker().Object, NullLoggerFactory.Instance);
+
+        // No access to Instance — Lazy not materialized.
+        adapter.FinalizeDiscovery(); // must not throw
+    }
+
+    [Fact]
+    public void Instance_AfterFinalizeDiscovery_ThrowsInvalidOperationException()
+    {
+        using var adapter = new PooledHttpRunspace(_pool, MockWorker().Object, NullLoggerFactory.Instance);
+        adapter.FinalizeDiscovery();
+
+        Assert.Throws<InvalidOperationException>(() => _ = adapter.Instance);
+    }
+
     // ─── Session-ID isolation (stateless guarantee) ─────────────────────────────
 
     [Fact]
-    public async Task ConcurrentRequests_DifferentSessionIds_DoNotShareWorkers()
+    public async Task ConcurrentRequests_HoldSeparateLeases_DoNotSharePowerShellInstances()
     {
         // Two concurrent calls each see their own PSPowerShell — they cannot
         // observe each other's Commands because each holds a separate lease.
@@ -201,7 +244,6 @@ public sealed class PooledHttpRunspaceTests : IAsyncLifetime
         await pool.StartAsync();
         await using var _ = pool;
 
-        // Internal constructor: inject a mock discovery runspace to avoid real PS creation.
         using var adapter = new PooledHttpRunspace(pool, MockWorker().Object, NullLoggerFactory.Instance);
 
         var barrier = new SemaphoreSlim(0, 2);
@@ -212,7 +254,7 @@ public sealed class PooledHttpRunspaceTests : IAsyncLifetime
         {
             psA = ps;
             barrier.Release();
-            await release.WaitAsync(); // hold lease without blocking thread
+            await release.WaitAsync();
             return true;
         });
 
@@ -220,7 +262,7 @@ public sealed class PooledHttpRunspaceTests : IAsyncLifetime
         {
             psB = ps;
             barrier.Release();
-            await release.WaitAsync(); // hold lease without blocking thread
+            await release.WaitAsync();
             return true;
         });
 
@@ -228,14 +270,70 @@ public sealed class PooledHttpRunspaceTests : IAsyncLifetime
         await barrier.WaitAsync(TimeSpan.FromSeconds(5));
         await barrier.WaitAsync(TimeSpan.FromSeconds(5));
 
-        // Workers are different (each call got its own lease).
+        // Each concurrent call received its own PS instance — state cannot cross over.
         Assert.NotNull(psA);
         Assert.NotNull(psB);
         Assert.NotSame(psA, psB);
 
-        // Release both tasks.
         release.Release(2);
         await Task.WhenAll(taskA, taskB);
+    }
+
+    // ─── Pool exhaustion / recovery ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task Exhaustion_AllWorkersBusy_AcquisitionTimesOut_ThenReleaseAllowsSuccess()
+    {
+        var shortTimeout = new RunspacePoolOptions
+        {
+            MinPoolSize = 1,
+            MaxPoolSize = 1,
+            EagerWarmCount = 1,
+            AcquisitionTimeout = TimeSpan.FromMilliseconds(200),
+            IdleTtl = TimeSpan.FromSeconds(300),
+            SweepInterval = TimeSpan.FromSeconds(60),
+            StopTimeout = TimeSpan.FromSeconds(2),
+            ShutdownDrainTimeout = TimeSpan.FromMilliseconds(500),
+            ReplenishCheckInterval = TimeSpan.FromSeconds(60),
+        };
+        var pool = new StatelessRunspacePool(
+            shortTimeout,
+            loggerFactory: null,
+            startupScript: null,
+            workerFactory: () => MockWorker().Object,
+            snapshotCapture: _ => new HashSet<string>(),
+            driveSnapshotCapture: _ => new HashSet<string>(),
+            resetProtocol: (_, _, _) => Task.CompletedTask);
+        await pool.StartAsync();
+        await using var _ = pool;
+
+        using var adapter = new PooledHttpRunspace(pool, MockWorker().Object, NullLoggerFactory.Instance);
+
+        // Gate that holds the only worker busy.
+        var holdGate = new SemaphoreSlim(0, 1);
+        var workerAcquired = new SemaphoreSlim(0, 1);
+
+        var holdingTask = adapter.ExecuteThreadSafeAsync<bool>(async ps =>
+        {
+            workerAcquired.Release();
+            await holdGate.WaitAsync();
+            return true;
+        });
+
+        // Wait until the worker is actually held.
+        await workerAcquired.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // Pool is exhausted: second call must time out, not deadlock.
+        await Assert.ThrowsAsync<TimeoutException>(() =>
+            adapter.ExecuteThreadSafeAsync<bool>(ps => Task.FromResult(true)));
+
+        // Release the held worker.
+        holdGate.Release();
+        await holdingTask;
+
+        // After release a new call must succeed.
+        var result = await adapter.ExecuteThreadSafeAsync<bool>(ps => Task.FromResult(true));
+        Assert.True(result);
     }
 
     // ─── Dispose ────────────────────────────────────────────────────────────────
