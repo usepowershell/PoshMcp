@@ -261,6 +261,8 @@ jobs:
       run: |
         echo "current_first: touching v2 server before Phase 0 (v1) measurement"
         echo "This ensures v2 JIT/cache effects precede v1 on this runner."
+        # Record pre-touch timestamp for observed product order derivation (#380 AC1).
+        echo "PRE_TOUCH_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
         # Start the v2 server briefly to JIT-compile its assemblies on this runner.
         V2_DLL="${{ github.workspace }}/PoshMcp.Server/bin/Release/net10.0/PoshMcp.dll"
         dotnet "$V2_DLL" --urls "http://localhost:15199" &
@@ -340,16 +342,19 @@ jobs:
         echo "PHASE4_START_EPOCH=$PHASE4_START_EPOCH" >> "$GITHUB_ENV"
 
         # Derive observed product order from actual execution timestamps.
-        # Phase 0 always runs before Phase 4 in the workflow step sequence
-        # (except current_first has a pre-touch step before Phase 0).
-        # The observed order is: if Phase 0 started before Phase 4, baseline was first.
-        if [ -n "$PHASE0_START_EPOCH" ] && [ "$PHASE0_START_EPOCH" -le "$PHASE4_START_EPOCH" ]; then
+        # For current_first: the pre-touch step ran v2 code BEFORE Phase 0 (v1),
+        # so if PRE_TOUCH_EPOCH < PHASE0_START_EPOCH, observed is current_first.
+        # For baseline_first: no pre-touch, so Phase 0 (v1) < Phase 4 (v2) = baseline_first.
+        if [ -n "$PRE_TOUCH_EPOCH" ] && [ -n "$PHASE0_START_EPOCH" ] && \
+           [ "$PRE_TOUCH_EPOCH" -le "$PHASE0_START_EPOCH" ]; then
+          OBSERVED="current_first"
+        elif [ -n "$PHASE0_START_EPOCH" ] && [ "$PHASE0_START_EPOCH" -le "$PHASE4_START_EPOCH" ]; then
           OBSERVED="baseline_first"
         else
           OBSERVED="current_first"
         fi
         echo "PHASE4_OBSERVED_PRODUCT_ORDER=$OBSERVED" >> "$GITHUB_ENV"
-        echo "Observed product order: $OBSERVED (Phase0@${PHASE0_START_EPOCH:-?} Phase4@${PHASE4_START_EPOCH})"
+        echo "Observed product order: $OBSERVED (PreTouch@${PRE_TOUCH_EPOCH:-none} Phase0@${PHASE0_START_EPOCH:-?} Phase4@${PHASE4_START_EPOCH})"
         export PHASE4_OBSERVED_PRODUCT_ORDER="$OBSERVED"
 
         set +e
@@ -472,7 +477,7 @@ jobs:
       if: always()
       run: |
         MANIFEST="${{ github.workspace }}/TestResults/artifact-manifest.json"
-        echo '{"manifest_version":"1.0","attempt":${{ matrix.attempt }},"product_order":"${{ matrix.product_order }}","observed_product_order":"'"${PHASE4_OBSERVED_PRODUCT_ORDER:-unknown}"'","mode_order":"${{ matrix.phase4_order }}","source_head":"'"$PR_HEAD_SHA"'","merge_sha":"'"$MERGE_SHA"'","phase0_start_epoch":'"${PHASE0_START_EPOCH:-0}"',"phase4_start_epoch":'"${PHASE4_START_EPOCH:-0}"',"files":[' > "$MANIFEST"
+        echo '{"manifest_version":"1.0","attempt":${{ matrix.attempt }},"product_order":"${{ matrix.product_order }}","observed_product_order":"'"${PHASE4_OBSERVED_PRODUCT_ORDER:-unknown}"'","mode_order":"${{ matrix.phase4_order }}","source_head":"'"$PR_HEAD_SHA"'","merge_sha":"'"$MERGE_SHA"'","pre_touch_epoch":'"${PRE_TOUCH_EPOCH:-0}"',"phase0_start_epoch":'"${PHASE0_START_EPOCH:-0}"',"phase4_start_epoch":'"${PHASE4_START_EPOCH:-0}"',"files":[' > "$MANIFEST"
         FIRST=true
         # Core artifacts + TRX + DLL provenance
         for f in \
