@@ -112,7 +112,9 @@ public sealed class TransportParityTests : IAsyncLifetime
         // Stateless: direct tools/list
         var slResult = await CallAsync(_statelessClient!, new
         {
-            jsonrpc = "2.0", id = 1, method = "tools/list"
+            jsonrpc = "2.0",
+            id = 1,
+            method = "tools/list"
         });
         var slTools = ExtractToolNames(slResult);
 
@@ -123,7 +125,9 @@ public sealed class TransportParityTests : IAsyncLifetime
 
         var sfResult = await CallWithSessionAsync(_statefulClient!, sessionId!, new
         {
-            jsonrpc = "2.0", id = 1, method = "tools/list"
+            jsonrpc = "2.0",
+            id = 1,
+            method = "tools/list"
         }, sfProtocol);
         var sfTools = ExtractToolNames(sfResult);
 
@@ -241,13 +245,17 @@ public sealed class TransportParityTests : IAsyncLifetime
             if (sessionId is null)
                 result = await CallAsync(client, new
                 {
-                    jsonrpc = "2.0", id = 3, method = "tools/call",
+                    jsonrpc = "2.0",
+                    id = 3,
+                    method = "tools/call",
                     @params = new { name = ParityEchoToolName, arguments = new { } }
                 });
             else
                 result = await CallWithSessionAsync(client, sessionId, new
                 {
-                    jsonrpc = "2.0", id = 3, method = "tools/call",
+                    jsonrpc = "2.0",
+                    id = 3,
+                    method = "tools/call",
                     @params = new { name = ParityEchoToolName, arguments = new { } }
                 }, protocol);
 
@@ -328,7 +336,9 @@ public sealed class TransportParityTests : IAsyncLifetime
         // Reference: stateless result
         var slResult = await CallAsync(_statelessClient!, new
         {
-            jsonrpc = "2.0", id = 2, method = "tools/call",
+            jsonrpc = "2.0",
+            id = 2,
+            method = "tools/call",
             @params = new { name = ParityEchoToolName, arguments = new { } }
         });
         var slText = ExtractFirstContentText(slResult);
@@ -339,7 +349,9 @@ public sealed class TransportParityTests : IAsyncLifetime
 
         var sfResult = await CallWithSessionAsync(_statefulClient!, sessionId!, new
         {
-            jsonrpc = "2.0", id = 2, method = "tools/call",
+            jsonrpc = "2.0",
+            id = 2,
+            method = "tools/call",
             @params = new { name = ParityEchoToolName, arguments = new { } }
         }, version);
         var sfText = ExtractFirstContentText(sfResult);
@@ -360,7 +372,9 @@ public sealed class TransportParityTests : IAsyncLifetime
 
         var result = await CallWithSessionAsync(_statefulClient!, sessionId!, new
         {
-            jsonrpc = "2.0", id = 1, method = "tools/list"
+            jsonrpc = "2.0",
+            id = 1,
+            method = "tools/list"
         }, version);
 
         _output.WriteLine($"[{version}] tools/list: {result.ToString(Formatting.None)}");
@@ -381,7 +395,9 @@ public sealed class TransportParityTests : IAsyncLifetime
             Content = new StringContent(
                 JsonConvert.SerializeObject(new
                 {
-                    jsonrpc = "2.0", id = 1, method = "tools/call",
+                    jsonrpc = "2.0",
+                    id = 1,
+                    method = "tools/call",
                     @params = new { name = ParityEchoToolName, arguments = new { } }
                 }),
                 Encoding.UTF8, "application/json")
@@ -429,14 +445,18 @@ public sealed class TransportParityTests : IAsyncLifetime
         // Set a request-scoped variable.
         await CallWithSessionAsync(_statefulClient!, sessionId!, new
         {
-            jsonrpc = "2.0", id = 1, method = "tools/call",
+            jsonrpc = "2.0",
+            id = 1,
+            method = "tools/call",
             @params = new { name = ParitySetVarToolName, arguments = new { } }
         }, proto);
 
         // Read it back — reset should have cleared it.
         var readResult = await CallWithSessionAsync(_statefulClient!, sessionId!, new
         {
-            jsonrpc = "2.0", id = 2, method = "tools/call",
+            jsonrpc = "2.0",
+            id = 2,
+            method = "tools/call",
             @params = new { name = ParityReadVarToolName, arguments = new { } }
         }, proto);
 
