@@ -696,10 +696,10 @@ public sealed class SoakHarness : IAsyncDisposable
         {
             try
             {
-                _stdoutWriter = new StreamWriter(Path.Combine(_artifactDir, "server-stdout.txt"), append: false, Encoding.UTF8)
-                    { AutoFlush = true };
-                _stderrWriter = new StreamWriter(Path.Combine(_artifactDir, "server-stderr.txt"), append: false, Encoding.UTF8)
-                    { AutoFlush = true };
+                _stdoutWriter = new StreamWriter(Path.Combine(_artifactDir, "server-stdout.txt"), append: false, Encoding.UTF8);
+                _stdoutWriter.AutoFlush = true;
+                _stderrWriter = new StreamWriter(Path.Combine(_artifactDir, "server-stderr.txt"), append: false, Encoding.UTF8);
+                _stderrWriter.AutoFlush = true;
             }
             catch (Exception ex)
             {
