@@ -12,6 +12,7 @@ using Xunit;
 
 namespace PoshMcp.Tests.Unit;
 
+#pragma warning disable CS0618 // This file intentionally tests the obsolete SessionAwarePowerShellRunspace type until major-version removal.
 [Trait("Category", "Unit")]
 public class ServerSessionAwarePowerShellRunspaceTests : IDisposable
 {
@@ -238,3 +239,4 @@ public class ServerSessionAwarePowerShellRunspaceTests : IDisposable
         _runspace.Dispose();
     }
 }
+#pragma warning restore CS0618

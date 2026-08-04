@@ -239,7 +239,7 @@ public sealed class PooledHttpTransportTests : IAsyncLifetime
         var pooledRunspace = new PooledHttpRunspace(pool, (string?)null, NullLoggerFactory.Instance);
         pooledRunspace.FinalizeDiscovery();
 
-        var sessionLifecycle = new McpSessionLifecycle(_ => { });
+        var sessionLifecycle = new McpSessionLifecycle();
         var tools = CreateTestTools(pooledRunspace);
 
         var builder = WebApplication.CreateBuilder();
