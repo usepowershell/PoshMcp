@@ -53,7 +53,8 @@ $WorkerToken = [System.Guid]::NewGuid().ToString()
 function Get-StressWorkerToken { return $WorkerToken }
 ";
 
-    // Expected clean read after reset: all 7 PS state fields at baseline.
+    // Expected clean read after reset: all 6 asserted PS state surfaces at baseline
+    // (variable, $Error, ErrorActionPreference, PSDrive, function, alias).
     private const string CleanStatePattern = "var=not-set;err=0;pref=Continue;drive=False;func=not-defined;alias=not-set";
 
     public IsolationStressTests(ITestOutputHelper output) => _output = output;
@@ -170,15 +171,16 @@ function Get-StressWorkerToken { return $WorkerToken }
     // ─── 3. Sequential 50-round all-fields contamination — every field reset correctly ──
 
     /// <summary>
-    /// 50 sequential rounds on a single-worker host. Each round contaminates all 7 PS state
-    /// fields (variable, $Error, preference, PSDrive, function, alias, and the variable set by
-    /// <c>stress_check_and_set</c>) and then asserts the subsequent call reads exactly the
-    /// baseline clean state.
+    /// 50 sequential rounds on a single-worker host. Each round contaminates 6 PS state surfaces —
+    /// a variable (<c>$IsoStressVar</c>), <c>$Error</c>, <c>$ErrorActionPreference</c>, a PSDrive,
+    /// a function, and an alias — then asserts the subsequent call reads exactly the baseline clean
+    /// state (<see cref="CleanStatePattern"/>). These are the 6 surfaces the reset script clears and
+    /// the read tool inspects; no other surface (location, pipeline, output streams) is asserted here.
     ///
     /// MaxPoolSize=1 ensures every call goes through the same worker, making the contaminate →
     /// reset → read assertion deterministic and unambiguous.
     ///
-    /// This test would fail if any reset field is omitted or the reset script has a bug.
+    /// This test would fail if any of those 6 reset surfaces is omitted or the reset script has a bug.
     /// </summary>
     [Fact]
     public async Task Sequential_50Rounds_AllFields_ZeroLeak_Stateless()
@@ -475,9 +477,9 @@ function Get-StressWorkerToken { return $WorkerToken }
                     Description = "Read IsoStressVar (should be not-set), then set it to Marker"
                 }),
 
-            // Contaminates all 7 resettable PS state fields: variable, $Error, preference,
-            // PSDrive, function, alias.  The IsoStressVar contamination is implicitly part of the
-            // same worker's state and will also be covered by the read-all tool.
+            // Contaminates the 6 asserted PS state surfaces: variable ($IsoStressVar), $Error,
+            // $ErrorActionPreference, PSDrive, function, and alias — the exact surfaces the reset
+            // script clears and the read-all tool inspects.
             McpServerTool.Create(
                 (string marker, CancellationToken _) =>
                     runspace.ExecuteThreadSafeAsync(ps =>
@@ -502,10 +504,10 @@ function Get-StressWorkerToken { return $WorkerToken }
                 new McpServerToolCreateOptions
                 {
                     Name = "stress_contaminate_all",
-                    Description = "Set all 7 resettable PS state fields to Marker value"
+                    Description = "Set 6 resettable PS state surfaces to the Marker value"
                 }),
 
-            // Reads all 7 fields and returns a combined key=value string.
+            // Reads the 6 asserted surfaces and returns a combined key=value string.
             // Expected baseline: "var=not-set;err=0;pref=Continue;drive=False;func=not-defined;alias=not-set"
             McpServerTool.Create(
                 (CancellationToken _) => RunScript(runspace, @"
@@ -519,7 +521,7 @@ $a = if (Get-Alias IsoStressAlias -ErrorAction SilentlyContinue) { 'exists' } el
                 new McpServerToolCreateOptions
                 {
                     Name = "stress_read_all_clean",
-                    Description = "Read all 7 fields; must equal baseline after reset"
+                    Description = "Read the 6 asserted surfaces; must equal baseline after reset"
                 }),
         ];
     }

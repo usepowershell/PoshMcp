@@ -28,12 +28,27 @@ using PSPowerShell = System.Management.Automation.PowerShell;
 namespace PoshMcp.Tests.Integration;
 
 /// <summary>
-/// Integration tests for issue #351: pool resilience, exhaustion, cancellation, poison/broken/stuck
-/// worker handling, idle sweep, lifecycle, and post-drain rejection under both HTTP transport modes.
+/// Integration tests for issue #351: pool resilience, exhaustion, cancellation of a returned
+/// worker's reset, reset-failure and reset-timeout eviction/replenishment, idle sweep,
+/// lifecycle, and post-drain rejection under both HTTP transport modes.
 ///
 /// Pool-level tests use real PowerShell runspaces. Injected seams (factory/resetProtocol/clock) are
 /// used only where production-faithful HTTP cannot safely induce the failure condition.
 /// All coordination uses deterministic gates/polling — no arbitrary sleeps.
+///
+/// Cancellation scope note: in current production no request/HTTP CancellationToken is threaded
+/// into PowerShell execution or <see cref="RunspaceResetProtocol.ResetAsync"/> — neither
+/// <c>IPowerShellRunspace</c> nor <c>PooledHttpRunspace.ExecuteThreadSafeAsync</c> accepts a token,
+/// and the HTTP path calls <c>AcquireAsync()</c> with no token. The only cancellation that can
+/// reach reset is the pool's own <c>_shutdownToken</c> during drain/dispose. These tests therefore
+/// do NOT claim in-flight HTTP execution cancellation; the reset-cancellation branch is exercised
+/// deterministically by injecting an <see cref="OperationCanceledException"/> through the reset seam.
+///
+/// No test in this file creates a genuinely Broken runspace or a genuinely stuck PowerShell
+/// pipeline; those real-object scenarios are covered by the pre-existing pool functional tests
+/// (<c>ResetProtocol_BrokenRunspace_Throws</c>, <c>Pool_Reset_StuckPipeline_...</c>). The tests
+/// here that inject exceptions validate the pool's reaction (evict + replenish) to the exception
+/// types the real paths raise, and their names/docs say exactly that.
 /// </summary>
 [Trait("Category", "Integration")]
 public sealed class ResilienceTests
@@ -260,6 +275,24 @@ function Get-WorkerId { return $WorkerId }
     private static bool HasMcpError(JObject result) =>
         result["error"] != null || result["result"]?["isError"]?.Value<bool>() == true;
 
+    /// <summary>
+    /// Asserts the response is a tool-level error result (<c>result.isError == true</c>, not a
+    /// JSON-RPC protocol <c>error</c>) that references the specific tool by name. The MCP SDK does
+    /// not surface the underlying exception message in the response body — it returns a generic
+    /// "An error occurred invoking '&lt;tool&gt;'." with <c>isError:true</c> (the true exception, e.g.
+    /// <c>TimeoutException</c> / <c>ObjectDisposedException</c>, appears only in server logs). This
+    /// asserts the stable, observable contract: an isError result for the named tool. The
+    /// acquisition-timeout vs. drain-reject <em>semantics</em> are asserted behaviorally (by timing)
+    /// at each call site — see the exhaustion and post-drain tests.
+    /// </summary>
+    private static void AssertToolError(JObject result, string tool)
+    {
+        Assert.Null(result["error"]);
+        Assert.True(result["result"]?["isError"]?.Value<bool>() == true,
+            $"Expected a tool-level isError result for '{tool}', got: {result}");
+        Assert.Contains(tool, ExtractText(result));
+    }
+
     // ─── 1. HTTP Exhaustion — Stateless (sync bridge + async bridge) ──────────────
 
     /// <summary>
@@ -331,11 +364,23 @@ function Get-WorkerId { return $WorkerId }
             Assert.True(await entered2.WaitAsync(TimeSpan.FromSeconds(15)), "Async tool never acquired worker");
             Assert.Equal(2, pool.GetStats().LeasedWorkers);
 
-            // Excess calls must fail within AcquisitionTimeout (400ms) + margin — not deadlock.
+            // Excess calls must fail *after waiting ~AcquisitionTimeout* (400ms) — proving the
+            // acquisition-timeout path fired (a bounded wait then timeout), not an instant reject
+            // or a deadlock. The 5s WaitAsync is the no-deadlock upper bound.
+            var sw1 = Stopwatch.StartNew();
             var excess1 = await CallToolAsync(client, "res_probe").WaitAsync(TimeSpan.FromSeconds(5));
+            sw1.Stop();
+            var sw2 = Stopwatch.StartNew();
             var excess2 = await CallToolAsync(client, "res_probe").WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.True(HasMcpError(excess1), $"Excess sync call must fail during exhaustion: {excess1}");
-            Assert.True(HasMcpError(excess2), $"Excess async call must fail during exhaustion: {excess2}");
+            sw2.Stop();
+            AssertToolError(excess1, "res_probe");
+            AssertToolError(excess2, "res_probe");
+            // Lower bound: at least half of AcquisitionTimeout elapsed ⇒ it waited for the acquire
+            // timeout rather than failing instantly for some other reason.
+            Assert.True(sw1.Elapsed >= TimeSpan.FromMilliseconds(200),
+                $"Excess call 1 returned in {sw1.Elapsed} — expected a bounded acquisition-timeout wait (~400ms).");
+            Assert.True(sw2.Elapsed >= TimeSpan.FromMilliseconds(200),
+                $"Excess call 2 returned in {sw2.Elapsed} — expected a bounded acquisition-timeout wait (~400ms).");
 
             // Release both blockers.
             gate.Release(2);
@@ -417,10 +462,14 @@ function Get-WorkerId { return $WorkerId }
             Assert.True(await entered.WaitAsync(TimeSpan.FromSeconds(15)), "Blocking tool never acquired worker");
             Assert.Equal(1, pool.GetStats().LeasedWorkers);
 
-            // Excess call must fail with bounded error (not deadlock).
+            // Excess call must fail after a bounded acquisition-timeout wait (not deadlock).
+            var swx = Stopwatch.StartNew();
             var excess = await CallToolWithSessionAsync(client, "res_sf_probe", sessionId!)
                 .WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.True(HasMcpError(excess), $"Excess call must fail during stateful exhaustion: {excess}");
+            swx.Stop();
+            AssertToolError(excess, "res_sf_probe");
+            Assert.True(swx.Elapsed >= TimeSpan.FromMilliseconds(200),
+                $"Excess call returned in {swx.Elapsed} — expected a bounded acquisition-timeout wait (~400ms).");
 
             // Release.
             gate.Release();
@@ -446,16 +495,22 @@ function Get-WorkerId { return $WorkerId }
         }
     }
 
-    // ─── 3. Cancellation at lease-wait: OCE surfaces, counters exact, pool recovers ─
+    // ─── 3. Cancellation at lease-wait (acquire never granted): OCE, counters exact ─
 
     /// <summary>
-    /// Holds the sole pool worker then cancels a second acquire via a CancellationToken.
-    /// Asserts <see cref="OperationCanceledException"/> (not <see cref="TimeoutException"/>),
-    /// counter invariants (exactly 1 leased, 0 warm, 0 resetting), and full recovery after
-    /// releasing the held lease.
+    /// Proves ONE contract only: a canceled <c>AcquireAsync</c> that is still <em>waiting</em> for a
+    /// worker surfaces <see cref="OperationCanceledException"/> (not <see cref="TimeoutException"/>)
+    /// and does not perturb counters. The sole worker is held by a separate lease throughout, so the
+    /// canceled caller is never granted a worker — no reset, eviction, or replenishment occurs on the
+    /// cancellation path here.
     ///
-    /// Uses real PS runspace to prove the counter path is correct end-to-end, not just in
-    /// the pool's acquire loop. Would fail if cancellation were mis-classified as timeout.
+    /// This deliberately does NOT cover cancellation of a returned worker's reset. That distinct
+    /// production branch (<c>OnWorkerReturnedAsync</c> <c>catch (OperationCanceledException)</c> →
+    /// evict + replenish) is proven by
+    /// <see cref="ResetCanceled_WorkerEvictedAndReplenished_WithDistinctWorker"/>.
+    ///
+    /// Uses a real PS runspace to prove the counter path end-to-end. Would fail if cancellation were
+    /// mis-classified as a timeout or if the held lease's accounting drifted.
     /// </summary>
     [Fact]
     public async Task CancellationAtLeaseWait_OCE_CountersExact_PoolRecovers()
@@ -638,19 +693,109 @@ function Get-WorkerId { return $WorkerId }
         _output.WriteLine($"ResetFailure: evicted id={id1}; new id={id2}. total={stats2.TotalWorkers}");
     }
 
-    // ─── 6. Stop-timeout path: blocking reset eviction within bounded time ────────
+    // ─── 5b. Reset canceled (OCE) → eviction + replenishment with distinct worker ──
 
     /// <summary>
-    /// Injected reset blocks then throws <see cref="TimeoutException"/> — mirroring the
-    /// production path where <c>RunspaceResetProtocol.ResetAsync</c> calls <c>ps.Stop()</c>
-    /// and the pipeline does not respond within <c>StopTimeout</c>.
-    /// Asserts: eviction fires, replenishment restores the pool, and the whole cycle
-    /// completes within a bounded wall-clock window (no hang).
-    /// Would fail if <see cref="StatelessRunspacePool.OnWorkerReturnedAsync"/> did not catch
-    /// <c>TimeoutException</c> and re-throw instead of evicting.
+    /// Exercises the production reset-cancellation branch:
+    /// <see cref="StatelessRunspacePool.OnWorkerReturnedAsync"/> <c>catch (OperationCanceledException)</c>,
+    /// which evicts the returned worker (metric reason <c>cancel</c>) and fires replenishment.
+    ///
+    /// A lease is acquired on a real worker and its identity captured; on return, the injected reset
+    /// protocol signals that reset is in flight then faults with <see cref="OperationCanceledException"/>
+    /// through the exact seam production wires to <c>RunspaceResetProtocol.ResetAsync</c>. The test then
+    /// proves the observable behavior: the leased worker is evicted, never leased again (distinct
+    /// WorkerId after replenishment), the pool replenishes to MinPoolSize, counters settle exactly
+    /// (warm=1, leased=0, resetting=0, total=1), and a subsequent execution succeeds.
+    ///
+    /// Metric caveat: the eviction reason (<c>cancel</c>) is emitted on a process-global meter shared
+    /// by every pool instance (<see cref="RunspacePoolMetrics"/> uses the shared <c>PoshMcp</c> meter
+    /// name with no per-pool discriminator), so a reason-count assertion is not deterministic under
+    /// xUnit parallelism. We assert behavior (evict + replenish + distinct worker) rather than the
+    /// reason tag. The test fails if <c>catch (OperationCanceledException)</c> stops evicting or
+    /// replenishing a canceled reset.
+    ///
+    /// Cancellation-threading note: production does not thread a request CancellationToken into reset;
+    /// only the pool's <c>_shutdownToken</c> can cancel <c>ResetAsync</c>. This injects the OCE that
+    /// path would raise, rather than simulating in-flight HTTP execution cancellation.
     /// </summary>
     [Fact]
-    public async Task StopTimeout_BlockingReset_EvictionWithinBound_Replenished()
+    public async Task ResetCanceled_WorkerEvictedAndReplenished_WithDistinctWorker()
+    {
+        using var resetEntered = new SemaphoreSlim(0, 1);
+        int resetCalls = 0;
+        var opts = MakeOptions(min: 1, max: 1, eager: 1, acquisitionSec: 10, drainSec: 10);
+        await using var pool = MakeRealPool(
+            opts,
+            resetProtocol: (_, _, _) =>
+            {
+                if (Interlocked.Increment(ref resetCalls) == 1)
+                {
+                    resetEntered.Release(); // deterministic signal: reset is in flight
+                    return Task.FromException(new OperationCanceledException(
+                        "Reset canceled: models _shutdownToken cancellation of ResetAsync."));
+                }
+                return Task.CompletedTask;
+            });
+        await pool.StartAsync();
+
+        // Acquire the first worker, capture its identity, then return it → injected reset cancels.
+        string id1;
+        {
+            await using var lease = await pool.AcquireAsync();
+            id1 = QueryWorker(lease, "Get-WorkerId") ?? "null";
+        }
+
+        // Deterministically confirm the reset-cancellation branch was entered (no sleep).
+        Assert.True(await resetEntered.WaitAsync(TimeSpan.FromSeconds(5)),
+            "Reset protocol (cancellation branch) never started.");
+
+        // The canceled worker must be evicted and the pool replenished to MinPoolSize.
+        await WaitForStatsAsync(pool,
+            s => s.TotalWorkers >= 1 && s.WarmWorkers >= 1 &&
+                 s.LeasedWorkers == 0 && s.ResettingWorkers == 0);
+
+        // Acquire the replenished worker — must be a distinct identity (evicted one not re-queued).
+        string id2;
+        {
+            await using var lease = await pool.AcquireAsync();
+            id2 = QueryWorker(lease, "Get-WorkerId") ?? "null";
+        }
+        // Second reset succeeds (resetCalls >= 2 → no-op), so this worker stays warm.
+        await WaitForStatsAsync(pool, s => s.WarmWorkers == 1 && s.LeasedWorkers == 0);
+
+        Assert.NotEqual(id1, id2);
+        var stats = pool.GetStats();
+        Assert.Equal(1, stats.TotalWorkers);
+        Assert.Equal(1, stats.WarmWorkers);
+        Assert.Equal(0, stats.LeasedWorkers);
+        Assert.Equal(0, stats.ResettingWorkers);
+
+        // Subsequent execution on the recovered worker succeeds and is the same distinct worker.
+        await using var recovery = await pool.AcquireAsync();
+        Assert.Equal(id2, QueryWorker(recovery, "Get-WorkerId"));
+        _output.WriteLine($"ResetCanceled: evicted id={id1}; replenished distinct id={id2}; counters exact.");
+    }
+
+    // ─── 6. Reset throws TimeoutException → pool evicts (stop_timeout) + replenishes ──
+
+    /// <summary>
+    /// Validates the pool's <em>reaction</em> to a reset that throws <see cref="TimeoutException"/>:
+    /// <see cref="StatelessRunspacePool.OnWorkerReturnedAsync"/> catches it, evicts the worker with
+    /// metric reason <c>stop_timeout</c>, and fires replenishment — all within a bounded window.
+    ///
+    /// The <see cref="TimeoutException"/> is injected through the reset seam. This test does NOT
+    /// exercise the real <c>RunspaceResetProtocol.ResetAsync</c> → <c>PowerShell.Stop()</c> →
+    /// configured <c>StopTimeout</c> path: the production reset runs a fixed, fast reset script that
+    /// responds to <c>Stop()</c> in milliseconds and cannot be made to genuinely block from a test.
+    /// It injects the exception that the real stop-timeout path would surface and asserts only the
+    /// pool's eviction/replenishment reaction (matching the honest pre-existing functional test
+    /// <c>Pool_Reset_StuckPipeline_EvictedWithStopTimeoutReason</c>).
+    ///
+    /// Would fail if <see cref="StatelessRunspacePool.OnWorkerReturnedAsync"/> did not catch
+    /// <c>TimeoutException</c> and evict, or re-threw instead of replenishing.
+    /// </summary>
+    [Fact]
+    public async Task ResetThrowsTimeout_PoolEvictsStopTimeoutReason_Replenished()
     {
         using var resetEntered = new SemaphoreSlim(0, 1);
         var opts = MakeOptions(min: 1, max: 1, eager: 1, acquisitionSec: 10, drainSec: 10);
@@ -659,9 +804,11 @@ function Get-WorkerId { return $WorkerId }
             resetProtocol: async (_, _, _) =>
             {
                 resetEntered.Release(); // deterministic signal: reset started
-                await Task.Delay(300, CancellationToken.None); // simulate stuck pipeline
+                await Task.Delay(300, CancellationToken.None); // brief in-flight delay before the fault
+                // Inject the TimeoutException the real stop-timeout path would raise; this test
+                // asserts the pool's reaction, not ps.Stop() itself.
                 throw new TimeoutException(
-                    "Simulated stuck pipeline: ps.Stop() did not complete within StopTimeout.");
+                    "Injected TimeoutException: exercises the pool's stop_timeout eviction/replenishment reaction.");
             });
         await pool.StartAsync();
 
@@ -695,7 +842,7 @@ function Get-WorkerId { return $WorkerId }
             await using var lease = await pool.AcquireAsync();
             Assert.NotNull(lease.PowerShell);
         }
-        _output.WriteLine($"StopTimeout: eviction+replenishment completed in {sw.Elapsed}.");
+        _output.WriteLine($"ResetThrowsTimeout: stop_timeout eviction+replenishment completed in {sw.Elapsed}.");
     }
 
     // ─── 7. Idle sweep: multi-round, never below MinPoolSize, counters don't drift ─
@@ -856,18 +1003,26 @@ function Get-WorkerId { return $WorkerId }
     // ─── 10. Both modes post-drain: reject new requests promptly ──────────────────
 
     /// <summary>
-    /// After <c>pool.DrainAsync()</c>, both stateless and stateful HTTP requests must fail
-    /// with a bounded MCP error — not deadlock, not thread starvation.
-    /// Stateful test uses a real server-issued <c>Mcp-Session-Id</c>.
-    /// Pre-drain request succeeds in both modes to prove the assertion is non-vacuous.
-    /// Would fail if the MCP SDK swallowed <c>ObjectDisposedException</c> from the pool.
+    /// After <c>pool.DrainAsync()</c>, both stateless and stateful HTTP requests must be rejected
+    /// by the pool's drain guard — <c>AcquireAsync</c> throws <see cref="ObjectDisposedException"/>
+    /// immediately (<c>_draining != 0</c>) — not by an acquisition timeout and not by a deadlock.
+    ///
+    /// To assert the drain/ObjectDisposed <em>semantics</em> (not merely "any error"), the pool's
+    /// <c>AcquisitionTimeout</c> is set large (30s): a prompt (&lt; 3s) rejection can therefore only
+    /// come from the drain fast-reject path. If the request instead fell through to the acquire wait,
+    /// it would take ~30s and blow the bound. The rejection is also asserted as a tool-level isError
+    /// result for the specific probe tool. Stateful test uses a real server-issued
+    /// <c>Mcp-Session-Id</c>. Pre-drain success in both modes proves the assertion is non-vacuous.
+    /// Would fail if the MCP SDK swallowed <see cref="ObjectDisposedException"/> from the pool or if
+    /// drain rejection went through the acquisition-timeout wait.
     /// </summary>
     [Fact]
     public async Task BothModes_PostDrain_RejectNewRequests_Promptly()
     {
         // ── Stateless ──
         {
-            var slOpts = MakeOptions(min: 1, max: 1, eager: 1, acquisitionSec: 0.5, drainSec: 5);
+            // Large AcquisitionTimeout: a prompt rejection proves the drain fast-reject fired.
+            var slOpts = MakeOptions(min: 1, max: 1, eager: 1, acquisitionSec: 30, drainSec: 5);
             var slPool = MakeRealPool(slOpts);
             var slPr = new PooledHttpRunspace(slPool, WorkerIdentityScript, NullLoggerFactory.Instance);
             slPr.FinalizeDiscovery();
@@ -890,13 +1045,14 @@ function Get-WorkerId { return $WorkerId }
 
                 await slPool.DrainAsync();
 
-                // Post-drain: must fail promptly.
+                // Post-drain: must be rejected promptly by the drain guard (ObjectDisposedException),
+                // NOT after the 30s acquisition wait.
                 var sw = Stopwatch.StartNew();
                 var post = await CallToolAsync(slClient, "res_sl_probe");
                 sw.Stop();
-                Assert.True(HasMcpError(post), $"Post-drain stateless must fail: {post}");
+                AssertToolError(post, "res_sl_probe");
                 Assert.True(sw.Elapsed < TimeSpan.FromSeconds(3),
-                    $"Post-drain stateless rejection took {sw.Elapsed} — expected < 3s");
+                    $"Post-drain stateless rejection took {sw.Elapsed} — expected prompt drain reject (< 3s, AcquisitionTimeout=30s)");
                 _output.WriteLine($"BothModes-Stateless: rejected in {sw.Elapsed}");
             }
             finally
@@ -909,7 +1065,8 @@ function Get-WorkerId { return $WorkerId }
 
         // ── Stateful ──
         {
-            var sfOpts = MakeOptions(min: 1, max: 1, eager: 1, acquisitionSec: 0.5, drainSec: 5);
+            // Large AcquisitionTimeout: a prompt rejection proves the drain fast-reject fired.
+            var sfOpts = MakeOptions(min: 1, max: 1, eager: 1, acquisitionSec: 30, drainSec: 5);
             var sfPool = MakeRealPool(sfOpts);
             var sfPr = new PooledHttpRunspace(sfPool, WorkerIdentityScript, NullLoggerFactory.Instance);
             sfPr.FinalizeDiscovery();
@@ -936,13 +1093,14 @@ function Get-WorkerId { return $WorkerId }
 
                 await sfPool.DrainAsync();
 
-                // Post-drain: must fail promptly with real session ID.
+                // Post-drain: must be rejected promptly by the drain guard (ObjectDisposedException),
+                // NOT after the 30s acquisition wait.
                 var sw = Stopwatch.StartNew();
                 var post = await CallToolWithSessionAsync(sfClient, "res_sf_probe2", sessionId!);
                 sw.Stop();
-                Assert.True(HasMcpError(post), $"Post-drain stateful must fail: {post}");
+                AssertToolError(post, "res_sf_probe2");
                 Assert.True(sw.Elapsed < TimeSpan.FromSeconds(3),
-                    $"Post-drain stateful rejection took {sw.Elapsed} — expected < 3s");
+                    $"Post-drain stateful rejection took {sw.Elapsed} — expected prompt drain reject (< 3s, AcquisitionTimeout=30s)");
                 _output.WriteLine($"BothModes-Stateful: rejected in {sw.Elapsed}");
             }
             finally
