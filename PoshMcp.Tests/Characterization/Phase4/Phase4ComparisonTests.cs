@@ -176,6 +176,7 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
         // Per-client warmup: 1 call per client — matches Phase 0 (no extra burst warmups).
         _output.WriteLine($"[{transportMode}] Concurrent throughput — {ThroughputPerClientWarmupCalls} warmup/client + N={throughputN} measured bursts × {ThroughputConcurrency} concurrent");
         var thrClients = new CharacterizationMcpClient[ThroughputConcurrency];
+        var thrSamples = new double[throughputN];
         try
         {
             for (var i = 0; i < ThroughputConcurrency; i++)
@@ -186,7 +187,6 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
                     await thrClients[i].CallGetDateAsync();
             }
 
-            var thrSamples = new double[throughputN];
             for (var burst = 0; burst < throughputN; burst++)
             {
                 var sw = Stopwatch.StartNew();
@@ -289,6 +289,25 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
         _output.WriteLine($"[{transportMode}] Comparing to Phase 0 baseline…");
         var comparison = PerformanceComparator.Compare(transportMode, _fixture.Baseline, scenarios);
         _fixture.RecordModeComparison(comparison);
+
+        // ── Record statistical reports for warm-call and throughput (#380 AC5) ──
+        _fixture.RecordStatisticalReport(
+            StatisticalReport.FromSamples(
+                $"warm_call_latency_ms_{modeLabel}", "milliseconds", warmSamples));
+        _fixture.RecordStatisticalReport(
+            StatisticalReport.FromSamples(
+                $"concurrent_throughput_ms_{modeLabel}", "milliseconds", thrSamples));
+
+        // ── Record stage attribution (#380 AC6) ────────────────────────────────
+        var healthScenario = scenarios.FirstOrDefault(
+            s => s.Scenario == $"diagnostic_http_health_ms_{modeLabel}");
+        if (healthScenario is not null)
+        {
+            var attribution = StageAttribution.Create(
+                transportMode, warmSamples, healthScenario.RawSamples);
+            _fixture.RecordStageAttribution(attribution);
+            _output.WriteLine($"[{transportMode}] Stage attribution: {attribution.Hypothesis}");
+        }
 
         LogComparisonResults(transportMode, comparison);
 

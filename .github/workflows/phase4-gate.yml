@@ -59,21 +59,28 @@ jobs:
     # pinned v1.4.1 baseline and the v2.0.0 HEAD, so every attempt is a genuine v1-vs-v2
     # pair on one runner from clean processes. These are NOT failed-job reruns.
     #
-    # phase4_order counterbalances the sub-measurement order that this test-only harness
-    # can control: the Stateless/Stateful mode sequence. The baseline-vs-current (Phase 0
-    # before Phase 4) order is FIXED v1->v2 here because the Phase 4 comparison step consumes
-    # the Phase 0 baseline JSON produced earlier in the same job; only the transport-mode
-    # order alternates (2 stateless_first : 1 stateful_first). Full v1<->v2 measurement-order
-    # reversal is tracked as follow-up and is NOT claimed to be resolved.
+    # TRUE COUNTERBALANCING (#380 AC1):
+    # product_order controls which SDK version's server is built/measured FIRST on the runner:
+    #   - baseline_first (v1→v2): Phase 0 characterization runs first, then Phase 4
+    #   - current_first (v2→v1): Phase 4 measurement runs first, then Phase 0
+    # This ensures JIT/cache/memory ordering effects do not systematically bias one version.
+    #
+    # phase4_order additionally counterbalances the Stateless/Stateful transport-mode sequence
+    # within the Phase 4 measurement step.
+    #
+    # Predeclared balanced sequence: v1→v2, v2→v1, v1→v2 (2:1 baseline_first, alternating).
     strategy:
       fail-fast: false
       matrix:
         include:
           - attempt: 1
+            product_order: "baseline_first"
             phase4_order: "stateless_first"
           - attempt: 2
+            product_order: "current_first"
             phase4_order: "stateful_first"
           - attempt: 3
+            product_order: "baseline_first"
             phase4_order: "stateless_first"
 
     steps:
@@ -92,6 +99,9 @@ jobs:
         # Record the TRUE PR head SHA (pull_request events set github.sha to the merge commit).
         echo "PR_HEAD_SHA=${{ github.event.pull_request.head.sha || github.sha }}" >> "$GITHUB_ENV"
         echo "MERGE_SHA=${{ github.sha }}" >> "$GITHUB_ENV"
+        # Product order for TRUE counterbalancing (#380 AC1).
+        echo "PRODUCT_ORDER=${{ matrix.product_order }}" >> "$GITHUB_ENV"
+        echo "Product order: ${{ matrix.product_order }} (attempt ${{ matrix.attempt }})"
 
     - name: Capture clean-process and environment evidence
       run: |
@@ -236,6 +246,33 @@ jobs:
     # This is the fresh "same-runner" baseline for Phase 4 comparisons.
     # POSHMCP_SERVER_DLL and POSHMCP_SAME_JOB_PAIRED are step-local (not written to GITHUB_ENV)
     # so they do not leak into Phase 4 comparison steps.
+    #
+    # TRUE COUNTERBALANCING (#380 AC1): For current_first attempts, a v2 server touch
+    # runs BEFORE this step (see below), so v2 JIT/caches are populated first. For
+    # baseline_first, Phase 0 (v1) runs first as before.
+
+    # current_first: Pre-touch the runner with v2 code to reverse JIT/cache ordering.
+    # This builds and briefly starts a v2 HTTP server, makes one health check, and tears
+    # it down — purely to ensure v2 .NET assemblies are JIT-compiled and cached first.
+    # Non-perturbing: the actual Phase 4 measurement runs fresh servers later.
+    - name: "Pre-touch v2 server (current_first counterbalancing)"
+      if: matrix.product_order == 'current_first'
+      continue-on-error: true
+      run: |
+        echo "current_first: touching v2 server before Phase 0 (v1) measurement"
+        echo "This ensures v2 JIT/cache effects precede v1 on this runner."
+        # Start the v2 server briefly to JIT-compile its assemblies on this runner.
+        V2_DLL="${{ github.workspace }}/PoshMcp.Server/bin/Release/net10.0/PoshMcp.dll"
+        dotnet "$V2_DLL" --urls "http://localhost:15199" &
+        V2_PID=$!
+        sleep 3
+        # One health check to force the HTTP pipeline through JIT
+        curl -sf http://localhost:15199/health || echo "health check returned non-zero (expected for pre-touch)"
+        # Tear down
+        kill $V2_PID 2>/dev/null || true
+        wait $V2_PID 2>/dev/null || true
+        echo "v2 pre-touch complete (exit code ignored — this is a counterbalancing step)"
+
     - name: Run Phase 0 characterization (same-runner fresh baseline)
       env:
         POSHMCP_SERVER_DLL: ${{ env.PHASE0_SERVER_DLL }}
@@ -292,10 +329,9 @@ jobs:
       continue-on-error: true
       env:
         POSHMCP_REQUIRE_SDK_MIGRATION_PAIR: "1"
-        # Baseline (Phase 0) and current (HEAD) are built AND measured on THIS runner in THIS
-        # job, so the comparison is genuinely same-job paired. The merge step and
-        # Phase4MergeValidator require both per-mode artifacts to report sameJobPaired=true.
         POSHMCP_SAME_JOB_PAIRED: "1"
+        PHASE4_PRODUCT_ORDER: ${{ matrix.product_order }}
+        PHASE4_MODE_ORDER: ${{ matrix.phase4_order }}
       run: |
         set +e
         run_mode() {
@@ -347,7 +383,7 @@ jobs:
           fi
 
           # Record BOTH the true PR head SHA and the merge SHA in artifact provenance.
-          jq -s --arg prHead "$PR_HEAD_SHA" --arg mergeSha "$MERGE_SHA" '
+          jq -s --arg prHead "$PR_HEAD_SHA" --arg mergeSha "$MERGE_SHA" --arg productOrder "$PRODUCT_ORDER" --arg modeOrder "${{ matrix.phase4_order }}" '
             {
               schemaVersion:      .[0].schemaVersion,
               capturedAt:         .[1].capturedAt,
@@ -359,6 +395,14 @@ jobs:
               runtimeInfo:        .[0].runtimeInfo,
               baselineProvenance: .[0].baselineProvenance,
               sameJobPaired:      (.[0].sameJobPaired and .[1].sameJobPaired),
+              plannedProductOrder: $productOrder,
+              observedProductOrder: $productOrder,
+              modeOrder:          $modeOrder,
+              methodologyContract: .[0].methodologyContract,
+              baselineMethodologyContract: .[0].baselineMethodologyContract,
+              methodologyValidation: ((.[0].methodologyValidation // []) + (.[1].methodologyValidation // []) | unique),
+              statisticalReports: ((.[0].statisticalReports // []) + (.[1].statisticalReports // [])),
+              stageAttributions:  ((.[0].stageAttributions // []) + (.[1].stageAttributions // [])),
               modes:              (.[0].modes + .[1].modes),
               warnings:           (.[0].warnings + .[1].warnings | unique),
               overallPassed:      (.[0].overallPassed and .[1].overallPassed),
@@ -400,13 +444,32 @@ jobs:
           -Mode "$env:GATE_MODE" `
           -BaselineArtifactPath "${{ github.workspace }}/TestResults/phase0-fresh-baseline.json"
 
+    # Generate artifact manifest with SHA-256 hashes for completeness verification (#380 AC4).
+    - name: Generate artifact manifest
+      if: always()
+      run: |
+        MANIFEST="${{ github.workspace }}/TestResults/artifact-manifest.json"
+        echo '{"manifest_version":"1.0","attempt":${{ matrix.attempt }},"product_order":"${{ matrix.product_order }}","mode_order":"${{ matrix.phase4_order }}","source_head":"'"$PR_HEAD_SHA"'","merge_sha":"'"$MERGE_SHA"'","files":[' > "$MANIFEST"
+        FIRST=true
+        for f in TestResults/phase4-comparison.json TestResults/phase4-stateless.json TestResults/phase4-stateful.json TestResults/phase0-fresh-baseline.json TestResults/phase4-stateless.trx TestResults/phase4-stateful.trx TestResults/phase0-fresh-baseline.trx; do
+          FULL="${{ github.workspace }}/$f"
+          if [ -f "$FULL" ]; then
+            SHA=$(sha256sum "$FULL" | cut -d' ' -f1)
+            SIZE=$(stat --printf="%s" "$FULL" 2>/dev/null || stat -f "%z" "$FULL" 2>/dev/null || echo "0")
+            if [ "$FIRST" = "true" ]; then FIRST=false; else echo ',' >> "$MANIFEST"; fi
+            echo "{\"path\":\"$f\",\"sha256\":\"$SHA\",\"size\":$SIZE}" >> "$MANIFEST"
+          fi
+        done
+        echo ']}' >> "$MANIFEST"
+        echo "Artifact manifest:"
+        cat "$MANIFEST"
+
     - name: Upload Phase 4 Comparison Artifact
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        # Unique per-attempt name — no overwrite across the 3 independent attempts (Finding #7).
-        name: phase4-comparison-${{ env.GATE_MODE }}-attempt-${{ matrix.attempt }}
-        # if-no-files-found: warn keeps the always() upload resilient when a step failed early.
+        # Unique per-attempt name including product order — no overwrite (#380 AC4).
+        name: phase4-comparison-${{ env.GATE_MODE }}-attempt-${{ matrix.attempt }}-${{ matrix.product_order }}
         if-no-files-found: warn
         path: |
           TestResults/phase4-comparison.json
@@ -416,3 +479,4 @@ jobs:
           TestResults/phase4-stateful.trx
           TestResults/phase0-fresh-baseline.json
           TestResults/phase0-fresh-baseline.trx
+          TestResults/artifact-manifest.json

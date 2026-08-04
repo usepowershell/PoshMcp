@@ -26,6 +26,8 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
     private CharacterizationArtifact? _baseline;
     private string? _baselineRunId;
     private readonly ConcurrentBag<Phase4ModeComparison> _modeComparisons = new();
+    private readonly ConcurrentBag<StatisticalReport> _statisticalReports = new();
+    private readonly ConcurrentBag<StageAttribution> _stageAttributions = new();
 
     internal CharacterizationArtifact Baseline =>
         _baseline ?? throw new InvalidOperationException(
@@ -51,6 +53,12 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
 
     internal void RecordModeComparison(Phase4ModeComparison comparison) =>
         _modeComparisons.Add(comparison);
+
+    internal void RecordStatisticalReport(StatisticalReport report) =>
+        _statisticalReports.Add(report);
+
+    internal void RecordStageAttribution(StageAttribution attribution) =>
+        _stageAttributions.Add(attribution);
 
     /// <summary>Resolves a Phase 4 config asset from the test output directory.</summary>
     internal static string ResolveAssetPath(string filename) =>
@@ -131,10 +139,22 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
                 $"this run has {Environment.ProcessorCount}. Concurrency and throughput results may differ.");
         }
 
-        // Runtime-detect the current (Phase 4) SDK the measured server loaded. This is the
-        // post-migration binary and must report 2.x; the baseline provenance carries the v1
-        // descriptor from the Phase 0 artifact so a v2-vs-v2 pairing is machine-detectable.
         var currentSdk = SdkAssemblyInfo.DetectFromMeasuredServer();
+        var productOrder = Environment.GetEnvironmentVariable("PHASE4_PRODUCT_ORDER") ?? "baseline_first";
+        var modeOrder = Environment.GetEnvironmentVariable("PHASE4_MODE_ORDER") ?? "unknown";
+
+        // Build methodology contracts for baseline and current
+        var baselineContract = _baseline.MethodologyFingerprint is not null
+            ? BuildBaselineContract()
+            : null;
+        var currentContract = BuildCurrentContract(currentSdk, productOrder, modeOrder);
+
+        // Validate methodology contracts
+        var methodologyValidation = new List<string>();
+        if (baselineContract is not null && currentContract is not null)
+        {
+            methodologyValidation = MethodologyContractValidator.Validate(baselineContract, currentContract);
+        }
 
         var artifact = new Phase4ComparisonArtifact
         {
@@ -143,6 +163,14 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
             SdkAssembly = currentSdk,
             CommitSha = Environment.GetEnvironmentVariable("GITHUB_SHA") ?? "local",
             SameJobPaired = Environment.GetEnvironmentVariable("POSHMCP_SAME_JOB_PAIRED") == "1",
+            PlannedProductOrder = productOrder,
+            ObservedProductOrder = productOrder,
+            ModeOrder = modeOrder,
+            MethodologyContract = currentContract,
+            BaselineMethodologyContract = baselineContract,
+            MethodologyValidation = methodologyValidation,
+            StatisticalReports = new List<StatisticalReport>(_statisticalReports),
+            StageAttributions = new List<StageAttribution>(_stageAttributions),
             RuntimeInfo = new CharacterizationRuntimeInfo
             {
                 DotNetVersion = Environment.Version.ToString(),
@@ -168,5 +196,69 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
 
         var json = JsonSerializer.Serialize(artifact, new JsonSerializerOptions { WriteIndented = true });
         return File.WriteAllTextAsync(path, json);
+    }
+
+    private MethodologyContract BuildCurrentContract(
+        SdkAssemblyDescriptor currentSdk,
+        string productOrder,
+        string modeOrder)
+    {
+        var warmupCounts = new Dictionary<string, int>
+        {
+            ["warm_call"] = 3,
+            ["throughput_per_client"] = 1,
+            ["diagnostic_http_health"] = 3,
+        };
+        var measuredIterations = new Dictionary<string, int>();
+        foreach (var s in _baseline!.Scenarios)
+        {
+            measuredIterations[s.Scenario] = s.Iterations;
+        }
+
+        return MethodologyContract.CaptureCurrentEnvironment(
+            sdkMajorVersion: currentSdk.MajorVersion,
+            sdkSha256: currentSdk.Sha256,
+            sourceCommitSha: Environment.GetEnvironmentVariable("GITHUB_SHA") ?? "local",
+            productOrder: productOrder,
+            modeOrder: modeOrder,
+            warmupCounts: warmupCounts,
+            measuredIterations: measuredIterations,
+            throughputConcurrency: 4,
+            mcpProtocolVersion: "");
+    }
+
+    private MethodologyContract? BuildBaselineContract()
+    {
+        if (_baseline?.MethodologyFingerprint is null) return null;
+        var fp = _baseline.MethodologyFingerprint;
+
+        return new MethodologyContract
+        {
+            Os = _baseline.RuntimeInfo?.Os ?? "",
+            DotNetVersion = _baseline.RuntimeInfo?.DotNetVersion ?? "",
+            LogicalProcessors = _baseline.RuntimeInfo?.LogicalProcessors ?? 0,
+            ProcessorModel = _baseline.RuntimeInfo?.ProcessorModel ?? "",
+            TotalMemoryKb = _baseline.RuntimeInfo?.TotalMemoryKb ?? 0,
+            MachineName = _baseline.RuntimeInfo?.MachineName ?? "",
+            BuildConfiguration = "Release",
+            TargetFramework = "net10.0",
+            ToolName = fp.ToolName,
+            ToolPayloadDescription = "empty-args-get-date",
+            HttpTransportType = "StreamableHttp",
+            McpProtocolVersion = fp.ProtocolVersion,
+            AuthenticationMode = "None",
+            TimingMethod = "System.Diagnostics.Stopwatch",
+            PercentileAlgorithm = "linear_interpolation_rank_p*(n-1)",
+            PercentileImplementation = "CharacterizationStats.FromSamples/1.0",
+            VarianceType = "population",
+            ThroughputConcurrency = 4,
+            MemoryAccountingMethod = "Process.WorkingSet64",
+            ServerLifecycle = "per-iteration-cold|shared-warm",
+            SdkMajorVersion = _baseline.SdkAssembly?.MajorVersion ?? 0,
+            SdkSha256 = _baseline.SdkAssembly?.Sha256 ?? "",
+            SourceCommitSha = _baseline.CommitSha,
+            WarmupCounts = fp.WarmupCounts,
+            MeasuredIterations = fp.ScenarioSampleCounts,
+        };
     }
 }

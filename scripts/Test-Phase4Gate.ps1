@@ -226,6 +226,36 @@ $pbldiff = Join-Path $work 'baseline-procdiff.json'; Write-Json $baselDiff $pbld
 Assert-Exit "env-parity present+differ / advisory" (Invoke-Gate $pdiff 'advisory' $pbldiff) 2
 Assert-Exit "env-parity present+differ / release"  (Invoke-Gate $pdiff 'release'  $pbldiff) 2
 
+# --- Case 18: methodology contract violations -> 2 both (#380 AC3) ----------
+$mv = New-BaseArtifact
+$mv.methodologyValidation = @("dotNetVersion: baseline='10.0.0', current='9.0.0'")
+$pmv = Join-Path $work 'meth-violation.json'; Write-Json $mv $pmv
+Assert-Exit "methodology violation / advisory" (Invoke-Gate $pmv 'advisory') 2
+Assert-Exit "methodology violation / release"  (Invoke-Gate $pmv 'release')  2
+
+# --- Case 19: empty methodology validation -> PASS (#380 AC3) ────────────
+$me = New-BaseArtifact
+$me.methodologyValidation = @()
+$pme = Join-Path $work 'meth-empty.json'; Write-Json $me $pme
+Assert-Exit "empty methodology validation / advisory" (Invoke-Gate $pme 'advisory') 0
+Assert-Exit "empty methodology validation / release"  (Invoke-Gate $pme 'release')  0
+
+# --- Case 20: product order mismatch -> 2 both (#380 AC1) ───────────────
+$po = New-BaseArtifact
+$po.plannedProductOrder = 'baseline_first'
+$po.observedProductOrder = 'current_first'
+$ppo = Join-Path $work 'order-mismatch.json'; Write-Json $po $ppo
+Assert-Exit "product order mismatch / advisory" (Invoke-Gate $ppo 'advisory') 2
+Assert-Exit "product order mismatch / release"  (Invoke-Gate $ppo 'release')  2
+
+# --- Case 21: product order match -> not a violation (#380 AC1) ──────────
+$pm = New-BaseArtifact
+$pm.plannedProductOrder = 'baseline_first'
+$pm.observedProductOrder = 'baseline_first'
+$ppm = Join-Path $work 'order-match.json'; Write-Json $pm $ppm
+Assert-Exit "product order match / advisory" (Invoke-Gate $ppm 'advisory') 0
+Assert-Exit "product order match / release"  (Invoke-Gate $ppm 'release')  0
+
 Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
 
 Write-Host ""

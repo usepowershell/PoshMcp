@@ -42,6 +42,57 @@ internal sealed class Phase4ComparisonArtifact
     [JsonPropertyName("sameJobPaired")]
     public bool SameJobPaired { get; set; }
 
+    /// <summary>
+    /// Predeclared product collection order for this attempt: "baseline_first" (v1→v2)
+    /// or "current_first" (v2→v1). Required for TRUE counterbalancing (#380 AC1).
+    /// </summary>
+    [JsonPropertyName("plannedProductOrder")]
+    public string PlannedProductOrder { get; set; } = "";
+
+    /// <summary>
+    /// Observed product collection order. Must match <see cref="PlannedProductOrder"/>;
+    /// a mismatch is a methodology violation.
+    /// </summary>
+    [JsonPropertyName("observedProductOrder")]
+    public string ObservedProductOrder { get; set; } = "";
+
+    /// <summary>
+    /// Transport mode collection order for this attempt: "stateless_first" or "stateful_first".
+    /// </summary>
+    [JsonPropertyName("modeOrder")]
+    public string ModeOrder { get; set; } = "";
+
+    /// <summary>
+    /// Machine-enforced methodology fingerprint contract (#380 AC3).
+    /// Validated field-by-field in CI before ratios are considered.
+    /// </summary>
+    [JsonPropertyName("methodologyContract")]
+    public MethodologyContract? MethodologyContract { get; set; }
+
+    /// <summary>
+    /// Baseline methodology contract for cross-validation.
+    /// </summary>
+    [JsonPropertyName("baselineMethodologyContract")]
+    public MethodologyContract? BaselineMethodologyContract { get; set; }
+
+    /// <summary>
+    /// Methodology contract validation results. Empty = all passed.
+    /// </summary>
+    [JsonPropertyName("methodologyValidation")]
+    public List<string> MethodologyValidation { get; set; } = [];
+
+    /// <summary>
+    /// Statistical reports for warm-call and throughput with CV/range/confidence (#380 AC5).
+    /// </summary>
+    [JsonPropertyName("statisticalReports")]
+    public List<StatisticalReport> StatisticalReports { get; set; } = [];
+
+    /// <summary>
+    /// Stage attribution estimates (#380 AC6). Hypotheses, not assertions.
+    /// </summary>
+    [JsonPropertyName("stageAttributions")]
+    public List<StageAttribution> StageAttributions { get; set; } = [];
+
     [JsonPropertyName("modes")]
     public List<Phase4ModeComparison> Modes { get; set; } = [];
 
