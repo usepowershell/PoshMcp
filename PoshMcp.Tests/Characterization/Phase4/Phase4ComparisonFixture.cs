@@ -32,6 +32,23 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
             "Phase4ComparisonFixture was not successfully initialized. " +
             "Check that V1_BASELINE_PATH is set and points to a valid Phase 0 artifact.");
 
+    /// <summary>
+    /// Returns the sample count (<c>Iterations</c>) from the Phase 0 baseline for the given
+    /// canonical scenario key (no mode suffix). Phase 4 tests use this to match Phase 0 N
+    /// automatically, ensuring the methodology fingerprint passes the comparator check.
+    /// </summary>
+    internal int GetBaselineSampleCount(string baselineScenarioKey)
+    {
+        if (_baseline is null)
+            throw new InvalidOperationException("Fixture not initialized — call after InitializeAsync.");
+        var scenario = _baseline.Scenarios.FirstOrDefault(s => s.Scenario == baselineScenarioKey);
+        if (scenario is null)
+            throw new KeyNotFoundException(
+                $"Baseline scenario '{baselineScenarioKey}' not found. " +
+                $"Available: [{string.Join(", ", _baseline.Scenarios.Select(s => s.Scenario).OrderBy(s => s))}]");
+        return scenario.Iterations;
+    }
+
     internal void RecordModeComparison(Phase4ModeComparison comparison) =>
         _modeComparisons.Add(comparison);
 
@@ -110,6 +127,7 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
             CapturedAt = DateTime.UtcNow.ToString("O"),
             SdkPackageVersion = "ModelContextProtocol 1.4.1",
             CommitSha = Environment.GetEnvironmentVariable("GITHUB_SHA") ?? "local",
+            SameJobPaired = Environment.GetEnvironmentVariable("POSHMCP_SAME_JOB_PAIRED") == "1",
             RuntimeInfo = new CharacterizationRuntimeInfo
             {
                 DotNetVersion = Environment.Version.ToString(),

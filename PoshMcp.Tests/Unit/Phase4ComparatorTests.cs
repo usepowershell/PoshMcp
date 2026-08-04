@@ -32,12 +32,16 @@ public class Phase4ComparatorTests
         double coldWithScriptP95 = 1000.0,
         double warmCallP95 = 2.0,
         double throughputMean = 5.0,
-        double memoryModerateMean = 100.0)
+        double memoryModerateMean = 100.0,
+        int coldStartN = 5,
+        int warmCallN = 20,
+        int throughputN = 5)
     {
-        static CharacterizationScenario Scenario(string name, double p95 = 1.0, double mean = 1.0)
+        static CharacterizationScenario Scenario(string name, int n, double p95 = 1.0, double mean = 1.0)
             => new()
             {
                 Scenario = name,
+                Iterations = n,
                 Stats = new CharacterizationStats
                 {
                     P95 = p95,
@@ -47,7 +51,7 @@ public class Phase4ComparatorTests
                     Min = mean * 0.9,
                     Max = p95 * 1.01,
                     StdDev = 0,
-                    SampleCount = 5,
+                    SampleCount = n,
                 },
                 RawSamples = [mean],
             };
@@ -59,14 +63,14 @@ public class Phase4ComparatorTests
             SdkPackageVersion = "ModelContextProtocol 1.4.1",
             Scenarios =
             [
-                Scenario("cold_start_http_no_script",  p95: coldNoScriptP95,   mean: coldNoScriptP95 * 0.95),
-                Scenario("cold_start_http_with_script", p95: coldWithScriptP95, mean: coldWithScriptP95 * 0.95),
-                Scenario("warm_call_latency_ms",        p95: warmCallP95,       mean: warmCallP95 * 0.9),
-                Scenario("concurrent_throughput_ms",    p95: throughputMean * 1.1, mean: throughputMean),
-                Scenario("memory_moderate_load_mb",     p95: memoryModerateMean, mean: memoryModerateMean),
+                Scenario("cold_start_http_no_script",   coldStartN, p95: coldNoScriptP95,   mean: coldNoScriptP95 * 0.95),
+                Scenario("cold_start_http_with_script",  coldStartN, p95: coldWithScriptP95, mean: coldWithScriptP95 * 0.95),
+                Scenario("warm_call_latency_ms",         warmCallN,  p95: warmCallP95,       mean: warmCallP95 * 0.9),
+                Scenario("concurrent_throughput_ms",     throughputN, p95: throughputMean * 1.1, mean: throughputMean),
+                Scenario("memory_moderate_load_mb",      1,           p95: memoryModerateMean, mean: memoryModerateMean),
                 // Extra scenarios that the comparator ignores (idle/light memory, etc.)
-                Scenario("memory_idle_mb",              p95: 90.0,  mean: 90.0),
-                Scenario("memory_light_load_mb",        p95: 95.0,  mean: 95.0),
+                Scenario("memory_idle_mb",               1,  p95: 90.0,  mean: 90.0),
+                Scenario("memory_light_load_mb",         1,  p95: 95.0,  mean: 95.0),
             ],
         };
     }
@@ -74,6 +78,7 @@ public class Phase4ComparatorTests
     /// <summary>
     /// Builds Phase 4 scenarios with mode suffix for the given transport mode.
     /// Each stat field is set so that p95 and mean equal the supplied values.
+    /// N values default to match BuildBaseline defaults (cold=5, warmCall=20, throughput=5).
     /// </summary>
     private static IReadOnlyList<CharacterizationScenario> BuildPhase4Scenarios(
         string transportMode,
@@ -81,14 +86,18 @@ public class Phase4ComparatorTests
         double coldWithScriptP95 = 1000.0,
         double warmCallP95 = 2.0,
         double throughputMean = 5.0,
-        double memoryModerateMean = 100.0)
+        double memoryModerateMean = 100.0,
+        int coldStartN = 5,
+        int warmCallN = 20,
+        int throughputN = 5)
     {
         var m = transportMode.ToLowerInvariant();
 
-        static CharacterizationScenario Scenario(string name, double p95, double mean)
+        static CharacterizationScenario Scenario(string name, int n, double p95, double mean)
             => new()
             {
                 Scenario = name,
+                Iterations = n,
                 Stats = new CharacterizationStats
                 {
                     P95 = p95,
@@ -98,20 +107,20 @@ public class Phase4ComparatorTests
                     Min = mean * 0.9,
                     Max = p95,
                     StdDev = 0,
-                    SampleCount = 5,
+                    SampleCount = n,
                 },
                 RawSamples = [mean],
             };
 
         return
         [
-            Scenario($"cold_start_http_no_script_{m}",  coldNoScriptP95,   coldNoScriptP95 * 0.95),
-            Scenario($"cold_start_http_with_script_{m}", coldWithScriptP95, coldWithScriptP95 * 0.95),
-            Scenario($"warm_call_latency_ms_{m}",        warmCallP95,       warmCallP95 * 0.9),
-            Scenario($"concurrent_throughput_ms_{m}",    throughputMean * 1.1, throughputMean),
-            Scenario($"memory_moderate_load_mb_{m}",     memoryModerateMean, memoryModerateMean),
-            Scenario($"memory_idle_mb_{m}",              90.0, 90.0),
-            Scenario($"memory_light_load_mb_{m}",        95.0, 95.0),
+            Scenario($"cold_start_http_no_script_{m}",   coldStartN,  coldNoScriptP95,   coldNoScriptP95 * 0.95),
+            Scenario($"cold_start_http_with_script_{m}", coldStartN,  coldWithScriptP95, coldWithScriptP95 * 0.95),
+            Scenario($"warm_call_latency_ms_{m}",        warmCallN,   warmCallP95,       warmCallP95 * 0.9),
+            Scenario($"concurrent_throughput_ms_{m}",    throughputN, throughputMean * 1.1, throughputMean),
+            Scenario($"memory_moderate_load_mb_{m}",     1,           memoryModerateMean, memoryModerateMean),
+            Scenario($"memory_idle_mb_{m}",              1,           90.0, 90.0),
+            Scenario($"memory_light_load_mb_{m}",        1,           95.0, 95.0),
         ];
     }
 
@@ -419,5 +428,73 @@ public class Phase4ComparatorTests
 
         // Scenarios are passed through as-is
         Assert.NotEmpty(result.Scenarios);
+    }
+
+    // ── Methodology match validation ──────────────────────────────────────────
+
+    [Fact]
+    public void MatchingN_MethodologyPassesAndComparisonSucceeds()
+    {
+        // baseline N=5 for all gated scenarios; Phase 4 uses same N → no exception
+        var baseline = BuildBaseline(coldStartN: 5, warmCallN: 20, throughputN: 5);
+        var p4 = BuildPhase4Scenarios("Stateless", coldStartN: 5, warmCallN: 20, throughputN: 5);
+
+        // Should not throw
+        var result = PerformanceComparator.Compare("Stateless", baseline, p4);
+        Assert.NotNull(result);
+    }
+
+    [Theory]
+    [InlineData(5, 10, 5)]   // cold-start N mismatch
+    [InlineData(5, 20, 10)]  // throughput N mismatch
+    [InlineData(10, 20, 5)]  // warm-call N mismatch (baseline=20 hard-coded → set baseline to 10 to mismatch)
+    public void MismatchedN_ThrowsInvalidOperation(int phase4ColdN, int phase4WarmCallN, int phase4ThroughputN)
+    {
+        // Baseline always uses N=5/20/5; any Phase 4 deviation is an error.
+        var baseline = BuildBaseline(coldStartN: 5, warmCallN: 20, throughputN: 5);
+        var p4 = BuildPhase4Scenarios("Stateless",
+            coldStartN: phase4ColdN,
+            warmCallN: phase4WarmCallN,
+            throughputN: phase4ThroughputN);
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            PerformanceComparator.Compare("Stateless", baseline, p4));
+        Assert.Contains("sample count mismatch", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("Stateless")]
+    [InlineData("Stateful")]
+    public void BothModes_MethodologyMismatchThrows(string mode)
+    {
+        // N mismatch must fail for both modes, not just Stateless.
+        var baseline = BuildBaseline(coldStartN: 5, warmCallN: 20, throughputN: 5);
+        var p4 = BuildPhase4Scenarios(mode,
+            coldStartN: 5,
+            warmCallN: 20,
+            throughputN: 9); // mismatch: 9 ≠ 5
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            PerformanceComparator.Compare(mode, baseline, p4));
+        Assert.Contains("sample count mismatch", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("concurrent_throughput_ms", ex.Message);
+    }
+
+    [Fact]
+    public void MissingBaselineIterations_TreatedAsMismatch()
+    {
+        // If a baseline scenario has Iterations=0 (unset), the fingerprint check
+        // must fail rather than silently treating 0 as "match anything".
+        var baseline = BuildBaseline(coldStartN: 5, warmCallN: 20, throughputN: 5);
+        // Zero out one gated scenario's Iterations
+        baseline.Scenarios.Find(s => s.Scenario == "concurrent_throughput_ms")!.Iterations = 0;
+
+        var p4 = BuildPhase4Scenarios("Stateless", coldStartN: 5, warmCallN: 20, throughputN: 5);
+
+        // 0 baseline Iterations vs any Phase 4 N → either fails or is unset; we require
+        // the comparator to guard against uninitialized baseline N.
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            PerformanceComparator.Compare("Stateless", baseline, p4));
+        Assert.Contains("concurrent_throughput_ms", ex.Message);
     }
 }

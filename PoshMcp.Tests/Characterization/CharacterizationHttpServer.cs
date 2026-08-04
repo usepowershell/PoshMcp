@@ -53,15 +53,33 @@ internal sealed class CharacterizationHttpServer : IAsyncDisposable
 
     public async Task StartAsync(string? configPath = null)
     {
-        var (workspaceRoot, buildConfiguration) = ResolveWorkspace();
-        const string TargetFramework = "net10.0";
-        var serverDllPath = Path.Combine(workspaceRoot, "PoshMcp.Server", "bin", buildConfiguration, TargetFramework, "PoshMcp.dll");
-        var resolvedConfig = configPath ?? Path.Combine(workspaceRoot, "PoshMcp.Server", "appsettings.json");
+        // Allow CI to override the server DLL path for same-job paired measurement
+        // (Phase 0 and Phase 4 characterization in the same CI job, same runner).
+        // POSHMCP_SERVER_DLL is set only for the Phase 0 characterization step;
+        // it is intentionally NOT set in the environment for Phase 4 comparison steps.
+        var dllOverride = Environment.GetEnvironmentVariable("POSHMCP_SERVER_DLL");
+
+        string serverDllPath;
+        string resolvedConfig;
+        if (!string.IsNullOrEmpty(dllOverride))
+        {
+            serverDllPath = dllOverride;
+            // When using DLL override, callers always supply configPath explicitly.
+            // The null fallback here is a last-resort that won't be reached in practice.
+            resolvedConfig = configPath ?? Path.Combine(Path.GetDirectoryName(dllOverride)!, "appsettings.json");
+        }
+        else
+        {
+            var (workspaceRoot, buildConfiguration) = ResolveWorkspace();
+            const string TargetFramework = "net10.0";
+            serverDllPath = Path.Combine(workspaceRoot, "PoshMcp.Server", "bin", buildConfiguration, TargetFramework, "PoshMcp.dll");
+            resolvedConfig = configPath ?? Path.Combine(workspaceRoot, "PoshMcp.Server", "appsettings.json");
+        }
 
         if (!File.Exists(serverDllPath))
             throw new FileNotFoundException(
                 $"Server assembly not found at '{serverDllPath}'. " +
-                $"Build the solution before running characterization tests: dotnet build --configuration {buildConfiguration}",
+                $"Build the solution before running characterization tests.",
                 serverDllPath);
         if (!File.Exists(resolvedConfig))
             throw new FileNotFoundException($"Config not found: {resolvedConfig}");

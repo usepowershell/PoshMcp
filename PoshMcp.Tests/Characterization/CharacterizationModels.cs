@@ -20,8 +20,21 @@ internal sealed class CharacterizationArtifact
     [JsonPropertyName("sdkPackageVersion")]
     public string SdkPackageVersion { get; set; } = "";
 
+    /// <summary>Git commit SHA of the repository when this artifact was captured.</summary>
+    [JsonPropertyName("commitSha")]
+    public string CommitSha { get; set; } = "";
+
     [JsonPropertyName("runtimeInfo")]
     public CharacterizationRuntimeInfo RuntimeInfo { get; set; } = new();
+
+    /// <summary>
+    /// Machine-readable methodology description: tool, protocol, sample counts, warmups.
+    /// Used by Phase 4 comparator to validate that Phase 0 and Phase 4 use identical
+    /// measurement contracts. Missing on old artifacts (produced before this field was added);
+    /// comparator falls back to per-scenario <see cref="CharacterizationScenario.Iterations"/>.
+    /// </summary>
+    [JsonPropertyName("methodologyFingerprint")]
+    public CharacterizationMethodologyFingerprint? MethodologyFingerprint { get; set; }
 
     [JsonPropertyName("scenarios")]
     public List<CharacterizationScenario> Scenarios { get; set; } = [];
@@ -40,6 +53,59 @@ internal sealed class CharacterizationRuntimeInfo
 
     [JsonPropertyName("machineName")]
     public string MachineName { get; set; } = "";
+
+    /// <summary>
+    /// CPU model string. On Linux runners populated from RUNNER_CPU_MODEL env var
+    /// (set by CI from /proc/cpuinfo). Empty when unavailable.
+    /// </summary>
+    [JsonPropertyName("processorModel")]
+    public string ProcessorModel { get; set; } = "";
+
+    /// <summary>
+    /// Total physical memory in kibibytes. On Linux populated from RUNNER_TOTAL_MEM_KB
+    /// env var (set by CI from /proc/meminfo). Zero when unavailable.
+    /// </summary>
+    [JsonPropertyName("totalMemoryKb")]
+    public long TotalMemoryKb { get; set; }
+}
+
+/// <summary>
+/// Machine-readable summary of measurement methodology.
+/// Enables Phase 4 comparator to detect mismatched sample counts, tool, or protocol
+/// between Phase 0 baseline and Phase 4 current measurements.
+/// </summary>
+internal sealed class CharacterizationMethodologyFingerprint
+{
+    /// <summary>Schema version for this fingerprint object.</summary>
+    [JsonPropertyName("version")]
+    public string Version { get; set; } = "1.0";
+
+    /// <summary>MCP tool name used for warm-call and throughput measurements.</summary>
+    [JsonPropertyName("toolName")]
+    public string ToolName { get; set; } = "get_date";
+
+    /// <summary>MCP protocol version string used in request headers.</summary>
+    [JsonPropertyName("protocolVersion")]
+    public string ProtocolVersion { get; set; } = "2025-11-25";
+
+    /// <summary>
+    /// Sample count per scenario key. Phase 4 comparator validates these match.
+    /// Keys are the Phase 0 canonical scenario names without mode suffix.
+    /// </summary>
+    [JsonPropertyName("scenarioSampleCounts")]
+    public Dictionary<string, int> ScenarioSampleCounts { get; set; } = new();
+
+    /// <summary>Warmup call count per scenario (calls excluded from measurement).</summary>
+    [JsonPropertyName("warmupCounts")]
+    public Dictionary<string, int> WarmupCounts { get; set; } = new();
+
+    /// <summary>
+    /// True when Phase 0 baseline and Phase 4 current were measured in the same CI job
+    /// (same runner, same session). When false, cross-runner hardware variance may affect
+    /// comparisons; results are advisory.
+    /// </summary>
+    [JsonPropertyName("sameJobPaired")]
+    public bool SameJobPaired { get; set; }
 }
 
 internal sealed class CharacterizationScenario

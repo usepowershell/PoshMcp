@@ -27,6 +27,14 @@ internal sealed class Phase4ComparisonArtifact
     [JsonPropertyName("baselineProvenance")]
     public Phase4BaselineProvenance BaselineProvenance { get; set; } = new();
 
+    /// <summary>
+    /// True when Phase 0 and Phase 4 measurements were taken in the same CI job on the same
+    /// runner process, guaranteeing hardware equivalence. False means cross-run comparison
+    /// (advisory only — hardware variance may explain threshold breaches).
+    /// </summary>
+    [JsonPropertyName("sameJobPaired")]
+    public bool SameJobPaired { get; set; }
+
     [JsonPropertyName("modes")]
     public List<Phase4ModeComparison> Modes { get; set; } = [];
 

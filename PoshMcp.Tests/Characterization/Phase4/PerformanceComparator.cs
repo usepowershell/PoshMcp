@@ -66,8 +66,62 @@ internal static class PerformanceComparator
     }
 
     /// <summary>
+    /// Validates that Phase 4 scenario sample counts match the Phase 0 baseline for every
+    /// gated metric. Throws <see cref="InvalidOperationException"/> with an actionable
+    /// message if any gated scenario has a mismatched N.
+    ///
+    /// <para>
+    /// Reads N from <c>baseline.Scenarios[key].Iterations</c> (always present) rather than
+    /// the fingerprint (absent on old artifacts). This allows validation against the published
+    /// Phase 0 artifact even before the fingerprint field was added.
+    /// </para>
+    /// </summary>
+    internal static void ValidateMethodologyMatch(
+        CharacterizationArtifact baseline,
+        string transportMode,
+        IReadOnlyList<CharacterizationScenario> phase4Scenarios)
+    {
+        var mode = transportMode.ToLowerInvariant();
+        var b0Map = baseline.Scenarios.ToDictionary(s => s.Scenario, StringComparer.Ordinal);
+        var p4Map = phase4Scenarios.ToDictionary(s => s.Scenario, StringComparer.Ordinal);
+
+        // Gated scenario pairs: (baseline key, Phase 4 key suffix, metric label)
+        var gated = new[]
+        {
+            ("cold_start_http_no_script",    $"cold_start_http_no_script_{mode}",   "cold-start no-script"),
+            ("cold_start_http_with_script",  $"cold_start_http_with_script_{mode}", "cold-start with-script"),
+            ("warm_call_latency_ms",         $"warm_call_latency_ms_{mode}",        "warm-call"),
+            ("concurrent_throughput_ms",     $"concurrent_throughput_ms_{mode}",    "throughput"),
+        };
+
+        var mismatches = new List<string>();
+        foreach (var (b0Key, p4Key, label) in gated)
+        {
+            if (!b0Map.TryGetValue(b0Key, out var b0Scenario)) continue;
+            if (!p4Map.TryGetValue(p4Key, out var p4Scenario)) continue;
+
+            var b0N = b0Scenario.Iterations;
+            var p4N = p4Scenario.Iterations;
+            if (b0N <= 0)
+                mismatches.Add($"  {label} ({b0Key}): baseline Iterations={b0N} is uninitialized/zero — cannot validate methodology match");
+            else if (b0N != p4N)
+                mismatches.Add($"  {label} ({b0Key}): baseline N={b0N}, current N={p4N}");
+        }
+
+        if (mismatches.Count > 0)
+            throw new InvalidOperationException(
+                $"Methodology sample count mismatch for transport mode '{transportMode}' — " +
+                $"Phase 0 baseline and Phase 4 measurements used different N values. " +
+                $"The p95/mean estimators from different sample counts are not comparable.\n" +
+                string.Join("\n", mismatches) + "\n" +
+                $"Fix: ensure Phase 4 test iteration constants match the baseline. " +
+                $"Phase 4 can read N from baseline.Scenarios[key].Iterations via Phase4ComparisonFixture.GetBaselineSampleCount().");
+    }
+
+    /// <summary>
     /// Compares Phase 4 measurements for one transport mode against the Phase 0 baseline.
-    /// Validates the baseline before comparing. Throws on invalid inputs or missing scenarios.
+    /// Validates the baseline and methodology match before comparing. Throws on invalid
+    /// inputs, missing scenarios, or N mismatch.
     /// </summary>
     /// <param name="transportMode">
     /// "Stateless" or "Stateful" — used to construct the expected Phase 4 scenario name suffix.
@@ -83,6 +137,7 @@ internal static class PerformanceComparator
         IReadOnlyList<CharacterizationScenario> phase4Scenarios)
     {
         ValidateBaseline(baseline);
+        ValidateMethodologyMatch(baseline, transportMode, phase4Scenarios);
 
         var mode = transportMode.ToLowerInvariant();
         var p4Map = phase4Scenarios.ToDictionary(s => s.Scenario, StringComparer.Ordinal);

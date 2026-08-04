@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Net.Http;
 using System.Threading.Tasks;
 using Xunit;
 using Xunit.Abstractions;
@@ -88,11 +89,12 @@ public class V1BaselineCharacterizationTests : IClassFixture<CharacterizationFix
     [Fact(DisplayName = "warm_call_latency_ms")]
     public async Task WarmCallLatency()
     {
+        const int WarmupRounds = 3;
         await using var client = new CharacterizationMcpClient(_fixture.WarmServer.ServerUrl);
         await client.InitializeAsync();
 
         // Warmup rounds — excluded from measurement.
-        for (var w = 0; w < 3; w++)
+        for (var w = 0; w < WarmupRounds; w++)
             await client.CallGetDateAsync();
 
         var samples = new double[WarmCallIterations];
@@ -102,6 +104,7 @@ public class V1BaselineCharacterizationTests : IClassFixture<CharacterizationFix
             _output.WriteLine($"  warm call {i + 1}/{WarmCallIterations}: {samples[i]:F1} ms");
         }
 
+        _fixture.RecordWarmupCount("warm_call_latency_ms", WarmupRounds);
         _fixture.RecordScenario(new CharacterizationScenario
         {
             Scenario = "warm_call_latency_ms",
@@ -119,6 +122,7 @@ public class V1BaselineCharacterizationTests : IClassFixture<CharacterizationFix
     [Fact(DisplayName = "concurrent_throughput_ms")]
     public async Task ConcurrentThroughput()
     {
+        const int PerClientWarmupCalls = 1;
         var clients = new CharacterizationMcpClient[ThroughputConcurrency];
         try
         {
@@ -126,7 +130,7 @@ public class V1BaselineCharacterizationTests : IClassFixture<CharacterizationFix
             {
                 clients[i] = new CharacterizationMcpClient(_fixture.WarmServer.ServerUrl);
                 await clients[i].InitializeAsync();
-                await clients[i].CallGetDateAsync(); // warmup
+                await clients[i].CallGetDateAsync(); // per-client warmup
             }
 
             var samples = new double[ThroughputBursts];
@@ -139,6 +143,7 @@ public class V1BaselineCharacterizationTests : IClassFixture<CharacterizationFix
                 _output.WriteLine($"  burst {burst + 1}/{ThroughputBursts}: {samples[burst]:F1} ms ({ThroughputConcurrency} concurrent)");
             }
 
+            _fixture.RecordWarmupCount("concurrent_throughput_ms", PerClientWarmupCalls * ThroughputConcurrency);
             _fixture.RecordScenario(new CharacterizationScenario
             {
                 Scenario = "concurrent_throughput_ms",
@@ -247,6 +252,47 @@ public class V1BaselineCharacterizationTests : IClassFixture<CharacterizationFix
     // ---------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Diagnostic: pure HTTP GET /health latency.
+    /// Not gated; used for stage attribution — subtract from warm_call_latency_ms
+    /// to approximate MCP-layer + PowerShell + reset overhead.
+    /// </summary>
+    [Fact(DisplayName = "diagnostic_http_health_ms")]
+    public async Task DiagnosticHttpHealth()
+    {
+        const int N = 20;
+        const int Warmups = 3;
+        using var http = new System.Net.Http.HttpClient
+        {
+            BaseAddress = new Uri(_fixture.WarmServer.ServerUrl),
+            Timeout = TimeSpan.FromSeconds(10),
+        };
+
+        for (var w = 0; w < Warmups; w++)
+            await http.GetAsync("/health");
+
+        var samples = new double[N];
+        for (var i = 0; i < N; i++)
+        {
+            var sw = Stopwatch.StartNew();
+            using var r = await http.GetAsync("/health");
+            sw.Stop();
+            r.EnsureSuccessStatusCode();
+            samples[i] = sw.Elapsed.TotalMilliseconds;
+            _output.WriteLine($"  health {i + 1}/{N}: {samples[i]:F2} ms");
+        }
+
+        _fixture.RecordScenario(new CharacterizationScenario
+        {
+            Scenario = "diagnostic_http_health_ms",
+            Description = "Diagnostic: pure HTTP GET /health round-trip (no MCP/PS). " +
+                          "Not gated. Subtract from warm_call_latency_ms for stage attribution.",
+            Iterations = samples.Length,
+            Stats = CharacterizationStats.FromSamples(samples),
+            RawSamples = samples,
+        });
+    }
 
     private async Task<double[]> MeasureColdStartsAsync(string configPath, int iterations)
     {

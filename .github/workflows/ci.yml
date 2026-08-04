@@ -306,23 +306,35 @@ jobs:
   # ---------------------------------------------------------------------------
   # Phase 4 (issue #357): Performance comparison against Phase 0 baselines.
   #
-  # Downloads the Phase 0 v1-baseline-characterization artifact from the latest
-  # successful CI run on main, runs both Stateless and Stateful transport mode
-  # measurements with identical methodology (same N, same tool, same config),
-  # and applies relative gates:
-  #   cold-start p95  ≤ 110% of baseline
-  #   warm-call p95   ≤ 105% of baseline
-  #   throughput mean ≤ 1/0.95 × baseline  (≥ 95% throughput rate)
-  #   peak memory     ≤ 110% of baseline
+  # SAME-JOB PAIRED MEASUREMENT DESIGN:
+  # To eliminate cross-runner variance and N-mismatch issues, this job measures
+  # BOTH the Phase 0 (published baseline commit) and Phase 4 (current HEAD) in
+  # the same CI job / same runner process, using identical iteration counts,
+  # warmup counts, tool/payload, config, and measurement boundaries.
   #
-  # Gate failures cause the job to fail (blocking the release). Artifacts are
-  # uploaded with if: always() so CI reports are available for diagnosis.
+  # Steps:
+  #   1. Capture hardware metadata (CPU model, total memory).
+  #   2. Build Phase 4 (current HEAD) server.
+  #   3. Download authoritative Phase 0 published baseline (provenance/sanity).
+  #   4. Fetch Phase 0 commit SHA from the authoritative CI run.
+  #   5. Archive and build the Phase 0 server in an isolated directory.
+  #   6. Run Phase 0 characterization with POSHMCP_SERVER_DLL pointing to the
+  #      Phase 0 binary — same runner, same test binary, same N.
+  #   7. Validate fresh Phase 0 baseline N values against the published artifact.
+  #   8. Run Stateless and Stateful comparisons (both use the fresh Phase 0 baseline
+  #      as the comparison target; published artifact is provenance evidence only).
+  #   9. Upload all artifacts (published Phase 0, fresh Phase 0, per-mode, merged)
+  #      with if: always() so gate failures are still diagnosable.
+  #
+  # Gate failures cause the job to fail (blocking the release).
   #
   # Artifact: phase4-comparison — contains:
   #   phase4-comparison.json       (merged schema poshmcp/v4-comparison/1.0)
   #   phase4-stateless.json        (Stateless-only raw artifact)
   #   phase4-stateful.json         (Stateful-only raw artifact)
-  #   phase4-stateless.trx / phase4-stateful.trx  (xUnit pass/fail evidence per mode)
+  #   phase0-fresh-baseline.json   (same-runner Phase 0 fresh measurement)
+  #   phase0-published-baseline.json  (provenance: authoritative published Phase 0)
+  #   *.trx                        (xUnit pass/fail evidence per mode)
   # ---------------------------------------------------------------------------
   performance-comparison:
     name: "Phase 4 Performance Comparison (#357)"
@@ -335,6 +347,18 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Need full history to archive Phase 0 commit
+
+    - name: Capture hardware metadata
+      run: |
+        CPU_MODEL=$(grep -m1 "model name" /proc/cpuinfo | cut -d: -f2 | xargs || echo "unknown")
+        TOTAL_MEM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}' || echo "0")
+        echo "RUNNER_CPU_MODEL=${CPU_MODEL}" >> "$GITHUB_ENV"
+        echo "RUNNER_TOTAL_MEM_KB=${TOTAL_MEM_KB}" >> "$GITHUB_ENV"
+        echo "Runner CPU: ${CPU_MODEL}"
+        echo "Runner memory: ${TOTAL_MEM_KB} kB"
+        nproc && uname -r
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -344,61 +368,164 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore
 
-    - name: Build
+    - name: Build Phase 4 (current HEAD)
       run: dotnet build --configuration Release --no-restore
 
-    # Download the authoritative Phase 0 baseline from the latest successful
-    # ci.yml run on main. Fails fast with an actionable message if unavailable.
-    - name: Download Phase 0 baseline
+    # Download the authoritative Phase 0 published baseline for provenance/sanity.
+    # V1_BASELINE_RUN_ID is the authoritative run that captured SDK 1.4.1 metrics.
+    - name: Download authoritative Phase 0 published baseline
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        V1_BASELINE_RUN_ID: "30896180897"
       run: |
-        RUN_ID=$(gh run list \
-          --workflow ci.yml \
-          --branch main \
-          --status completed \
-          --json databaseId,conclusion \
-          --jq '[.[] | select(.conclusion == "success")] | .[0].databaseId')
+        echo "Downloading authoritative Phase 0 baseline from run $V1_BASELINE_RUN_ID"
+        mkdir -p TestResults/published-baseline
 
-        if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
-          echo "ERROR: No successful CI run on main found."
-          echo "  Ensure at least one commit has been merged to main after the"
-          echo "  Phase 0 characterization job was added (issue #347)."
-          exit 1
-        fi
-
-        echo "Phase 0 baseline source: CI run $RUN_ID"
-        mkdir -p TestResults/baseline
-
-        if ! gh run download "$RUN_ID" \
+        if ! gh run download "$V1_BASELINE_RUN_ID" \
           --name v1-baseline-characterization \
-          --dir TestResults/baseline; then
-          echo "ERROR: Could not download 'v1-baseline-characterization' artifact from run $RUN_ID."
-          echo "  The characterization job may not have run or its artifact may have expired."
+          --dir TestResults/published-baseline; then
+          echo "ERROR: Could not download 'v1-baseline-characterization' from run $V1_BASELINE_RUN_ID."
+          echo "  The artifact may have expired (GitHub default retention: 90 days)."
+          echo "  If expired, run the characterization job on the Phase 0 commit manually"
+          echo "  and update V1_BASELINE_RUN_ID in this workflow."
           exit 1
         fi
 
-        BASELINE_JSON="TestResults/baseline/v1-baseline-characterization.json"
-        if [ ! -f "$BASELINE_JSON" ]; then
+        PUBLISHED_JSON="TestResults/published-baseline/v1-baseline-characterization.json"
+        if [ ! -f "$PUBLISHED_JSON" ]; then
           echo "ERROR: Artifact downloaded but v1-baseline-characterization.json not found."
-          ls -la TestResults/baseline/ || true
+          ls -la TestResults/published-baseline/ || true
           exit 1
         fi
 
-        SCHEMA=$(jq -r '.schemaVersion // "missing"' "$BASELINE_JSON")
+        SCHEMA=$(jq -r '.schemaVersion // "missing"' "$PUBLISHED_JSON")
         if [ "$SCHEMA" != "poshmcp/v1-characterization/1.0" ]; then
-          echo "ERROR: Baseline schema mismatch. Expected 'poshmcp/v1-characterization/1.0', got '$SCHEMA'."
+          echo "ERROR: Published baseline schema mismatch. Expected 'poshmcp/v1-characterization/1.0', got '$SCHEMA'."
           exit 1
         fi
 
-        echo "Phase 0 baseline validated — schemaVersion=$SCHEMA, runId=$RUN_ID"
-        echo "V1_BASELINE_PATH=${{ github.workspace }}/TestResults/baseline/v1-baseline-characterization.json" >> "$GITHUB_ENV"
-        echo "V1_BASELINE_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+        # Extract N values from published baseline for post-hoc validation of fresh measurement.
+        COLD_N=$(jq -r '[.scenarios[] | select(.scenario == "cold_start_http_with_script")] | .[0].iterations // 0' "$PUBLISHED_JSON")
+        WARM_N=$(jq -r '[.scenarios[] | select(.scenario == "warm_call_latency_ms")] | .[0].iterations // 0' "$PUBLISHED_JSON")
+        TPUT_N=$(jq -r '[.scenarios[] | select(.scenario == "concurrent_throughput_ms")] | .[0].iterations // 0' "$PUBLISHED_JSON")
+        echo "Published baseline N: cold=$COLD_N warm=$WARM_N throughput=$TPUT_N"
+        echo "PUBLISHED_BASELINE_JSON=${{ github.workspace }}/$PUBLISHED_JSON" >> "$GITHUB_ENV"
+        echo "PUBLISHED_COLD_N=$COLD_N" >> "$GITHUB_ENV"
+        echo "PUBLISHED_WARM_N=$WARM_N" >> "$GITHUB_ENV"
+        echo "PUBLISHED_TPUT_N=$TPUT_N" >> "$GITHUB_ENV"
+        cp "$PUBLISHED_JSON" "TestResults/phase0-published-baseline.json"
+
+    # Fetch Phase 0 commit SHA from the authoritative CI run.
+    - name: Fetch Phase 0 commit SHA
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        V1_BASELINE_RUN_ID: "30896180897"
+      run: |
+        PHASE0_SHA=$(gh run view "$V1_BASELINE_RUN_ID" --json headSha --jq '.headSha')
+        if [ -z "$PHASE0_SHA" ] || [ "$PHASE0_SHA" = "null" ]; then
+          echo "ERROR: Could not retrieve headSha for run $V1_BASELINE_RUN_ID."
+          exit 1
+        fi
+        echo "Phase 0 commit SHA: $PHASE0_SHA"
+        echo "PHASE0_SHA=$PHASE0_SHA" >> "$GITHUB_ENV"
+
+    # Build Phase 0 server from the pinned commit in an isolated directory.
+    # This ensures the same runner and .NET toolchain measures both Phase 0 and Phase 4.
+    - name: Build Phase 0 server (pinned commit)
+      run: |
+        PHASE0_DIR="${{ github.workspace }}/phase0-build"
+        mkdir -p "$PHASE0_DIR"
+
+        # Archive only PoshMcp.Server/ and its dependencies from the Phase 0 commit.
+        # git archive handles missing/extra files gracefully; any build errors are fatal.
+        git archive "$PHASE0_SHA" | tar -x -C "$PHASE0_DIR"
+
+        if [ ! -f "$PHASE0_DIR/PoshMcp.sln" ]; then
+          echo "ERROR: Phase 0 archive does not contain PoshMcp.sln — commit may be wrong."
+          ls -la "$PHASE0_DIR/" || true
+          exit 1
+        fi
+
+        pushd "$PHASE0_DIR" > /dev/null
+        dotnet restore PoshMcp.sln
+        dotnet build PoshMcp.Server/PoshMcp.Server.csproj --configuration Release --no-restore
+        popd > /dev/null
+
+        PHASE0_DLL="$PHASE0_DIR/PoshMcp.Server/bin/Release/net10.0/PoshMcp.dll"
+        if [ ! -f "$PHASE0_DLL" ]; then
+          echo "ERROR: Phase 0 server DLL not found after build: $PHASE0_DLL"
+          find "$PHASE0_DIR/PoshMcp.Server/bin" -name "*.dll" || true
+          exit 1
+        fi
+
+        echo "Phase 0 server built: $PHASE0_DLL"
+        echo "PHASE0_SERVER_DLL=$PHASE0_DLL" >> "$GITHUB_ENV"
+
+    # Run Phase 0 characterization using the Phase 0 binary on this runner.
+    # This is the fresh "same-runner" baseline for Phase 4 comparisons.
+    # POSHMCP_SERVER_DLL and POSHMCP_SAME_JOB_PAIRED are step-local (not written to GITHUB_ENV)
+    # so they do not leak into Phase 4 comparison steps.
+    - name: Run Phase 0 characterization (same-runner fresh baseline)
+      env:
+        POSHMCP_SERVER_DLL: ${{ env.PHASE0_SERVER_DLL }}
+        POSHMCP_SAME_JOB_PAIRED: "1"
+        GITHUB_SHA: ${{ env.PHASE0_SHA }}
+        CHARACTERIZATION_ARTIFACT_PATH: ${{ github.workspace }}/TestResults/phase0-fresh-baseline.json
+      run: |
+        dotnet test --no-build --configuration Release \
+          --filter "Category=Characterization" \
+          --logger "trx;LogFileName=phase0-fresh-baseline.trx" \
+          --results-directory ./TestResults
+
+    # Validate that the fresh Phase 0 N values match the published baseline.
+    # If they differ, the published artifact and fresh measurement are from different
+    # methodology versions — the comparator will catch this, but an explicit check here
+    # gives a clearer error message at the CI step level.
+    - name: Validate Phase 0 fresh vs published N agreement
+      run: |
+        FRESH_JSON="${{ github.workspace }}/TestResults/phase0-fresh-baseline.json"
+        if [ ! -f "$FRESH_JSON" ]; then
+          echo "ERROR: Fresh Phase 0 baseline not found — characterization step may have failed."
+          exit 1
+        fi
+
+        FRESH_COLD_N=$(jq -r '[.scenarios[] | select(.scenario == "cold_start_http_with_script")] | .[0].iterations // 0' "$FRESH_JSON")
+        FRESH_WARM_N=$(jq -r '[.scenarios[] | select(.scenario == "warm_call_latency_ms")] | .[0].iterations // 0' "$FRESH_JSON")
+        FRESH_TPUT_N=$(jq -r '[.scenarios[] | select(.scenario == "concurrent_throughput_ms")] | .[0].iterations // 0' "$FRESH_JSON")
+
+        echo "Fresh N: cold=$FRESH_COLD_N warm=$FRESH_WARM_N throughput=$FRESH_TPUT_N"
+        echo "Published N: cold=$PUBLISHED_COLD_N warm=$PUBLISHED_WARM_N throughput=$PUBLISHED_TPUT_N"
+
+        MISMATCH=0
+        if [ "$PUBLISHED_COLD_N" != "0" ] && [ "$FRESH_COLD_N" != "$PUBLISHED_COLD_N" ]; then
+          echo "WARNING: cold-start N mismatch: published=$PUBLISHED_COLD_N, fresh=$FRESH_COLD_N"
+          MISMATCH=1
+        fi
+        if [ "$PUBLISHED_WARM_N" != "0" ] && [ "$FRESH_WARM_N" != "$PUBLISHED_WARM_N" ]; then
+          echo "WARNING: warm-call N mismatch: published=$PUBLISHED_WARM_N, fresh=$FRESH_WARM_N"
+          MISMATCH=1
+        fi
+        if [ "$PUBLISHED_TPUT_N" != "0" ] && [ "$FRESH_TPUT_N" != "$PUBLISHED_TPUT_N" ]; then
+          echo "WARNING: throughput N mismatch: published=$PUBLISHED_TPUT_N, fresh=$FRESH_TPUT_N"
+          MISMATCH=1
+        fi
+
+        if [ "$MISMATCH" = "1" ]; then
+          echo "ERROR: N values differ between published and fresh Phase 0 baseline."
+          echo "  This means the Phase 0 characterization test methodology changed between"
+          echo "  the authoritative run and the current test code. The comparator will also"
+          echo "  flag this via ValidateMethodologyMatch. Investigate before proceeding."
+          exit 1
+        fi
+
+        echo "Phase 0 N values agree with published baseline."
+        echo "V1_BASELINE_PATH=${{ github.workspace }}/TestResults/phase0-fresh-baseline.json" >> "$GITHUB_ENV"
 
     # Run Stateless and Stateful in SEPARATE dotnet test invocations (separate processes).
     # This prevents one mode's cold-start subprocess spawning and GC/thread-pool pressure
     # from contaminating the other mode's warm-call or throughput measurements.
     # Each invocation writes its own artifact file; they are merged in the step below.
+    # if: always() ensures Stateful runs even if Stateless fails (independent gates).
     - name: Run Phase 4 Performance Comparison — Stateless
       env:
         PHASE4_ARTIFACT_PATH: ${{ github.workspace }}/TestResults/phase4-stateless.json
@@ -409,6 +536,7 @@ jobs:
           --results-directory ./TestResults
 
     - name: Run Phase 4 Performance Comparison — Stateful
+      if: always()
       env:
         PHASE4_ARTIFACT_PATH: ${{ github.workspace }}/TestResults/phase4-stateful.json
       run: |
@@ -435,6 +563,7 @@ jobs:
               commitSha:          .[0].commitSha,
               runtimeInfo:        .[0].runtimeInfo,
               baselineProvenance: .[0].baselineProvenance,
+              sameJobPaired:      true,
               modes:              (.[0].modes + .[1].modes),
               warnings:           (.[0].warnings + .[1].warnings | unique),
               overallPassed:      (.[0].overallPassed and .[1].overallPassed),
@@ -443,7 +572,7 @@ jobs:
           ' "$STATELESS" "$STATEFUL" > "$COMBINED"
           echo "Merged Phase 4 artifact written to $COMBINED"
           jq -r '
-            "overallPassed=\(.overallPassed) exitCode=\(.exitCode)",
+            "overallPassed=\(.overallPassed) exitCode=\(.exitCode) sameJobPaired=\(.sameJobPaired)",
             (.modes[] | "  mode=\(.transportMode) allPassed=\(.allPassed)")
           ' "$COMBINED"
         elif [ -f "$STATELESS" ]; then
@@ -467,4 +596,7 @@ jobs:
           TestResults/phase4-stateful.json
           TestResults/phase4-stateless.trx
           TestResults/phase4-stateful.trx
+          TestResults/phase0-fresh-baseline.json
+          TestResults/phase0-published-baseline.json
+          TestResults/phase0-fresh-baseline.trx
 
