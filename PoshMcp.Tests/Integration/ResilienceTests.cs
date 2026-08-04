@@ -45,10 +45,18 @@ namespace PoshMcp.Tests.Integration;
 /// deterministically by injecting an <see cref="OperationCanceledException"/> through the reset seam.
 ///
 /// No test in this file creates a genuinely Broken runspace or a genuinely stuck PowerShell
-/// pipeline; those real-object scenarios are covered by the pre-existing pool functional tests
-/// (<c>ResetProtocol_BrokenRunspace_Throws</c>, <c>Pool_Reset_StuckPipeline_...</c>). The tests
-/// here that inject exceptions validate the pool's reaction (evict + replenish) to the exception
-/// types the real paths raise, and their names/docs say exactly that.
+/// pipeline. A genuinely Broken runspace IS covered by the pre-existing functional test
+/// <c>ResetProtocol_BrokenRunspace_Throws</c>. A genuinely stuck pipeline is NOT covered anywhere:
+/// no test in this repository induces a stuck pipeline or exercises the real
+/// <c>RunspaceResetProtocol.ResetAsync</c> → <c>PowerShell.Stop()</c> → <c>StopTimeout</c> path.
+/// The pre-existing <c>Pool_Reset_StuckPipeline_EvictedWithStopTimeoutReason</c> also injects a
+/// <see cref="TimeoutException"/> rather than blocking a real pipeline. Every stop-timeout test
+/// (here and pre-existing) validates only the pool's reaction (evict + replenish) to an injected
+/// <see cref="TimeoutException"/>. Exercising the real <c>ps.Stop()</c>/<c>StopTimeout</c> path is
+/// out of scope for this test-only issue: production threads no request cancellation into
+/// execution/reset, and the fixed, fast reset script cannot be made to block deterministically.
+/// The exception-injecting tests here validate the pool's reaction to the exception types the real
+/// paths raise, and their names/docs say exactly that.
 /// </summary>
 [Trait("Category", "Integration")]
 public sealed class ResilienceTests
@@ -711,8 +719,11 @@ function Get-WorkerId { return $WorkerId }
     /// by every pool instance (<see cref="RunspacePoolMetrics"/> uses the shared <c>PoshMcp</c> meter
     /// name with no per-pool discriminator), so a reason-count assertion is not deterministic under
     /// xUnit parallelism. We assert behavior (evict + replenish + distinct worker) rather than the
-    /// reason tag. The test fails if <c>catch (OperationCanceledException)</c> stops evicting or
-    /// replenishing a canceled reset.
+    /// reason tag. Because a canceled reset is handled identically by the generic
+    /// <c>catch (Exception)</c> (same evict + replenish), this test does NOT distinguish the
+    /// dedicated <c>catch (OperationCanceledException)</c> branch from a fall-through to the generic
+    /// catch; it asserts the #351 behavioral contract and fails only if a canceled reset stops
+    /// evicting or replenishing the worker.
     ///
     /// Cancellation-threading note: production does not thread a request CancellationToken into reset;
     /// only the pool's <c>_shutdownToken</c> can cancel <c>ResetAsync</c>. This injects the OCE that
@@ -788,8 +799,10 @@ function Get-WorkerId { return $WorkerId }
     /// configured <c>StopTimeout</c> path: the production reset runs a fixed, fast reset script that
     /// responds to <c>Stop()</c> in milliseconds and cannot be made to genuinely block from a test.
     /// It injects the exception that the real stop-timeout path would surface and asserts only the
-    /// pool's eviction/replenishment reaction (matching the honest pre-existing functional test
-    /// <c>Pool_Reset_StuckPipeline_EvictedWithStopTimeoutReason</c>).
+    /// pool's eviction/replenishment reaction. The pre-existing functional test
+    /// <c>Pool_Reset_StuckPipeline_EvictedWithStopTimeoutReason</c> takes the same approach — it too
+    /// injects a <see cref="TimeoutException"/> and does NOT create a stuck pipeline or drive the
+    /// real <c>ps.Stop()</c>/<c>StopTimeout</c> path, which remains unexercised by any test.
     ///
     /// Would fail if <see cref="StatelessRunspacePool.OnWorkerReturnedAsync"/> did not catch
     /// <c>TimeoutException</c> and evict, or re-threw instead of replenishing.
