@@ -31,6 +31,12 @@ public sealed class RunspacePoolFunctionalTests : IDisposable
         var worker = new RunspaceWorker(rs);
         var snapshot = RunspaceResetProtocol.CaptureVariableSnapshot(worker.PowerShell);
         worker.SetInitializedVariableSnapshot(snapshot);
+        var driveSnapshot = RunspaceResetProtocol.CaptureDriveSnapshot(worker.PowerShell);
+        worker.SetInitializedDriveSnapshot(driveSnapshot);
+        var funcSnapshot = RunspaceResetProtocol.CaptureFunctionSnapshot(worker.PowerShell);
+        worker.SetInitializedFunctionSnapshot(funcSnapshot);
+        var aliasSnapshot = RunspaceResetProtocol.CaptureAliasSnapshot(worker.PowerShell);
+        worker.SetInitializedAliasSnapshot(aliasSnapshot);
         worker.TryTransitionTo(RunspaceWorkerState.Warm);
         worker.TryTransitionTo(RunspaceWorkerState.Leased);
         worker.TryTransitionTo(RunspaceWorkerState.Resetting);
@@ -426,6 +432,131 @@ $WhatIfPreference       = $true
         ps.Commands.Clear();
         ps.Streams.ClearStreams();
         Assert.True(after.Count > 0 && after[0], "Startup-scoped function was incorrectly removed by reset.");
+    }
+
+    // ─── RunspaceResetProtocol — request-scoped alias removed ─────────────────
+
+    [Fact]
+    public async Task ResetProtocol_RemovesRequestScopedAlias()
+    {
+        using var rs = CreateRunspace();
+        var worker = new RunspaceWorker(rs);
+        var ps = worker.PowerShell;
+
+        var varSnapshot = RunspaceResetProtocol.CaptureVariableSnapshot(ps);
+        worker.SetInitializedVariableSnapshot(varSnapshot);
+        var driveSnapshot = RunspaceResetProtocol.CaptureDriveSnapshot(ps);
+        worker.SetInitializedDriveSnapshot(driveSnapshot);
+        var funcSnapshot = RunspaceResetProtocol.CaptureFunctionSnapshot(ps);
+        worker.SetInitializedFunctionSnapshot(funcSnapshot);
+        var aliasSnapshot = RunspaceResetProtocol.CaptureAliasSnapshot(ps);
+        worker.SetInitializedAliasSnapshot(aliasSnapshot);
+        worker.TryTransitionTo(RunspaceWorkerState.Warm);
+        worker.TryTransitionTo(RunspaceWorkerState.Leased);
+        worker.TryTransitionTo(RunspaceWorkerState.Resetting);
+
+        // Create a request-scoped alias not in the snapshot.
+        ps.Commands.Clear();
+        ps.AddScript("Set-Alias -Name IsoResetTestAlias -Value Get-Date");
+        ps.Invoke();
+        ps.Commands.Clear();
+        ps.Streams.ClearStreams();
+
+        ps.AddScript("(Get-Alias IsoResetTestAlias -ErrorAction SilentlyContinue) -ne $null");
+        var before = ps.Invoke<bool>();
+        ps.Commands.Clear();
+        ps.Streams.ClearStreams();
+        Assert.True(before.Count > 0 && before[0], "Expected IsoResetTestAlias to exist before reset.");
+
+        await RunspaceResetProtocol.ResetAsync(
+            worker, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, TimeSpan.FromSeconds(5));
+
+        ps.AddScript("(Get-Alias IsoResetTestAlias -ErrorAction SilentlyContinue) -eq $null");
+        var after = ps.Invoke<bool>();
+        ps.Commands.Clear();
+        ps.Streams.ClearStreams();
+        Assert.True(after.Count > 0 && after[0], "Request-scoped alias was not removed by reset.");
+    }
+
+    [Fact]
+    public async Task ResetProtocol_PreservesStartupScopedAlias()
+    {
+        const string startupScript = "Set-Alias -Name StartupOnlyAlias -Value Get-Date -Scope Global";
+        using var rs = CreateRunspace(startupScript);
+        var worker = new RunspaceWorker(rs);
+        var ps = worker.PowerShell;
+
+        var varSnapshot = RunspaceResetProtocol.CaptureVariableSnapshot(ps);
+        worker.SetInitializedVariableSnapshot(varSnapshot);
+        var driveSnapshot = RunspaceResetProtocol.CaptureDriveSnapshot(ps);
+        worker.SetInitializedDriveSnapshot(driveSnapshot);
+        var funcSnapshot = RunspaceResetProtocol.CaptureFunctionSnapshot(ps);
+        worker.SetInitializedFunctionSnapshot(funcSnapshot);
+        var aliasSnapshot = RunspaceResetProtocol.CaptureAliasSnapshot(ps);
+        worker.SetInitializedAliasSnapshot(aliasSnapshot);
+        worker.TryTransitionTo(RunspaceWorkerState.Warm);
+        worker.TryTransitionTo(RunspaceWorkerState.Leased);
+        worker.TryTransitionTo(RunspaceWorkerState.Resetting);
+
+        await RunspaceResetProtocol.ResetAsync(
+            worker, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, TimeSpan.FromSeconds(5));
+
+        ps.AddScript("(Get-Alias StartupOnlyAlias -ErrorAction SilentlyContinue) -ne $null");
+        var after = ps.Invoke<bool>();
+        ps.Commands.Clear();
+        ps.Streams.ClearStreams();
+        Assert.True(after.Count > 0 && after[0], "Startup-scoped alias was incorrectly removed by reset.");
+    }
+
+    [Fact]
+    public async Task Pool_ConstantRequestAlias_EvictsWorkerAndReplenishes()
+    {
+        // A request-created Constant alias cannot be removed by Reset (-Force does not remove Constant).
+        // Reset must fail with a terminating error, causing pool eviction and replenishment.
+        await using var pool = new StatelessRunspacePool(FastOptions(min: 1, max: 1, eager: 1));
+        await pool.StartAsync();
+
+        Assert.Equal(1, pool.GetStats().TotalWorkers);
+        Assert.Equal(1, pool.GetStats().WarmWorkers);
+
+        // Acquire the worker and create a Constant alias (cannot be removed by reset).
+        await using (var lease = await pool.AcquireAsync())
+        {
+            lease.PowerShell.Commands.Clear();
+            lease.PowerShell.AddScript("New-Alias -Name IsoConstAlias -Value Get-Date -Option Constant");
+            lease.PowerShell.Invoke();
+            lease.PowerShell.Commands.Clear();
+            lease.PowerShell.Streams.ClearStreams();
+
+            lease.PowerShell.AddScript("(Get-Alias IsoConstAlias -ErrorAction SilentlyContinue) -ne $null");
+            var exists = lease.PowerShell.Invoke<bool>();
+            lease.PowerShell.Commands.Clear();
+            Assert.True(exists.Count > 0 && exists[0], "Constant alias must exist before lease return.");
+            // Return the lease — triggers reset asynchronously; reset will fail.
+        }
+
+        // Wait for the evicted worker to be replaced and become warm. The pool replenishes to MinPoolSize=1.
+        await WaitForPoolStats(
+            pool,
+            s => s.WarmWorkers >= 1 && s.LeasedWorkers == 0 && s.ResettingWorkers == 0,
+            TimeSpan.FromSeconds(20));
+
+        var final = pool.GetStats();
+        Assert.Equal(0, final.LeasedWorkers);
+        Assert.Equal(0, final.ResettingWorkers);
+        Assert.True(final.TotalWorkers >= 1,
+            $"Replenishment must restore at least MinPoolSize=1 worker; total={final.TotalWorkers}");
+        Assert.True(final.WarmWorkers >= 1,
+            $"Replenished worker must become warm; warm={final.WarmWorkers}");
+
+        // The new worker must not have the Constant alias (fresh runspace, no prior request state).
+        await using var freshLease = await pool.AcquireAsync();
+        freshLease.PowerShell.Commands.Clear();
+        freshLease.PowerShell.AddScript("(Get-Alias IsoConstAlias -ErrorAction SilentlyContinue) -eq $null");
+        var gone = freshLease.PowerShell.Invoke<bool>();
+        freshLease.PowerShell.Commands.Clear();
+        Assert.True(gone.Count > 0 && gone[0],
+            "New replenished worker must not carry the Constant alias from the evicted worker.");
     }
 
     // ─── RunspaceResetProtocol — request-scoped PSDrive removed ───────────────

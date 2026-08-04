@@ -47,6 +47,7 @@ public sealed class StatelessRunspacePool : IRunspacePool
     private readonly Func<PSPowerShell, IReadOnlySet<string>> _snapshotCapture;
     private readonly Func<PSPowerShell, IReadOnlySet<string>> _driveSnapshotCapture;
     private readonly Func<PSPowerShell, IReadOnlySet<string>> _functionSnapshotCapture;
+    private readonly Func<PSPowerShell, IReadOnlySet<string>> _aliasSnapshotCapture;
     private readonly Func<RunspaceWorker, ILogger, CancellationToken, Task> _resetProtocol;
     private readonly Func<DateTimeOffset> _clock;
 
@@ -117,6 +118,11 @@ public sealed class StatelessRunspacePool : IRunspacePool
     /// startup. Defaults to <see cref="RunspaceResetProtocol.CaptureFunctionSnapshot"/>.
     /// Inject a no-op in unit tests.
     /// </param>
+    /// <param name="aliasSnapshotCapture">
+    /// Optional delegate that captures alias names from a <c>PSPowerShell</c> after
+    /// startup. Defaults to <see cref="RunspaceResetProtocol.CaptureAliasSnapshot"/>.
+    /// Inject a no-op in unit tests.
+    /// </param>
     /// <param name="resetProtocol">
     /// Optional delegate that executes the reset cycle on a returned worker.
     /// Defaults to <see cref="RunspaceResetProtocol.ResetAsync"/> with
@@ -136,6 +142,7 @@ public sealed class StatelessRunspacePool : IRunspacePool
         Func<PSPowerShell, IReadOnlySet<string>>? snapshotCapture = null,
         Func<PSPowerShell, IReadOnlySet<string>>? driveSnapshotCapture = null,
         Func<PSPowerShell, IReadOnlySet<string>>? functionSnapshotCapture = null,
+        Func<PSPowerShell, IReadOnlySet<string>>? aliasSnapshotCapture = null,
         Func<RunspaceWorker, ILogger, CancellationToken, Task>? resetProtocol = null,
         Func<DateTimeOffset>? clock = null)
     {
@@ -154,6 +161,7 @@ public sealed class StatelessRunspacePool : IRunspacePool
         _snapshotCapture = snapshotCapture ?? RunspaceResetProtocol.CaptureVariableSnapshot;
         _driveSnapshotCapture = driveSnapshotCapture ?? RunspaceResetProtocol.CaptureDriveSnapshot;
         _functionSnapshotCapture = functionSnapshotCapture ?? RunspaceResetProtocol.CaptureFunctionSnapshot;
+        _aliasSnapshotCapture = aliasSnapshotCapture ?? RunspaceResetProtocol.CaptureAliasSnapshot;
         _resetProtocol = resetProtocol ??
             ((worker, logger, ct) => RunspaceResetProtocol.ResetAsync(worker, logger, _options.StopTimeout, ct));
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
@@ -555,6 +563,9 @@ public sealed class StatelessRunspacePool : IRunspacePool
 
             var funcSnapshot = _functionSnapshotCapture(worker.PowerShell);
             worker.SetInitializedFunctionSnapshot(funcSnapshot);
+
+            var aliasSnapshot = _aliasSnapshotCapture(worker.PowerShell);
+            worker.SetInitializedAliasSnapshot(aliasSnapshot);
 
             if (!worker.TryTransitionTo(RunspaceWorkerState.Warm))
             {

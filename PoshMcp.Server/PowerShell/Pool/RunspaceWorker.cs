@@ -143,6 +143,13 @@ public sealed class RunspaceWorker : IDisposable
     internal IReadOnlySet<string>? InitializedFunctionNames { get; private set; }
 
     /// <summary>
+    /// Captured alias names present in the runspace immediately after the startup script ran.
+    /// <see cref="RunspaceResetProtocol"/> uses this to exclude worker-initialized aliases from
+    /// alias cleanup during reset.
+    /// </summary>
+    internal IReadOnlySet<string>? InitializedAliasNames { get; private set; }
+
+    /// <summary>
     /// Records the set of variable names present in the runspace immediately after the startup
     /// script completed. Must be called exactly once during the <c>Creating → Warm</c> transition,
     /// before the worker is enqueued in the available channel.
@@ -173,6 +180,17 @@ public sealed class RunspaceWorker : IDisposable
     {
         ArgumentNullException.ThrowIfNull(names);
         InitializedFunctionNames = names;
+    }
+
+    /// <summary>
+    /// Records the set of alias names present in the runspace immediately after the startup
+    /// script completed. Must be called exactly once during the <c>Creating → Warm</c> transition,
+    /// before the worker is enqueued in the available channel.
+    /// </summary>
+    internal void SetInitializedAliasSnapshot(IReadOnlySet<string> names)
+    {
+        ArgumentNullException.ThrowIfNull(names);
+        InitializedAliasNames = names;
     }
 
     /// <summary>

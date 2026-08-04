@@ -57,6 +57,7 @@ $WorkerIdentity = [System.Guid]::NewGuid().ToString()
 function Get-WorkerIdentity { return $WorkerIdentity }
 $WorkerStartupMarker = 'startup-initialized'
 function Get-WorkerMarker { return $WorkerStartupMarker }
+Set-Alias -Name IsoStartupAlias -Value Get-WorkerMarker -Scope Global
 ";
 
     public TransportIsolationTests(ITestOutputHelper output) => _output = output;
@@ -203,17 +204,37 @@ function Get-WorkerMarker { return $WorkerStartupMarker }
     }
 
     [Fact]
+    public async Task Stateless_RequestAlias_IsRemovedAfterRequest()
+    {
+        var client = _statelessClient!;
+        await CallToolAsync(client, "iso_set_alias");
+        var result = await CallToolTextAsync(client, "iso_read_alias");
+        Assert.Equal("not-set", result);
+    }
+
+    [Fact]
+    public async Task Stateless_StartupAlias_PreservedAfterReset()
+    {
+        var client = _statelessClient!;
+        // Contaminate with a request-scoped alias, then confirm the startup alias still works.
+        await CallToolAsync(client, "iso_set_alias");
+        var result = await CallToolTextAsync(client, "iso_call_startup_alias");
+        Assert.Equal("startup-initialized", result);
+    }
+
+    [Fact]
     public async Task Stateless_CombinedContamination_AllStateCleared()
     {
         var client = _statelessClient!;
         await CallToolAsync(client, "iso_contaminate_all");
         var result = await CallToolTextAsync(client, "iso_read_all");
-        // All fields reset: variable not-set, error 0, pref Continue, drive false, func not-defined.
+        // All fields reset: variable not-set, error 0, pref Continue, drive false, func not-defined, alias not-set.
         Assert.Contains("var=not-set", result, StringComparison.Ordinal);
         Assert.Contains("err=0", result, StringComparison.Ordinal);
         Assert.Contains("pref=Continue", result, StringComparison.Ordinal);
         Assert.Contains("drive=False", result, StringComparison.Ordinal);
         Assert.Contains("func=not-defined", result, StringComparison.Ordinal);
+        Assert.Contains("alias=not-set", result, StringComparison.Ordinal);
     }
 
     // ─── Group B: Startup state preservation ─────────────────────────────────
@@ -336,6 +357,7 @@ function Get-WorkerMarker { return $WorkerStartupMarker }
             ("iso_set_error", "iso_read_error_count", "0"),
             ("iso_set_pref_stop", "iso_read_pref", "Continue"),
             ("iso_define_function", "iso_call_function", "not-defined"),
+            ("iso_set_alias", "iso_read_alias", "not-set"),
         };
 
         foreach (var (setter, reader, expected) in pairs)
@@ -392,7 +414,8 @@ function Get-WorkerMarker { return $WorkerStartupMarker }
             workerFactory: FailAfterFirst,
             snapshotCapture: _ => new HashSet<string>(),
             driveSnapshotCapture: _ => new HashSet<string>(),
-            functionSnapshotCapture: _ => new HashSet<string>());
+            functionSnapshotCapture: _ => new HashSet<string>(),
+            aliasSnapshotCapture: _ => new HashSet<string>());
 
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -758,6 +781,16 @@ function Get-WorkerMarker { return $WorkerStartupMarker }
                 _ => RunScript(runspace,
                     "if (Get-Command IsoTestFunc -ErrorAction SilentlyContinue) { IsoTestFunc } else { 'not-defined' }")),
 
+            // Isolation: aliases
+            Tool("iso_set_alias", "Create request-scoped alias IsoTestAlias → Get-Date",
+                _ => RunScript(runspace, "Set-Alias -Name IsoTestAlias -Value Get-Date; 'ok'")),
+            Tool("iso_read_alias", "Read request-scoped alias (exists → 'exists', removed → 'not-set')",
+                _ => RunScript(runspace,
+                    "if (Get-Alias IsoTestAlias -ErrorAction SilentlyContinue) { 'exists' } else { 'not-set' }")),
+            Tool("iso_call_startup_alias", "Call IsoStartupAlias (startup alias → Get-WorkerMarker)",
+                _ => RunScript(runspace,
+                    "if (Get-Alias IsoStartupAlias -ErrorAction SilentlyContinue) { IsoStartupAlias } else { 'not-defined' }")),
+
             // Combined contamination
             Tool("iso_contaminate_all", "Set all types of request-scoped state",
                 _ => RunScript(runspace, @"
@@ -766,6 +799,7 @@ Write-Error 'err' -ErrorAction SilentlyContinue
 $ErrorActionPreference = 'Stop'
 New-PSDrive -Name IsoTestDrive -PSProvider FileSystem -Root ([System.IO.Path]::GetTempPath()) -ErrorAction SilentlyContinue
 function IsoTestFunc { 'hello' }
+Set-Alias -Name IsoTestAlias -Value Get-Date
 'ok'")),
             Tool("iso_read_all", "Read all isolation fields as a combined string",
                 _ => RunScript(runspace, @"
@@ -774,7 +808,8 @@ $v = if (Get-Variable IsoTestVar -ErrorAction Ignore) { $IsoTestVar } else { 'no
 $p = $ErrorActionPreference
 $d = ((Get-PSDrive IsoTestDrive -ErrorAction Ignore) -ne $null).ToString()
 $f = if (Get-Command IsoTestFunc -ErrorAction Ignore) { IsoTestFunc } else { 'not-defined' }
-""var=$v;err=$e;pref=$p;drive=$d;func=$f""")),
+$a = if (Get-Alias IsoTestAlias -ErrorAction SilentlyContinue) { 'exists' } else { 'not-set' }
+""var=$v;err=$e;pref=$p;drive=$d;func=$f;alias=$a""")),
 
             // Startup state
             Tool("iso_read_worker_identity", "Read per-worker identity GUID from startup var",
