@@ -1,0 +1,91 @@
+name: Soak Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      soak_minutes:
+        description: "Soak duration in minutes (default 60)"
+        required: false
+        default: "60"
+  schedule:
+    # Nightly at 02:00 UTC on weekdays
+    - cron: "0 2 * * 1-5"
+
+permissions:
+  contents: read
+
+jobs:
+  soak:
+    name: Sustained-load soak (#349)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.x
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build (Release)
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Run soak analyzer unit tests
+        run: >
+          dotnet test
+          --no-build
+          --configuration Release
+          --filter "FullyQualifiedName~SoakAnalyzerTests"
+          --logger "trx;LogFileName=soak-unit.trx"
+          --results-directory ./TestResults
+
+      - name: Upload unit test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-unit-results
+          path: ./TestResults/soak-unit.trx
+
+      - name: Run one-hour soak test
+        timeout-minutes: 100
+        env:
+          SOAK_ARTIFACT_DIR: ${{ github.workspace }}/soak-artifacts
+        run: >
+          dotnet test
+          --no-build
+          --configuration Release
+          --filter "Category=Soak"
+          --logger "trx;LogFileName=soak-run.trx"
+          --results-directory ./TestResults
+
+      - name: Upload soak artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-artifacts-${{ github.run_id }}
+          path: |
+            ${{ github.workspace }}/soak-artifacts/**/*
+            ./TestResults/soak-run.trx
+          if-no-files-found: warn
+
+      - name: Check gate status
+        if: always()
+        run: |
+          SUMMARY=$(find "${{ github.workspace }}/soak-artifacts" -name "summary.json" | head -1)
+          if [ -z "$SUMMARY" ]; then
+            echo "::error::No soak summary.json found — soak run did not complete"
+            exit 1
+          fi
+          STATUS=$(jq -r '.status' "$SUMMARY")
+          COMMIT=$(jq -r '.commit_sha' "$SUMMARY" | head -c 8)
+          DURATION=$(jq -r '.total_duration_seconds' "$SUMMARY")
+          ERRORS=$(jq -r '.totals.error_rate_pct' "$SUMMARY")
+          echo "Run status: $STATUS (commit=$COMMIT duration=${DURATION}s error_rate=${ERRORS}%)"
+          if [ "$STATUS" != "PASSED" ]; then
+            echo "::error::Soak gate FAILED — see summary.json in artifacts"
+            exit 1
+          fi

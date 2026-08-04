@@ -1,0 +1,44 @@
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Warning",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "ApplicationInsights": {
+    "Enabled": false,
+    "ConnectionString": ""
+  },
+  "PowerShellConfiguration": {
+    "CommandNames": ["Get-Date"],
+    "Modules": [],
+    "ExcludePatterns": [],
+    "IncludePatterns": [],
+    "EnableDynamicReloadTools": false,
+    "EnableConfigurationTroubleshootingTool": false,
+    "Performance": {
+      "EnableResultCaching": false,
+      "UseDefaultDisplayProperties": true
+    }
+  },
+  "McpServer": {
+    "HttpTransportMode": "Stateless",
+    "RunspacePool": {
+      "MinPoolSize": 2,
+      "MaxPoolSize": 6,
+      "EagerWarmCount": 2,
+      "AcquisitionTimeout": "00:00:15",
+      "IdleTtl": "00:00:45",
+      "SweepInterval": "00:00:15",
+      "StopTimeout": "00:00:05",
+      "ShutdownDrainTimeout": "00:00:30",
+      "ReplenishCheckInterval": "00:00:05"
+    },
+    "IdleSessionTimeoutSeconds": 60,
+    "EnableLegacySse": false
+  },
+  "Authentication": {
+    "Enabled": false,
+    "Schemes": {}
+  }
+}
