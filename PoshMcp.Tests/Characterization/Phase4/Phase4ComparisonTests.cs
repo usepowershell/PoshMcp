@@ -14,16 +14,24 @@ namespace PoshMcp.Tests.Characterization.Phase4;
 /// the Phase 0 (SDK 1.4.1) baseline.
 ///
 /// Each test:
-///   1. Runs all measurement scenarios for one transport mode using the same methodology as Phase 0.
-///   2. Compares results to the Phase 0 baseline via <see cref="PerformanceComparator"/>.
-///   3. Records the <see cref="Phase4ModeComparison"/> in the fixture for artifact generation.
-///   4. Asserts all threshold checks pass — test failure = gate breach = release blocked.
+///   1. Starts the warm server FIRST (before cold-start iterations), matching Phase 0
+///      methodology where CharacterizationFixture.InitializeAsync pre-starts WarmServer.
+///   2. Runs all measurement scenarios for one transport mode.
+///   3. Compares results to the Phase 0 baseline via <see cref="PerformanceComparator"/>.
+///   4. Records the <see cref="Phase4ModeComparison"/> in the fixture for artifact generation.
+///   5. Asserts all threshold checks pass — test failure = gate breach = release blocked.
 ///
 /// Thresholds:
 ///   Cold-start p95      ≤ 110% of baseline
 ///   Warm-call p95       ≤ 105% of baseline
 ///   Throughput mean     ≤ 1/0.95 × baseline  (≥ 95% throughput rate)
 ///   Peak memory mean    ≤ 110% of baseline
+///
+/// Sample sizes:
+///   Cold-start: N=10 (was 5) — with N=5 a single outlier dominated p95 at 80% weight;
+///     N=10 limits single-outlier weight to ≤ 50%.
+///   Throughput: N=20 bursts (was 5) + 3 burst warmups — N=5 was dominated by first-burst
+///     outlier; N=20 gives stable mean.
 ///
 /// CI: <c>dotnet test --filter Category=PerformanceComparison</c>
 /// Requires: <c>V1_BASELINE_PATH</c> env var → Phase 0 artifact path.
@@ -32,10 +40,15 @@ namespace PoshMcp.Tests.Characterization.Phase4;
 [Trait("Category", "PerformanceComparison")]
 public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
 {
-    private const int ColdStartIterations = 5;
+    // N=10 gives a stable p95: with 10 samples, the 95th percentile is the average of
+    // sorted[8] and sorted[9], so a single outlier contributes ≤ 50% weight.
+    // N=5 was too small — one outlier dominated (80% weight), inflating cold-start p95.
+    private const int ColdStartIterations = 10;
     private const int WarmCallIterations = 20;
     private const int WarmCallWarmupRounds = 3;
-    private const int ThroughputBursts = 5;
+    // N=20 bursts for a stable mean; N=5 was dominated by a single slow first-burst outlier.
+    private const int ThroughputBursts = 20;
+    private const int ThroughputWarmupBursts = 3;
     private const int ThroughputConcurrency = 4;
 
     private readonly Phase4ComparisonFixture _fixture;
@@ -79,6 +92,16 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
         var scenarios = new List<CharacterizationScenario>();
         var modeLabel = transportMode.ToLowerInvariant();
 
+        // ── Start warm server BEFORE cold-start iterations ─────────────────────
+        // Phase 0 methodology: the CharacterizationFixture starts WarmServer in
+        // InitializeAsync — before any tests run. To match that exactly, we start
+        // the warm server here so it is alive throughout all cold-start work below.
+        // This prevents cold-start subprocess spawning from contaminating warm-call
+        // JIT / HttpClient state at the time of measurement.
+        await using var warmServer = new CharacterizationHttpServer();
+        await warmServer.StartAsync(Phase4ComparisonFixture.ResolveAssetPath(withScriptConfig));
+        _output.WriteLine($"[{transportMode}] Warm server ready at {warmServer.ServerUrl} (started before cold-start iterations)");
+
         // ── Cold-start: with startup script ────────────────────────────────────
         _output.WriteLine($"[{transportMode}] Cold-start (with startup script) — {ColdStartIterations} iterations");
         var coldWithScript = await MeasureColdStartsAsync(
@@ -111,11 +134,12 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
             RawSamples = coldNoScript,
         });
 
-        // ── Warm server for warm-call, throughput, and memory tests ────────────
-        await using var warmServer = new CharacterizationHttpServer();
-        await warmServer.StartAsync(Phase4ComparisonFixture.ResolveAssetPath(withScriptConfig));
+        // (warm server is already running — started before cold starts above)
 
         // ── Warm-call latency ──────────────────────────────────────────────────
+        // Warm server is already running (started before cold-start iterations above).
+        // This matches Phase 0 methodology: the CharacterizationFixture.WarmServer
+        // was alive before any cold-start tests ran.
         _output.WriteLine($"[{transportMode}] Warm-call latency — {WarmCallWarmupRounds} warmup + {WarmCallIterations} measured");
         await using var warmClient = new CharacterizationMcpClient(warmServer.ServerUrl);
         await warmClient.InitializeAsync();
@@ -139,7 +163,7 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
         });
 
         // ── Concurrent throughput ──────────────────────────────────────────────
-        _output.WriteLine($"[{transportMode}] Concurrent throughput — {ThroughputBursts} bursts × {ThroughputConcurrency} concurrent");
+        _output.WriteLine($"[{transportMode}] Concurrent throughput — {ThroughputWarmupBursts} warmup + {ThroughputBursts} measured bursts × {ThroughputConcurrency} concurrent");
         var thrClients = new CharacterizationMcpClient[ThroughputConcurrency];
         try
         {
@@ -147,8 +171,11 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
             {
                 thrClients[i] = new CharacterizationMcpClient(warmServer.ServerUrl);
                 await thrClients[i].InitializeAsync();
-                await thrClients[i].CallGetDateAsync(); // warmup
+                await thrClients[i].CallGetDateAsync(); // per-client warmup
             }
+            // Additional burst warmups to stabilise pool state before measurement.
+            for (var w = 0; w < ThroughputWarmupBursts; w++)
+                await Task.WhenAll(thrClients.Select(c => c.CallGetDateAsync()));
 
             var thrSamples = new double[ThroughputBursts];
             for (var burst = 0; burst < ThroughputBursts; burst++)

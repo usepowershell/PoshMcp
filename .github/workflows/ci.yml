@@ -319,8 +319,10 @@ jobs:
   # uploaded with if: always() so CI reports are available for diagnosis.
   #
   # Artifact: phase4-comparison — contains:
-  #   phase4-comparison.json   (schema poshmcp/v4-comparison/1.0)
-  #   phase4-comparison.trx    (xUnit pass/fail evidence)
+  #   phase4-comparison.json       (merged schema poshmcp/v4-comparison/1.0)
+  #   phase4-stateless.json        (Stateless-only raw artifact)
+  #   phase4-stateful.json         (Stateful-only raw artifact)
+  #   phase4-stateless.trx / phase4-stateful.trx  (xUnit pass/fail evidence per mode)
   # ---------------------------------------------------------------------------
   performance-comparison:
     name: "Phase 4 Performance Comparison (#357)"
@@ -393,14 +395,66 @@ jobs:
         echo "V1_BASELINE_PATH=${{ github.workspace }}/TestResults/baseline/v1-baseline-characterization.json" >> "$GITHUB_ENV"
         echo "V1_BASELINE_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
 
-    - name: Run Phase 4 Performance Comparison
+    # Run Stateless and Stateful in SEPARATE dotnet test invocations (separate processes).
+    # This prevents one mode's cold-start subprocess spawning and GC/thread-pool pressure
+    # from contaminating the other mode's warm-call or throughput measurements.
+    # Each invocation writes its own artifact file; they are merged in the step below.
+    - name: Run Phase 4 Performance Comparison — Stateless
       env:
-        PHASE4_ARTIFACT_PATH: ${{ github.workspace }}/TestResults/phase4-comparison.json
+        PHASE4_ARTIFACT_PATH: ${{ github.workspace }}/TestResults/phase4-stateless.json
       run: |
         dotnet test --no-build --configuration Release \
-          --filter "Category=PerformanceComparison" \
-          --logger "trx;LogFileName=phase4-comparison.trx" \
+          --filter "Category=PerformanceComparison&FullyQualifiedName~Stateless" \
+          --logger "trx;LogFileName=phase4-stateless.trx" \
           --results-directory ./TestResults
+
+    - name: Run Phase 4 Performance Comparison — Stateful
+      env:
+        PHASE4_ARTIFACT_PATH: ${{ github.workspace }}/TestResults/phase4-stateful.json
+      run: |
+        dotnet test --no-build --configuration Release \
+          --filter "Category=PerformanceComparison&FullyQualifiedName~Stateful" \
+          --logger "trx;LogFileName=phase4-stateful.trx" \
+          --results-directory ./TestResults
+
+    # Merge the two mode artifacts into one combined artifact.
+    # Runs even when tests fail so CI always has an artifact to upload/inspect.
+    - name: Merge Phase 4 comparison artifacts
+      if: always()
+      run: |
+        STATELESS="${{ github.workspace }}/TestResults/phase4-stateless.json"
+        STATEFUL="${{ github.workspace }}/TestResults/phase4-stateful.json"
+        COMBINED="${{ github.workspace }}/TestResults/phase4-comparison.json"
+
+        if [ -f "$STATELESS" ] && [ -f "$STATEFUL" ]; then
+          jq -s '
+            {
+              schemaVersion:      .[0].schemaVersion,
+              capturedAt:         .[1].capturedAt,
+              sdkPackageVersion:  .[0].sdkPackageVersion,
+              commitSha:          .[0].commitSha,
+              runtimeInfo:        .[0].runtimeInfo,
+              baselineProvenance: .[0].baselineProvenance,
+              modes:              (.[0].modes + .[1].modes),
+              warnings:           (.[0].warnings + .[1].warnings | unique),
+              overallPassed:      (.[0].overallPassed and .[1].overallPassed),
+              exitCode:           (if (.[0].overallPassed and .[1].overallPassed) then 0 else 1 end)
+            }
+          ' "$STATELESS" "$STATEFUL" > "$COMBINED"
+          echo "Merged Phase 4 artifact written to $COMBINED"
+          jq -r '
+            "overallPassed=\(.overallPassed) exitCode=\(.exitCode)",
+            (.modes[] | "  mode=\(.transportMode) allPassed=\(.allPassed)")
+          ' "$COMBINED"
+        elif [ -f "$STATELESS" ]; then
+          cp "$STATELESS" "$COMBINED"
+          echo "WARNING: Stateful artifact missing; combined artifact contains Stateless only."
+        elif [ -f "$STATEFUL" ]; then
+          cp "$STATEFUL" "$COMBINED"
+          echo "WARNING: Stateless artifact missing; combined artifact contains Stateful only."
+        else
+          echo "WARNING: No Phase 4 mode artifacts produced."
+        fi
 
     - name: Upload Phase 4 Comparison Artifact
       if: always()
@@ -409,5 +463,8 @@ jobs:
         name: phase4-comparison
         path: |
           TestResults/phase4-comparison.json
-          TestResults/phase4-comparison.trx
+          TestResults/phase4-stateless.json
+          TestResults/phase4-stateful.json
+          TestResults/phase4-stateless.trx
+          TestResults/phase4-stateful.trx
 
