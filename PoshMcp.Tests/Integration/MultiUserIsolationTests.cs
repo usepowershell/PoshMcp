@@ -27,9 +27,9 @@ public class MultiUserIsolationTests : PowerShellTestBase, IAsyncLifetime
     [Fact]
     public async Task TwoClientsGetSeparatePowerShellRunspaces()
     {
-        // Test that two different MCP clients get separate PowerShell runspaces
-        // The MCP HTTP transport manages sessions automatically - each client gets its own session
-        // Our SessionAwarePowerShellRunspace should create separate runspaces for each session
+        // Test that two different MCP clients get separate PowerShell workers from the pool.
+        // The MCP HTTP transport manages sessions automatically; each request leases a clean
+        // worker from the StatelessRunspacePool — no session-affine runspace assignment occurs.
 
         Logger.LogInformation("=== Starting MultiUser TwoClientsGetSeparatePowerShellRunspaces Test ===");
 
@@ -46,9 +46,8 @@ public class MultiUserIsolationTests : PowerShellTestBase, IAsyncLifetime
             Logger.LogInformation("Initializing client 2...");
             await client2.StartAsync();
 
-            // Both clients should be able to call PowerShell commands successfully
-            // Since each client has its own MCP session, the SessionAwarePowerShellRunspace
-            // will create separate PowerShell runspaces for each one
+            // Both clients should be able to call PowerShell commands successfully.
+            // Each request leases a clean pool worker; no session-affine state is shared.
 
             Logger.LogInformation("Calling get_process from client 1...");
             var client1Response = await client1.SendToolCallAsync("get_process", new { });

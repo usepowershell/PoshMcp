@@ -174,14 +174,14 @@ internal static class HttpServerHost
                     // an operator-selectable backward-compatibility mode configured via HttpTransportMode.
                     // Transport session completion must never drain or dispose the shared pool.
                     opts.Stateless = isStateless;
-#pragma warning disable MCP9006 // Intentional: stateful-only option; set here but honoured by SDK only when Stateless = false.
-                    opts.IdleTimeout = TimeSpan.FromSeconds(mcpServerConfig.IdleSessionTimeoutSeconds);
-#pragma warning restore MCP9006
 #pragma warning disable MCP9004 // Legacy SSE is opt-in, disabled by default, and documented for isolated trusted clients only.
                     opts.EnableLegacySse = mcpServerConfig.EnableLegacySse;
 #pragma warning restore MCP9004
                     if (!isStateless)
                     {
+#pragma warning disable MCP9006 // Intentional: stateful-only option; only set in stateful compat mode.
+                        opts.IdleTimeout = TimeSpan.FromSeconds(mcpServerConfig.IdleSessionTimeoutSeconds);
+#pragma warning restore MCP9006
 #pragma warning disable MCPEXP002 // Required to release session-scoped resources when the SDK ends a stateful session.
                         opts.RunSessionHandler = sessionLifecycle.RunSessionAsync;
 #pragma warning restore MCPEXP002
