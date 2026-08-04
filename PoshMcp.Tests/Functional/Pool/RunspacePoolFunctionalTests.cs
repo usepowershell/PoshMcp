@@ -359,6 +359,75 @@ $WhatIfPreference       = $true
         Assert.True(results[0], "Request-scoped variable leaked across lease boundary.");
     }
 
+    // ─── RunspaceResetProtocol — request-scoped function removed ──────────────
+
+    [Fact]
+    public async Task ResetProtocol_RemovesRequestScopedFunction()
+    {
+        using var rs = CreateRunspace();
+        var worker = new RunspaceWorker(rs);
+        var ps = worker.PowerShell;
+
+        var varSnapshot = RunspaceResetProtocol.CaptureVariableSnapshot(ps);
+        worker.SetInitializedVariableSnapshot(varSnapshot);
+        var driveSnapshot = RunspaceResetProtocol.CaptureDriveSnapshot(ps);
+        worker.SetInitializedDriveSnapshot(driveSnapshot);
+        var funcSnapshot = RunspaceResetProtocol.CaptureFunctionSnapshot(ps);
+        worker.SetInitializedFunctionSnapshot(funcSnapshot);
+        worker.TryTransitionTo(RunspaceWorkerState.Warm);
+        worker.TryTransitionTo(RunspaceWorkerState.Leased);
+        worker.TryTransitionTo(RunspaceWorkerState.Resetting);
+
+        ps.Commands.Clear();
+        ps.AddScript("function IsoResetTestFunc { 'hello' }");
+        ps.Invoke();
+        ps.Commands.Clear();
+        ps.Streams.ClearStreams();
+
+        ps.AddScript("(Get-Command IsoResetTestFunc -ErrorAction SilentlyContinue) -ne $null");
+        var before = ps.Invoke<bool>();
+        ps.Commands.Clear();
+        ps.Streams.ClearStreams();
+        Assert.True(before.Count > 0 && before[0], "Expected IsoResetTestFunc to exist before reset.");
+
+        await RunspaceResetProtocol.ResetAsync(
+            worker, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, TimeSpan.FromSeconds(5));
+
+        ps.AddScript("(Get-Command IsoResetTestFunc -ErrorAction SilentlyContinue) -eq $null");
+        var after = ps.Invoke<bool>();
+        ps.Commands.Clear();
+        ps.Streams.ClearStreams();
+        Assert.True(after.Count > 0 && after[0], "Request-scoped function was not removed by reset.");
+    }
+
+    [Fact]
+    public async Task ResetProtocol_PreservesStartupScopedFunction()
+    {
+        const string startupScript = "function StartupOnlyFunc { 'startup-func-result' }";
+        using var rs = CreateRunspace(startupScript);
+        var worker = new RunspaceWorker(rs);
+        var ps = worker.PowerShell;
+
+        var varSnapshot = RunspaceResetProtocol.CaptureVariableSnapshot(ps);
+        worker.SetInitializedVariableSnapshot(varSnapshot);
+        var driveSnapshot = RunspaceResetProtocol.CaptureDriveSnapshot(ps);
+        worker.SetInitializedDriveSnapshot(driveSnapshot);
+        var funcSnapshot = RunspaceResetProtocol.CaptureFunctionSnapshot(ps);
+        worker.SetInitializedFunctionSnapshot(funcSnapshot);
+        worker.TryTransitionTo(RunspaceWorkerState.Warm);
+        worker.TryTransitionTo(RunspaceWorkerState.Leased);
+        worker.TryTransitionTo(RunspaceWorkerState.Resetting);
+
+        await RunspaceResetProtocol.ResetAsync(
+            worker, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, TimeSpan.FromSeconds(5));
+
+        ps.AddScript("(Get-Command StartupOnlyFunc -ErrorAction SilentlyContinue) -ne $null");
+        var after = ps.Invoke<bool>();
+        ps.Commands.Clear();
+        ps.Streams.ClearStreams();
+        Assert.True(after.Count > 0 && after[0], "Startup-scoped function was incorrectly removed by reset.");
+    }
+
     // ─── RunspaceResetProtocol — request-scoped PSDrive removed ───────────────
 
     [Fact]

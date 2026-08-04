@@ -67,7 +67,7 @@ internal static class RunspaceResetProtocol
         "MaximumFunctionCount", "MaximumHistoryCount", "MaximumVariableCount",
         "PSSessionApplicationName", "PSSessionConfigurationName", "PSSessionOption",
         "Transcript", "PSEmailServer",
-        "__PoshMcpResetExclude__", "__PoshMcpResetExcludeDrives__",
+        "__PoshMcpResetExclude__", "__PoshMcpResetExcludeDrives__", "__PoshMcpResetExcludeFuncs__",
     };
 
     /// <summary>
@@ -103,7 +103,7 @@ internal static class RunspaceResetProtocol
         ps.Commands.Clear();
         ps.Streams.ClearStreams();
 
-        // 2. Build exclusion sets: automatic vars + worker-initialized vars/drives.
+        // 2. Build exclusion sets: automatic vars + worker-initialized vars/drives/functions.
         var exclude = new HashSet<string>(PsAutomaticVars, StringComparer.OrdinalIgnoreCase);
         if (worker.InitializedVariableNames is { } initVars)
             exclude.UnionWith(initVars);
@@ -112,12 +112,17 @@ internal static class RunspaceResetProtocol
         if (worker.InitializedDriveNames is { } initDrives)
             excludeDrives.UnionWith(initDrives);
 
+        var excludeFuncs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (worker.InitializedFunctionNames is { } initFuncs)
+            excludeFuncs.UnionWith(initFuncs);
+
         // 3. Inject exclusion lists directly into the runspace via SessionStateProxy
         //    instead of using param()+AddArgument, which can silently fail to bind
         //    a string[] positional argument in some PS SDK host configurations.
         var script = BuildResetScript();
         ps.Runspace.SessionStateProxy.SetVariable("__PoshMcpResetExclude__", exclude.ToArray());
         ps.Runspace.SessionStateProxy.SetVariable("__PoshMcpResetExcludeDrives__", excludeDrives.ToArray());
+        ps.Runspace.SessionStateProxy.SetVariable("__PoshMcpResetExcludeFuncs__", excludeFuncs.ToArray());
         ps.AddScript(script);
 
         // 4. Run reset in a background task. We do NOT pass a CancellationToken to Task.Run
@@ -233,6 +238,26 @@ internal static class RunspaceResetProtocol
         return names;
     }
 
+    /// <summary>
+    /// Captures the names of all functions currently in scope, used to build the
+    /// worker's initialization snapshot immediately after the startup script runs.
+    /// Request-scoped functions (defined after this snapshot) will be removed on reset.
+    /// </summary>
+    public static IReadOnlySet<string> CaptureFunctionSnapshot(PSPowerShell ps)
+    {
+        ps.Commands.Clear();
+        ps.AddScript("Get-ChildItem Function:\\ -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name");
+        var funcs = ps.Invoke<string>();
+        ps.Commands.Clear();
+        ps.Streams.ClearStreams();
+
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in funcs)
+            if (!string.IsNullOrEmpty(name))
+                names.Add(name);
+        return names;
+    }
+
     private static void ThrowIfBroken(Runspace runspace, string phase)
     {
         if (runspace.RunspaceStateInfo.State == RunspaceState.Broken)
@@ -240,10 +265,11 @@ internal static class RunspaceResetProtocol
                 $"Runspace is Broken {phase} reset; worker must be evicted.");
     }
 
-    // Reset script: resets preferences, removes request-scoped PSDrives and variables,
+    // Reset script: resets preferences, removes request-scoped PSDrives, variables, and functions,
     // resets working location, then clears $Error.
     // $__PoshMcpResetExclude__ (string[]) = variable names to preserve.
     // $__PoshMcpResetExcludeDrives__ (string[]) = drive names to preserve.
+    // $__PoshMcpResetExcludeFuncs__ (string[]) = function names to preserve (startup snapshot).
     // Options flags: 2=ReadOnly, 4=Constant; (Options -band 6) -eq 0 skips both.
     private static string BuildResetScript() => @"
 $ErrorActionPreference  = 'Continue'
@@ -260,6 +286,9 @@ Get-Variable -Scope Global -ErrorAction SilentlyContinue |
 Get-PSDrive -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -notin $__PoshMcpResetExcludeDrives__ } |
     Remove-PSDrive -Force -ErrorAction SilentlyContinue
+Get-ChildItem Function:\ -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -notin $__PoshMcpResetExcludeFuncs__ } |
+    Remove-Item -Force -ErrorAction SilentlyContinue
 if ($IsWindows) {
     $driveRoot = [System.IO.Path]::GetPathRoot($PWD.Path)
     if ($driveRoot) { Set-Location -Path $driveRoot -ErrorAction SilentlyContinue }

@@ -55,6 +55,7 @@ public sealed class PooledHttpRunspaceTests : IAsyncLifetime
             workerFactory: () => MockWorker().Object,
             snapshotCapture: _ => new HashSet<string>(),
             driveSnapshotCapture: _ => new HashSet<string>(),
+            functionSnapshotCapture: _ => new HashSet<string>(),
             resetProtocol: (_, _, _) => Task.CompletedTask);
         await _pool.StartAsync();
 
@@ -240,6 +241,7 @@ public sealed class PooledHttpRunspaceTests : IAsyncLifetime
             workerFactory: () => MockWorker().Object,
             snapshotCapture: _ => new HashSet<string>(),
             driveSnapshotCapture: _ => new HashSet<string>(),
+            functionSnapshotCapture: _ => new HashSet<string>(),
             resetProtocol: (_, _, _) => Task.CompletedTask);
         await pool.StartAsync();
         await using var _ = pool;
@@ -303,6 +305,7 @@ public sealed class PooledHttpRunspaceTests : IAsyncLifetime
             workerFactory: () => MockWorker().Object,
             snapshotCapture: _ => new HashSet<string>(),
             driveSnapshotCapture: _ => new HashSet<string>(),
+            functionSnapshotCapture: _ => new HashSet<string>(),
             resetProtocol: (_, _, _) => Task.CompletedTask);
         await pool.StartAsync();
         await using var _ = pool;

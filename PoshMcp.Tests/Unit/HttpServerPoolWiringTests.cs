@@ -322,6 +322,7 @@ public sealed class HttpServerPoolWiringTests
             workerFactory: () => new Mock<IPowerShellRunspace>().Object,
             snapshotCapture: _ => new HashSet<string>(),
             driveSnapshotCapture: _ => new HashSet<string>(),
+            functionSnapshotCapture: _ => new HashSet<string>(),
             resetProtocol: (_, _, _) => Task.CompletedTask);
 
     private sealed class NullLogger : Microsoft.Extensions.Logging.ILogger

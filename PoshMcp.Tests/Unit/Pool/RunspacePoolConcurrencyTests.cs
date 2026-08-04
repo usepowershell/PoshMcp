@@ -55,6 +55,7 @@ public sealed class RunspacePoolConcurrencyTests
             workerFactory: factory ?? (() => MockRunspace().Object),
             snapshotCapture: _ => new HashSet<string>(),
             driveSnapshotCapture: _ => new HashSet<string>(),
+            functionSnapshotCapture: _ => new HashSet<string>(),
             resetProtocol: reset ?? ((_, _, _) => Task.CompletedTask),
             clock: clock);
 
