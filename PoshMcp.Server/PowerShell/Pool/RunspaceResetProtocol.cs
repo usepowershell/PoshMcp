@@ -1,6 +1,8 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
+using System.IO;
+using System.Management.Automation;
 using System.Management.Automation.Runspaces;
 using System.Threading;
 using System.Threading.Tasks;
@@ -34,23 +36,29 @@ namespace PoshMcp.Server.PowerShell.Pool;
 ///         (captured after the startup script ran)</item>
 ///   <item>PSDrives present in <see cref="RunspaceWorker.InitializedDriveNames"/>
 ///         (captured after the startup script ran)</item>
-///   <item>Loaded modules and functions (module cleanup is deferred to worker eviction)</item>
+///   <item>Functions/aliases present in the worker initialization snapshots</item>
+///   <item>Loaded modules (module unload is deferred to worker eviction)</item>
 /// </list>
 /// </para>
 /// <para>
-/// Throws <see cref="InvalidOperationException"/> if the runspace is <c>Broken</c> before or
-/// after reset. The caller (<see cref="StatelessRunspacePool"/>) must evict the worker on throw.
+/// Implementation note: reset uses <see cref="SessionStateProxy"/> / provider intrinsics directly
+/// rather than invoking a PowerShell script pipeline. Native reset preserves the isolation
+/// contract while keeping per-call cost in the sub-millisecond range on the warm path.
+/// Provider enumeration failures are fail-closed (throw → pool evicts) so a worker is never
+/// returned warm when isolation cannot be verified. Per-item remove failures keep the prior
+/// SilentlyContinue semantics except for request-scoped aliases, which still throw.
 /// </para>
 /// <para>
-/// Throws <see cref="TimeoutException"/> if the pipeline does not stop within
-/// <paramref name="stopTimeout"/> after a cancellation. The caller must evict the worker.
+/// Throws <see cref="InvalidOperationException"/> if the runspace is <c>Broken</c> before or
+/// after reset, or if session-state enumeration required for isolation fails. The caller
+/// (<see cref="StatelessRunspacePool"/>) must evict the worker on throw.
 /// </para>
 /// </remarks>
 internal static class RunspaceResetProtocol
 {
     // PS automatic variables and preference variables never removed during reset.
-    // Preference variables are included here because we reset them explicitly above.
-    // Internal inject variable names used by ResetAsync are also excluded.
+    // Preference names are listed because ResetPreferenceVariables rewrites their values;
+    // they must not be deleted. Legacy inject-script names retained so residuals cannot self-delete.
     private static readonly IReadOnlySet<string> PsAutomaticVars = new HashSet<string>(
         StringComparer.OrdinalIgnoreCase)
     {
@@ -71,43 +79,63 @@ internal static class RunspaceResetProtocol
         "__PoshMcpResetExcludeAliases__",
     };
 
+    // Constant | Private — matches prior script filter: ($_.Options -band 6) -eq 0
+    private const ScopedItemOptions NonRemovableVariableOptions =
+        ScopedItemOptions.Constant | ScopedItemOptions.Private;
+
     /// <summary>
     /// Resets the given worker's PowerShell state to its worker-initialized baseline.
     /// </summary>
     /// <param name="worker">The worker to reset. Must be in <c>Resetting</c> state.</param>
     /// <param name="logger">Logger for diagnostics.</param>
     /// <param name="stopTimeout">
-    /// Maximum time to wait for <c>PSPowerShell.Stop()</c> to complete after cancellation
-    /// before throwing <see cref="TimeoutException"/>. The caller must evict on timeout.
+    /// Unused by the native reset path (no PS pipeline to <c>Stop()</c>). Retained so the
+    /// method matches <see cref="StatelessRunspacePool"/>'s injectable reset delegate signature
+    /// and existing call sites / test doubles.
     /// </param>
     /// <param name="cancellationToken">
-    /// Used to cancel a long-running reset. On cancellation, <c>PSPowerShell.Stop()</c> is
-    /// requested and the method waits up to <paramref name="stopTimeout"/> before throwing.
+    /// Used to cancel a long-running reset. On cancellation the method throws
+    /// <see cref="OperationCanceledException"/>; the caller must evict the worker.
     /// </param>
-    /// <exception cref="InvalidOperationException">Runspace is <c>Broken</c>.</exception>
-    /// <exception cref="TimeoutException">
-    /// Pipeline did not stop within <paramref name="stopTimeout"/> after cancellation.
-    /// Caller must evict the worker as quarantined/uncertain.
+    /// <exception cref="InvalidOperationException">
+    /// Runspace is <c>Broken</c>, or session-state enumeration required for isolation failed.
     /// </exception>
-    public static async Task ResetAsync(
+    /// <exception cref="OperationCanceledException">Reset cancelled via token.</exception>
+    public static Task ResetAsync(
         RunspaceWorker worker,
         ILogger logger,
         TimeSpan stopTimeout,
         CancellationToken cancellationToken = default)
     {
+        // Signature-compat only: pool/tests pass StopTimeout; native reset has no pipeline Stop.
+        _ = stopTimeout;
+
+        ResetCore(worker, logger, cancellationToken);
+        return Task.CompletedTask;
+    }
+
+    private static void ResetCore(
+        RunspaceWorker worker,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var ps = worker.PowerShell;
         var runspace = ps.Runspace;
 
         ThrowIfBroken(runspace, "before");
 
-        // 1. Clear pipeline immediately.
+        // 1. Clear pipeline immediately (same as script path).
         ps.Commands.Clear();
         ps.Streams.ClearStreams();
 
-        // 2. Build exclusion sets: automatic vars + worker-initialized vars/drives/functions.
-        var exclude = new HashSet<string>(PsAutomaticVars, StringComparer.OrdinalIgnoreCase);
+        var proxy = runspace.SessionStateProxy;
+
+        // 2. Build exclusion sets: automatic vars + worker-initialized vars/drives/functions/aliases.
+        var excludeVars = new HashSet<string>(PsAutomaticVars, StringComparer.OrdinalIgnoreCase);
         if (worker.InitializedVariableNames is { } initVars)
-            exclude.UnionWith(initVars);
+            excludeVars.UnionWith(initVars);
 
         var excludeDrives = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (worker.InitializedDriveNames is { } initDrives)
@@ -121,75 +149,62 @@ internal static class RunspaceResetProtocol
         if (worker.InitializedAliasNames is { } initAliases)
             excludeAliases.UnionWith(initAliases);
 
-        // 3. Inject exclusion lists directly into the runspace via SessionStateProxy
-        //    instead of using param()+AddArgument, which can silently fail to bind
-        //    a string[] positional argument in some PS SDK host configurations.
-        var script = BuildResetScript();
-        ps.Runspace.SessionStateProxy.SetVariable("__PoshMcpResetExclude__", exclude.ToArray());
-        ps.Runspace.SessionStateProxy.SetVariable("__PoshMcpResetExcludeDrives__", excludeDrives.ToArray());
-        ps.Runspace.SessionStateProxy.SetVariable("__PoshMcpResetExcludeFuncs__", excludeFuncs.ToArray());
-        ps.Runspace.SessionStateProxy.SetVariable("__PoshMcpResetExcludeAliases__", excludeAliases.ToArray());
-        ps.AddScript(script);
-
-        // 4. Run reset in a background task. We do NOT pass a CancellationToken to Task.Run
-        //    because Task.Run's CT only controls scheduling, not the running delegate.
-        //    Actual pipeline cancellation is done via ps.Stop() below.
-        var invokeTask = Task.Run(() =>
-        {
-            ps.Invoke();
-            ps.Commands.Clear();
-            ps.Streams.ClearStreams();
-        });
-
-        // Register cancellation handler that calls ps.Stop() to request pipeline stop.
-        // CancellationTokenRegistration must be disposed to avoid a leak if ct never fires.
-        await using var stopReg = cancellationToken.Register(
-            static state => { try { ((PSPowerShell)state!).Stop(); } catch { /* best-effort */ } },
-            ps,
-            useSynchronizationContext: false);
-
         try
         {
-            // WaitAsync(ct) unblocks when ct fires even while invokeTask is still running.
-            await invokeTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+            // 3. Preference variables → PS defaults.
+            ResetPreferenceVariables(proxy);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // 4. Remove request-scoped variables (always have automatic-var baseline).
+            RemoveRequestScopedVariables(proxy, excludeVars, cancellationToken);
+
+            // 5–7. Drive/function/alias cleanup requires an initialization snapshot. Without one we
+            // cannot distinguish built-in/startup items (e.g. constant aliases like '%') from
+            // request-scoped pollution, so skip rather than thrash built-ins. Production workers
+            // always capture snapshots during CreateWorkerAsync.
+            if (worker.InitializedDriveNames is not null)
+            {
+                RemoveRequestScopedDrives(proxy, excludeDrives, cancellationToken);
+            }
+
+            if (worker.InitializedFunctionNames is not null)
+            {
+                RemoveRequestScopedProviderItems(
+                    proxy,
+                    providerPath: "Function:",
+                    exclude: excludeFuncs,
+                    force: true,
+                    throwOnFailure: false,
+                    cancellationToken);
+            }
+
+            if (worker.InitializedAliasNames is not null)
+            {
+                // Unremovable request aliases (e.g. Constant) throw so the pool evicts rather than
+                // returning a contaminated worker.
+                RemoveRequestScopedProviderItems(
+                    proxy,
+                    providerPath: "Alias:",
+                    exclude: excludeAliases,
+                    force: true,
+                    throwOnFailure: true,
+                    cancellationToken);
+            }
+
+            // 8. Reset working location to filesystem root.
+            ResetWorkingLocation(proxy);
+
+            // 9. Clear $Error.
+            ClearErrorVariable(proxy);
         }
         catch (OperationCanceledException)
         {
-            // ct fired; ps.Stop() was already requested via the cancellation registration.
-            // Wait up to stopTimeout for the pipeline to actually finish.
-            bool didStop = false;
-            try
-            {
-                await invokeTask.WaitAsync(stopTimeout).ConfigureAwait(false);
-                didStop = true;
-            }
-            catch (TimeoutException)
-            {
-                // Pipeline did not stop within StopTimeout. Worker is stuck/uncertain.
-                logger.LogWarning(
-                    "Reset pipeline did not stop within StopTimeout ({Timeout}); " +
-                    "worker {CreatedAt} will be quarantined.",
-                    stopTimeout, worker.CreatedAt);
-            }
-            catch
-            {
-                // invokeTask faulted (e.g., ps.Stop() caused a pipeline exception).
-                // Accept it as stopped.
-                didStop = true;
-            }
-
             try { ps.Commands.Clear(); ps.Streams.ClearStreams(); } catch { /* best-effort */ }
-
-            if (!didStop)
-                throw new TimeoutException(
-                    $"Reset pipeline did not stop within StopTimeout ({stopTimeout}); worker will be quarantined.");
-
-            // Pipeline stopped cleanly; re-throw the original cancellation.
             throw;
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Reset script threw unexpectedly; worker will be evicted.");
+            logger.LogWarning(ex, "Reset threw unexpectedly; worker will be evicted.");
             try { ps.Commands.Clear(); ps.Streams.ClearStreams(); } catch { /* best-effort */ }
             throw;
         }
@@ -199,22 +214,278 @@ internal static class RunspaceResetProtocol
         logger.LogDebug("Reset completed for worker created at {CreatedAt}.", worker.CreatedAt);
     }
 
+    private static void ResetPreferenceVariables(SessionStateProxy proxy)
+    {
+        proxy.SetVariable("ErrorActionPreference", ActionPreference.Continue);
+        proxy.SetVariable("WarningPreference", ActionPreference.Continue);
+        proxy.SetVariable("VerbosePreference", ActionPreference.SilentlyContinue);
+        proxy.SetVariable("DebugPreference", ActionPreference.SilentlyContinue);
+        proxy.SetVariable("ProgressPreference", ActionPreference.Continue);
+        proxy.SetVariable("InformationPreference", ActionPreference.SilentlyContinue);
+        proxy.SetVariable("ConfirmPreference", ConfirmImpact.High);
+        proxy.SetVariable("WhatIfPreference", false);
+    }
+
+    private static void RemoveRequestScopedVariables(
+        SessionStateProxy proxy,
+        IReadOnlySet<string> exclude,
+        CancellationToken cancellationToken)
+    {
+        // Enumerate Variable: provider once; remove by name via PSVariableIntrinsics.
+        // Enumeration failure is fail-closed: cannot prove isolation → throw → pool evicts.
+        System.Collections.ObjectModel.Collection<PSObject> items;
+        try
+        {
+            items = proxy.InvokeProvider.ChildItem.Get("Variable:", recurse: false);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                "Failed to enumerate Variable: provider during reset; worker must be evicted.", ex);
+        }
+
+        foreach (var item in items)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!TryGetProviderItemName(item, out var name) || exclude.Contains(name))
+                continue;
+
+            PSVariable? psVar = null;
+            try
+            {
+                psVar = proxy.PSVariable.Get(name);
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (psVar is null)
+                continue;
+
+            // Match prior script: skip Constant | Private; Remove-Variable -Force clears ReadOnly.
+            if ((psVar.Options & NonRemovableVariableOptions) != ScopedItemOptions.None)
+                continue;
+
+            try
+            {
+                // Temporarily clear ReadOnly so Remove succeeds (equivalent to -Force).
+                if ((psVar.Options & ScopedItemOptions.ReadOnly) != 0)
+                {
+                    psVar.Options &= ~ScopedItemOptions.ReadOnly;
+                    proxy.PSVariable.Set(psVar);
+                }
+
+                proxy.PSVariable.Remove(name);
+            }
+            catch
+            {
+                // SilentlyContinue parity with prior script path for per-item remove.
+            }
+        }
+    }
+
+    private static void RemoveRequestScopedDrives(
+        SessionStateProxy proxy,
+        IReadOnlySet<string> exclude,
+        CancellationToken cancellationToken)
+    {
+        System.Collections.ObjectModel.Collection<PSDriveInfo> drives;
+        try
+        {
+            drives = proxy.Drive.GetAll();
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                "Failed to enumerate PSDrives during reset; worker must be evicted.", ex);
+        }
+
+        // Snapshot names first — Remove mutates the drive collection.
+        var toRemove = new List<string>();
+        foreach (var drive in drives)
+        {
+            if (drive is null || string.IsNullOrEmpty(drive.Name))
+                continue;
+            if (!exclude.Contains(drive.Name))
+                toRemove.Add(drive.Name);
+        }
+
+        foreach (var name in toRemove)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                // force=true; null scope = current/global session scope for local runspaces
+                proxy.Drive.Remove(name, force: true, scope: null!);
+            }
+            catch
+            {
+                // SilentlyContinue parity for per-drive remove.
+            }
+        }
+    }
+
+    private static void RemoveRequestScopedProviderItems(
+        SessionStateProxy proxy,
+        string providerPath,
+        IReadOnlySet<string> exclude,
+        bool force,
+        bool throwOnFailure,
+        CancellationToken cancellationToken)
+    {
+        System.Collections.ObjectModel.Collection<PSObject> items;
+        try
+        {
+            items = proxy.InvokeProvider.ChildItem.Get(providerPath, recurse: false);
+        }
+        catch (Exception ex)
+        {
+            // Enumeration failure is always fail-closed (cannot verify isolation).
+            throw new InvalidOperationException(
+                $"Failed to enumerate {providerPath} provider during reset; worker must be evicted.", ex);
+        }
+
+        var toRemove = new List<string>();
+        foreach (var item in items)
+        {
+            if (!TryGetProviderItemName(item, out var name) || exclude.Contains(name))
+                continue;
+            toRemove.Add(name);
+        }
+
+        foreach (var name in toRemove)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var path = providerPath.EndsWith(':')
+                ? providerPath + name
+                : providerPath + "\\" + name;
+
+            try
+            {
+                proxy.InvokeProvider.Item.Remove(path, force);
+            }
+            catch (Exception) when (!throwOnFailure)
+            {
+                // SilentlyContinue parity for functions.
+            }
+        }
+    }
+
+    private static void ResetWorkingLocation(SessionStateProxy proxy)
+    {
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                var current = proxy.Path.CurrentFileSystemLocation?.Path;
+                if (!string.IsNullOrEmpty(current))
+                {
+                    var root = Path.GetPathRoot(current);
+                    if (!string.IsNullOrEmpty(root))
+                        proxy.Path.SetLocation(root);
+                }
+            }
+            else
+            {
+                proxy.Path.SetLocation("/");
+            }
+        }
+        catch
+        {
+            // SilentlyContinue parity.
+        }
+    }
+
+    private static void ClearErrorVariable(SessionStateProxy proxy)
+    {
+        try
+        {
+            var error = proxy.GetVariable("Error");
+            if (error is IList list)
+            {
+                list.Clear();
+            }
+            else if (error is IEnumerable and not string)
+            {
+                // Some hosts surface $Error as a non-IList enumerable; fall back to reassignment.
+                proxy.SetVariable("Error", new ArrayList());
+            }
+        }
+        catch
+        {
+            // best-effort
+        }
+    }
+
+    private static bool TryGetProviderItemName(PSObject item, out string name)
+    {
+        name = string.Empty;
+        if (item is null)
+            return false;
+
+        switch (item.BaseObject)
+        {
+            case PSVariable psVar:
+                name = psVar.Name;
+                return !string.IsNullOrEmpty(name);
+            case FunctionInfo fi:
+                name = fi.Name;
+                return !string.IsNullOrEmpty(name);
+            case AliasInfo ai:
+                name = ai.Name;
+                return !string.IsNullOrEmpty(name);
+            case PSDriveInfo di:
+                name = di.Name;
+                return !string.IsNullOrEmpty(name);
+            case string s when !string.IsNullOrEmpty(s):
+                name = s;
+                return true;
+        }
+
+        if (item.Properties["Name"]?.Value is string propName && !string.IsNullOrEmpty(propName))
+        {
+            name = propName;
+            return true;
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// Captures the names of all variables currently in scope, used to build the
     /// worker's initialization snapshot immediately after the startup script runs.
     /// </summary>
     public static IReadOnlySet<string> CaptureVariableSnapshot(PSPowerShell ps)
     {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var items = ps.Runspace.SessionStateProxy.InvokeProvider.ChildItem.Get("Variable:", recurse: false);
+            foreach (var obj in items)
+            {
+                if (TryGetProviderItemName(obj, out var name))
+                    names.Add(name);
+            }
+
+            if (names.Count > 0)
+                return names;
+        }
+        catch
+        {
+            // Fall back to Get-Variable pipeline below.
+        }
+
         ps.Commands.Clear();
         ps.AddCommand("Get-Variable").AddParameter("Scope", "Global");
         var vars = ps.Invoke();
         ps.Commands.Clear();
         ps.Streams.ClearStreams();
 
-        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var obj in vars)
         {
-            if (obj.BaseObject is System.Management.Automation.PSVariable psVar)
+            if (obj.BaseObject is PSVariable psVar)
                 names.Add(psVar.Name);
             else if (obj.Properties["Name"]?.Value is string name)
                 names.Add(name);
@@ -229,13 +500,29 @@ internal static class RunspaceResetProtocol
     /// </summary>
     public static IReadOnlySet<string> CaptureDriveSnapshot(PSPowerShell ps)
     {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            foreach (var drive in ps.Runspace.SessionStateProxy.Drive.GetAll())
+            {
+                if (!string.IsNullOrEmpty(drive?.Name))
+                    names.Add(drive.Name);
+            }
+
+            if (names.Count > 0)
+                return names;
+        }
+        catch
+        {
+            // Fall back to Get-PSDrive pipeline below.
+        }
+
         ps.Commands.Clear();
         ps.AddCommand("Get-PSDrive").AddParameter("ErrorAction", "SilentlyContinue");
         var drives = ps.Invoke();
         ps.Commands.Clear();
         ps.Streams.ClearStreams();
 
-        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var obj in drives)
         {
             if (obj.Properties["Name"]?.Value is string name)
@@ -251,13 +538,30 @@ internal static class RunspaceResetProtocol
     /// </summary>
     public static IReadOnlySet<string> CaptureFunctionSnapshot(PSPowerShell ps)
     {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var items = ps.Runspace.SessionStateProxy.InvokeProvider.ChildItem.Get("Function:", recurse: false);
+            foreach (var obj in items)
+            {
+                if (TryGetProviderItemName(obj, out var name))
+                    names.Add(name);
+            }
+
+            if (names.Count > 0)
+                return names;
+        }
+        catch
+        {
+            // Fall back below.
+        }
+
         ps.Commands.Clear();
         ps.AddScript("Get-ChildItem Function:\\ -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name");
         var funcs = ps.Invoke<string>();
         ps.Commands.Clear();
         ps.Streams.ClearStreams();
 
-        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var name in funcs)
             if (!string.IsNullOrEmpty(name))
                 names.Add(name);
@@ -273,13 +577,30 @@ internal static class RunspaceResetProtocol
     /// </summary>
     public static IReadOnlySet<string> CaptureAliasSnapshot(PSPowerShell ps)
     {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var items = ps.Runspace.SessionStateProxy.InvokeProvider.ChildItem.Get("Alias:", recurse: false);
+            foreach (var obj in items)
+            {
+                if (TryGetProviderItemName(obj, out var name))
+                    names.Add(name);
+            }
+
+            if (names.Count > 0)
+                return names;
+        }
+        catch
+        {
+            // Fall back below.
+        }
+
         ps.Commands.Clear();
         ps.AddCommand("Get-Alias").AddParameter("ErrorAction", "SilentlyContinue");
         var aliases = ps.Invoke();
         ps.Commands.Clear();
         ps.Streams.ClearStreams();
 
-        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var obj in aliases)
         {
             if (obj.Properties["Name"]?.Value is string name)
@@ -294,45 +615,4 @@ internal static class RunspaceResetProtocol
             throw new InvalidOperationException(
                 $"Runspace is Broken {phase} reset; worker must be evicted.");
     }
-
-    // Reset script: resets preferences, removes request-scoped PSDrives, variables, functions,
-    // and aliases, resets working location, then clears $Error.
-    // $__PoshMcpResetExclude__ (string[]) = variable names to preserve.
-    // $__PoshMcpResetExcludeDrives__ (string[]) = drive names to preserve.
-    // $__PoshMcpResetExcludeFuncs__ (string[]) = function names to preserve (startup snapshot).
-    // $__PoshMcpResetExcludeAliases__ (string[]) = alias names to preserve (startup snapshot).
-    //   Alias removal uses -ErrorAction Stop: a request alias that cannot be removed (e.g.,
-    //   Constant option) causes a terminating error, which faults ps.Invoke(), causing
-    //   the caller (StatelessRunspacePool) to evict the worker rather than return it warm.
-    private static string BuildResetScript() => @"
-$ErrorActionPreference  = 'Continue'
-$WarningPreference      = 'Continue'
-$VerbosePreference      = 'SilentlyContinue'
-$DebugPreference        = 'SilentlyContinue'
-$ProgressPreference     = 'Continue'
-$InformationPreference  = 'SilentlyContinue'
-$ConfirmPreference      = 'High'
-$WhatIfPreference       = $false
-Get-Variable -Scope Global -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -notin $__PoshMcpResetExclude__ -and ($_.Options -band 6) -eq 0 } |
-    Remove-Variable -Scope Global -Force -ErrorAction SilentlyContinue
-Get-PSDrive -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -notin $__PoshMcpResetExcludeDrives__ } |
-    Remove-PSDrive -Force -ErrorAction SilentlyContinue
-Get-ChildItem Function:\ -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -notin $__PoshMcpResetExcludeFuncs__ } |
-    Remove-Item -Force -ErrorAction SilentlyContinue
-Get-Alias -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -notin $__PoshMcpResetExcludeAliases__ } |
-    ForEach-Object {
-        Remove-Item -LiteralPath ""Alias:\$($_.Name)"" -Force -ErrorAction Stop
-    }
-if ($IsWindows) {
-    $driveRoot = [System.IO.Path]::GetPathRoot($PWD.Path)
-    if ($driveRoot) { Set-Location -Path $driveRoot -ErrorAction SilentlyContinue }
-} else {
-    Set-Location -Path '/' -ErrorAction SilentlyContinue
-}
-$Error.Clear()
-";
 }
