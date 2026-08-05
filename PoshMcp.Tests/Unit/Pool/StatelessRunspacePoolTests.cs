@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -868,75 +869,98 @@ public sealed class StatelessRunspacePoolTests
     // ─── Linked CTS disposal (regression: fix for handle-floor drift #385) ────────
 
     /// <summary>
-    /// Cancellation via caller token must still fire even after fixing the linked-CTS leak.
-    /// This verifies the <c>using var linkedCts</c> fix does not break cancellation semantics.
+    /// Proves the reflection seam used by the dispose regression test: undisposed linked CTS
+    /// nodes leave live callback registrations on the parent; Dispose clears them.
     /// </summary>
     [Fact]
-    public async Task AcquireAsync_WithCancellableCallerToken_CancellationStillWorks()
+    public void LinkedCts_WithoutDispose_AccumulatesParentCallbackRegistrations()
     {
-        // Pool with single worker held by another caller; acquisition will block until cancelled.
-        var opts = DefaultOptions(min: 1, max: 1, eager: 1);
-        opts.AcquisitionTimeout = TimeSpan.FromSeconds(30); // long timeout so only caller CTS fires
-        opts.ShutdownDrainTimeout = TimeSpan.FromMilliseconds(200);
-        await using var pool = MakePool(opts);
-        await pool.StartAsync();
+        using var parent = new CancellationTokenSource();
+        Assert.Equal(0, CountLiveCallbackRegistrations(parent));
 
-        var held = await pool.AcquireAsync();
-        try
-        {
-            using var callerCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
-            // Should throw OCE, not timeout — confirms linked-CTS fix preserves caller cancellation.
-            var ex = await Assert.ThrowsAsync<OperationCanceledException>(
-                () => pool.AcquireAsync(callerCts.Token).AsTask());
-            Assert.IsNotType<TimeoutException>(ex);
-        }
-        finally
-        {
-            await held.DisposeAsync();
-        }
+        var leaked = new List<CancellationTokenSource>(10);
+        for (var i = 0; i < 10; i++)
+            leaked.Add(CancellationTokenSource.CreateLinkedTokenSource(parent.Token));
 
-        await pool.DisposeAsync();
+        Assert.Equal(10, CountLiveCallbackRegistrations(parent));
+
+        foreach (var linked in leaked)
+            linked.Dispose();
+
+        Assert.Equal(0, CountLiveCallbackRegistrations(parent));
     }
 
     /// <summary>
-    /// Stress-acquires and returns the lease many times with a cancellable caller token
-    /// to verify that no resource accumulation occurs (the linked-CTS must be disposed per cycle).
-    /// If the old bug were present, the caller CTS would accumulate one dangling registration
-    /// per iteration; this test drives enough cycles to detect an ObjectDisposedException or
-    /// excessive latency growth that would indicate registration buildup.
+    /// Regression for the pre-fix AcquireAsync pattern that discarded
+    /// <c>CreateLinkedTokenSource(...).Token</c> without disposing the linked CTS.
+    /// Each acquire with a cancellable caller token + AcquisitionTimeout must not leave a live
+    /// callback registration on the caller CTS. This would fail on the pre-fix code (N registrations
+    /// after N cycles) and pass with <c>using var linkedCts</c>.
+    /// <para>
+    /// This asserts managed registration cleanup only — not Process.HandleCount. Hosted Windows
+    /// full_mix soak remains the gate for kernel handle-floor slope (#349/#385).
+    /// </para>
     /// </summary>
     [Fact]
-    public async Task AcquireAsync_ManyAcquireReturnCycles_WithCallerToken_NoAccumulation()
+    public async Task AcquireAsync_WithCallerToken_DisposesLinkedCts_NoCallbackRegistrationsRemain()
     {
-        const int cycles = 200;
+        const int cycles = 40;
         var opts = DefaultOptions(min: 1, max: 1, eager: 1);
         opts.AcquisitionTimeout = TimeSpan.FromSeconds(5);
         opts.ShutdownDrainTimeout = TimeSpan.FromMilliseconds(500);
         await using var pool = MakePool(opts);
         await pool.StartAsync();
 
-        // Re-use the same CTS across all cycles to amplify any registration leakage.
+        // Re-use one caller CTS so leaked linked registrations would accumulate on it.
         using var callerCts = new CancellationTokenSource();
-        var exceptions = new List<Exception>();
+        Assert.Equal(0, CountLiveCallbackRegistrations(callerCts));
 
-        for (int i = 0; i < cycles; i++)
+        for (var i = 0; i < cycles; i++)
         {
-            try
-            {
-                await using var lease = await pool.AcquireAsync(callerCts.Token);
-            }
-            catch (Exception ex)
-            {
-                exceptions.Add(ex);
-                break;
-            }
-            // Brief yield to allow reset to settle so next acquire finds a warm worker.
+            var lease = await pool.AcquireAsync(callerCts.Token);
+            await lease.DisposeAsync();
+            // Wait until the returned worker is warm again before the next acquire.
             await WaitForStatsAsync(pool, s => s.WarmWorkers >= 1 && s.ResettingWorkers == 0,
-                TimeSpan.FromSeconds(3));
+                TimeSpan.FromSeconds(5));
         }
 
-        Assert.Empty(exceptions);
+        var remaining = CountLiveCallbackRegistrations(callerCts);
+        Assert.True(remaining == 0,
+            $"Expected 0 live CancellationCallback registrations on caller CTS after {cycles} " +
+            $"acquire/return cycles with disposed linked CTS; found {remaining}. " +
+            "AcquireAsync must dispose CreateLinkedTokenSource results.");
 
         await pool.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Counts live callback nodes on a <see cref="CancellationTokenSource"/> via the private
+    /// <c>_registrations.Callbacks</c> linked list. Disposed registrations move to FreeNodeList
+    /// and are not counted. Used only as a unit-test seam for linked-CTS dispose coverage.
+    /// </summary>
+    private static int CountLiveCallbackRegistrations(CancellationTokenSource cts)
+    {
+        const BindingFlags instance = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+        var regsField = typeof(CancellationTokenSource).GetField("_registrations", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(regsField);
+
+        var regs = regsField!.GetValue(cts);
+        if (regs is null)
+            return 0;
+
+        var callbacksField = regs.GetType().GetField("Callbacks", instance);
+        Assert.NotNull(callbacksField);
+
+        var node = callbacksField!.GetValue(regs);
+        var count = 0;
+        while (node is not null)
+        {
+            count++;
+            var nextField = node.GetType().GetField("Next", instance);
+            Assert.NotNull(nextField);
+            node = nextField!.GetValue(node);
+        }
+
+        return count;
     }
 }

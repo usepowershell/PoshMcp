@@ -311,9 +311,10 @@ public static class SoakAnalyzer
             return Fail("ps_execution", "No samples — cannot verify PS execution", null, null);
 
         // In ToolsListOnly mode there are intentionally zero tools/call requests — PS execution
-        // is not exercised by design. Treat as SKIP (PASS with a diagnostic note).
+        // is not exercised by design. Report first-class SKIP (not PASS) so artifacts cannot be
+        // misread as "PS execution verified". Assertion paths already exclude Status=SKIP.
         if (cfg.TrafficMode == SoakTrafficMode.ToolsListOnly)
-            return Pass("ps_execution",
+            return Skip("ps_execution",
                 $"ps_execution gate skipped: traffic_mode=ToolsListOnly (no tools/call requests sent by design). " +
                 $"initialize={last.InitializeRequests} tools/list={last.ToolsListRequests} tools/call={last.ToolsCallRequests}",
                 last.ToolsCallRequests, null);
@@ -521,6 +522,9 @@ public static class SoakAnalyzer
 
     private static SoakGateResult Pass(string gate, string detail, double? measured, double? threshold) =>
         new(gate, true, "PASS", detail, measured, threshold);
+
+    private static SoakGateResult Skip(string gate, string detail, double? measured, double? threshold) =>
+        new(gate, true, "SKIP", detail, measured, threshold);
 
     private static SoakGateResult Fail(string gate, string detail, double? measured, double? threshold) =>
         new(gate, false, "FAIL", detail, measured, threshold);

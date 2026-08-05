@@ -517,9 +517,20 @@ internal static class HttpServerHost
     private static async Task WriteHealthCheckResponseAsync(HttpContext context, Microsoft.Extensions.Diagnostics.HealthChecks.HealthReport report)
     {
         context.Response.ContentType = "application/json";
+        // process.gc_* is server-process GC activity for soak correlation (not harness GC).
+        var gcGen0 = GC.CollectionCount(0);
+        var gcGen1 = GC.CollectionCount(1);
+        var gcGen2 = GC.CollectionCount(2);
         var result = JsonSerializer.Serialize(new
         {
             status = report.Status.ToString(),
+            process = new
+            {
+                gc_gen0 = gcGen0,
+                gc_gen1 = gcGen1,
+                gc_gen2 = gcGen2,
+                gc_total = gcGen0 + gcGen1 + gcGen2,
+            },
             checks = report.Entries.Select(e => new
             {
                 name = e.Key,

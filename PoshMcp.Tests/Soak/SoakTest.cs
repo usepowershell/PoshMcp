@@ -347,7 +347,7 @@ public sealed class SoakTest
                 ws_bytes = s.WorkingSetBytes,
                 handles = s.HandleCountSupported ? s.ProcessHandleCount : (int?)null,
                 threads = s.ProcessThreadCount,
-                gc_collections = s.GcCollectionCount,
+                gc_collections = s.GcCollectionCount >= 0 ? s.GcCollectionCount : (int?)null,
                 pool_warm = s.PoolStatsAvailable ? s.PoolWarm : (int?)null,
                 pool_leased = s.PoolStatsAvailable ? s.PoolLeased : (int?)null,
                 pool_total = s.PoolStatsAvailable ? s.PoolTotal : (int?)null,
@@ -466,10 +466,12 @@ public sealed class SoakTest
                 current_mode = cfg.TrafficMode == SoakTrafficMode.ToolsListOnly ? "tools_list_only" : "full_mix",
                 full_mix_description = "Default production mode: ~10% initialize, ~50% tools/list, ~40% tools/call with real PowerShell execution. " +
                     "This is the authoritative mode for acceptance gates.",
-                tools_list_only_description = "Comparison/diagnostic mode: 100% tools/list requests with no PowerShell execution via tools/call. " +
-                    "Exercises the HTTP + MCP protocol stack only. Use SOAK_TRAFFIC_MODE=tools_list_only to enable. " +
+                tools_list_only_description = "Comparison/diagnostic mode: 100% tools/list requests; initialize and tools/call are omitted. " +
+                    "Exercises list-only MCP protocol traffic over HTTP without PowerShell execution. " +
+                    "Use SOAK_TRAFFIC_MODE=tools_list_only to enable. " +
                     "A handle-floor slope comparison between modes isolates protocol overhead from PowerShell execution overhead. " +
-                    "Acceptance gates are identical in both modes; no threshold is relaxed.",
+                    "Acceptance gates are identical in both modes except ps_execution is SKIP; no threshold is relaxed. " +
+                    "full_mix remains the authoritative acceptance mode.",
                 ps_execution_isolation_note = "A tools_list_only run that passes handle_floor_slope would confirm PowerShell execution " +
                     "(runspace creation, PSDataCollection event handles, finalizer pressure) is the primary handle source. " +
                     "A tools_list_only run that also fails would indicate the HTTP/MCP layer or .NET runtime is the source.",
@@ -500,7 +502,7 @@ public sealed class SoakTest
                 s.WorkingSetBytes,
                 s.HandleCountSupported ? s.ProcessHandleCount.ToString(CultureInfo.InvariantCulture) : "N/A",
                 s.ProcessThreadCount,
-                s.GcCollectionCount,
+                s.GcCollectionCount >= 0 ? s.GcCollectionCount.ToString(CultureInfo.InvariantCulture) : "N/A",
                 s.PoolStatsAvailable ? s.PoolWarm.ToString(CultureInfo.InvariantCulture) : "N/A",
                 s.PoolStatsAvailable ? s.PoolLeased.ToString(CultureInfo.InvariantCulture) : "N/A",
                 s.PoolStatsAvailable ? s.PoolTotal.ToString(CultureInfo.InvariantCulture) : "N/A",

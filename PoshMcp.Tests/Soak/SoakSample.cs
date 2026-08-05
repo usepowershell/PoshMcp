@@ -54,14 +54,14 @@ public sealed record SoakSample
     public bool HandleCountSupported { get; init; }
     public int ProcessThreadCount { get; init; }
 
-    // ─── GC diagnostics ───────────────────────────────────────────────────────
+    // ─── GC diagnostics (server process via /health process.gc_total) ─────────
 
     /// <summary>
-    /// Total GC collections (all generations) in the test process at sample time.
-    /// Monotonically increasing; a visible step between samples indicates a GC cycle ran.
-    /// Diagnostic-only — not used by any acceptance gate.
+    /// Total GC collections (gen0+gen1+gen2) in the <em>server</em> process at sample time,
+    /// read from <c>/health</c> <c>process.gc_total</c>. <c>-1</c> when health was unavailable.
+    /// Diagnostic-only — not used by any acceptance gate. Never samples the harness process.
     /// </summary>
-    public int GcCollectionCount { get; init; }
+    public int GcCollectionCount { get; init; } = -1;
 
     // ─── Pool stats (from /health runspace_pool check) ────────────────────────
 

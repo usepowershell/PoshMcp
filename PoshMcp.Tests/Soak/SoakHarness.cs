@@ -422,8 +422,9 @@ public sealed class SoakHarness : IAsyncDisposable
             }
         }
 
-        // Pool stats from /health (body parsed regardless of status; bounded retry)
-        var (poolStats, poolFailReason) = await TryGetPoolStatsAsync();
+        // Pool stats + server GC from /health (body parsed regardless of status; bounded retry).
+        // GcCollectionCount must come from the server process — never GC.CollectionCount in-harness.
+        var (poolStats, serverGcTotal, poolFailReason) = await TryGetPoolStatsAsync();
 
         // Compute latency percentiles
         var sortedLatencies = latencies.OrderBy(l => l).ToArray();
@@ -454,7 +455,7 @@ public sealed class SoakHarness : IAsyncDisposable
             ProcessHandleCount = handleCount,
             HandleCountSupported = handleSupported,
             ProcessThreadCount = threadCount,
-            GcCollectionCount = GC.CollectionCount(0) + GC.CollectionCount(1) + GC.CollectionCount(2),
+            GcCollectionCount = serverGcTotal ?? -1,
             PoolWarm = poolStats?.Warm ?? 0,
             PoolLeased = poolStats?.Leased ?? 0,
             PoolResetting = poolStats?.Resetting ?? 0,
@@ -492,10 +493,10 @@ public sealed class SoakHarness : IAsyncDisposable
     // attempts fail the sample still records N/A plus the failure reason.
     private const int PoolStatsAttempts = 3;
 
-    private async Task<(PoolStatsSnapshot? Snapshot, string? FailureReason)> TryGetPoolStatsAsync()
+    private async Task<(PoolStatsSnapshot? Snapshot, int? ServerGcTotal, string? FailureReason)> TryGetPoolStatsAsync()
     {
         var client = _monitorClient;
-        if (client is null) return (null, "no_client");
+        if (client is null) return (null, null, "no_client");
 
         string? lastReason = null;
         for (var attempt = 1; attempt <= PoolStatsAttempts; attempt++)
@@ -510,9 +511,22 @@ public sealed class SoakHarness : IAsyncDisposable
                 var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                 using var doc = JsonDocument.Parse(body);
 
+                int? serverGc = null;
+                if (doc.RootElement.TryGetProperty("process", out var process) &&
+                    process.ValueKind == JsonValueKind.Object &&
+                    process.TryGetProperty("gc_total", out var gcTotal) &&
+                    gcTotal.ValueKind == JsonValueKind.Number &&
+                    gcTotal.TryGetInt32(out var gcParsed))
+                {
+                    serverGc = gcParsed;
+                }
+
                 if (!doc.RootElement.TryGetProperty("checks", out var checks) || checks.ValueKind != JsonValueKind.Array)
                 {
                     lastReason = $"no_checks_status{(int)response.StatusCode}";
+                    // Still return server GC if the process block was present.
+                    if (serverGc is not null && attempt == PoolStatsAttempts)
+                        return (null, serverGc, lastReason);
                 }
                 else
                 {
@@ -535,10 +549,13 @@ public sealed class SoakHarness : IAsyncDisposable
                             Min: data.TryGetProperty("min", out var mn) ? mn.GetInt32() : 0,
                             Max: data.TryGetProperty("max", out var mx) ? mx.GetInt32() : 0,
                             IsStarted: data.TryGetProperty("is_started", out var st) && st.GetBoolean(),
-                            IsDraining: data.TryGetProperty("is_draining", out var dr) && dr.GetBoolean()), null);
+                            IsDraining: data.TryGetProperty("is_draining", out var dr) && dr.GetBoolean()),
+                            serverGc, null);
                     }
 
                     lastReason ??= "no_runspace_pool_check";
+                    if (serverGc is not null && attempt == PoolStatsAttempts)
+                        return (null, serverGc, lastReason);
                 }
             }
             catch (Exception ex)
@@ -552,7 +569,7 @@ public sealed class SoakHarness : IAsyncDisposable
             }
         }
 
-        return (null, lastReason);
+        return (null, null, lastReason);
     }
 
     // ─── Counter management ──────────────────────────────────────────────────
