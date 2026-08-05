@@ -380,6 +380,8 @@ $WhatIfPreference       = $true
         worker.SetInitializedDriveSnapshot(driveSnapshot);
         var funcSnapshot = RunspaceResetProtocol.CaptureFunctionSnapshot(ps);
         worker.SetInitializedFunctionSnapshot(funcSnapshot);
+        var aliasSnapshot = RunspaceResetProtocol.CaptureAliasSnapshot(ps);
+        worker.SetInitializedAliasSnapshot(aliasSnapshot);
         worker.TryTransitionTo(RunspaceWorkerState.Warm);
         worker.TryTransitionTo(RunspaceWorkerState.Leased);
         worker.TryTransitionTo(RunspaceWorkerState.Resetting);
@@ -420,6 +422,8 @@ $WhatIfPreference       = $true
         worker.SetInitializedDriveSnapshot(driveSnapshot);
         var funcSnapshot = RunspaceResetProtocol.CaptureFunctionSnapshot(ps);
         worker.SetInitializedFunctionSnapshot(funcSnapshot);
+        var aliasSnapshot = RunspaceResetProtocol.CaptureAliasSnapshot(ps);
+        worker.SetInitializedAliasSnapshot(aliasSnapshot);
         worker.TryTransitionTo(RunspaceWorkerState.Warm);
         worker.TryTransitionTo(RunspaceWorkerState.Leased);
         worker.TryTransitionTo(RunspaceWorkerState.Resetting);
@@ -812,5 +816,56 @@ $WhatIfPreference       = $true
 
         Assert.True(gone.Count > 0 && gone[0],
             "Request-scoped variable leaked across concurrent lease boundaries.");
+    }
+
+    // ─── Native reset hot-path budget (guards against script-pipeline regression) ──
+
+    [Fact]
+    public async Task ResetProtocol_SteadyState_IsSubMillisecondClass()
+    {
+        // Script-pipeline reset measured ~10–12ms median in Phase 4 in-process diagnostics.
+        // Native SessionStateProxy reset must stay well below that so sequential warm calls
+        // can approach the v1 baseline (~0.8ms e2e). Bound is intentionally loose for CI noise.
+        using var worker = CreateWorker();
+        var ps = worker.PowerShell;
+        var samples = new double[25];
+
+        // Warmup (JIT + provider caches).
+        for (var i = 0; i < 5; i++)
+        {
+            ps.Commands.Clear();
+            ps.AddScript("Get-Date | Out-Null");
+            ps.Invoke();
+            ps.Commands.Clear();
+            ps.Streams.ClearStreams();
+            await RunspaceResetProtocol.ResetAsync(
+                worker, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, TimeSpan.FromSeconds(5));
+        }
+
+        for (var i = 0; i < samples.Length; i++)
+        {
+            ps.Commands.Clear();
+            ps.AddScript("Get-Date | Out-Null");
+            ps.Invoke();
+            ps.Commands.Clear();
+            ps.Streams.ClearStreams();
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            await RunspaceResetProtocol.ResetAsync(
+                worker, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, TimeSpan.FromSeconds(5));
+            sw.Stop();
+            samples[i] = sw.Elapsed.TotalMilliseconds;
+        }
+
+        Array.Sort(samples);
+        var median = samples[samples.Length / 2];
+        var p95 = samples[(int)(samples.Length * 0.95)];
+
+        // Loose CI budget: native path should be far under the old ~11ms script median.
+        Assert.True(median < 5.0,
+            $"Expected native reset median < 5ms after warmup; got median={median:F3}ms p95={p95:F3}ms " +
+            $"(min={samples[0]:F3} max={samples[^1]:F3}).");
+        Assert.True(p95 < 10.0,
+            $"Expected native reset p95 < 10ms after warmup; got median={median:F3}ms p95={p95:F3}ms.");
     }
 }
