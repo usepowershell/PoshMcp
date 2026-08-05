@@ -148,16 +148,18 @@ internal sealed class CharacterizationMethodologyFingerprint
     /// Isolation mode used for warm_call_latency_ms (#380 Decision B).
     /// Baseline must be <see cref="IsolationModes.EphemeralCreateDispose"/>;
     /// current must be <see cref="IsolationModes.PoolReset"/>.
+    /// Defaults empty so missing JSON fields fail closed instead of silently becoming ephemeral.
     /// </summary>
     [JsonPropertyName("warmCallIsolationMode")]
-    public string WarmCallIsolationMode { get; set; } = IsolationModes.EphemeralCreateDispose;
+    public string WarmCallIsolationMode { get; set; } = "";
 
     /// <summary>
     /// Isolation mode used for concurrent_throughput_ms (#380 Decision B).
     /// Same pairing rules as <see cref="WarmCallIsolationMode"/>.
+    /// Defaults empty so missing JSON fields fail closed instead of silently becoming ephemeral.
     /// </summary>
     [JsonPropertyName("throughputIsolationMode")]
-    public string ThroughputIsolationMode { get; set; } = IsolationModes.EphemeralCreateDispose;
+    public string ThroughputIsolationMode { get; set; } = "";
 
     /// <summary>
     /// Cold-start pairing rule. Both sides use full cold process start (like-for-like).

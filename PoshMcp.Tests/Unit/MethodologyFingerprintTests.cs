@@ -556,4 +556,24 @@ public class MethodologyFingerprintTests
         var violations = MethodologyContractValidator.Validate(baseline, current);
         Assert.DoesNotContain(violations, v => v.Contains("warmCallIsolationMode") || v.Contains("throughputIsolationMode"));
     }
+
+    [Fact]
+    public void WarmCallIsolation_MissingBaseline_IsViolation_WhenCurrentPresent()
+    {
+        var baseline = CreateBaseContract(1);
+        baseline.WarmCallIsolationMode = "";
+        var current = CreateBaseContract(2);
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.Contains(violations, v => v.Contains("warmCallIsolationMode") && v.Contains("missing"));
+    }
+
+    [Fact]
+    public void ThroughputIsolation_MissingBaseline_IsViolation_WhenCurrentPresent()
+    {
+        var baseline = CreateBaseContract(1);
+        baseline.ThroughputIsolationMode = "";
+        var current = CreateBaseContract(2);
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.Contains(violations, v => v.Contains("throughputIsolationMode") && v.Contains("missing"));
+    }
 }
