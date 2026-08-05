@@ -523,6 +523,7 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
                 MeasuredCallCount = measuredN,
                 TotalDiagnosticSeconds = sw.Elapsed.TotalSeconds,
                 Note = "In-process StatelessRunspacePool diagnostic (N=1 pool, Get-Date). " +
+                       "Reset path prefers SessionStateInternal tables (var/func/alias) over provider ChildItem.Get. " +
                        "This is NOT the subprocess server. Values are lifecycle timing proxies, " +
                        "not direct measurements of the gated HTTP/MCP path.",
             };

@@ -150,6 +150,27 @@ public sealed class RunspaceWorker : IDisposable
     internal IReadOnlySet<string>? InitializedAliasNames { get; private set; }
 
     /// <summary>
+    /// Precomputed variable exclusion set for reset (automatic + initialized). Lazily sealed by
+    /// <see cref="RunspaceResetProtocol"/> so the hot path does not rebuild HashSets per call.
+    /// </summary>
+    internal IReadOnlySet<string>? ResetExcludeVariables { get; set; }
+
+    /// <summary>
+    /// Precomputed drive exclusion set for reset. Lazily sealed by <see cref="RunspaceResetProtocol"/>.
+    /// </summary>
+    internal IReadOnlySet<string>? ResetExcludeDrives { get; set; }
+
+    /// <summary>
+    /// Precomputed function exclusion set for reset. Lazily sealed by <see cref="RunspaceResetProtocol"/>.
+    /// </summary>
+    internal IReadOnlySet<string>? ResetExcludeFunctions { get; set; }
+
+    /// <summary>
+    /// Precomputed alias exclusion set for reset. Lazily sealed by <see cref="RunspaceResetProtocol"/>.
+    /// </summary>
+    internal IReadOnlySet<string>? ResetExcludeAliases { get; set; }
+
+    /// <summary>
     /// Records the set of variable names present in the runspace immediately after the startup
     /// script completed. Must be called exactly once during the <c>Creating → Warm</c> transition,
     /// before the worker is enqueued in the available channel.
@@ -158,6 +179,7 @@ public sealed class RunspaceWorker : IDisposable
     {
         ArgumentNullException.ThrowIfNull(names);
         InitializedVariableNames = names;
+        ResetExcludeVariables = null; // force reseal if snapshots change
     }
 
     /// <summary>
@@ -169,6 +191,7 @@ public sealed class RunspaceWorker : IDisposable
     {
         ArgumentNullException.ThrowIfNull(names);
         InitializedDriveNames = names;
+        ResetExcludeDrives = null;
     }
 
     /// <summary>
@@ -180,6 +203,7 @@ public sealed class RunspaceWorker : IDisposable
     {
         ArgumentNullException.ThrowIfNull(names);
         InitializedFunctionNames = names;
+        ResetExcludeFunctions = null;
     }
 
     /// <summary>
@@ -191,6 +215,7 @@ public sealed class RunspaceWorker : IDisposable
     {
         ArgumentNullException.ThrowIfNull(names);
         InitializedAliasNames = names;
+        ResetExcludeAliases = null;
     }
 
     /// <summary>

@@ -15,3 +15,14 @@ Detailed prior entries were archived to `history-archive.md` because this file e
 - Docker/build patterns: embedded Dockerfile templates make `poshmcp build --generate-dockerfile` work after tool install; user-facing generate defaults to the custom/user Dockerfile unless `--type base` is explicit.
 - GitHub comments must start with the required agent attribution format from the decision ledger.
 - 2026-06-02: Additional release-track test fixes in `ToolDescriptionParity` and `GetChildItem` functional coverage reduced noise, but AppInsights integration port conflicts can still prevent a clean full-suite release gate.
+## 2026-08-05 — #389 dual APPROVE_WITH_NITS revision
+- Blocking: removed autoclose of #380 (title `perf:`; no Fixes/Closes); rebased onto main post-#388 `ba95fa6`; CTS dispose stays main-owned; fixed gate narrative (warm_call + throughput, not solely warm).
+- Farnsworth: fail-closed Variable:/Drive/Function:/Alias: enumeration; stopTimeout docs; remarks refreshed.
+- Head `6ad0732`; closingIssuesReferences=[]; PR marked ready; CI green incl. Phase 4 3/3; comments on #389 + #380. Issue 380 remains open.
+
+## 2026-08-05 — table-based reset residual cut (#380)
+- Enforced gate post-#389 still RED warm p95 1.44–1.62×; in-proc reset median ~0.77ms (Alias: provider enum ~0.39ms alone).
+- Microbench: provider full clean ~0.50ms → SessionStateInternal tables ~0.05ms (~10×); unsafe no-enum ~0.008ms.
+- Implemented `SessionStateInternalAccessor` + table hot path in `RunspaceResetProtocol` with provider fallback; cached exclude sets on worker.
+- Isolation tests extended (combined pollution, clean Get-Date baseline, accessor availability); pool functional 25/25 + unit Pool 174/174.
+- Does not close #380; draft PR for residual progress.
