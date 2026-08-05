@@ -3,6 +3,81 @@
 ## Recent Decisions
 > Older entries archived to `decisions-archive.md` (entries >7d removed when file >= 50KB).
 
+### 2026-08-05T16:35:00-05:00: #380 APPROVED — Decision B (Isolation-Equivalent Warm Baseline)
+**By:** Steven Murawski (User Approval)
+**Issue:** #380 (MCP SDK v2 release gate — warm-call p95)
+**Decision:** **APPROVE B** — Keep isolation; explicitly retarget warm/throughput comparison to isolation-equivalent baseline; unchanged numeric constants (1.05); re-run enforced gate after methodology fix.
+**What:** Farnsworth's proposal B is approved. The 105% warm gate was measuring apples-to-oranges (v1 no-per-call isolation vs v2 mandatory reset). Isolation is the shipped HTTP contract; #389 (native reset) was the correct optimization. Further A-style optimization cannot fit ~0.5ms isolation work into ~0.045ms ratio budget. Methodology amendment: explicit `isolationSemantics` fingerprint field; baseline pairing enforces v2 reset pool vs v1 ephemeral dispose for Stateless warm (same "no cross-call PS state" contract). Stateful warm uses same pool path as Stateless (session affinity is protocol only, not PS stickiness). Numeric thresholds unchanged; sticky v1 mode remains out-of-scope (D framing).
+**When:** 2026-08-05 (gate enforced 31046071124 on ba95fa6; soak 31044718081 in progress)
+**Companion items:** #389 (native reset) remains landed; #387 (methodology hardening) validated; throughput re-evaluated against fair baseline; sticky PS mode deferred; advisory absolute warm p95 ceiling (2ms) as safety rail (C-lite).
+
+---
+
+### 2026-08-04T18:14:34Z: Hermes #363 PR #384 Revision Decision (Release Docs)
+**By:** Hermes (PowerShell Expert)
+**What:** PR #384 (`squad/363-release-docs`, b76a2e1) corrected #349 status, protocol scope, and FunctionNames live examples across documentation. #349 gate results documented as completed-FAIL pending investigation #385.
+**Why:** Authoritative facts from run 30929198633 (handle-floor gate failed; no root-cause attribution yet). Protocol scope fixed: `2026-07-28` is SDK v2 `server/discover` only; `initialize` negotiates `2025-11-25`/`2024-11-05` unchanged.
+**Status:** PR remains DRAFT; 8 files changed, 236 insertions; no reuse of Leela's prior work.
+
+---
+
+### 2026-08-04T12:00:00-05:00: Fry Phase 4 Warm-Call Regression Attribution (PR #378)
+**By:** Fry (Tester)
+**Issue:** #357 (Phase 4 performance comparison, part of #346)
+**PR:** #378 (draft, squad/357-performance-comparison, SHA 6635498)
+**Findings:** 3 authoritative same-job paired runs completed. All methodology requirements satisfied.
+- **Stateless Warm-Call:** Systematic ALL 3 runs: 108%, 136%, 122% (fail 105% gate). Overhead ~0.16–0.35ms. Phase 4 min (1.05ms) > Phase 0 max (1.17ms) — disjoint distributions.
+- **Stateful Warm-Call:** Sporadic spikes in 2/3 runs (15% of calls at 2–9ms); 1/3 clean. Pattern suggests session-tracking contention or GC pause.
+- **Cold-start, throughput, memory:** All PASS (no regression; throughput 1.1–2.2× FASTER).
+**Fry Recommendation:** Route Stateless regression to production investigation (Option A); accept Stateful as intermittent known behavior, document in Stateful warm gate (Option C).
+
+---
+
+### 2026-08-04T07:26:00-07:00: Bender #352 SessionRunspace* Deprecation Policy
+**By:** Bender (Backend Developer)
+**Issue:** #352 (remove legacy session-affine code)
+**PR:** #381 (squad/352-legacy-cleanup → main)
+**Decisions:**
+1. Mark `McpServerConfiguration.SessionRunspace*` properties (5 total) as `[Obsolete]`, not deleted — no breaking change; migration guidance to `McpServer:RunspacePool` config section. Removal gate: next major version.
+2. Move `opts.IdleTimeout` assignment entirely inside `if (!isStateless)` block. Stateless never touches IdleTimeout; removes MCP9006 pragma suppression.
+3. Both HTTP transport modes use `StatelessRunspacePool` (restatement + DI-chain test verification via `HttpLegacyCleanupTests`).
+
+---
+
+### 2026-08-04T07:26:00-07:00: Bender #385 Soak Handle-Floor Min-Sample Contract
+**By:** Bender (Backend Developer)
+**Issue:** #385 (handle-floor drift investigation)
+**PR:** #386, branch squad/385-handle-drift-investigation
+**Run:** 30929198633 (60.57 min, 102,368 requests) — threshold 0.010/s.
+**Decisions:**
+1. `MinHandleFloorWindowSamples = 5` (contract). Filters terminal bin < 5 samples; does not alter slope threshold. Gate still fails post-fix (12-window slope = 0.04553/s > 0.010/s).
+2. Handle-type evidence: ETW (Microsoft-Windows-Kernel-Process) only safe; Process.HandleCount is total only; Sysinternals handle.exe unavailable on GitHub Actions hosted runners. Limitation documented.
+3. `server_stability` gate was vacuous (never wrote SERVER_CRASH). Fixed: TakeSampleAsync detects HasExited && !_harnessKilling, writes "SERVER_CRASH exit={code}". DisposeAsync sets _harnessKilling before Kill().
+4. Comparison modes (no-op HTTP, direct-PS) deferred — require product changes; documented in analyzer-inputs.json.
+5. Burst phase wired (BurstConcurrencyLevel=0 validated), but authoritative run deferred pending baseline drift root-cause characterization.
+
+---
+
+### 2026-08-04T12:00:00-05:00: Fry Performance Gates Benchmark Discoverability Contract
+**By:** Fry (Tester)
+**Issue:** #336 (benchmark quality gates)
+**Decision:** Shared CI verifies HTTP session benchmark scenarios build and are discoverable; uploads case list as artifact. Does NOT make timing assertions. Benchmark suite measures first-session startup, warm-session calls, concurrent warm sessions, bounded-capacity behavior using deterministic config.
+**Why:** Benchmark timings are machine-dependent; unsuitable as required checks on shared CI runners. Contract gate prevents accidental scenario removal; controlled-machine BenchmarkDotNet provides reproducible comparison evidence.
+
+---
+
+### 2026-08-04T07:26:00-07:00: Hermes OOP Cancellation and Reload Isolation
+**By:** Hermes (PowerShell Expert)
+**What:** Interrupted subprocess-pool workers are quarantined and replaced rather than reused. Configuration reload advances pool generation: idle workers configured immediately, active workers complete existing request and retire on return, replacements inherit latest cached config. Prevents setup frames from being sent into worker with active command.
+
+---
+
+### 2026-08-04T07:26:00-07:00: Leela Bounded OOP Cleanup Tracking (2026-07-16)
+**By:** Leela (Integration Specialist)
+**What:** Out-of-process cleanup retains at most `MaxTrackedCleanupOperations` incomplete tasks (default 16) for shutdown waiting. Every cleanup task gets completion observer, including untracked overflow: completed removed, faults logged, overflow logged explicitly. Prevents repeated stuck-worker replacement from retaining unbounded task/exception collection while preserving bounded disposal waits and failure visibility.
+
+---
+
 ### 2026-06-01T20:35:00Z: OAuth authorize proxy forwards only one Entra-compatible prompt value
 **By:** Steven Murawski (via Bender)
 **What:** `OAuthProxyEndpoints` normalizes `prompt` values before redirecting to Entra v2.0. Unsupported `create` is stripped. If a client sends multiple prompt tokens in one query value, the proxy forwards one supported value in this priority order: `consent`, `select_account`, `login`, `none`. If no supported token remains, `prompt` is omitted.

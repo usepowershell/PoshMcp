@@ -823,14 +823,13 @@ $WhatIfPreference       = $true
     [Fact]
     public async Task ResetProtocol_SteadyState_IsSubMillisecondClass()
     {
-        // Script-pipeline reset measured ~10–12ms median in Phase 4 in-process diagnostics.
-        // Native SessionStateProxy reset must stay well below that so sequential warm calls
-        // can approach the v1 baseline (~0.8ms e2e). Bound is intentionally loose for CI noise.
+        // Provider ChildItem.Get reset measured ~0.5–0.8ms median; internal table path targets
+        // ~0.05ms clean. Bound stays loose for CI noise but well under the old ~11ms script path.
         using var worker = CreateWorker();
         var ps = worker.PowerShell;
         var samples = new double[25];
 
-        // Warmup (JIT + provider caches).
+        // Warmup (JIT + table accessor caches).
         for (var i = 0; i < 5; i++)
         {
             ps.Commands.Clear();
@@ -861,11 +860,92 @@ $WhatIfPreference       = $true
         var median = samples[samples.Length / 2];
         var p95 = samples[(int)(samples.Length * 0.95)];
 
-        // Loose CI budget: native path should be far under the old ~11ms script median.
-        Assert.True(median < 5.0,
-            $"Expected native reset median < 5ms after warmup; got median={median:F3}ms p95={p95:F3}ms " +
+        // Loose CI budget: table path should be far under provider-era ~0.8ms and script-era ~11ms.
+        Assert.True(median < 3.0,
+            $"Expected table/native reset median < 3ms after warmup; got median={median:F3}ms p95={p95:F3}ms " +
             $"(min={samples[0]:F3} max={samples[^1]:F3}).");
-        Assert.True(p95 < 10.0,
-            $"Expected native reset p95 < 10ms after warmup; got median={median:F3}ms p95={p95:F3}ms.");
+        Assert.True(p95 < 8.0,
+            $"Expected table/native reset p95 < 8ms after warmup; got median={median:F3}ms p95={p95:F3}ms.");
+    }
+
+    [Fact]
+    public void SessionStateInternalAccessor_IsAvailable_OnSupportedRuntime()
+    {
+        // Table fast-path is required for warm-call residual reduction on #380.
+        // If this fails on CI, the provider fallback still isolates but will not clear the gate.
+        Assert.True(SessionStateInternalAccessor.IsAvailable,
+            "Expected SessionStateInternal table accessors to bind on this PowerShell SDK.");
+    }
+
+    [Fact]
+    public async Task ResetProtocol_TablePath_RemovesCombinedRequestScopedPollution()
+    {
+        // Single reset must clear vars + funcs + aliases + drives together (table hot path).
+        using var worker = CreateWorker();
+        var ps = worker.PowerShell;
+
+        ps.Commands.Clear();
+        ps.AddScript(@"
+            $global:TableIsoVar = 'leak'
+            function TableIsoFunc { 'f' }
+            Set-Alias -Name TableIsoAlias -Value Get-Date
+            New-PSDrive -Name TableIsoDrv -PSProvider FileSystem -Root ([System.IO.Path]::GetTempPath()) | Out-Null
+        ");
+        ps.Invoke();
+        ps.Commands.Clear();
+        ps.Streams.ClearStreams();
+
+        await RunspaceResetProtocol.ResetAsync(
+            worker, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, TimeSpan.FromSeconds(5));
+
+        ps.AddScript(@"
+            @(
+                ((Get-Variable TableIsoVar -ErrorAction SilentlyContinue) -eq $null),
+                ((Get-Command TableIsoFunc -ErrorAction SilentlyContinue) -eq $null),
+                ((Get-Alias TableIsoAlias -ErrorAction SilentlyContinue) -eq $null),
+                ((Get-PSDrive TableIsoDrv -ErrorAction SilentlyContinue) -eq $null)
+            ) -notcontains $false
+        ");
+        var ok = ps.Invoke<bool>();
+        ps.Commands.Clear();
+        ps.Streams.ClearStreams();
+        Assert.True(ok.Count > 0 && ok[0],
+            "Table-path reset failed to clear combined request-scoped var/func/alias/drive pollution.");
+    }
+
+    [Fact]
+    public async Task ResetProtocol_CleanGetDate_PreservesBaselineAndStaysIsolated()
+    {
+        // Warm-call path (Get-Date) must not drop startup state and must not leave residue.
+        const string startup = "function StartupWarmFunc { 'ok' }; $global:StartupWarmVar = 42";
+        using var rs = CreateRunspace(startup);
+        var worker = new RunspaceWorker(rs);
+        var ps = worker.PowerShell;
+        worker.SetInitializedVariableSnapshot(RunspaceResetProtocol.CaptureVariableSnapshot(ps));
+        worker.SetInitializedDriveSnapshot(RunspaceResetProtocol.CaptureDriveSnapshot(ps));
+        worker.SetInitializedFunctionSnapshot(RunspaceResetProtocol.CaptureFunctionSnapshot(ps));
+        worker.SetInitializedAliasSnapshot(RunspaceResetProtocol.CaptureAliasSnapshot(ps));
+        worker.TryTransitionTo(RunspaceWorkerState.Warm);
+        worker.TryTransitionTo(RunspaceWorkerState.Leased);
+        worker.TryTransitionTo(RunspaceWorkerState.Resetting);
+
+        for (var i = 0; i < 3; i++)
+        {
+            ps.Commands.Clear();
+            ps.AddScript("Get-Date | Out-Null");
+            ps.Invoke();
+            ps.Commands.Clear();
+            ps.Streams.ClearStreams();
+            await RunspaceResetProtocol.ResetAsync(
+                worker, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, TimeSpan.FromSeconds(5));
+        }
+
+        ps.AddScript(@"
+            ((Get-Command StartupWarmFunc -ErrorAction SilentlyContinue) -ne $null) -and
+            ($StartupWarmVar -eq 42)
+        ");
+        var preserved = ps.Invoke<bool>();
+        ps.Commands.Clear();
+        Assert.True(preserved.Count > 0 && preserved[0], "Clean-path reset stripped startup baseline state.");
     }
 }

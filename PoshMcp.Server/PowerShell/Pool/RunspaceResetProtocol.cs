@@ -41,12 +41,15 @@ namespace PoshMcp.Server.PowerShell.Pool;
 /// </list>
 /// </para>
 /// <para>
-/// Implementation note: reset uses <see cref="SessionStateProxy"/> / provider intrinsics directly
-/// rather than invoking a PowerShell script pipeline. Native reset preserves the isolation
-/// contract while keeping per-call cost in the sub-millisecond range on the warm path.
-/// Provider enumeration failures are fail-closed (throw → pool evicts) so a worker is never
-/// returned warm when isolation cannot be verified. Per-item remove failures keep the prior
-/// SilentlyContinue semantics except for request-scoped aliases, which still throw.
+/// Implementation note: reset prefers PowerShell internal session-state tables
+/// (<c>GetVariableTable</c>/<c>GetFunctionTable</c>/<c>GetAliasTable</c> via
+/// <see cref="SessionStateInternalAccessor"/>) over provider <c>ChildItem.Get</c> enumeration.
+/// Tables are an order of magnitude cheaper on the clean warm path (no allocations of PSObject
+/// wrappers per alias/function) while preserving the same name-based isolation contract.
+/// When internal tables are unavailable, the prior provider path is used as fallback.
+/// Enumeration failures are fail-closed (throw → pool evicts) so a worker is never returned warm
+/// when isolation cannot be verified. Per-item remove failures keep the prior SilentlyContinue
+/// semantics except for request-scoped aliases, which still throw.
 /// </para>
 /// <para>
 /// Throws <see cref="InvalidOperationException"/> if the runspace is <c>Broken</c> before or
@@ -132,22 +135,12 @@ internal static class RunspaceResetProtocol
 
         var proxy = runspace.SessionStateProxy;
 
-        // 2. Build exclusion sets: automatic vars + worker-initialized vars/drives/functions/aliases.
-        var excludeVars = new HashSet<string>(PsAutomaticVars, StringComparer.OrdinalIgnoreCase);
-        if (worker.InitializedVariableNames is { } initVars)
-            excludeVars.UnionWith(initVars);
-
-        var excludeDrives = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (worker.InitializedDriveNames is { } initDrives)
-            excludeDrives.UnionWith(initDrives);
-
-        var excludeFuncs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (worker.InitializedFunctionNames is { } initFuncs)
-            excludeFuncs.UnionWith(initFuncs);
-
-        var excludeAliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (worker.InitializedAliasNames is { } initAliases)
-            excludeAliases.UnionWith(initAliases);
+        // 2. Exclusion sets: automatic vars + worker-initialized snapshots (cached on worker).
+        EnsureExcludeSets(worker);
+        var excludeVars = worker.ResetExcludeVariables!;
+        var excludeDrives = worker.ResetExcludeDrives;
+        var excludeFuncs = worker.ResetExcludeFunctions;
+        var excludeAliases = worker.ResetExcludeAliases;
 
         try
         {
@@ -155,40 +148,68 @@ internal static class RunspaceResetProtocol
             ResetPreferenceVariables(proxy);
             cancellationToken.ThrowIfCancellationRequested();
 
-            // 4. Remove request-scoped variables (always have automatic-var baseline).
-            RemoveRequestScopedVariables(proxy, excludeVars, cancellationToken);
-
-            // 5–7. Drive/function/alias cleanup requires an initialization snapshot. Without one we
-            // cannot distinguish built-in/startup items (e.g. constant aliases like '%') from
-            // request-scoped pollution, so skip rather than thrash built-ins. Production workers
-            // always capture snapshots during CreateWorkerAsync.
-            if (worker.InitializedDriveNames is not null)
+            // 4–7. Prefer internal session-state tables (fast). Provider path is the fallback.
+            if (SessionStateInternalAccessor.TryGetTables(runspace, out var varTable, out var funcTable, out var aliasTable))
             {
-                RemoveRequestScopedDrives(proxy, excludeDrives, cancellationToken);
+                RemoveRequestScopedVariablesFromTable(proxy, varTable, excludeVars, cancellationToken);
+
+                if (worker.InitializedDriveNames is not null && excludeDrives is not null)
+                    RemoveRequestScopedDrives(proxy, excludeDrives, cancellationToken);
+
+                if (worker.InitializedFunctionNames is not null && excludeFuncs is not null)
+                {
+                    RemoveRequestScopedNamesFromTable(
+                        proxy,
+                        funcTable,
+                        providerPath: "Function:",
+                        exclude: excludeFuncs,
+                        force: true,
+                        throwOnFailure: false,
+                        cancellationToken);
+                }
+
+                if (worker.InitializedAliasNames is not null && excludeAliases is not null)
+                {
+                    // Unremovable request aliases (e.g. Constant) throw so the pool evicts.
+                    RemoveRequestScopedNamesFromTable(
+                        proxy,
+                        aliasTable,
+                        providerPath: "Alias:",
+                        exclude: excludeAliases,
+                        force: true,
+                        throwOnFailure: true,
+                        cancellationToken);
+                }
             }
-
-            if (worker.InitializedFunctionNames is not null)
+            else
             {
-                RemoveRequestScopedProviderItems(
-                    proxy,
-                    providerPath: "Function:",
-                    exclude: excludeFuncs,
-                    force: true,
-                    throwOnFailure: false,
-                    cancellationToken);
-            }
+                // Provider fallback — same isolation contract, higher per-call cost.
+                RemoveRequestScopedVariables(proxy, excludeVars, cancellationToken);
 
-            if (worker.InitializedAliasNames is not null)
-            {
-                // Unremovable request aliases (e.g. Constant) throw so the pool evicts rather than
-                // returning a contaminated worker.
-                RemoveRequestScopedProviderItems(
-                    proxy,
-                    providerPath: "Alias:",
-                    exclude: excludeAliases,
-                    force: true,
-                    throwOnFailure: true,
-                    cancellationToken);
+                if (worker.InitializedDriveNames is not null && excludeDrives is not null)
+                    RemoveRequestScopedDrives(proxy, excludeDrives, cancellationToken);
+
+                if (worker.InitializedFunctionNames is not null && excludeFuncs is not null)
+                {
+                    RemoveRequestScopedProviderItems(
+                        proxy,
+                        providerPath: "Function:",
+                        exclude: excludeFuncs,
+                        force: true,
+                        throwOnFailure: false,
+                        cancellationToken);
+                }
+
+                if (worker.InitializedAliasNames is not null && excludeAliases is not null)
+                {
+                    RemoveRequestScopedProviderItems(
+                        proxy,
+                        providerPath: "Alias:",
+                        exclude: excludeAliases,
+                        force: true,
+                        throwOnFailure: true,
+                        cancellationToken);
+                }
             }
 
             // 8. Reset working location to filesystem root.
@@ -212,6 +233,41 @@ internal static class RunspaceResetProtocol
         ThrowIfBroken(runspace, "after");
 
         logger.LogDebug("Reset completed for worker created at {CreatedAt}.", worker.CreatedAt);
+    }
+
+    /// <summary>
+    /// Builds and caches exclusion sets on the worker (once per snapshot generation).
+    /// </summary>
+    private static void EnsureExcludeSets(RunspaceWorker worker)
+    {
+        if (worker.ResetExcludeVariables is null)
+        {
+            var excludeVars = new HashSet<string>(PsAutomaticVars, StringComparer.OrdinalIgnoreCase);
+            if (worker.InitializedVariableNames is { } initVars)
+                excludeVars.UnionWith(initVars);
+            worker.ResetExcludeVariables = excludeVars;
+        }
+
+        if (worker.ResetExcludeDrives is null && worker.InitializedDriveNames is { } initDrives)
+        {
+            worker.ResetExcludeDrives = initDrives is HashSet<string> hs
+                ? hs
+                : new HashSet<string>(initDrives, StringComparer.OrdinalIgnoreCase);
+        }
+
+        if (worker.ResetExcludeFunctions is null && worker.InitializedFunctionNames is { } initFuncs)
+        {
+            worker.ResetExcludeFunctions = initFuncs is HashSet<string> hs
+                ? hs
+                : new HashSet<string>(initFuncs, StringComparer.OrdinalIgnoreCase);
+        }
+
+        if (worker.ResetExcludeAliases is null && worker.InitializedAliasNames is { } initAliases)
+        {
+            worker.ResetExcludeAliases = initAliases is HashSet<string> hs
+                ? hs
+                : new HashSet<string>(initAliases, StringComparer.OrdinalIgnoreCase);
+        }
     }
 
     private static void ResetPreferenceVariables(SessionStateProxy proxy)
@@ -264,24 +320,143 @@ internal static class RunspaceResetProtocol
             if (psVar is null)
                 continue;
 
-            // Match prior script: skip Constant | Private; Remove-Variable -Force clears ReadOnly.
-            if ((psVar.Options & NonRemovableVariableOptions) != ScopedItemOptions.None)
-                continue;
+            TryRemoveVariable(proxy, name, psVar);
+        }
+    }
+
+    /// <summary>
+    /// Table-based variable cleanup (preferred hot path). Same isolation rules as the provider path.
+    /// </summary>
+    private static void RemoveRequestScopedVariablesFromTable(
+        SessionStateProxy proxy,
+        IDictionary table,
+        IReadOnlySet<string> exclude,
+        CancellationToken cancellationToken)
+    {
+        // Snapshot names first — table may be live; removes must not mutate during enumeration.
+        List<string>? toRemove = null;
+        List<PSVariable>? toRemoveVars = null;
+
+        try
+        {
+            foreach (DictionaryEntry entry in table)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (entry.Key is not string name || exclude.Contains(name))
+                    continue;
+
+                PSVariable? psVar = entry.Value as PSVariable;
+                if (psVar is null)
+                {
+                    try { psVar = proxy.PSVariable.Get(name); }
+                    catch { continue; }
+                }
+
+                if (psVar is null)
+                    continue;
+
+                if ((psVar.Options & NonRemovableVariableOptions) != ScopedItemOptions.None)
+                    continue;
+
+                toRemove ??= new List<string>();
+                toRemoveVars ??= new List<PSVariable>();
+                toRemove.Add(name);
+                toRemoveVars.Add(psVar);
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                "Failed to enumerate variable table during reset; worker must be evicted.", ex);
+        }
+
+        if (toRemove is null)
+            return;
+
+        for (var i = 0; i < toRemove.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            TryRemoveVariable(proxy, toRemove[i], toRemoveVars![i]);
+        }
+    }
+
+    private static void TryRemoveVariable(SessionStateProxy proxy, string name, PSVariable psVar)
+    {
+        // Match prior script: skip Constant | Private; Remove-Variable -Force clears ReadOnly.
+        if ((psVar.Options & NonRemovableVariableOptions) != ScopedItemOptions.None)
+            return;
+
+        try
+        {
+            // Temporarily clear ReadOnly so Remove succeeds (equivalent to -Force).
+            if ((psVar.Options & ScopedItemOptions.ReadOnly) != 0)
+            {
+                psVar.Options &= ~ScopedItemOptions.ReadOnly;
+                proxy.PSVariable.Set(psVar);
+            }
+
+            proxy.PSVariable.Remove(name);
+        }
+        catch
+        {
+            // SilentlyContinue parity with prior script path for per-item remove.
+        }
+    }
+
+    /// <summary>
+    /// Removes request-scoped function/alias names discovered via internal session-state tables.
+    /// </summary>
+    private static void RemoveRequestScopedNamesFromTable(
+        SessionStateProxy proxy,
+        IDictionary table,
+        string providerPath,
+        IReadOnlySet<string> exclude,
+        bool force,
+        bool throwOnFailure,
+        CancellationToken cancellationToken)
+    {
+        List<string>? toRemove = null;
+
+        try
+        {
+            foreach (DictionaryEntry entry in table)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                string? name = entry.Key as string;
+                if (string.IsNullOrEmpty(name) || exclude.Contains(name))
+                    continue;
+
+                toRemove ??= new List<string>();
+                toRemove.Add(name);
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"Failed to enumerate {providerPath} table during reset; worker must be evicted.", ex);
+        }
+
+        if (toRemove is null)
+            return;
+
+        foreach (var name in toRemove)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var path = providerPath.EndsWith(':')
+                ? providerPath + name
+                : providerPath + "\\" + name;
 
             try
             {
-                // Temporarily clear ReadOnly so Remove succeeds (equivalent to -Force).
-                if ((psVar.Options & ScopedItemOptions.ReadOnly) != 0)
-                {
-                    psVar.Options &= ~ScopedItemOptions.ReadOnly;
-                    proxy.PSVariable.Set(psVar);
-                }
-
-                proxy.PSVariable.Remove(name);
+                proxy.InvokeProvider.Item.Remove(path, force);
             }
-            catch
+            catch (Exception) when (!throwOnFailure)
             {
-                // SilentlyContinue parity with prior script path for per-item remove.
+                // SilentlyContinue parity for functions.
             }
         }
     }
