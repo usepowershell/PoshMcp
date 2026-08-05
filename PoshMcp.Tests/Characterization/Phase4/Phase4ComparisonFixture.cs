@@ -355,6 +355,20 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
             ThroughputConcurrency = 4,
             MemoryAccountingMethod = "Process.WorkingSet64",
             ServerLifecycle = "per-iteration-cold|shared-warm",
+            // Prefer fingerprint values; default to Decision B isolation-equivalent tokens when
+            // older artifacts omit the fields (same-job fresh baseline always writes them).
+            WarmCallIsolationMode = string.IsNullOrWhiteSpace(fp.WarmCallIsolationMode)
+                ? IsolationModes.EphemeralCreateDispose
+                : fp.WarmCallIsolationMode,
+            ThroughputIsolationMode = string.IsNullOrWhiteSpace(fp.ThroughputIsolationMode)
+                ? IsolationModes.EphemeralCreateDispose
+                : fp.ThroughputIsolationMode,
+            ColdStartPairingMode = string.IsNullOrWhiteSpace(fp.ColdStartPairingMode)
+                ? IsolationModes.LikeForLikeCold
+                : fp.ColdStartPairingMode,
+            MemoryPairingMode = string.IsNullOrWhiteSpace(fp.MemoryPairingMode)
+                ? IsolationModes.LikeForLikeWorkingSet
+                : fp.MemoryPairingMode,
             SdkMajorVersion = _baseline.SdkAssembly?.MajorVersion ?? 0,
             SdkSha256 = _baseline.SdkAssembly?.Sha256 ?? "",
             SourceCommitSha = _baseline.CommitSha,

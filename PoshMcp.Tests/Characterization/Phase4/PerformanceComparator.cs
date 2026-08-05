@@ -8,10 +8,11 @@ namespace PoshMcp.Tests.Characterization.Phase4;
 /// Pure static comparator that evaluates Phase 4 measurements against Phase 0 baselines.
 ///
 /// Threshold rules (all "lower is better" metrics with ratio = measured / baseline):
-///   Cold-start p95   ≤ 1.10   (≤ 110% of baseline)
-///   Warm-call p95    ≤ 1.05   (≤ 105% of baseline)
-///   Throughput mean  ≤ 1/0.95 (≥ 95% throughput rate ≡ ≤ 105.26% wall-clock)
-///   Peak memory mean ≤ 1.10   (≤ 110% of baseline)
+///   Cold-start p95   ≤ 1.10   (≤ 110% of baseline) — like-for-like cold pairing
+///   Warm-call p95    ≤ 1.05   (≤ 105% of baseline) — isolation-equivalent baseline
+///     (v1 ephemeral_create_dispose vs v2 pool_reset; #380 Decision B; constants unchanged)
+///   Throughput mean  ≤ 1/0.95 (≥ 95% throughput rate ≡ ≤ 105.26% wall-clock) — same pairing
+///   Peak memory mean ≤ 1.10   (≤ 110% of baseline) — like-for-like working-set pairing
 ///
 /// Phase 4 scenario names are suffixed with the transport mode in lower-case
 /// (e.g. "cold_start_http_no_script_stateless").

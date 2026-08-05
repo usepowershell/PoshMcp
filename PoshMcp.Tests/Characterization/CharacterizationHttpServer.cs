@@ -211,6 +211,9 @@ internal sealed class CharacterizationMcpClient : IAsyncDisposable
 
     public async Task InitializeAsync()
     {
+        // End any prior session first so isolation-equivalent samples do not leak capacity.
+        await EndSessionAsync();
+
         var id = Interlocked.Increment(ref _nextId);
         var body = $"{{\"jsonrpc\":\"2.0\",\"id\":{id},\"method\":\"initialize\",\"params\":" +
                    $"{{\"protocolVersion\":\"{McpProtocolVersion}\",\"capabilities\":{{\"tools\":{{}}}},\"clientInfo\":{{\"name\":\"poshmcp-characterization\",\"version\":\"1.0\"}}}}}}";
@@ -241,6 +244,44 @@ internal sealed class CharacterizationMcpClient : IAsyncDisposable
         return sw.Elapsed.TotalMilliseconds;
     }
 
+    /// <summary>
+    /// Isolation-equivalent sample (#380 Decision B): fresh MCP session + timed tools/call +
+    /// session end so the v1 server creates and disposes a runspace per sample (not sticky reuse).
+    /// Initialize/session-end costs are excluded from the timed sample.
+    /// </summary>
+    public async Task<double> MeasureEphemeralIsolatedCallAsync()
+    {
+        await InitializeAsync();
+        var elapsedMs = await CallGetDateAsync();
+        await EndSessionAsync();
+        return elapsedMs;
+    }
+
+    /// <summary>
+    /// Ends the current MCP session (HTTP DELETE) so v1 releases the session-owned runspace.
+    /// Safe no-op when there is no session (stateless / already ended).
+    /// </summary>
+    public async Task EndSessionAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_sessionId))
+            return;
+
+        using var request = new HttpRequestMessage(HttpMethod.Delete, "/");
+        request.Headers.TryAddWithoutValidation("Mcp-Session-Id", _sessionId);
+        request.Headers.TryAddWithoutValidation("MCP-Protocol-Version", McpProtocolVersion);
+        try
+        {
+            using var response = await _client.SendAsync(request);
+            // 2xx and 404 both mean the session is gone; other statuses are non-fatal for measurement cleanup.
+        }
+        catch
+        {
+            // Best-effort cleanup — measurement path must not hang on teardown races.
+        }
+
+        _sessionId = null;
+    }
+
     private Task<HttpResponseMessage> PostAsync(string body, string? sessionId)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/")
@@ -255,9 +296,9 @@ internal sealed class CharacterizationMcpClient : IAsyncDisposable
         return _client.SendAsync(request);
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
+        await EndSessionAsync();
         _client.Dispose();
-        return ValueTask.CompletedTask;
     }
 }

@@ -92,32 +92,35 @@ public class V1BaselineCharacterizationTests : IClassFixture<CharacterizationFix
     }
 
     /// <summary>
-    /// Warm-call latency: repeated tool calls on a pre-initialized session.
-    /// Uses the shared warm server from <see cref="CharacterizationFixture"/>.
+    /// Warm-call latency under isolation-equivalent baseline methodology (#380 Decision B).
+    /// Each sample is a fresh MCP session + tools/call + session end so the real v1 binary
+    /// pays runspace create+dispose — not sticky session-affine no-reset reuse.
+    /// Uses the shared warm server process from <see cref="CharacterizationFixture"/>.
     /// </summary>
     [Fact(DisplayName = "warm_call_latency_ms")]
     public async Task WarmCallLatency()
     {
         const int WarmupRounds = 3;
         await using var client = new CharacterizationMcpClient(_fixture.WarmServer.ServerUrl);
-        await client.InitializeAsync();
 
-        // Warmup rounds — excluded from measurement.
+        // Warmup rounds — excluded from measurement; still isolation-equivalent.
         for (var w = 0; w < WarmupRounds; w++)
-            await client.CallGetDateAsync();
+            await client.MeasureEphemeralIsolatedCallAsync();
 
         var samples = new double[WarmCallIterations];
         for (var i = 0; i < WarmCallIterations; i++)
         {
-            samples[i] = await client.CallGetDateAsync();
-            _output.WriteLine($"  warm call {i + 1}/{WarmCallIterations}: {samples[i]:F1} ms");
+            samples[i] = await client.MeasureEphemeralIsolatedCallAsync();
+            _output.WriteLine($"  warm call {i + 1}/{WarmCallIterations}: {samples[i]:F1} ms (ephemeral_create_dispose)");
         }
 
         _fixture.RecordWarmupCount("warm_call_latency_ms", WarmupRounds);
         _fixture.RecordScenario(new CharacterizationScenario
         {
             Scenario = "warm_call_latency_ms",
-            Description = "Per-call HTTP round-trip latency on a pre-initialized session (runspace already acquired)",
+            Description =
+                "Isolation-equivalent warm call (#380 Decision B): per-sample fresh session + tools/call + session end " +
+                $"on real v1 ({IsolationModes.EphemeralCreateDispose}); not sticky session-affine no-reset",
             Iterations = samples.Length,
             Stats = CharacterizationStats.FromSamples(samples),
             RawSamples = samples,
@@ -125,8 +128,9 @@ public class V1BaselineCharacterizationTests : IClassFixture<CharacterizationFix
     }
 
     /// <summary>
-    /// Concurrent throughput: wall-clock time for <see cref="ThroughputConcurrency"/>
-    /// parallel tools/call completions on pre-warmed sessions.
+    /// Concurrent throughput under isolation-equivalent baseline methodology (#380 Decision B).
+    /// Each burst creates <see cref="ThroughputConcurrency"/> fresh sessions, times parallel
+    /// tools/call, then ends sessions — pairing with v2 pool+reset, not sticky reuse.
     /// </summary>
     [Fact(DisplayName = "concurrent_throughput_ms")]
     public async Task ConcurrentThroughput()
@@ -136,27 +140,42 @@ public class V1BaselineCharacterizationTests : IClassFixture<CharacterizationFix
         try
         {
             for (var i = 0; i < ThroughputConcurrency; i++)
-            {
                 clients[i] = new CharacterizationMcpClient(_fixture.WarmServer.ServerUrl);
-                await clients[i].InitializeAsync();
-                await clients[i].CallGetDateAsync(); // per-client warmup
+
+            // Per-client isolation-equivalent warmup (excluded from measurement).
+            for (var i = 0; i < ThroughputConcurrency; i++)
+            {
+                for (var w = 0; w < PerClientWarmupCalls; w++)
+                    await clients[i].MeasureEphemeralIsolatedCallAsync();
             }
 
             var samples = new double[ThroughputBursts];
             for (var burst = 0; burst < ThroughputBursts; burst++)
             {
+                // Fresh sessions per burst (excluded from wall-clock), then timed parallel calls.
+                foreach (var c in clients)
+                    await c.InitializeAsync();
+
                 var sw = Stopwatch.StartNew();
                 await Task.WhenAll(clients.Select(c => c.CallGetDateAsync()));
                 sw.Stop();
                 samples[burst] = sw.Elapsed.TotalMilliseconds;
-                _output.WriteLine($"  burst {burst + 1}/{ThroughputBursts}: {samples[burst]:F1} ms ({ThroughputConcurrency} concurrent)");
+
+                foreach (var c in clients)
+                    await c.EndSessionAsync();
+
+                _output.WriteLine(
+                    $"  burst {burst + 1}/{ThroughputBursts}: {samples[burst]:F1} ms " +
+                    $"({ThroughputConcurrency} concurrent, {IsolationModes.EphemeralCreateDispose})");
             }
 
             _fixture.RecordWarmupCount("concurrent_throughput_ms", PerClientWarmupCalls * ThroughputConcurrency);
             _fixture.RecordScenario(new CharacterizationScenario
             {
                 Scenario = "concurrent_throughput_ms",
-                Description = $"Wall-clock ms for {ThroughputConcurrency} concurrent tools/call completions on warm sessions",
+                Description =
+                    $"Isolation-equivalent throughput (#380 Decision B): wall-clock ms for {ThroughputConcurrency} " +
+                    $"concurrent tools/call on fresh per-burst sessions ({IsolationModes.EphemeralCreateDispose})",
                 Iterations = samples.Length,
                 Stats = CharacterizationStats.FromSamples(samples),
                 RawSamples = samples,
@@ -165,7 +184,10 @@ public class V1BaselineCharacterizationTests : IClassFixture<CharacterizationFix
         finally
         {
             foreach (var c in clients)
-                await c.DisposeAsync();
+            {
+                if (c is not null)
+                    await c.DisposeAsync();
+            }
         }
     }
 

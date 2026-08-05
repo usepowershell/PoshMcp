@@ -91,8 +91,8 @@ numbers).
 |----------------|------|---------|
 | `cold_start_http_with_script` | ms | Server process start + module import + startup script + `initialize` + first `tools/call` |
 | `cold_start_http_no_script` | ms | Same path without a startup script. Delta = startup-script cost. |
-| `warm_call_latency_ms` | ms | Per-call latency on a pre-initialized session (runspace already acquired) |
-| `concurrent_throughput_ms` | ms | Wall-clock ms for 4 concurrent `tools/call` completions on warm sessions |
+| `warm_call_latency_ms` | ms | Isolation-equivalent warm call (#380 Decision B): per-sample fresh session + `tools/call` + session end on real v1 (`ephemeral_create_dispose`), paired with v2 `pool_reset` — **not** sticky session-affine no-reset |
+| `concurrent_throughput_ms` | ms | Isolation-equivalent throughput (#380 Decision B): per-burst fresh sessions + concurrent `tools/call` (`ephemeral_create_dispose`), paired with v2 `pool_reset` |
 | `memory_idle_mb` | MB | Server process working-set at idle, before any sessions |
 | `memory_light_load_mb` | MB | Working-set after 10 sequential calls on one session |
 | `memory_moderate_load_mb` | MB | Working-set after 3 rounds of 4 concurrent calls |
@@ -147,12 +147,25 @@ Phase 4 must use the same values.
 - Memory measurements are single-sample snapshots (`iterations = 1`). Process
   working-set fluctuates; treat these as order-of-magnitude indicators, not precise measurements.
 
+## Isolation pairing (#380 Decision B)
+
+| Scenario class | Baseline (v1, real 1.4.1 binary) | Current (v2) | Notes |
+|----------------|----------------------------------|--------------|-------|
+| `warm_call_latency_ms` | `ephemeral_create_dispose` | `pool_reset` | Each baseline sample ends the MCP session so v1 creates+disposes a runspace; never sticky no-reset |
+| `concurrent_throughput_ms` | `ephemeral_create_dispose` | `pool_reset` | Per-burst fresh sessions on baseline |
+| cold-start (`*_http_*`) | `like_for_like_cold` | `like_for_like_cold` | Full process start on both sides — **not** isolation-retargeted |
+| memory (`memory_*`) | `like_for_like_working_set` | `like_for_like_working_set` | Same load shape — **not** isolation-retargeted |
+
+Fingerprint fields: `warmCallIsolationMode`, `throughputIsolationMode`, `coldStartPairingMode`, `memoryPairingMode`.
+A sticky `session_affine_no_reset` baseline against `pool_reset` is a **methodology failure** (gate exit 2), not a threshold breach. Threshold constants are unchanged (warm ≤1.05, throughput ≤1/0.95, cold ≤1.10, memory ≤1.10).
+
 ## Phase 4 Usage
 
-Phase 4 locates this artifact from the `v1-baseline-characterization` CI artifact
-(see `.github/workflows/ci.yml`). Comparison logic should:
+Phase 4 locates this artifact from the same-job fresh Phase 0 run in
+`.github/workflows/phase4-gate.yml` (pinned v1 commit server DLL + HEAD characterization harness). Comparison logic should:
 
 1. Join on `scenario` key.
-2. Compute relative change: `(v2.mean − v1.mean) / v1.mean * 100`.
-3. Flag scenarios where relative change exceeds the Phase 4 threshold (e.g., >10% regression).
-4. Attach both artifacts as evidence to the Phase 4 PR.
+2. Validate methodology/isolation pairing before ratios.
+3. Compute relative change: `(v2.mean − v1.mean) / v1.mean * 100`.
+4. Flag scenarios where relative change exceeds the Phase 4 threshold (e.g., >10% regression).
+5. Attach both artifacts as evidence to the Phase 4 PR.
