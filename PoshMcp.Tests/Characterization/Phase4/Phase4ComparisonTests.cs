@@ -27,11 +27,11 @@ namespace PoshMcp.Tests.Characterization.Phase4;
 ///   5. Records the <see cref="Phase4ModeComparison"/> in the fixture for artifact generation.
 ///   6. Asserts all threshold checks pass — test failure = gate breach = release blocked.
 ///
-/// Thresholds:
-///   Cold-start p95      ≤ 110% of baseline
-///   Warm-call p95       ≤ 105% of baseline
-///   Throughput mean     ≤ 1/0.95 × baseline  (≥ 95% throughput rate)
-///   Peak memory mean    ≤ 110% of baseline
+/// Thresholds (unchanged constants; #380 Decision B isolation-equivalent baseline pairing):
+///   Cold-start p95      ≤ 110% of baseline (like_for_like_cold)
+///   Warm-call p95       ≤ 105% of baseline (baseline ephemeral_create_dispose vs current pool_reset)
+///   Throughput mean     ≤ 1/0.95 × baseline  (≥ 95% throughput rate; same isolation pairing)
+///   Peak memory mean    ≤ 110% of baseline (like_for_like_working_set)
 ///
 /// Sample counts: derived at runtime from baseline.Scenarios[key].Iterations.
 /// Currently Phase 0 uses: cold-start N=5, warm-call N=20, throughput N=5.

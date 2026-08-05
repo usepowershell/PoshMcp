@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using PoshMcp.Tests.Characterization;
 using PoshMcp.Tests.Characterization.Phase4;
 using Xunit;
 
@@ -47,6 +48,15 @@ public class MethodologyFingerprintTests
         ProductOrder = "baseline_first",
         ModeOrder = "stateless_first",
         SourceCommitSha = sdkMajor == 1 ? "baseline-sha" : "current-sha",
+        // #380 Decision B isolation pairing: baseline ephemeral vs current pool_reset.
+        WarmCallIsolationMode = sdkMajor == 1
+            ? IsolationModes.EphemeralCreateDispose
+            : IsolationModes.PoolReset,
+        ThroughputIsolationMode = sdkMajor == 1
+            ? IsolationModes.EphemeralCreateDispose
+            : IsolationModes.PoolReset,
+        ColdStartPairingMode = IsolationModes.LikeForLikeCold,
+        MemoryPairingMode = IsolationModes.LikeForLikeWorkingSet,
         WarmupCounts = new Dictionary<string, int>
         {
             ["warm_call"] = 3,
@@ -469,5 +479,101 @@ public class MethodologyFingerprintTests
         var current = CreateBaseContract(2);
         var violations = MethodologyContractValidator.Validate(baseline, current);
         Assert.DoesNotContain(violations, v => v.Contains("sourceCommitSha"));
+    }
+
+    // ── Isolation pairing (#380 Decision B) ────────────────────────────────────
+
+    [Fact]
+    public void IsolationModes_DecisionB_NoViolations()
+    {
+        var baseline = CreateBaseContract(1);
+        var current = CreateBaseContract(2);
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.DoesNotContain(violations, v => v.Contains("IsolationMode", System.StringComparison.OrdinalIgnoreCase)
+            || v.Contains("warmCallIsolationMode")
+            || v.Contains("throughputIsolationMode"));
+    }
+
+    [Fact]
+    public void WarmCallIsolation_StickyBaseline_IsViolation()
+    {
+        var baseline = CreateBaseContract(1);
+        baseline.WarmCallIsolationMode = IsolationModes.SessionAffineNoReset;
+        var current = CreateBaseContract(2);
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.Contains(violations, v => v.Contains("warmCallIsolationMode") && v.Contains("session_affine_no_reset"));
+    }
+
+    [Fact]
+    public void ThroughputIsolation_StickyBaseline_IsViolation()
+    {
+        var baseline = CreateBaseContract(1);
+        baseline.ThroughputIsolationMode = IsolationModes.SessionAffineNoReset;
+        var current = CreateBaseContract(2);
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.Contains(violations, v => v.Contains("throughputIsolationMode") && v.Contains("session_affine_no_reset"));
+    }
+
+    [Fact]
+    public void WarmCallIsolation_CurrentNotPoolReset_IsViolation()
+    {
+        var baseline = CreateBaseContract(1);
+        var current = CreateBaseContract(2);
+        current.WarmCallIsolationMode = IsolationModes.EphemeralCreateDispose;
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.Contains(violations, v => v.Contains("warmCallIsolationMode") && v.Contains("pool_reset"));
+    }
+
+    [Fact]
+    public void ColdStartPairing_Mismatch_IsViolation()
+    {
+        var baseline = CreateBaseContract(1);
+        var current = CreateBaseContract(2);
+        current.ColdStartPairingMode = "retargeted_isolation";
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.Contains(violations, v => v.Contains("coldStartPairingMode"));
+    }
+
+    [Fact]
+    public void MemoryPairing_Mismatch_IsViolation()
+    {
+        var baseline = CreateBaseContract(1);
+        var current = CreateBaseContract(2);
+        current.MemoryPairingMode = "retargeted_isolation";
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.Contains(violations, v => v.Contains("memoryPairingMode"));
+    }
+
+    [Fact]
+    public void IsolationModes_BothEmpty_NotViolation_LegacyCaptureGap()
+    {
+        var baseline = CreateBaseContract(1);
+        baseline.WarmCallIsolationMode = "";
+        baseline.ThroughputIsolationMode = "";
+        var current = CreateBaseContract(2);
+        current.WarmCallIsolationMode = "";
+        current.ThroughputIsolationMode = "";
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.DoesNotContain(violations, v => v.Contains("warmCallIsolationMode") || v.Contains("throughputIsolationMode"));
+    }
+
+    [Fact]
+    public void WarmCallIsolation_MissingBaseline_IsViolation_WhenCurrentPresent()
+    {
+        var baseline = CreateBaseContract(1);
+        baseline.WarmCallIsolationMode = "";
+        var current = CreateBaseContract(2);
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.Contains(violations, v => v.Contains("warmCallIsolationMode") && v.Contains("missing"));
+    }
+
+    [Fact]
+    public void ThroughputIsolation_MissingBaseline_IsViolation_WhenCurrentPresent()
+    {
+        var baseline = CreateBaseContract(1);
+        baseline.ThroughputIsolationMode = "";
+        var current = CreateBaseContract(2);
+        var violations = MethodologyContractValidator.Validate(baseline, current);
+        Assert.Contains(violations, v => v.Contains("throughputIsolationMode") && v.Contains("missing"));
     }
 }

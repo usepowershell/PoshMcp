@@ -256,6 +256,9 @@ jobs:
     # ═══════════════════════════════════════════════════════════════════════════
 
     # ─── BASELINE_FIRST path: Phase 0 (v1) runs first ──────────────────────────
+    # HEAD characterization harness + pinned v1 server DLL. Warm/throughput use
+    # isolation-equivalent ephemeral create+dispose on the real v1 binary (#380 Decision B);
+    # cold/memory stay like-for-like. Threshold constants are unchanged.
     - name: "Run Phase 0 characterization (baseline_first)"
       if: matrix.product_order == 'baseline_first'
       env:
@@ -269,6 +272,7 @@ jobs:
       run: |
         echo "COLLECTION_ORDER=baseline_first" >> "$GITHUB_ENV"
         echo "V1_COLLECTION_START_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
+        echo "Baseline isolation mode (Decision B): warm/throughput=ephemeral_create_dispose on real v1 DLL"
         dotnet test --no-build --configuration Release \
           --filter "Category=Characterization" \
           --logger "trx;LogFileName=phase0-fresh-baseline.trx" \
@@ -347,6 +351,7 @@ jobs:
       run: |
         V1_START=$(date +%s)
         echo "V1_COLLECTION_START_EPOCH=$V1_START" >> "$GITHUB_ENV"
+        echo "Baseline isolation mode (Decision B): warm/throughput=ephemeral_create_dispose on real v1 DLL"
         dotnet test --no-build --configuration Release \
           --filter "Category=Characterization" \
           --logger "trx;LogFileName=phase0-fresh-baseline.trx" \
@@ -379,6 +384,29 @@ jobs:
           exit 1
         fi
         echo "Fresh Phase 0 baseline warm-call N=$FRESH_WARM_N"
+
+        # #380 Decision B: refuse sticky no-reset baseline for warm/throughput pairing.
+        # Methodology failures exit 2 (not threshold RED / exit 1).
+        WARM_ISO=$(jq -r '.methodologyFingerprint.warmCallIsolationMode // empty' "$FRESH_JSON")
+        THR_ISO=$(jq -r '.methodologyFingerprint.throughputIsolationMode // empty' "$FRESH_JSON")
+        echo "Baseline isolation modes: warm=${WARM_ISO:-<missing>} throughput=${THR_ISO:-<missing>}"
+        if [ "$WARM_ISO" = "session_affine_no_reset" ] || [ "$THR_ISO" = "session_affine_no_reset" ]; then
+          echo "ERROR: baseline warm/throughput isolation is sticky session_affine_no_reset — apples-to-oranges vs v2 pool_reset (#380 Decision B)."
+          exit 2
+        fi
+        if [ -z "$WARM_ISO" ] || [ -z "$THR_ISO" ]; then
+          echo "ERROR: baseline methodologyFingerprint missing warm/throughput isolation modes (#380 Decision B)."
+          exit 2
+        fi
+        if [ "$WARM_ISO" != "ephemeral_create_dispose" ]; then
+          echo "ERROR: baseline warmCallIsolationMode='${WARM_ISO}', expected ephemeral_create_dispose (#380 Decision B)."
+          exit 2
+        fi
+        if [ "$THR_ISO" != "ephemeral_create_dispose" ]; then
+          echo "ERROR: baseline throughputIsolationMode='${THR_ISO}', expected ephemeral_create_dispose (#380 Decision B)."
+          exit 2
+        fi
+
         echo "V1_BASELINE_PATH=$FRESH_JSON" >> "$GITHUB_ENV"
 
     # ─── BASELINE_FIRST: Phase 4 (v2) runs SECOND (with comparison) ────────────

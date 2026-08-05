@@ -73,11 +73,17 @@ public sealed class CharacterizationFixture : IAsyncLifetime
         orderedScenarios.Sort((a, b) => string.Compare(a.Scenario, b.Scenario, StringComparison.Ordinal));
 
         // Build methodology fingerprint from collected scenario sample counts and warmup records.
+        // Decision B (#380): warm/throughput baseline is isolation-equivalent ephemeral create+dispose
+        // on the real v1 binary; cold/memory remain like-for-like pairings (not isolation-retargeted).
         var fingerprint = new CharacterizationMethodologyFingerprint
         {
             ScenarioSampleCounts = orderedScenarios.ToDictionary(s => s.Scenario, s => s.Iterations),
             WarmupCounts = new Dictionary<string, int>(_warmupCounts),
             SameJobPaired = _sameJobPaired,
+            WarmCallIsolationMode = IsolationModes.EphemeralCreateDispose,
+            ThroughputIsolationMode = IsolationModes.EphemeralCreateDispose,
+            ColdStartPairingMode = IsolationModes.LikeForLikeCold,
+            MemoryPairingMode = IsolationModes.LikeForLikeWorkingSet,
         };
 
         // Runtime-detect the SDK the measured server actually loaded, rather than hardcoding

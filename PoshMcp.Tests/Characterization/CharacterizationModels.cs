@@ -78,6 +78,35 @@ internal sealed class CharacterizationRuntimeInfo
 }
 
 /// <summary>
+/// Canonical isolation-mode tokens recorded in methodology fingerprints (#380 Decision B).
+/// Warm/throughput ratios must pair isolation-equivalent baselines to v2 pool+reset —
+/// never sticky session-affine no-reset against mandatory isolation.
+/// </summary>
+internal static class IsolationModes
+{
+    /// <summary>v1 sticky session runspace reused across calls with no per-call isolation.</summary>
+    public const string SessionAffineNoReset = "session_affine_no_reset";
+
+    /// <summary>
+    /// v1 isolation-equivalent path: each measured call pays runspace create+dispose
+    /// (session ended after the call, or sessionless ephemeral execute).
+    /// </summary>
+    public const string EphemeralCreateDispose = "ephemeral_create_dispose";
+
+    /// <summary>v2 shipped contract: shared pool worker + mandatory per-call reset.</summary>
+    public const string PoolReset = "pool_reset";
+
+    /// <summary>Cold-start pairing: full process start + initialize + first tools/call on both sides.</summary>
+    public const string LikeForLikeCold = "like_for_like_cold";
+
+    /// <summary>Memory pairing: working-set under the same load shape on both sides.</summary>
+    public const string LikeForLikeWorkingSet = "like_for_like_working_set";
+
+    internal static bool IsIsolationEquivalentBaseline(string? mode) =>
+        string.Equals(mode, EphemeralCreateDispose, StringComparison.Ordinal);
+}
+
+/// <summary>
 /// Machine-readable summary of measurement methodology.
 /// Enables Phase 4 comparator to detect mismatched sample counts, tool, or protocol
 /// between Phase 0 baseline and Phase 4 current measurements.
@@ -114,6 +143,37 @@ internal sealed class CharacterizationMethodologyFingerprint
     /// </summary>
     [JsonPropertyName("sameJobPaired")]
     public bool SameJobPaired { get; set; }
+
+    /// <summary>
+    /// Isolation mode used for warm_call_latency_ms (#380 Decision B).
+    /// Baseline must be <see cref="IsolationModes.EphemeralCreateDispose"/>;
+    /// current must be <see cref="IsolationModes.PoolReset"/>.
+    /// Defaults empty so missing JSON fields fail closed instead of silently becoming ephemeral.
+    /// </summary>
+    [JsonPropertyName("warmCallIsolationMode")]
+    public string WarmCallIsolationMode { get; set; } = "";
+
+    /// <summary>
+    /// Isolation mode used for concurrent_throughput_ms (#380 Decision B).
+    /// Same pairing rules as <see cref="WarmCallIsolationMode"/>.
+    /// Defaults empty so missing JSON fields fail closed instead of silently becoming ephemeral.
+    /// </summary>
+    [JsonPropertyName("throughputIsolationMode")]
+    public string ThroughputIsolationMode { get; set; } = "";
+
+    /// <summary>
+    /// Cold-start pairing rule. Both sides use full cold process start (like-for-like).
+    /// Isolation mode does not retarget cold-start ratios.
+    /// </summary>
+    [JsonPropertyName("coldStartPairingMode")]
+    public string ColdStartPairingMode { get; set; } = IsolationModes.LikeForLikeCold;
+
+    /// <summary>
+    /// Memory pairing rule. Both sides use working-set under the same load shape.
+    /// Isolation mode does not retarget memory ratios.
+    /// </summary>
+    [JsonPropertyName("memoryPairingMode")]
+    public string MemoryPairingMode { get; set; } = IsolationModes.LikeForLikeWorkingSet;
 }
 
 internal sealed class CharacterizationScenario

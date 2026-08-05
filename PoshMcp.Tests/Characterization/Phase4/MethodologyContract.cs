@@ -127,6 +127,31 @@ internal sealed class MethodologyContract
     [JsonPropertyName("serverLifecycle")]
     public string ServerLifecycle { get; set; } = "per-iteration-cold|shared-warm";
 
+    // ── Isolation pairing (#380 Decision B) ─────────────────────────────────────
+    // Warm/throughput: intentional difference (baseline ephemeral vs current pool_reset).
+    // Cold/memory: must match like-for-like pairing tokens.
+
+    /// <summary>
+    /// Isolation mode for warm_call_latency_ms. Baseline expects
+    /// <c>ephemeral_create_dispose</c>; current expects <c>pool_reset</c>.
+    /// </summary>
+    [JsonPropertyName("warmCallIsolationMode")]
+    public string WarmCallIsolationMode { get; set; } = "";
+
+    /// <summary>
+    /// Isolation mode for concurrent_throughput_ms. Same pairing rules as warm-call.
+    /// </summary>
+    [JsonPropertyName("throughputIsolationMode")]
+    public string ThroughputIsolationMode { get; set; } = "";
+
+    /// <summary>Cold-start pairing token; must match on both sides (like_for_like_cold).</summary>
+    [JsonPropertyName("coldStartPairingMode")]
+    public string ColdStartPairingMode { get; set; } = IsolationModes.LikeForLikeCold;
+
+    /// <summary>Memory pairing token; must match on both sides (like_for_like_working_set).</summary>
+    [JsonPropertyName("memoryPairingMode")]
+    public string MemoryPairingMode { get; set; } = IsolationModes.LikeForLikeWorkingSet;
+
     // ── Intentional differences (validated against expected values) ──────────────
 
     [JsonPropertyName("sdkMajorVersion")]
@@ -183,6 +208,11 @@ internal sealed class MethodologyContract
             ThroughputConcurrency = throughputConcurrency,
             MemoryAccountingMethod = "Process.WorkingSet64",
             ServerLifecycle = "per-iteration-cold|shared-warm",
+            // v2 current side of Decision B pairing (pool + mandatory per-call reset).
+            WarmCallIsolationMode = IsolationModes.PoolReset,
+            ThroughputIsolationMode = IsolationModes.PoolReset,
+            ColdStartPairingMode = IsolationModes.LikeForLikeCold,
+            MemoryPairingMode = IsolationModes.LikeForLikeWorkingSet,
             SdkMajorVersion = sdkMajorVersion,
             SdkSha256 = sdkSha256,
             SourceCommitSha = sourceCommitSha,
@@ -251,6 +281,16 @@ internal static class MethodologyContractValidator
         MustMatch(violations, "throughputConcurrency", baseline.ThroughputConcurrency, current.ThroughputConcurrency);
         MustMatch(violations, "memoryAccountingMethod", baseline.MemoryAccountingMethod, current.MemoryAccountingMethod);
         MustMatch(violations, "serverLifecycle", baseline.ServerLifecycle, current.ServerLifecycle);
+
+        // ── Isolation pairing (#380 Decision B) ───────────────────────────────────
+        // Warm/throughput: reject sticky no-reset baseline vs pool+reset current.
+        // Cold/memory: like-for-like pairing tokens must match (not retargeted by isolation).
+        ValidateIsolationPairing(violations, "warmCallIsolationMode",
+            baseline.WarmCallIsolationMode, current.WarmCallIsolationMode);
+        ValidateIsolationPairing(violations, "throughputIsolationMode",
+            baseline.ThroughputIsolationMode, current.ThroughputIsolationMode);
+        MustMatch(violations, "coldStartPairingMode", baseline.ColdStartPairingMode, current.ColdStartPairingMode);
+        MustMatch(violations, "memoryPairingMode", baseline.MemoryPairingMode, current.MemoryPairingMode);
 
         // ── Must-match: iteration counts (per gated scenario) ────────────────────
         // Fail-closed: ALL keys from both sides must be present and match (#380 AC3 fix).
@@ -379,5 +419,60 @@ internal static class MethodologyContractValidator
             violations.Add(
                 $"{label}: '{value}' is not a recognized value " +
                 $"(expected one of: {string.Join(", ", knownValues)})");
+    }
+
+    /// <summary>
+    /// Enforces #380 Decision B warm/throughput isolation pairing.
+    /// Baseline must be isolation-equivalent (ephemeral create+dispose on real v1);
+    /// current must be pool_reset. Sticky session_affine_no_reset is always a methodology failure.
+    /// Empty on both sides is treated as a pre-Decision-B capture gap (not a violation) so
+    /// legacy unit fixtures without the fields still validate other contract rules.
+    /// </summary>
+    private static void ValidateIsolationPairing(
+        List<string> violations,
+        string field,
+        string baseline,
+        string current)
+    {
+        var bEmpty = string.IsNullOrWhiteSpace(baseline);
+        var cEmpty = string.IsNullOrWhiteSpace(current);
+        if (bEmpty && cEmpty)
+            return; // pre-Decision-B capture gap
+
+        if (bEmpty)
+        {
+            violations.Add(
+                $"{field}: baseline isolation mode is missing while current='{current}'. " +
+                $"Baseline warm/throughput must record '{IsolationModes.EphemeralCreateDispose}' (#380 Decision B).");
+            return;
+        }
+
+        if (cEmpty)
+        {
+            violations.Add(
+                $"{field}: current isolation mode is missing while baseline='{baseline}'. " +
+                $"Current warm/throughput must record '{IsolationModes.PoolReset}' (#380 Decision B).");
+            return;
+        }
+
+        if (string.Equals(baseline, IsolationModes.SessionAffineNoReset, StringComparison.Ordinal))
+        {
+            violations.Add(
+                $"{field}: baseline='{baseline}' is sticky no-reset — apples-to-oranges vs v2 pool+reset. " +
+                $"Use isolation-equivalent '{IsolationModes.EphemeralCreateDispose}' (#380 Decision B).");
+        }
+        else if (!IsolationModes.IsIsolationEquivalentBaseline(baseline))
+        {
+            violations.Add(
+                $"{field}: baseline='{baseline}', expected isolation-equivalent " +
+                $"'{IsolationModes.EphemeralCreateDispose}' (#380 Decision B).");
+        }
+
+        if (!string.Equals(current, IsolationModes.PoolReset, StringComparison.Ordinal))
+        {
+            violations.Add(
+                $"{field}: current='{current}', expected '{IsolationModes.PoolReset}' " +
+                $"(v2 mandatory per-call isolation; #380 Decision B).");
+        }
     }
 }

@@ -355,6 +355,18 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
             ThroughputConcurrency = 4,
             MemoryAccountingMethod = "Process.WorkingSet64",
             ServerLifecycle = "per-iteration-cold|shared-warm",
+            // Fail-closed on isolation modes: never invent Decision B tokens for missing fields.
+            // Empty values flow to MethodologyContractValidator, which rejects one-sided gaps
+            // when the current side records pool_reset (same-job fresh baseline always writes them).
+            WarmCallIsolationMode = fp.WarmCallIsolationMode?.Trim() ?? "",
+            ThroughputIsolationMode = fp.ThroughputIsolationMode?.Trim() ?? "",
+            // Cold/memory pairing is not isolation-retargeted; like-for-like defaults remain safe.
+            ColdStartPairingMode = string.IsNullOrWhiteSpace(fp.ColdStartPairingMode)
+                ? IsolationModes.LikeForLikeCold
+                : fp.ColdStartPairingMode,
+            MemoryPairingMode = string.IsNullOrWhiteSpace(fp.MemoryPairingMode)
+                ? IsolationModes.LikeForLikeWorkingSet
+                : fp.MemoryPairingMode,
             SdkMajorVersion = _baseline.SdkAssembly?.MajorVersion ?? 0,
             SdkSha256 = _baseline.SdkAssembly?.Sha256 ?? "",
             SourceCommitSha = _baseline.CommitSha,

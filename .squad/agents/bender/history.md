@@ -26,3 +26,12 @@ Detailed prior entries were archived to `history-archive.md` because this file e
 - Implemented `SessionStateInternalAccessor` + table hot path in `RunspaceResetProtocol` with provider fallback; cached exclude sets on worker.
 - Isolation tests extended (combined pollution, clean Get-Date baseline, accessor availability); pool functional 25/25 + unit Pool 174/174.
 - Does not close #380; draft PR for residual progress.
+
+---
+
+### 2026-08-05: PR 391 R2 reject-fix (Cubert autoclose + Farnsworth nits)
+- Rebased isolation-equivalent baseline onto main (93d922 / #390).
+- Isolation methodology preflight: exit **2**; missing isolation fail-closed (no silent ephemeral default).
+- Scrubbed PR title/body so closingIssuesReferences is empty; issue 380 stays open; PR stays draft.
+- Learning: GitHub GraphQL autoclose triggers on body phrases like `Close #N` even in procedural steps — never put closing keywords + `#N` in PR prose; verify with `closingIssuesReferences`.
+- Learning: methodology failures must use exit 2 consistently end-to-end (workflow preflight + gate script); threshold RED is exit 1 only.
