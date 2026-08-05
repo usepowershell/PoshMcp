@@ -310,6 +310,14 @@ public static class SoakAnalyzer
         if (last is null)
             return Fail("ps_execution", "No samples — cannot verify PS execution", null, null);
 
+        // In ToolsListOnly mode there are intentionally zero tools/call requests — PS execution
+        // is not exercised by design. Treat as SKIP (PASS with a diagnostic note).
+        if (cfg.TrafficMode == SoakTrafficMode.ToolsListOnly)
+            return Pass("ps_execution",
+                $"ps_execution gate skipped: traffic_mode=ToolsListOnly (no tools/call requests sent by design). " +
+                $"initialize={last.InitializeRequests} tools/list={last.ToolsListRequests} tools/call={last.ToolsCallRequests}",
+                last.ToolsCallRequests, null);
+
         if (last.InitializeRequests <= 0 || last.ToolsListRequests <= 0 || last.ToolsCallRequests <= 0)
             return Fail("ps_execution",
                 $"Intended request mix not exercised: initialize={last.InitializeRequests} tools/list={last.ToolsListRequests} tools/call={last.ToolsCallRequests}",

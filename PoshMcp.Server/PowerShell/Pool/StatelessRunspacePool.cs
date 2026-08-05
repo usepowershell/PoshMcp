@@ -252,71 +252,54 @@ public sealed class StatelessRunspacePool : IRunspacePool
         var sw = Stopwatch.StartNew();
 
         // Combine caller CT with the pool's acquisition timeout.
+        // linkedCts must be disposed alongside timeoutCts to avoid leaking CancellationCallbackInfo
+        // registrations on the caller token for the lifetime of the request (one per AcquireAsync call).
         using var timeoutCts = _options.AcquisitionTimeout > TimeSpan.Zero
             ? new CancellationTokenSource(_options.AcquisitionTimeout)
             : null;
+        using var linkedCts = timeoutCts != null && cancellationToken.CanBeCanceled
+            ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token)
+            : null;
+        var effectiveCt = linkedCts?.Token ?? timeoutCts?.Token ?? cancellationToken;
 
-        CancellationToken effectiveCt;
-        CancellationTokenRegistration reg = default;
-        if (timeoutCts != null && cancellationToken.CanBeCanceled)
+        // AcquisitionTimeout == Zero means instant-fail: don't wait on the channel.
+        if (_options.AcquisitionTimeout == TimeSpan.Zero)
         {
-            effectiveCt = CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken, timeoutCts.Token).Token;
-        }
-        else if (timeoutCts != null)
-        {
-            effectiveCt = timeoutCts.Token;
-        }
-        else
-        {
-            effectiveCt = cancellationToken;
-        }
-
-        try
-        {
-            // AcquisitionTimeout == Zero means instant-fail: don't wait on the channel.
-            if (_options.AcquisitionTimeout == TimeSpan.Zero)
+            if (!_available.Reader.TryRead(out var immediateWorker) ||
+                !immediateWorker.TryTransitionTo(RunspaceWorkerState.Leased))
             {
-                if (!_available.Reader.TryRead(out var immediateWorker) ||
-                    !immediateWorker.TryTransitionTo(RunspaceWorkerState.Leased))
-                {
-                    _metrics.AcquisitionTimeouts.Add(1);
-                    throw new TimeoutException(
-                        "No warm worker available immediately (AcquisitionTimeout = 0).");
-                }
-                return FinalizeLease(immediateWorker, sw);
+                _metrics.AcquisitionTimeouts.Add(1);
+                throw new TimeoutException(
+                    "No warm worker available immediately (AcquisitionTimeout = 0).");
+            }
+            return FinalizeLease(immediateWorker, sw);
+        }
+
+        // Wait for a warm worker. Retry if a concurrently evicted stale entry is dequeued.
+        while (true)
+        {
+            RunspaceWorker worker;
+            try
+            {
+                worker = await _available.Reader.ReadAsync(effectiveCt).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (timeoutCts?.Token.IsCancellationRequested == true)
+            {
+                _metrics.AcquisitionTimeouts.Add(1);
+                throw new TimeoutException(
+                    $"No warm worker became available within {_options.AcquisitionTimeout}.");
             }
 
-            // Wait for a warm worker. Retry if a concurrently evicted stale entry is dequeued.
-            while (true)
-            {
-                RunspaceWorker worker;
-                try
-                {
-                    worker = await _available.Reader.ReadAsync(effectiveCt).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (timeoutCts?.Token.IsCancellationRequested == true)
-                {
-                    _metrics.AcquisitionTimeouts.Add(1);
-                    throw new TimeoutException(
-                        $"No warm worker became available within {_options.AcquisitionTimeout}.");
-                }
+            // Guard: draining may have been set while we waited.
+            ObjectDisposedException.ThrowIf(_draining != 0 || _disposed != 0, this);
 
-                // Guard: draining may have been set while we waited.
-                ObjectDisposedException.ThrowIf(_draining != 0 || _disposed != 0, this);
+            if (worker.TryTransitionTo(RunspaceWorkerState.Leased))
+                return FinalizeLease(worker, sw);
 
-                if (worker.TryTransitionTo(RunspaceWorkerState.Leased))
-                    return FinalizeLease(worker, sw);
-
-                // Worker was evicted between enqueue and our read; discard and retry.
-                _logger.LogDebug(
-                    "Discarded stale channel entry for worker created at {CreatedAt}.",
-                    worker.CreatedAt);
-            }
-        }
-        finally
-        {
-            reg.Dispose();
+            // Worker was evicted between enqueue and our read; discard and retry.
+            _logger.LogDebug(
+                "Discarded stale channel entry for worker created at {CreatedAt}.",
+                worker.CreatedAt);
         }
     }
 

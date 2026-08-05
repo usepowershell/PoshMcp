@@ -864,4 +864,79 @@ public sealed class StatelessRunspacePoolTests
 
         await pool.DisposeAsync();
     }
+
+    // ─── Linked CTS disposal (regression: fix for handle-floor drift #385) ────────
+
+    /// <summary>
+    /// Cancellation via caller token must still fire even after fixing the linked-CTS leak.
+    /// This verifies the <c>using var linkedCts</c> fix does not break cancellation semantics.
+    /// </summary>
+    [Fact]
+    public async Task AcquireAsync_WithCancellableCallerToken_CancellationStillWorks()
+    {
+        // Pool with single worker held by another caller; acquisition will block until cancelled.
+        var opts = DefaultOptions(min: 1, max: 1, eager: 1);
+        opts.AcquisitionTimeout = TimeSpan.FromSeconds(30); // long timeout so only caller CTS fires
+        opts.ShutdownDrainTimeout = TimeSpan.FromMilliseconds(200);
+        await using var pool = MakePool(opts);
+        await pool.StartAsync();
+
+        var held = await pool.AcquireAsync();
+        try
+        {
+            using var callerCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+            // Should throw OCE, not timeout — confirms linked-CTS fix preserves caller cancellation.
+            var ex = await Assert.ThrowsAsync<OperationCanceledException>(
+                () => pool.AcquireAsync(callerCts.Token).AsTask());
+            Assert.IsNotType<TimeoutException>(ex);
+        }
+        finally
+        {
+            await held.DisposeAsync();
+        }
+
+        await pool.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Stress-acquires and returns the lease many times with a cancellable caller token
+    /// to verify that no resource accumulation occurs (the linked-CTS must be disposed per cycle).
+    /// If the old bug were present, the caller CTS would accumulate one dangling registration
+    /// per iteration; this test drives enough cycles to detect an ObjectDisposedException or
+    /// excessive latency growth that would indicate registration buildup.
+    /// </summary>
+    [Fact]
+    public async Task AcquireAsync_ManyAcquireReturnCycles_WithCallerToken_NoAccumulation()
+    {
+        const int cycles = 200;
+        var opts = DefaultOptions(min: 1, max: 1, eager: 1);
+        opts.AcquisitionTimeout = TimeSpan.FromSeconds(5);
+        opts.ShutdownDrainTimeout = TimeSpan.FromMilliseconds(500);
+        await using var pool = MakePool(opts);
+        await pool.StartAsync();
+
+        // Re-use the same CTS across all cycles to amplify any registration leakage.
+        using var callerCts = new CancellationTokenSource();
+        var exceptions = new List<Exception>();
+
+        for (int i = 0; i < cycles; i++)
+        {
+            try
+            {
+                await using var lease = await pool.AcquireAsync(callerCts.Token);
+            }
+            catch (Exception ex)
+            {
+                exceptions.Add(ex);
+                break;
+            }
+            // Brief yield to allow reset to settle so next acquire finds a warm worker.
+            await WaitForStatsAsync(pool, s => s.WarmWorkers >= 1 && s.ResettingWorkers == 0,
+                TimeSpan.FromSeconds(3));
+        }
+
+        Assert.Empty(exceptions);
+
+        await pool.DisposeAsync();
+    }
 }

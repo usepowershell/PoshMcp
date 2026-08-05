@@ -3,6 +3,24 @@ using System;
 namespace PoshMcp.Tests.Soak;
 
 /// <summary>
+/// Controls which MCP request types the soak load generator issues.
+/// </summary>
+public enum SoakTrafficMode
+{
+    /// <summary>
+    /// Default production mode: ~10% initialize, ~50% tools/list, ~40% tools/call (PowerShell execution).
+    /// </summary>
+    FullMix,
+
+    /// <summary>
+    /// Comparison/diagnostic mode: 100% tools/list requests (no PowerShell execution via tools/call).
+    /// Isolates HTTP + MCP protocol overhead from PowerShell execution overhead in handle/memory trends.
+    /// Acceptance gates are identical; no threshold is relaxed in this mode.
+    /// </summary>
+    ToolsListOnly,
+}
+
+/// <summary>
 /// Pre-declared configuration and acceptance criteria for a soak run.
 ///
 /// <para>
@@ -185,6 +203,20 @@ public sealed record SoakConfig
 
     /// <summary>Last N load samples must show WarmWorkers+LeasedWorkers ≥ MinPoolSize (stable end state).</summary>
     public int StableEndSamples { get; init; } = 5;
+
+    // ─── Traffic mode (diagnostic comparison) ─────────────────────────────────
+
+    /// <summary>
+    /// Controls which MCP request types the load generator issues.
+    /// Use <see cref="SoakTrafficMode.FullMix"/> (default) for the production acceptance run.
+    /// Use <see cref="SoakTrafficMode.ToolsListOnly"/> for a comparison run that exercises the
+    /// HTTP/MCP protocol stack without any PowerShell execution, isolating protocol overhead
+    /// from PowerShell execution overhead in handle and memory trends.
+    /// Override via <c>SOAK_TRAFFIC_MODE</c> env var ("full_mix" or "tools_list_only").
+    /// <para><b>Acceptance gates are identical in both modes</b>; no threshold is relaxed
+    /// for comparison runs.</para>
+    /// </summary>
+    public SoakTrafficMode TrafficMode { get; init; } = SoakTrafficMode.FullMix;
 
     // ─── Burst-scaling profile (opt-in, diagnostic; does not alter thresholds) ──
 

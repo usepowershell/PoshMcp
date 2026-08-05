@@ -271,28 +271,38 @@ public sealed class SoakHarness : IAsyncDisposable
 
         while (!ct.IsCancellationRequested)
         {
-            // Mixed workload: ~10% initialize, ~50% tools/list, ~40% tools/call (real PS)
             var roll = rng.NextDouble();
             try
             {
                 var sw = Stopwatch.StartNew();
-                if (roll < 0.10)
+                if (_config.TrafficMode == SoakTrafficMode.ToolsListOnly)
                 {
-                    Interlocked.Increment(ref _initializeRequests);
-                    await SendInitializeAsync(client, ct);
-                }
-                else if (roll < 0.60)
-                {
+                    // Comparison mode: tools/list only, no PowerShell execution via tools/call.
+                    // Isolates HTTP + MCP protocol overhead from PowerShell execution overhead.
                     Interlocked.Increment(ref _toolsListRequests);
                     await SendToolsListAsync(client, ct);
                 }
                 else
                 {
-                    // "Get-Date" is registered per parameter set; "get_date_date_and_format" is the
-                    // variant with -Date and -Format parameters (all optional), exercising real PS execution.
-                    Interlocked.Increment(ref _toolsCallRequests);
-                    var psOk = await SendToolCallAsync(client, "get_date_date_and_format", new { }, ct);
-                    if (psOk) Interlocked.Increment(ref _toolsCallPsSuccess);
+                    // Full-mix mode: ~10% initialize, ~50% tools/list, ~40% tools/call (real PS)
+                    if (roll < 0.10)
+                    {
+                        Interlocked.Increment(ref _initializeRequests);
+                        await SendInitializeAsync(client, ct);
+                    }
+                    else if (roll < 0.60)
+                    {
+                        Interlocked.Increment(ref _toolsListRequests);
+                        await SendToolsListAsync(client, ct);
+                    }
+                    else
+                    {
+                        // "Get-Date" is registered per parameter set; "get_date_date_and_format" is the
+                        // variant with -Date and -Format parameters (all optional), exercising real PS execution.
+                        Interlocked.Increment(ref _toolsCallRequests);
+                        var psOk = await SendToolCallAsync(client, "get_date_date_and_format", new { }, ct);
+                        if (psOk) Interlocked.Increment(ref _toolsCallPsSuccess);
+                    }
                 }
 
                 sw.Stop();
@@ -444,6 +454,7 @@ public sealed class SoakHarness : IAsyncDisposable
             ProcessHandleCount = handleCount,
             HandleCountSupported = handleSupported,
             ProcessThreadCount = threadCount,
+            GcCollectionCount = GC.CollectionCount(0) + GC.CollectionCount(1) + GC.CollectionCount(2),
             PoolWarm = poolStats?.Warm ?? 0,
             PoolLeased = poolStats?.Leased ?? 0,
             PoolResetting = poolStats?.Resetting ?? 0,
