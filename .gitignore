@@ -437,3 +437,4 @@ docs/_site
 nupkg
 server-stderr.txt
 server-test-stderr.txt
+ci-artifacts/

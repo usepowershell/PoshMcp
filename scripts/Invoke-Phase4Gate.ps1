@@ -231,6 +231,63 @@ if (-not [string]::IsNullOrWhiteSpace($BaselineArtifactPath)) {
     }
 }
 
+# --- embedded methodology contract validation (#380 AC3) -------------------
+# Validate the methodology contract embedded in the artifact, if present.
+# This checks that the C# MethodologyContractValidator found no violations during
+# artifact generation. A non-empty methodologyValidation list is a METHODOLOGY failure.
+if ((Has-Prop $art 'methodologyValidation') -and $null -ne $art.methodologyValidation) {
+    $mvList = @($art.methodologyValidation)
+    if ($mvList.Count -gt 0) {
+        foreach ($mv in $mvList) {
+            $violations.Add("methodology contract violation: $mv")
+        }
+    }
+}
+
+# --- collection order validation (#380 AC1) ─────────────────────────────────
+# If both plannedProductOrder and observedProductOrder are present, they must match.
+if ((Has-Prop $art 'plannedProductOrder') -and (Has-Prop $art 'observedProductOrder')) {
+    $planned = [string]$art.plannedProductOrder
+    $observed = [string]$art.observedProductOrder
+    if (-not [string]::IsNullOrWhiteSpace($planned) -and -not [string]::IsNullOrWhiteSpace($observed)) {
+        if ($planned -ne $observed) {
+            $violations.Add("product order mismatch: planned='$planned' observed='$observed'")
+        }
+    }
+}
+
+# --- statistical confidence reporting (#380 AC5) ───────────────────────────
+# Report warm-call and throughput statistics in summary if present.
+if ((Has-Prop $art 'statisticalReports') -and $null -ne $art.statisticalReports) {
+    $reports = @($art.statisticalReports)
+    if ($reports.Count -gt 0) {
+        Add-Summary ""
+        Add-Summary "### Statistical Reports (warm-call, throughput)"
+        foreach ($r in $reports) {
+            $metric = if (Has-Prop $r 'metric') { [string]$r.metric } else { 'unknown' }
+            $median = if (Has-Prop $r 'median') { [double]$r.median } else { [double]::NaN }
+            $range = if (Has-Prop $r 'range') { [double]$r.range } else { [double]::NaN }
+            $cv = if (Has-Prop $r 'cvPercent') { [double]$r.cvPercent } else { [double]::NaN }
+            $conf = if (Has-Prop $r 'confidence') { [string]$r.confidence } else { 'N/A' }
+            $n = if (Has-Prop $r 'sampleCount') { [int]$r.sampleCount } else { 0 }
+            Add-Summary ("- **{0}**: median={1:F2}ms range={2:F2}ms CV={3:F1}% N={4} confidence={5}" -f $metric, $median, $range, $cv, $n, $conf)
+        }
+    }
+}
+
+# --- stage attribution summary (#380 AC6) ──────────────────────────────────
+if ((Has-Prop $art 'stageAttributions') -and $null -ne $art.stageAttributions) {
+    $attrs = @($art.stageAttributions)
+    if ($attrs.Count -gt 0) {
+        Add-Summary ""
+        Add-Summary "### Stage Attribution (hypotheses)"
+        foreach ($a in $attrs) {
+            $hyp = if (Has-Prop $a 'hypothesis') { [string]$a.hypothesis } else { 'N/A' }
+            Add-Summary "- $hyp"
+        }
+    }
+}
+
 if ($violations.Count -gt 0) {
     Emit-Annotation 'error' "Phase 4 INFRASTRUCTURE/METHODOLOGY failure: $($violations.Count) violation(s). This fails BOTH advisory and release."
     Add-Summary "- **INFRASTRUCTURE / METHODOLOGY failure** ($($violations.Count) violation(s)):"

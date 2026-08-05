@@ -91,7 +91,8 @@ public sealed class CharacterizationFixture : IAsyncLifetime
             CapturedAt = DateTime.UtcNow.ToString("O"),
             SdkPackageVersion = sdk.PackageDisplay,
             SdkAssembly = sdk,
-            CommitSha = Environment.GetEnvironmentVariable("GITHUB_SHA") ?? "",
+            CommitSha = Environment.GetEnvironmentVariable("POSHMCP_SOURCE_COMMIT_SHA")
+                ?? Environment.GetEnvironmentVariable("GITHUB_SHA") ?? "",
             RuntimeInfo = new CharacterizationRuntimeInfo
             {
                 DotNetVersion = Environment.Version.ToString(),

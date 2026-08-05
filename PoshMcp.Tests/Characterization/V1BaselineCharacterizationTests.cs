@@ -27,10 +27,19 @@ namespace PoshMcp.Tests.Characterization;
 [Trait("Category", "Characterization")]
 public class V1BaselineCharacterizationTests : IClassFixture<CharacterizationFixture>
 {
-    // N=5 gives p50/p95/p99 with limited but honest samples.  Documented in README.
+    // Predeclared sample counts — rationale (#380 AC2):
+    //   Cold-start: 5 is sufficient (p95/p99 inherently noisy for cold starts;
+    //     additional samples add runtime cost without statistical value).
+    //   Warm-call: 50 (up from 20) — warm-call CV was >15% at N=20, yielding
+    //     LOW confidence. N=50 targets CV≤5% for HIGH confidence with stable
+    //     warm-call distributions. At ~10-30ms/call this adds <2s total.
+    //   Throughput: 15 bursts (up from 5) — throughput variance was high at N=5.
+    //     N=15 provides meaningful percentile spreads and CV≤10% target.
+    //     At ~200ms/burst with concurrency=4 this adds <3s total.
+    //   Concurrency: 4 unchanged — matches typical CI runner vCPU count.
     private const int ColdStartIterations = 5;
-    private const int WarmCallIterations = 20;
-    private const int ThroughputBursts = 5;
+    private const int WarmCallIterations = 50;
+    private const int ThroughputBursts = 15;
     private const int ThroughputConcurrency = 4;
 
     private readonly CharacterizationFixture _fixture;
