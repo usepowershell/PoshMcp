@@ -55,6 +55,7 @@ public sealed class SoakTest
             EvictionPhaseDuration = EnvMinutes("SOAK_EVICTION_MINUTES", TimeSpan.FromMinutes(2)),
             HandleFloorWindow = EnvMinutes("SOAK_FLOOR_WINDOW_MINUTES", TimeSpan.FromMinutes(5)),
             BurstConcurrencyLevel = EnvInt("SOAK_BURST_WORKERS", 0),
+            TrafficMode = EnvTrafficMode("SOAK_TRAFFIC_MODE", SoakTrafficMode.FullMix),
         };
         cfg.Validate();
 
@@ -71,6 +72,7 @@ public sealed class SoakTest
         _output.WriteLine($"  Worker upper bound: TotalWorkers ≤ MaxPoolSize; recovery within {cfg.ReplenishmentRecoverySamples} samples");
         if (cfg.BurstConcurrencyLevel > 0)
             _output.WriteLine($"  Burst workers: {cfg.BurstConcurrencyLevel} for {cfg.BurstPhaseDuration.TotalMinutes:F0}m per cycle (diagnostic; pool scaling exercise)");
+        _output.WriteLine($"  Traffic mode: {cfg.TrafficMode} (full_mix=PS execution; tools_list_only=HTTP/MCP comparison)");
 
         // ── Provenance ───────────────────────────────────────────────────────
         var provenance = CaptureProvenance();
@@ -345,6 +347,7 @@ public sealed class SoakTest
                 ws_bytes = s.WorkingSetBytes,
                 handles = s.HandleCountSupported ? s.ProcessHandleCount : (int?)null,
                 threads = s.ProcessThreadCount,
+                gc_collections = s.GcCollectionCount >= 0 ? s.GcCollectionCount : (int?)null,
                 pool_warm = s.PoolStatsAvailable ? s.PoolWarm : (int?)null,
                 pool_leased = s.PoolStatsAvailable ? s.PoolLeased : (int?)null,
                 pool_total = s.PoolStatsAvailable ? s.PoolTotal : (int?)null,
@@ -378,6 +381,7 @@ public sealed class SoakTest
                 concurrency_level = cfg.ConcurrencyLevel,
                 burst_concurrency_level = cfg.BurstConcurrencyLevel,
                 burst_phase_duration_minutes = cfg.BurstPhaseDuration.TotalMinutes,
+                traffic_mode = cfg.TrafficMode.ToString(),
                 min_request_delay_ms = cfg.MinRequestDelayMs,
                 max_request_delay_ms = cfg.MaxRequestDelayMs,
                 normal_phase_duration_minutes = cfg.NormalPhaseDuration.TotalMinutes,
@@ -458,19 +462,26 @@ public sealed class SoakTest
             },
             comparison_modes = new
             {
-                available = new[] { "full_http_powershell" },
-                current_mode = "full_http_powershell",
-                limitation = "No-op HTTP and direct-PowerShell comparison modes require either a registered no-op MCP tool " +
-                    "(product change) or a separate out-of-process PS execution path (architectural change). These cannot " +
-                    "be safely implemented as harness-only changes without introducing a false signal. They are deferred " +
-                    "to a follow-up investigation that can properly instrument each path.",
+                available = new[] { "full_mix", "tools_list_only" },
+                current_mode = cfg.TrafficMode == SoakTrafficMode.ToolsListOnly ? "tools_list_only" : "full_mix",
+                full_mix_description = "Default production mode: ~10% initialize, ~50% tools/list, ~40% tools/call with real PowerShell execution. " +
+                    "This is the authoritative mode for acceptance gates.",
+                tools_list_only_description = "Comparison/diagnostic mode: 100% tools/list requests; initialize and tools/call are omitted. " +
+                    "Exercises list-only MCP protocol traffic over HTTP without PowerShell execution. " +
+                    "Use SOAK_TRAFFIC_MODE=tools_list_only to enable. " +
+                    "A handle-floor slope comparison between modes isolates protocol overhead from PowerShell execution overhead. " +
+                    "Acceptance gates are identical in both modes except ps_execution is SKIP; no threshold is relaxed. " +
+                    "full_mix remains the authoritative acceptance mode.",
+                ps_execution_isolation_note = "A tools_list_only run that passes handle_floor_slope would confirm PowerShell execution " +
+                    "(runspace creation, PSDataCollection event handles, finalizer pressure) is the primary handle source. " +
+                    "A tools_list_only run that also fails would indicate the HTTP/MCP layer or .NET runtime is the source.",
             },
         };
         File.WriteAllText(Path.Combine(dir, "analyzer-inputs.json"), JsonSerializer.Serialize(analyzerInputs, opts));
 
         // ── samples.csv ───────────────────────────────────────────────────────
         var csv = new StringBuilder();
-        csv.AppendLine("timestamp,elapsed_ms,phase,req_total,req_success,req_error,req_initialize,req_tools_list,req_tools_call,req_tools_call_ps_success,int_req,int_err,p50_ms,p99_ms,ws_bytes,handles,threads,pool_warm,pool_leased,pool_total,pool_min,pool_max,pool_started,pool_available,note");
+        csv.AppendLine("timestamp,elapsed_ms,phase,req_total,req_success,req_error,req_initialize,req_tools_list,req_tools_call,req_tools_call_ps_success,int_req,int_err,p50_ms,p99_ms,ws_bytes,handles,threads,gc_collections,pool_warm,pool_leased,pool_total,pool_min,pool_max,pool_started,pool_available,note");
         foreach (var s in ordered)
         {
             csv.AppendLine(string.Join(",",
@@ -491,6 +502,7 @@ public sealed class SoakTest
                 s.WorkingSetBytes,
                 s.HandleCountSupported ? s.ProcessHandleCount.ToString(CultureInfo.InvariantCulture) : "N/A",
                 s.ProcessThreadCount,
+                s.GcCollectionCount >= 0 ? s.GcCollectionCount.ToString(CultureInfo.InvariantCulture) : "N/A",
                 s.PoolStatsAvailable ? s.PoolWarm.ToString(CultureInfo.InvariantCulture) : "N/A",
                 s.PoolStatsAvailable ? s.PoolLeased.ToString(CultureInfo.InvariantCulture) : "N/A",
                 s.PoolStatsAvailable ? s.PoolTotal.ToString(CultureInfo.InvariantCulture) : "N/A",
@@ -526,6 +538,18 @@ public sealed class SoakTest
     {
         var v = Environment.GetEnvironmentVariable(name);
         return int.TryParse(v, out var i) && i >= 0 ? i : fallback;
+    }
+
+    private static SoakTrafficMode EnvTrafficMode(string name, SoakTrafficMode fallback)
+    {
+        var v = Environment.GetEnvironmentVariable(name);
+        if (string.IsNullOrWhiteSpace(v)) return fallback;
+        return v.Trim().ToLowerInvariant() switch
+        {
+            "tools_list_only" => SoakTrafficMode.ToolsListOnly,
+            "full_mix" => SoakTrafficMode.FullMix,
+            _ => fallback,
+        };
     }
 
     private static string Sha256File(string path)

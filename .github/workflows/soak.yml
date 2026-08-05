@@ -31,6 +31,10 @@ on:
         description: "Burst concurrency workers interspersed within load phase (0 = disabled, default production)"
         required: false
         default: "0"
+      traffic_mode:
+        description: "Traffic mode: full_mix (default, PS execution) or tools_list_only (HTTP/MCP comparison, no PS execution)"
+        required: false
+        default: "full_mix"
   schedule:
     # Nightly at 02:00 UTC on weekdays
     - cron: "0 2 * * 1-5"
@@ -87,6 +91,7 @@ jobs:
           SOAK_MIN_LOAD_MINUTES: ${{ github.event.inputs.min_load_minutes || '60' }}
           SOAK_COOLDOWN_MINUTES: ${{ github.event.inputs.cooldown_minutes || '5' }}
           SOAK_BURST_WORKERS: ${{ github.event.inputs.burst_workers || '0' }}
+          SOAK_TRAFFIC_MODE: ${{ github.event.inputs.traffic_mode || 'full_mix' }}
         run: >
           dotnet test
           --no-build

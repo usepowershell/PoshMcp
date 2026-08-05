@@ -425,6 +425,31 @@ public sealed class SoakAnalyzerTests
         Assert.False(g.Passed, g.Detail);
     }
 
+    [Fact]
+    public void Evaluate_ToolsListOnly_PsExecutionIsSkipNotPass()
+    {
+        // ToolsListOnly intentionally sends no tools/call. The gate must report SKIP (not PASS)
+        // so artifacts cannot be misread as "PS execution verified". Other gates stay active.
+        var run = HealthyRun();
+        run[^1] = run[^1] with
+        {
+            InitializeRequests = 0,
+            ToolsListRequests = 5000,
+            ToolsCallRequests = 0,
+            ToolsCallPsSuccess = 0,
+        };
+        var cfg = new SoakConfig { TrafficMode = SoakTrafficMode.ToolsListOnly };
+        var gates = SoakAnalyzer.Evaluate(run, cfg);
+        var ps = gates.Single(x => x.Gate == "ps_execution");
+        Assert.Equal("SKIP", ps.Status);
+        Assert.True(ps.Passed, ps.Detail);
+        Assert.Contains("ToolsListOnly", ps.Detail, StringComparison.OrdinalIgnoreCase);
+
+        // Handle floor and other acceptance gates must still be evaluated (not weakened).
+        Assert.Contains(gates, g => g.Gate == "handle_floor_slope");
+        Assert.DoesNotContain(gates, g => g.Gate == "ps_execution" && g.Status == "PASS");
+    }
+
     // ═══ Memory ═════════════════════════════════════════════════════════════
 
     [Fact]

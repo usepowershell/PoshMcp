@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -863,5 +864,103 @@ public sealed class StatelessRunspacePoolTests
         }
 
         await pool.DisposeAsync();
+    }
+
+    // ─── Linked CTS disposal (regression: fix for handle-floor drift #385) ────────
+
+    /// <summary>
+    /// Proves the reflection seam used by the dispose regression test: undisposed linked CTS
+    /// nodes leave live callback registrations on the parent; Dispose clears them.
+    /// </summary>
+    [Fact]
+    public void LinkedCts_WithoutDispose_AccumulatesParentCallbackRegistrations()
+    {
+        using var parent = new CancellationTokenSource();
+        Assert.Equal(0, CountLiveCallbackRegistrations(parent));
+
+        var leaked = new List<CancellationTokenSource>(10);
+        for (var i = 0; i < 10; i++)
+            leaked.Add(CancellationTokenSource.CreateLinkedTokenSource(parent.Token));
+
+        Assert.Equal(10, CountLiveCallbackRegistrations(parent));
+
+        foreach (var linked in leaked)
+            linked.Dispose();
+
+        Assert.Equal(0, CountLiveCallbackRegistrations(parent));
+    }
+
+    /// <summary>
+    /// Regression for the pre-fix AcquireAsync pattern that discarded
+    /// <c>CreateLinkedTokenSource(...).Token</c> without disposing the linked CTS.
+    /// Each acquire with a cancellable caller token + AcquisitionTimeout must not leave a live
+    /// callback registration on the caller CTS. This would fail on the pre-fix code (N registrations
+    /// after N cycles) and pass with <c>using var linkedCts</c>.
+    /// <para>
+    /// This asserts managed registration cleanup only — not Process.HandleCount. Hosted Windows
+    /// full_mix soak remains the gate for kernel handle-floor slope (#349/#385).
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task AcquireAsync_WithCallerToken_DisposesLinkedCts_NoCallbackRegistrationsRemain()
+    {
+        const int cycles = 40;
+        var opts = DefaultOptions(min: 1, max: 1, eager: 1);
+        opts.AcquisitionTimeout = TimeSpan.FromSeconds(5);
+        opts.ShutdownDrainTimeout = TimeSpan.FromMilliseconds(500);
+        await using var pool = MakePool(opts);
+        await pool.StartAsync();
+
+        // Re-use one caller CTS so leaked linked registrations would accumulate on it.
+        using var callerCts = new CancellationTokenSource();
+        Assert.Equal(0, CountLiveCallbackRegistrations(callerCts));
+
+        for (var i = 0; i < cycles; i++)
+        {
+            var lease = await pool.AcquireAsync(callerCts.Token);
+            await lease.DisposeAsync();
+            // Wait until the returned worker is warm again before the next acquire.
+            await WaitForStatsAsync(pool, s => s.WarmWorkers >= 1 && s.ResettingWorkers == 0,
+                TimeSpan.FromSeconds(5));
+        }
+
+        var remaining = CountLiveCallbackRegistrations(callerCts);
+        Assert.True(remaining == 0,
+            $"Expected 0 live CancellationCallback registrations on caller CTS after {cycles} " +
+            $"acquire/return cycles with disposed linked CTS; found {remaining}. " +
+            "AcquireAsync must dispose CreateLinkedTokenSource results.");
+
+        await pool.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Counts live callback nodes on a <see cref="CancellationTokenSource"/> via the private
+    /// <c>_registrations.Callbacks</c> linked list. Disposed registrations move to FreeNodeList
+    /// and are not counted. Used only as a unit-test seam for linked-CTS dispose coverage.
+    /// </summary>
+    private static int CountLiveCallbackRegistrations(CancellationTokenSource cts)
+    {
+        const BindingFlags instance = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+        var regsField = typeof(CancellationTokenSource).GetField("_registrations", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(regsField);
+
+        var regs = regsField!.GetValue(cts);
+        if (regs is null)
+            return 0;
+
+        var callbacksField = regs.GetType().GetField("Callbacks", instance);
+        Assert.NotNull(callbacksField);
+
+        var node = callbacksField!.GetValue(regs);
+        var count = 0;
+        while (node is not null)
+        {
+            count++;
+            var nextField = node.GetType().GetField("Next", instance);
+            Assert.NotNull(nextField);
+            node = nextField!.GetValue(node);
+        }
+
+        return count;
     }
 }
