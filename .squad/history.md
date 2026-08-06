@@ -17,4 +17,5 @@
 ### 2026-08-06: Hermes Warm-Call & Handle-Floor Fixes Shipped
 **Issues:** #380, #385
 **Branch:** `squad/warm-handle-ps-fix`
+**PR:** #392 (draft, base=main, closingIssuesReferences=[])
 **Fixes:** (1) `TryGetTables()` hoisted to top of `ResetCore` so preference reset + $Error clear share the fast path; (2) `ResetPreferenceVariablesFast` via direct `PSVariable.Value` assignment bypassing proxy lock/event for 8 preference vars; (3) `ResetWorkingLocation` skips `SetLocation` when runspace already at drive root; (4) `InvokePowerShellSafe` switched from `ps.Invoke()` to `BeginInvoke/EndInvoke` with `using var output` and explicit `asyncResult.AsyncWaitHandle?.Dispose()` to eliminate per-call OS handle backlog. All 356 pool tests pass.
