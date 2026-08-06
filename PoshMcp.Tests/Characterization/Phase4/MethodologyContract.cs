@@ -20,7 +20,7 @@ namespace PoshMcp.Tests.Characterization.Phase4;
 internal sealed class MethodologyContract
 {
     [JsonPropertyName("contractVersion")]
-    public string ContractVersion { get; set; } = "poshmcp/methodology-contract/1.0";
+    public string ContractVersion { get; set; } = "poshmcp/methodology-contract/1.1";
 
     // ── Environment (must match) ────────────────────────────────────────────────
 
@@ -127,7 +127,7 @@ internal sealed class MethodologyContract
     [JsonPropertyName("serverLifecycle")]
     public string ServerLifecycle { get; set; } = "per-iteration-cold|shared-warm";
 
-    // ── Isolation pairing (#380 Decision B) ─────────────────────────────────────
+    // ── Isolation pairing (#380 Decision B / Decision C) ────────────────────────
     // Warm/throughput: intentional difference (baseline ephemeral vs current pool_reset).
     // Cold/memory: must match like-for-like pairing tokens.
 
@@ -151,6 +151,14 @@ internal sealed class MethodologyContract
     /// <summary>Memory pairing token; must match on both sides (like_for_like_working_set).</summary>
     [JsonPropertyName("memoryPairingMode")]
     public string MemoryPairingMode { get; set; } = IsolationModes.LikeForLikeWorkingSet;
+
+    /// <summary>
+    /// Isolation mode recorded for the v2-ephemeral measurement in the same-SDK isolation gate
+    /// (Decision C §4B). Set to <see cref="IsolationModes.EphemeralCreateDispose"/> when
+    /// the v2-ephemeral measurement step is captured. Empty when not captured.
+    /// </summary>
+    [JsonPropertyName("v2EphemeralIsolationMode")]
+    public string V2EphemeralIsolationMode { get; set; } = "";
 
     // ── Intentional differences (validated against expected values) ──────────────
 
@@ -208,11 +216,13 @@ internal sealed class MethodologyContract
             ThroughputConcurrency = throughputConcurrency,
             MemoryAccountingMethod = "Process.WorkingSet64",
             ServerLifecycle = "per-iteration-cold|shared-warm",
-            // v2 current side of Decision B pairing (pool + mandatory per-call reset).
+            // v2 current side of Decision B/C pairing (pool + mandatory per-call reset).
             WarmCallIsolationMode = IsolationModes.PoolReset,
             ThroughputIsolationMode = IsolationModes.PoolReset,
             ColdStartPairingMode = IsolationModes.LikeForLikeCold,
             MemoryPairingMode = IsolationModes.LikeForLikeWorkingSet,
+            // Decision C §6.5: v2-ephemeral isolation mode recorded when same-SDK gate step runs.
+            V2EphemeralIsolationMode = IsolationModes.EphemeralCreateDispose,
             SdkMajorVersion = sdkMajorVersion,
             SdkSha256 = sdkSha256,
             SourceCommitSha = sourceCommitSha,

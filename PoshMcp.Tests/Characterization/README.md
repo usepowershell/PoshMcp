@@ -147,17 +147,40 @@ Phase 4 must use the same values.
 - Memory measurements are single-sample snapshots (`iterations = 1`). Process
   working-set fluctuates; treat these as order-of-magnitude indicators, not precise measurements.
 
-## Isolation pairing (#380 Decision B)
+## Isolation pairing (Decision B/C)
 
-| Scenario class | Baseline (v1, real 1.4.1 binary) | Current (v2) | Notes |
-|----------------|----------------------------------|--------------|-------|
-| `warm_call_latency_ms` | `ephemeral_create_dispose` | `pool_reset` | Each baseline sample ends the MCP session so v1 creates+disposes a runspace; never sticky no-reset |
-| `concurrent_throughput_ms` | `ephemeral_create_dispose` | `pool_reset` | Per-burst fresh sessions on baseline |
-| cold-start (`*_http_*`) | `like_for_like_cold` | `like_for_like_cold` | Full process start on both sides — **not** isolation-retargeted |
-| memory (`memory_*`) | `like_for_like_working_set` | `like_for_like_working_set` | Same load shape — **not** isolation-retargeted |
+### Cross-SDK comparison (v1 vs v2) — informational only (Decision C §4A)
 
-Fingerprint fields: `warmCallIsolationMode`, `throughputIsolationMode`, `coldStartPairingMode`, `memoryPairingMode`.
-A sticky `session_affine_no_reset` baseline against `pool_reset` is a **methodology failure** (gate exit 2), not a threshold breach. Threshold constants are unchanged (warm ≤1.05, throughput ≤1/0.95, cold ≤1.10, memory ≤1.10).
+| Scenario class | Baseline (v1, real 1.4.1 binary) | Current (v2) | Gate type |
+|----------------|----------------------------------|--------------|-----------|
+| `warm_call_latency_ms` | `ephemeral_create_dispose` | `pool_reset` | **Informational** — ratio recorded, never EXIT 1 (Decision C) |
+| `concurrent_throughput_ms` | `ephemeral_create_dispose` | `pool_reset` | **Informational** — ratio recorded, never EXIT 1 (Decision C) |
+| cold-start (`*_http_*`) | `like_for_like_cold` | `like_for_like_cold` | **Blocking** ≤ 1.10× |
+| memory (`memory_*`) | `like_for_like_working_set` | `like_for_like_working_set` | **Blocking** ≤ 1.10× |
+
+### Same-SDK isolation gate (v2-ephemeral vs v2-pool-reset) — blocking (Decision C §4B)
+
+| Scenario class | Ephemeral (v2-ephemeral) | Pool-reset (v2) | Threshold | Gate type |
+|----------------|--------------------------|-----------------|-----------|-----------|
+| `warm_call_latency_ms` | `ephemeral_create_dispose` on v2 | `pool_reset` on v2 | ≤ 1.10× | **Blocking** → EXIT 1 |
+| `concurrent_throughput_ms` | `ephemeral_create_dispose` on v2 | `pool_reset` on v2 | ≤ 1.10× | **Blocking** → EXIT 1 |
+
+Ephemeral scenarios use suffix `_v2ephemeral_{mode}` (e.g. `warm_call_latency_ms_v2ephemeral_stateless`).
+
+Constant names: `SameSdkWarmCallP95MaxRatio = 1.10`, `SameSdkThroughputMeanMaxRatio = 1.10`.
+
+Fingerprint fields: `warmCallIsolationMode`, `throughputIsolationMode`, `coldStartPairingMode`, `memoryPairingMode`, `v2EphemeralIsolationMode`.
+A sticky `session_affine_no_reset` baseline against `pool_reset` is a **methodology failure** (gate exit 2), not a threshold breach.
+
+### Decision C rationale
+
+Decision B (merged #391) gated cross-SDK warm ≤ 1.05×. That gate could not be met because SDK v1→v2
+Streamable HTTP migration adds ~100–200 µs structural overhead per call — not a product regression.
+Decision C (2026-08-06) redefines:
+- Cross-SDK warm/throughput: informational, not blocking
+- Same-SDK (v2 vs v2) warm/throughput: blocking at ≤ 1.10× — the real isolation regression detector
+
+See `.squad/decisions/inbox/farnsworth-decision-c-warm-gate.md` for full rationale.
 
 ## Phase 4 Usage
 

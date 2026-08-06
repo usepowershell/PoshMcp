@@ -421,9 +421,10 @@ public sealed class StatelessRunspacePool : IRunspacePool
         _metrics.WorkerCount.Add(-1, RunspacePoolMetrics.StateTag("leased"));
 
         // Transition Leased → Resetting (evict path: Leased → Evicted).
-        if (evictRequested || !worker.TryTransitionTo(RunspaceWorkerState.Resetting))
+        // EphemeralMode: always evict and recreate; never reset (Decision C §4B).
+        if (evictRequested || _options.EphemeralMode || !worker.TryTransitionTo(RunspaceWorkerState.Resetting))
         {
-            string reason = evictRequested ? "explicit" : "broken";
+            string reason = evictRequested ? "explicit" : _options.EphemeralMode ? "ephemeral" : "broken";
             EvictWorker(worker, reason);
             FinalizeLeaseDone();
             FireAndForgetCreateWorkerAsync(_shutdownToken);
