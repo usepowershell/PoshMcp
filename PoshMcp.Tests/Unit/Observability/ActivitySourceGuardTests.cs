@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Management.Automation;
+using System.Threading.Tasks;
 using PoshMcp.Server.PowerShell;
 using Xunit;
 
@@ -93,14 +94,14 @@ public class InvokePowerShellSafeHandleDisposalTests : IDisposable
     public void Dispose() => _ps.Dispose();
 
     [Fact]
-    public void ExecutePowerShellCommandTyped_ReturnsResult_ForSimpleCommand()
+    public async Task ExecutePowerShellCommandTyped_ReturnsResult_ForSimpleCommand()
     {
         // End-to-end smoke test: verifies InvokePowerShellSafe (via BeginInvoke path)
         // produces correct results. The WaitHandle disposal happens internally.
         using var runspace = new IsolatedPowerShellRunspace();
         var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
 
-        var result = PowerShellAssemblyGenerator.ExecutePowerShellCommandTyped(
+        var json = await PowerShellAssemblyGenerator.ExecutePowerShellCommandTyped(
             "Get-Date",
             [],
             [],
@@ -108,8 +109,6 @@ public class InvokePowerShellSafeHandleDisposalTests : IDisposable
             runspace,
             logger);
 
-        Assert.NotNull(result);
-        var json = result.GetAwaiter().GetResult();
         Assert.NotNull(json);
         // Get-Date returns a DateTime object; the JSON serializer wraps it as a non-empty array.
         Assert.StartsWith("[", json);
@@ -118,13 +117,13 @@ public class InvokePowerShellSafeHandleDisposalTests : IDisposable
     }
 
     [Fact]
-    public void ExecutePowerShellCommandTyped_EmptyCommand_ReturnsEmptyArray()
+    public async Task ExecutePowerShellCommandTyped_EmptyCommand_ReturnsEmptyArray()
     {
         // Verify that a command with no output returns "[]" rather than throwing.
         using var runspace = new IsolatedPowerShellRunspace();
         var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
 
-        var result = PowerShellAssemblyGenerator.ExecutePowerShellCommandTyped(
+        var json = await PowerShellAssemblyGenerator.ExecutePowerShellCommandTyped(
             "Write-Verbose",
             new[] { new PowerShellParameterInfo("Message", typeof(string), false) },
             new object[] { "hello" },
@@ -132,7 +131,6 @@ public class InvokePowerShellSafeHandleDisposalTests : IDisposable
             runspace,
             logger);
 
-        var json = result.GetAwaiter().GetResult();
         Assert.Equal("[]", json);
     }
 }
