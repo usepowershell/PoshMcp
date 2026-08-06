@@ -144,14 +144,20 @@ internal static class RunspaceResetProtocol
 
         try
         {
-            // 3. Preference variables → PS defaults.
-            ResetPreferenceVariables(proxy);
+            // 3–9. Acquire internal session-state tables first so preference-reset and
+            // $Error-clear can use the fast direct-assignment path instead of going
+            // through SessionStateProxy on every warm call.
+            bool hasTables = SessionStateInternalAccessor.TryGetTables(
+                runspace, out var varTable, out var funcTable, out var aliasTable);
+
+            // 3. Preference variables → PS defaults (fast path via table, proxy fallback).
+            ResetPreferenceVariables(proxy, hasTables ? varTable : null);
             cancellationToken.ThrowIfCancellationRequested();
 
-            // 4–7. Prefer internal session-state tables (fast). Provider path is the fallback.
-            if (SessionStateInternalAccessor.TryGetTables(runspace, out var varTable, out var funcTable, out var aliasTable))
+            // 4–7. Variable/drive/function/alias cleanup.
+            if (hasTables)
             {
-                RemoveRequestScopedVariablesFromTable(proxy, varTable, excludeVars, cancellationToken);
+                RemoveRequestScopedVariablesFromTable(proxy, varTable!, excludeVars, cancellationToken);
 
                 if (worker.InitializedDriveNames is not null && excludeDrives is not null)
                     RemoveRequestScopedDrives(proxy, excludeDrives, cancellationToken);
@@ -160,7 +166,7 @@ internal static class RunspaceResetProtocol
                 {
                     RemoveRequestScopedNamesFromTable(
                         proxy,
-                        funcTable,
+                        funcTable!,
                         providerPath: "Function:",
                         exclude: excludeFuncs,
                         force: true,
@@ -173,7 +179,7 @@ internal static class RunspaceResetProtocol
                     // Unremovable request aliases (e.g. Constant) throw so the pool evicts.
                     RemoveRequestScopedNamesFromTable(
                         proxy,
-                        aliasTable,
+                        aliasTable!,
                         providerPath: "Alias:",
                         exclude: excludeAliases,
                         force: true,
@@ -212,11 +218,11 @@ internal static class RunspaceResetProtocol
                 }
             }
 
-            // 8. Reset working location to filesystem root.
+            // 8. Reset working location — skip SetLocation when already at root.
             ResetWorkingLocation(proxy);
 
-            // 9. Clear $Error.
-            ClearErrorVariable(proxy);
+            // 9. Clear $Error (fast path via table, proxy fallback).
+            ClearErrorVariable(proxy, hasTables ? varTable : null);
         }
         catch (OperationCanceledException)
         {
@@ -270,8 +276,29 @@ internal static class RunspaceResetProtocol
         }
     }
 
-    private static void ResetPreferenceVariables(SessionStateProxy proxy)
+    /// <summary>
+    /// Resets PS preference variables to their default values.
+    /// When <paramref name="varTable"/> is supplied (from <see cref="SessionStateInternalAccessor"/>),
+    /// values are written directly to the <see cref="PSVariable"/> objects in the table,
+    /// bypassing the per-call lock-and-proxy overhead of <see cref="SessionStateProxy.SetVariable"/>.
+    /// Falls back to the proxy path when the table is unavailable.
+    /// </summary>
+    private static void ResetPreferenceVariables(SessionStateProxy proxy, IDictionary? varTable)
     {
+        if (varTable != null)
+        {
+            SetPsVarInTable(varTable, "ErrorActionPreference", ActionPreference.Continue);
+            SetPsVarInTable(varTable, "WarningPreference", ActionPreference.Continue);
+            SetPsVarInTable(varTable, "VerbosePreference", ActionPreference.SilentlyContinue);
+            SetPsVarInTable(varTable, "DebugPreference", ActionPreference.SilentlyContinue);
+            SetPsVarInTable(varTable, "ProgressPreference", ActionPreference.Continue);
+            SetPsVarInTable(varTable, "InformationPreference", ActionPreference.SilentlyContinue);
+            SetPsVarInTable(varTable, "ConfirmPreference", ConfirmImpact.High);
+            SetPsVarInTable(varTable, "WhatIfPreference", false);
+            return;
+        }
+
+        // Proxy fallback — used when internal tables are unavailable.
         proxy.SetVariable("ErrorActionPreference", ActionPreference.Continue);
         proxy.SetVariable("WarningPreference", ActionPreference.Continue);
         proxy.SetVariable("VerbosePreference", ActionPreference.SilentlyContinue);
@@ -280,6 +307,24 @@ internal static class RunspaceResetProtocol
         proxy.SetVariable("InformationPreference", ActionPreference.SilentlyContinue);
         proxy.SetVariable("ConfirmPreference", ConfirmImpact.High);
         proxy.SetVariable("WhatIfPreference", false);
+    }
+
+    /// <summary>
+    /// Sets a <see cref="PSVariable"/> value directly in the internal session-state table.
+    /// Best-effort: silently skips when the variable is not found or the assignment throws.
+    /// The proxy fallback in <see cref="ResetPreferenceVariables"/> covers any miss.
+    /// </summary>
+    private static void SetPsVarInTable(IDictionary table, string name, object value)
+    {
+        try
+        {
+            if (table[name] is PSVariable v)
+                v.Value = value;
+        }
+        catch
+        {
+            // best-effort; caller has proxy fallback for the entire batch
+        }
     }
 
     private static void RemoveRequestScopedVariables(
@@ -558,13 +603,21 @@ internal static class RunspaceResetProtocol
                 if (!string.IsNullOrEmpty(current))
                 {
                     var root = Path.GetPathRoot(current);
-                    if (!string.IsNullOrEmpty(root))
+                    // Only call SetLocation when the runspace is not already at the drive
+                    // root. On the common warm path (no Set-Location was called), this
+                    // avoids a redundant round-trip through the filesystem provider.
+                    if (!string.IsNullOrEmpty(root) &&
+                        !string.Equals(current, root, StringComparison.OrdinalIgnoreCase))
+                    {
                         proxy.Path.SetLocation(root);
+                    }
                 }
             }
             else
             {
-                proxy.Path.SetLocation("/");
+                var current = proxy.Path.CurrentFileSystemLocation?.Path;
+                if (current != "/")
+                    proxy.Path.SetLocation("/");
             }
         }
         catch
@@ -573,20 +626,27 @@ internal static class RunspaceResetProtocol
         }
     }
 
-    private static void ClearErrorVariable(SessionStateProxy proxy)
+    private static void ClearErrorVariable(SessionStateProxy proxy, IDictionary? varTable)
     {
         try
         {
-            var error = proxy.GetVariable("Error");
-            if (error is IList list)
+            IList? list = null;
+            if (varTable?["Error"] is PSVariable errorVar)
             {
-                list.Clear();
+                list = errorVar.Value as IList;
             }
-            else if (error is IEnumerable and not string)
+            else
             {
-                // Some hosts surface $Error as a non-IList enumerable; fall back to reassignment.
-                proxy.SetVariable("Error", new ArrayList());
+                var error = proxy.GetVariable("Error");
+                if (error is IList directList)
+                    list = directList;
+                else if (error is IEnumerable and not string)
+                {
+                    proxy.SetVariable("Error", new ArrayList());
+                    return;
+                }
             }
+            list?.Clear();
         }
         catch
         {

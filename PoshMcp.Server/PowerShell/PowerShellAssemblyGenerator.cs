@@ -821,6 +821,7 @@ public class PowerShellAssemblyGenerator
                 var invocationId = OperationContext.CorrelationId;
                 var safeInvocationId = LogSanitizer.Scrub(invocationId);
                 var parameterCount = parameterValues?.Length ?? 0;
+                var isDebugEnabled = logger.IsEnabled(LogLevel.Debug);
 
                 logger.LogInformation(
                     "Tool invocation received: ToolName={ToolName}, InvocationId={InvocationId}, ParameterCount={ParameterCount}",
@@ -828,21 +829,41 @@ public class PowerShellAssemblyGenerator
                     safeInvocationId,
                     parameterCount);
 
-                logger.LogDebug(
-                    "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
-                    "request_received",
-                    safeCommandName,
-                    safeInvocationId,
-                    stopwatch.ElapsedMilliseconds);
+                if (isDebugEnabled)
+                {
+                    logger.LogDebug(
+                        "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
+                        "request_received",
+                        safeCommandName,
+                        safeInvocationId,
+                        stopwatch.ElapsedMilliseconds);
 
-                var parameterSummary = FormatParameterSummary(parameterInfos, parameterValues);
-                logger.LogDebug(
-                    "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ParameterSummary={ParameterSummary}, ElapsedMs={ElapsedMs}",
-                    "tool_resolved",
-                    safeCommandName,
-                    safeInvocationId,
-                    LogSanitizer.Scrub(parameterSummary),
-                    stopwatch.ElapsedMilliseconds);
+                    var parameterSummary = FormatParameterSummary(parameterInfos, parameterValues);
+                    logger.LogDebug(
+                        "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ParameterSummary={ParameterSummary}, ElapsedMs={ElapsedMs}",
+                        "tool_resolved",
+                        safeCommandName,
+                        safeInvocationId,
+                        LogSanitizer.Scrub(parameterSummary),
+                        stopwatch.ElapsedMilliseconds);
+
+                    if (parameterInfos != null && parameterValues != null)
+                    {
+                        for (int i = 0; i < parameterInfos.Length && i < parameterValues.Length; i++)
+                        {
+                            var paramInfo = parameterInfos[i];
+                            var paramValue = parameterValues[i];
+                            logger.LogDebug(
+                                "Tool parameter detail: ToolName={ToolName}, InvocationId={InvocationId}, Index={Index}, Name={ParameterName}, Type={ParameterType}, Value={ParameterValue}",
+                                safeCommandName,
+                                safeInvocationId,
+                                i,
+                                LogSanitizer.Scrub(paramInfo.Name),
+                                LogSanitizer.Scrub(paramInfo.Type.Name),
+                                LogSanitizer.Scrub(paramValue?.ToString()));
+                        }
+                    }
+                }
 
                 var frameworkOptions = ResolveFrameworkExecutionOptions(parameterInfos, parameterValues, commandName, logger);
 
@@ -853,24 +874,6 @@ public class PowerShellAssemblyGenerator
                         { "status", "started" },
                         { "correlation_id", OperationContext.CorrelationId }
                     });
-
-                // Log parameter details
-                if (parameterInfos != null && parameterValues != null)
-                {
-                    for (int i = 0; i < parameterInfos.Length && i < parameterValues.Length; i++)
-                    {
-                        var paramInfo = parameterInfos[i];
-                        var paramValue = parameterValues[i];
-                        logger.LogDebug(
-                            "Tool parameter detail: ToolName={ToolName}, InvocationId={InvocationId}, Index={Index}, Name={ParameterName}, Type={ParameterType}, Value={ParameterValue}",
-                            safeCommandName,
-                            safeInvocationId,
-                            i,
-                            LogSanitizer.Scrub(paramInfo.Name),
-                            LogSanitizer.Scrub(paramInfo.Type.Name),
-                            LogSanitizer.Scrub(paramValue?.ToString()));
-                    }
-                }
 
                 return await runspace.ExecuteThreadSafeAsync<string>(ps =>
                 {
@@ -890,12 +893,15 @@ public class PowerShellAssemblyGenerator
                         ps.Commands.Clear();
                         ps.AddCommand(commandName);
 
-                        logger.LogDebug(
-                            "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
-                            "pipeline_initialized",
-                            safeCommandName,
-                            safeInvocationId,
-                            stopwatch.ElapsedMilliseconds);
+                        if (isDebugEnabled)
+                        {
+                            logger.LogDebug(
+                                "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
+                                "pipeline_initialized",
+                                safeCommandName,
+                                safeInvocationId,
+                                stopwatch.ElapsedMilliseconds);
+                        }
 
                         // Add parameters
                         for (int i = 0; i < (parameterInfos?.Length ?? 0) && i < (parameterValues?.Length ?? 0); i++)
@@ -920,24 +926,30 @@ public class PowerShellAssemblyGenerator
                                     if (switchParam.IsPresent)
                                     {
                                         ps.AddParameter(paramInfo.Name);
-                                        logger.LogDebug(
-                                            "Bound switch parameter: ToolName={ToolName}, InvocationId={InvocationId}, ParameterName={ParameterName}, IsPresent={IsPresent}",
-                                            safeCommandName,
-                                            safeInvocationId,
-                                            LogSanitizer.Scrub(paramInfo.Name),
-                                            switchParam.IsPresent);
+                                        if (isDebugEnabled)
+                                        {
+                                            logger.LogDebug(
+                                                "Bound switch parameter: ToolName={ToolName}, InvocationId={InvocationId}, ParameterName={ParameterName}, IsPresent={IsPresent}",
+                                                safeCommandName,
+                                                safeInvocationId,
+                                                LogSanitizer.Scrub(paramInfo.Name),
+                                                switchParam.IsPresent);
+                                        }
                                     }
                                 }
                                 else
                                 {
                                     ps.AddParameter(paramInfo.Name, convertedValue);
-                                    logger.LogDebug(
-                                        "Bound parameter: ToolName={ToolName}, InvocationId={InvocationId}, ParameterName={ParameterName}, ValueType={ValueType}, Value={Value}",
-                                        safeCommandName,
-                                        safeInvocationId,
-                                        LogSanitizer.Scrub(paramInfo.Name),
-                                        LogSanitizer.Scrub(convertedValue?.GetType().Name),
-                                        LogSanitizer.Scrub(convertedValue?.ToString()));
+                                    if (isDebugEnabled)
+                                    {
+                                        logger.LogDebug(
+                                            "Bound parameter: ToolName={ToolName}, InvocationId={InvocationId}, ParameterName={ParameterName}, ValueType={ValueType}, Value={Value}",
+                                            safeCommandName,
+                                            safeInvocationId,
+                                            LogSanitizer.Scrub(paramInfo.Name),
+                                            LogSanitizer.Scrub(convertedValue?.GetType().Name),
+                                            LogSanitizer.Scrub(convertedValue?.ToString()));
+                                    }
                                 }
                             }
                             else if (paramInfo.IsMandatory)
@@ -946,12 +958,15 @@ public class PowerShellAssemblyGenerator
                             }
                         }
 
-                        logger.LogDebug(
-                            "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
-                            "parameters_bound_normalized",
-                            safeCommandName,
-                            safeInvocationId,
-                            stopwatch.ElapsedMilliseconds);
+                        if (isDebugEnabled)
+                        {
+                            logger.LogDebug(
+                                "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
+                                "parameters_bound_normalized",
+                                safeCommandName,
+                                safeInvocationId,
+                                stopwatch.ElapsedMilliseconds);
+                        }
 
                         // Build a single Select-Object stage so _MaxResults and property filtering compose consistently.
                         var selectedProperties = ResolveSelectedProperties(commandName, frameworkOptions);
@@ -1066,25 +1081,31 @@ public class PowerShellAssemblyGenerator
                         // Convert results to JSON using System.Text.Json (much faster than PowerShell's ConvertTo-Json)
                         if (results.Count == 0)
                         {
-                            logger.LogDebug(
-                                "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
-                                "result_shaping_empty",
-                                safeCommandName,
-                                safeInvocationId,
-                                stopwatch.ElapsedMilliseconds);
+                            if (isDebugEnabled)
+                            {
+                                logger.LogDebug(
+                                    "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ElapsedMs={ElapsedMs}",
+                                    "result_shaping_empty",
+                                    safeCommandName,
+                                    safeInvocationId,
+                                    stopwatch.ElapsedMilliseconds);
+                            }
                             ps.Commands.Clear();
                             return Task.FromResult("[]");
                         }
 
                         try
                         {
-                            logger.LogDebug(
-                                "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ResultCount={ResultCount}, ElapsedMs={ElapsedMs}",
-                                "result_shaping_started",
-                                safeCommandName,
-                                safeInvocationId,
-                                results.Count,
-                                stopwatch.ElapsedMilliseconds);
+                            if (isDebugEnabled)
+                            {
+                                logger.LogDebug(
+                                    "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, ResultCount={ResultCount}, ElapsedMs={ElapsedMs}",
+                                    "result_shaping_started",
+                                    safeCommandName,
+                                    safeInvocationId,
+                                    results.Count,
+                                    stopwatch.ElapsedMilliseconds);
+                            }
 
                             ps.Commands.Clear();
 
@@ -1092,13 +1113,16 @@ public class PowerShellAssemblyGenerator
                             var resultsArray = results.ToArray();
                             var jsonOutput = JsonSerializer.Serialize(resultsArray, PowerShellJsonOptions.Options);
 
-                            logger.LogDebug(
-                                "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, JsonLength={JsonLength}, ElapsedMs={ElapsedMs}",
-                                "result_shaping_completed",
-                                safeCommandName,
-                                safeInvocationId,
-                                jsonOutput.Length,
-                                stopwatch.ElapsedMilliseconds);
+                            if (isDebugEnabled)
+                            {
+                                logger.LogDebug(
+                                    "Tool invocation stage: Stage={Stage}, ToolName={ToolName}, InvocationId={InvocationId}, JsonLength={JsonLength}, ElapsedMs={ElapsedMs}",
+                                    "result_shaping_completed",
+                                    safeCommandName,
+                                    safeInvocationId,
+                                    jsonOutput.Length,
+                                    stopwatch.ElapsedMilliseconds);
+                            }
                             return Task.FromResult(jsonOutput);
                         }
                         catch (Exception ex)
