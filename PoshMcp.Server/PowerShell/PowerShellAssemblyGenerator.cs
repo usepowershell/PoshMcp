@@ -796,16 +796,26 @@ public class PowerShellAssemblyGenerator
         {
             using (OperationContext.BeginOperation(commandName))
             using (logger.BeginCorrelationScope())
-            using (var activity = ToolActivitySource.StartActivity("tool.invoke", ActivityKind.Internal))
+            // Guard: skip Activity creation when no OTel listener is registered for this source.
+            // When HasListeners() is false, StartActivity() already returns null fast, but the
+            // HasListeners() gate also eliminates the unconditional string.Join/LINQ for paramNames
+            // that runs even when activity is null — eliminating per-call allocation on the no-OTel path.
+            using (var activity = ToolActivitySource.HasListeners()
+                ? ToolActivitySource.StartActivity("tool.invoke", ActivityKind.Internal)
+                : null)
             {
-                // FR-310: Add parameter names (NOT values) as custom properties for App Insights
-                activity?.SetTag("tool.name", safeCommandName);
-                if (parameterInfos != null)
+                // FR-310: Add parameter names (NOT values) as custom properties for App Insights.
+                // Guard with activity != null so the LINQ + string.Join only run when a listener
+                // will actually consume the tag (i.e., when OTel tracing is active).
+                if (activity != null)
                 {
-                    var paramNames = string.Join(",", parameterInfos
-                        .Where(p => !p.Name.StartsWith("_", StringComparison.Ordinal))
-                        .Select(p => p.Name));
-                    activity?.SetTag("tool.parameter_names", paramNames);
+                    activity.SetTag("tool.name", safeCommandName);
+                    if (parameterInfos != null)
+                    {
+                        activity.SetTag("tool.parameter_names", string.Join(",", parameterInfos
+                            .Where(p => !p.Name.StartsWith("_", StringComparison.Ordinal))
+                            .Select(p => p.Name)));
+                    }
                 }
 
                 var invocationId = OperationContext.CorrelationId;
@@ -1426,21 +1436,28 @@ public class PowerShellAssemblyGenerator
     {
         try
         {
-            // Check if pipeline contains commands before invoking
-
             if (ps.Commands.Commands.Count == 0)
             {
                 logger.LogWarning("Cannot {OperationName}: PowerShell pipeline contains no commands", LogSanitizer.Scrub(operationName));
                 return new Collection<PSObject>();
             }
-            else
+
+            // Use BeginInvoke with an owned output buffer so the PSDataCollection's
+            // internal ManualResetEvent (AsyncWaitHandle) is disposed eagerly rather
+            // than left for GC finalization. Per-call WaitHandle accumulation was the
+            // confirmed handle-floor leak in FullMix soak runs.
+            using var output = new PSDataCollection<PSObject>();
+            output.EnumeratorNeverBlocks = true;
+            var asyncResult = ps.BeginInvoke<PSObject, PSObject>(null, output);
+            try
             {
-                string firstCommand = ps.Commands.Commands[0].CommandText;
-                // test to see if the first command is a valid powershell command
-
+                ps.EndInvoke(asyncResult);
             }
-
-            return ps.Invoke();
+            finally
+            {
+                asyncResult.AsyncWaitHandle?.Dispose();
+            }
+            return new Collection<PSObject>(output.ReadAll());
         }
         catch (CommandNotFoundException cmdEx)
         {
