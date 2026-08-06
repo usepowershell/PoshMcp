@@ -28,12 +28,12 @@ public static class LoggerExtensions
     /// </example>
     public static IDisposable? BeginCorrelationScope(this ILogger logger)
     {
-        return logger.BeginScope(new Dictionary<string, object>
+        return logger.BeginScope(new[]
         {
-            ["CorrelationId"] = LogSanitizer.Scrub(OperationContext.CorrelationId),
+            new KeyValuePair<string, object>("CorrelationId", LogSanitizer.Scrub(OperationContext.CorrelationId)),
             // OperationName is derived from user-supplied tool/command names. Scrub
             // before it enters the logging scope to mitigate CWE-117 log forging.
-            ["OperationName"] = LogSanitizer.Scrub(OperationContext.OperationName ?? "Unknown")
+            new KeyValuePair<string, object>("OperationName", LogSanitizer.Scrub(OperationContext.OperationName ?? "Unknown"))
         });
     }
 

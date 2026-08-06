@@ -556,6 +556,20 @@ public sealed class StatelessRunspacePool : IRunspacePool
             var aliasSnapshot = _aliasSnapshotCapture(worker.PowerShell);
             worker.SetInitializedAliasSnapshot(aliasSnapshot);
 
+            // Capture baseline internal-table counts for the skip-enumeration fast path.
+            // These are read once here (before any request executes) and compared against
+            // live table counts in ResetCore: when equal, no request-scoped names were added
+            // and the expensive ~1700-entry enumeration is skipped entirely.
+            // Guard: worker.PowerShell may be null in test mocks that don't set up Instance;
+            // fall through gracefully (counts stay at -1, ResetCore uses full enumeration).
+            var psForCounts = worker.PowerShell;
+            if (psForCounts is not null &&
+                SessionStateInternalAccessor.TryGetTables(
+                    psForCounts.Runspace, out var vt, out var ft, out var at))
+            {
+                worker.SetInitializedTableCounts(vt.Count, ft.Count, at.Count);
+            }
+
             if (!worker.TryTransitionTo(RunspaceWorkerState.Warm))
             {
                 // Should never happen (Creating→Warm is always valid), but guard anyway.

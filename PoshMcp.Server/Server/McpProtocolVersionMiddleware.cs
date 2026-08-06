@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -90,14 +91,33 @@ internal sealed class McpProtocolVersionMiddleware
             return null;
         }
 
+        // Buffer the body so the MCP SDK can re-read it after our peek.
         request.EnableBuffering();
         try
         {
+            // Fast path: read only the first 512 bytes to find the JSON-RPC method field.
+            // For initialize requests, the body is tiny. For tools/call, we skip the full parse.
+            var buffer = ArrayPool<byte>.Shared.Rent(512);
+            try
+            {
+                int bytesRead = await request.Body.ReadAsync(buffer.AsMemory(0, 512));
+                request.Body.Position = 0;
+
+                if (!TryGetMethodField(buffer.AsSpan(0, bytesRead), out var method) ||
+                    !string.Equals(method, "initialize", StringComparison.Ordinal))
+                {
+                    return null;
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+
+            // Only parse the full document for initialize requests to extract protocolVersion.
             using var document = await JsonDocument.ParseAsync(request.Body);
             var root = document.RootElement;
-            if (!root.TryGetProperty("method", out var method) ||
-                !string.Equals(method.GetString(), "initialize", StringComparison.Ordinal) ||
-                !root.TryGetProperty("params", out var parameters) ||
+            if (!root.TryGetProperty("params", out var parameters) ||
                 !parameters.TryGetProperty("protocolVersion", out var protocolVersion))
             {
                 return null;
@@ -112,6 +132,48 @@ internal sealed class McpProtocolVersionMiddleware
         finally
         {
             request.Body.Position = 0;
+        }
+    }
+
+    /// <summary>
+    /// Scans a partial UTF-8 JSON buffer to extract the top-level "method" string value.
+    /// Returns false if the field is not found within the buffer or the buffer is malformed.
+    /// </summary>
+    private static bool TryGetMethodField(ReadOnlySpan<byte> bytes, out string? method)
+    {
+        method = null;
+        if (bytes.IsEmpty)
+            return false;
+
+        try
+        {
+            var reader = new Utf8JsonReader(bytes, isFinalBlock: false, state: default);
+            var depth = 0;
+            while (reader.Read())
+            {
+                switch (reader.TokenType)
+                {
+                    case JsonTokenType.StartObject:
+                        depth++;
+                        break;
+                    case JsonTokenType.EndObject:
+                        depth--;
+                        break;
+                    case JsonTokenType.PropertyName when depth == 1 && reader.ValueTextEquals("method"u8):
+                        if (reader.Read() && reader.TokenType == JsonTokenType.String)
+                        {
+                            method = reader.GetString();
+                            return true;
+                        }
+                        return false;
+                }
+            }
+            return false;
+        }
+        catch
+        {
+            // Partial buffer or malformed JSON — treat as not found.
+            return false;
         }
     }
 }
