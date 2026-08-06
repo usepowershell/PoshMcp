@@ -35,3 +35,11 @@ Detailed prior entries were archived to `history-archive.md` because this file e
 - Scrubbed PR title/body so closingIssuesReferences is empty; issue 380 stays open; PR stays draft.
 - Learning: GitHub GraphQL autoclose triggers on body phrases like `Close #N` even in procedural steps — never put closing keywords + `#N` in PR prose; verify with `closingIssuesReferences`.
 - Learning: methodology failures must use exit 2 consistently end-to-end (workflow preflight + gate script); threshold RED is exit 1 only.
+
+## 2026-08-06 — Milestone 10 cont.: Farnsworth Fix 3 + Fix 4 (activity guard + BeginInvoke)
+- Branch: `squad/activity-scope-handles` from origin/main (58ee724)
+- **Fix 3 (HasListeners guard):** Guarded `ToolActivitySource.StartActivity("tool.invoke")` with `ToolActivitySource.HasListeners()`. When no OTel listener registered, skips Activity creation AND the unconditional LINQ/string.Join for `paramNames` (was running even when `activity == null`). `if (activity != null)` gates all tag computation.
+- **Fix 4 (BeginInvoke + WaitHandle disposal):** Replaced `ps.Invoke()` in `InvokePowerShellSafe` with `BeginInvoke<PSObject,PSObject>(null, output)` + `EndInvoke` + `asyncResult.AsyncWaitHandle?.Dispose()` in `finally`. Removed dead code (`string firstCommand = ...` in unreachable else branch). This is the confirmed handle-floor root cause: per-call `ManualResetEvent` from `LocalPipeline` was only GC'd, not explicitly disposed.
+- Tests: 6 new unit tests in `ActivitySourceGuardTests.cs`; full suite 1359/1359 green.
+- PR drafted; closingIssuesReferences=[].
+- Learning: `ps.Invoke()` wraps `BeginInvoke`/`EndInvoke` but discards the `IAsyncResult` without disposing the `AsyncWaitHandle` → per-call kernel WaitHandle leak. Always use explicit `BeginInvoke`/`EndInvoke` with `asyncResult.AsyncWaitHandle?.Dispose()` in hot paths.
