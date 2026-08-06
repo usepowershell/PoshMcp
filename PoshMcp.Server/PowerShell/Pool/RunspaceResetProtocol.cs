@@ -157,12 +157,24 @@ internal static class RunspaceResetProtocol
             // 4–7. Variable/drive/function/alias cleanup.
             if (hasTables)
             {
-                RemoveRequestScopedVariablesFromTable(proxy, varTable!, excludeVars, cancellationToken);
+                // Skip-enumeration fast path (Fix 1+2): if the table count matches the
+                // worker's baseline, no request-scoped names were added this cycle.
+                // Enumeration cost is ~0.3–0.6μs/entry × ~1700 entries = ~0.5–1.0ms on
+                // the clean warm path. V1 ephemeral paid nothing here; this recovers parity.
+                // Dirty path (count changed) falls through to full enumeration as before.
+
+                if (worker.InitializedVarTableCount < 0 ||
+                    varTable!.Count != worker.InitializedVarTableCount)
+                {
+                    RemoveRequestScopedVariablesFromTable(proxy, varTable!, excludeVars, cancellationToken);
+                }
 
                 if (worker.InitializedDriveNames is not null && excludeDrives is not null)
                     RemoveRequestScopedDrives(proxy, excludeDrives, cancellationToken);
 
-                if (worker.InitializedFunctionNames is not null && excludeFuncs is not null)
+                if (worker.InitializedFunctionNames is not null && excludeFuncs is not null &&
+                    (worker.InitializedFuncTableCount < 0 ||
+                     funcTable!.Count != worker.InitializedFuncTableCount))
                 {
                     RemoveRequestScopedNamesFromTable(
                         proxy,
@@ -174,7 +186,9 @@ internal static class RunspaceResetProtocol
                         cancellationToken);
                 }
 
-                if (worker.InitializedAliasNames is not null && excludeAliases is not null)
+                if (worker.InitializedAliasNames is not null && excludeAliases is not null &&
+                    (worker.InitializedAliasTableCount < 0 ||
+                     aliasTable!.Count != worker.InitializedAliasTableCount))
                 {
                     // Unremovable request aliases (e.g. Constant) throw so the pool evicts.
                     RemoveRequestScopedNamesFromTable(

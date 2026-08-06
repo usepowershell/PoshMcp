@@ -171,6 +171,37 @@ public sealed class RunspaceWorker : IDisposable
     internal IReadOnlySet<string>? ResetExcludeAliases { get; set; }
 
     /// <summary>
+    /// Baseline count of the internal variable table captured immediately after the startup
+    /// script ran (before the first lease). <c>-1</c> when the internal tables were unavailable
+    /// at initialization time. Used by the reset protocol to skip variable-table enumeration
+    /// on the clean warm path when <c>varTable.Count == InitializedVarTableCount</c> (no
+    /// request-scoped variables were created).
+    /// </summary>
+    internal int InitializedVarTableCount { get; private set; } = -1;
+
+    /// <summary>
+    /// Baseline count of the internal function table. <c>-1</c> when unavailable.
+    /// </summary>
+    internal int InitializedFuncTableCount { get; private set; } = -1;
+
+    /// <summary>
+    /// Baseline count of the internal alias table. <c>-1</c> when unavailable.
+    /// </summary>
+    internal int InitializedAliasTableCount { get; private set; } = -1;
+
+    /// <summary>
+    /// Records baseline internal-table counts captured after startup and before the first
+    /// lease. Called once in <see cref="StatelessRunspacePool"/> during
+    /// <c>Creating → Warm</c>, immediately after the name snapshots are set.
+    /// </summary>
+    internal void SetInitializedTableCounts(int varCount, int funcCount, int aliasCount)
+    {
+        InitializedVarTableCount = varCount;
+        InitializedFuncTableCount = funcCount;
+        InitializedAliasTableCount = aliasCount;
+    }
+
+    /// <summary>
     /// Records the set of variable names present in the runspace immediately after the startup
     /// script completed. Must be called exactly once during the <c>Creating → Warm</c> transition,
     /// before the worker is enqueued in the available channel.

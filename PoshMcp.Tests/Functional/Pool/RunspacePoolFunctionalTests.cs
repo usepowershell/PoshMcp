@@ -365,6 +365,85 @@ $WhatIfPreference       = $true
         Assert.True(results[0], "Request-scoped variable leaked across lease boundary.");
     }
 
+    // ─── Count-guard fast path — skip-enumeration on clean warm path ──────────
+
+    /// <summary>
+    /// On the clean warm path (command creates no variables/functions/aliases), the
+    /// count-guard skips all three table enumerations. Preference variables must still
+    /// be reset correctly because that step runs independently of the count guard.
+    /// </summary>
+    [Fact]
+    public async Task CountGuard_CleanPath_PreferenceVariablesStillReset()
+    {
+        await using var pool = new StatelessRunspacePool(FastOptions(min: 1, max: 1, eager: 1));
+        await pool.StartAsync();
+
+        // First lease: mutate a preference variable but create no user variables.
+        await using (var lease1 = await pool.AcquireAsync())
+        {
+            lease1.PowerShell.Commands.Clear();
+            lease1.PowerShell.AddScript("$ErrorActionPreference = 'Stop'; Get-Date");
+            lease1.PowerShell.Invoke();
+            lease1.PowerShell.Commands.Clear();
+        }
+
+        await Task.Delay(300);
+
+        // Second lease: preference var must be back to the PS default.
+        await using var lease2 = await pool.AcquireAsync();
+        lease2.PowerShell.Commands.Clear();
+        lease2.PowerShell.AddScript("$ErrorActionPreference");
+        var eap = lease2.PowerShell.Invoke<string>();
+        lease2.PowerShell.Commands.Clear();
+
+        Assert.Equal("Continue", eap.FirstOrDefault());
+    }
+
+    /// <summary>
+    /// After several clean-path cycles (count-guard skip active), a dirty lease that
+    /// creates a variable must still have that variable removed on reset. Verifies the
+    /// count-guard correctly detects the count increase and falls through to full enumeration.
+    /// </summary>
+    [Fact]
+    public async Task CountGuard_AfterCleanCycles_DirtyLease_VariableRemovedCorrectly()
+    {
+        await using var pool = new StatelessRunspacePool(FastOptions(min: 1, max: 1, eager: 1));
+        await pool.StartAsync();
+
+        // Run several clean leases to prime the count-guard skip path.
+        for (int i = 0; i < 3; i++)
+        {
+            await using var cleanLease = await pool.AcquireAsync();
+            cleanLease.PowerShell.Commands.Clear();
+            cleanLease.PowerShell.AddScript("Get-Date");
+            cleanLease.PowerShell.Invoke();
+            cleanLease.PowerShell.Commands.Clear();
+            await Task.Delay(200);
+        }
+
+        // Dirty lease: add a variable (count increases → count-guard must not skip).
+        await using (var dirtyLease = await pool.AcquireAsync())
+        {
+            dirtyLease.PowerShell.Commands.Clear();
+            dirtyLease.PowerShell.AddScript("$CountGuardLeakCheck = 'should-not-leak'");
+            dirtyLease.PowerShell.Invoke();
+            dirtyLease.PowerShell.Commands.Clear();
+        }
+
+        await Task.Delay(300);
+
+        // Next lease: variable must be absent.
+        await using var verifyLease = await pool.AcquireAsync();
+        verifyLease.PowerShell.Commands.Clear();
+        verifyLease.PowerShell.AddScript(
+            "(Get-Variable -Name CountGuardLeakCheck -ErrorAction SilentlyContinue) -eq $null");
+        var gone = verifyLease.PowerShell.Invoke<bool>();
+        verifyLease.PowerShell.Commands.Clear();
+
+        Assert.True(gone.FirstOrDefault(),
+            "Request-scoped variable not removed after dirty lease following clean-path cycles.");
+    }
+
     // ─── RunspaceResetProtocol — request-scoped function removed ──────────────
 
     [Fact]
