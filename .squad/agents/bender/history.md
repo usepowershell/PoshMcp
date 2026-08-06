@@ -43,3 +43,12 @@ Detailed prior entries were archived to `history-archive.md` because this file e
 - Tests: 6 new unit tests in `ActivitySourceGuardTests.cs`; full suite 1359/1359 green.
 - PR drafted; closingIssuesReferences=[].
 - Learning: `ps.Invoke()` wraps `BeginInvoke`/`EndInvoke` but discards the `IAsyncResult` without disposing the `AsyncWaitHandle` → per-call kernel WaitHandle leak. Always use explicit `BeginInvoke`/`EndInvoke` with `asyncResult.AsyncWaitHandle?.Dispose()` in hot paths.
+## 2026-08-06 — Milestone 10: warm-path + handle-floor C# fixes
+- Branch: `squad/warm-handle-csharp-fix` from origin/main (58ee724)
+- Root causes in C# layer traced; three surgical fixes implemented:
+  1. **Logging guards in `ExecutePowerShellCommandTyped`**: Added `var isDebugEnabled = logger.IsEnabled(LogLevel.Debug)` at method entry; guarded `FormatParameterSummary`, per-parameter detail loop, all seven `LogDebug` stage-marker calls, and per-parameter binding debug logs. Eliminates O(P) string/list allocations per call at Info/Warning level (production default).
+  2. **`BeginCorrelationScope` allocation**: Replaced `new Dictionary<string, object>` with `new KeyValuePair<string, object>[]` — no hash table overhead; ~64 bytes vs ~200 bytes per call.
+  3. **`McpProtocolVersionMiddleware` fast-path scan**: Added `TryGetMethodField` using `Utf8JsonReader` over a pooled 512-byte peek buffer. For `tools/call`, skips `JsonDocument.ParseAsync` (full O(n) body parse) and returns null after reading ≤512 bytes. Uses `ArrayPool<byte>.Shared` to avoid peek buffer allocation.
+- Handle leak: CTS confirmed clean. Primary suspect is PS SDK `LocalPipeline` kernel sync objects created per `Invoke()` on reused runspaces — cannot confirm without ETW/profiler. Findings written to `.squad/decisions/inbox/bender-warm-handle-findings.md` with Hermes recommendation.
+- All 1353 unit tests + 14 middleware tests green.
+- PR drafted; closingIssuesReferences=[].
