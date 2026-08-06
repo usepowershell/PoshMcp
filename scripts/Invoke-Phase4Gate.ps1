@@ -164,10 +164,14 @@ if ((Has-Prop $art 'modes') -and $null -ne $art.modes) {
         $idx = 0
         foreach ($c in $checks) {
             $passed = $true; if (Has-Prop $c 'passed') { $passed = [bool]$c.passed }
+            # Decision C: missing isBlocking defaults to $true (blocking) for backward
+            # compatibility — old artifacts without the field are treated as blocking (fail-safe).
+            $isBlocking = $true
+            if (Has-Prop $c 'isBlocking') { $isBlocking = [bool]$c.isBlocking }
             if (-not $passed) {
-                $allChecksPassed = $false
+                if ($isBlocking) { $allChecksPassed = $false }
                 $ratio = if (Has-Prop $c 'ratio') { [double]$c.ratio } else { [double]::NaN }
-                $breaches.Add(("{0}/check#{1} ratio={2:N3}" -f $tm, $idx, $ratio))
+                $breaches.Add(("{0}/check#{1} ratio={2:N3} isBlocking=$isBlocking" -f $tm, $idx, $ratio))
             }
             $idx++
         }

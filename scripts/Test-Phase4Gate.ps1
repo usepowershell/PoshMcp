@@ -256,6 +256,18 @@ $ppm = Join-Path $work 'order-match.json'; Write-Json $pm $ppm
 Assert-Exit "product order match / advisory" (Invoke-Gate $ppm 'advisory') 0
 Assert-Exit "product order match / release"  (Invoke-Gate $ppm 'release')  0
 
+# --- Case 22: non-blocking check fails, all blocking pass -> exit 0 both ----
+# Decision C: isBlocking=false means the failed check must NOT drive allChecksPassed=false
+# and must NOT cause EXIT 2 when overallPassed=true.
+$nb = New-BaseArtifact
+$nb.modes[0].thresholdChecks[1]['passed']     = $false
+$nb.modes[0].thresholdChecks[1]['ratio']      = 2.5
+$nb.modes[0].thresholdChecks[1]['isBlocking'] = $false
+# overallPassed remains $true: the only failure is non-blocking
+$pnb = Join-Path $work 'nonblocking.json'; Write-Json $nb $pnb
+Assert-Exit "non-blocking fail, blocking pass / advisory (exit 0)" (Invoke-Gate $pnb 'advisory') 0
+Assert-Exit "non-blocking fail, blocking pass / release (exit 0)"  (Invoke-Gate $pnb 'release')  0
+
 Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
 
 Write-Host ""
