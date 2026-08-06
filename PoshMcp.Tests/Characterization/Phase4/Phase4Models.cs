@@ -5,12 +5,12 @@ namespace PoshMcp.Tests.Characterization.Phase4;
 
 /// <summary>
 /// Root artifact for Phase 4 performance comparison.
-/// Schema: poshmcp/v4-comparison/1.0
+/// Schema: poshmcp/v4-comparison/1.1 (Decision C: same-SDK isolation gate + cross-SDK informational)
 /// </summary>
 internal sealed class Phase4ComparisonArtifact
 {
     [JsonPropertyName("schemaVersion")]
-    public string SchemaVersion { get; set; } = "poshmcp/v4-comparison/1.0";
+    public string SchemaVersion { get; set; } = "poshmcp/v4-comparison/1.1";
 
     [JsonPropertyName("capturedAt")]
     public string CapturedAt { get; set; } = "";
@@ -194,6 +194,19 @@ internal sealed class Phase4ModeComparison
     [JsonPropertyName("thresholdChecks")]
     public List<Phase4ThresholdCheck> ThresholdChecks { get; set; } = [];
 
+    /// <summary>
+    /// Blocking same-SDK isolation checks (Decision C §4B).
+    /// Compares v2-ephemeral vs v2-pool-reset within the same SDK version.
+    /// All checks here are IsBlocking=true.
+    /// </summary>
+    [JsonPropertyName("sameSdkIsolationChecks")]
+    public List<Phase4ThresholdCheck> SameSdkIsolationChecks { get; set; } = [];
+
+    /// <summary>
+    /// True when all blocking checks pass: all IsBlocking=true checks in ThresholdChecks
+    /// AND all checks in SameSdkIsolationChecks. Non-blocking (informational) checks do not
+    /// contribute to this value. (Decision C §4A / §4B)
+    /// </summary>
     [JsonPropertyName("allPassed")]
     public bool AllPassed { get; set; }
 }
@@ -237,4 +250,12 @@ internal sealed class Phase4ThresholdCheck
 
     [JsonPropertyName("passed")]
     public bool Passed { get; set; }
+
+    /// <summary>
+    /// When false this check is informational only: ratio is recorded in the artifact but a
+    /// breach does not produce EXIT 1. (Decision C §4A: cross-SDK warm/throughput checks)
+    /// Default: true (blocking).
+    /// </summary>
+    [JsonPropertyName("isBlocking")]
+    public bool IsBlocking { get; set; } = true;
 }

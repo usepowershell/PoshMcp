@@ -76,6 +76,20 @@ public sealed class RunspacePoolOptions
     public TimeSpan ReplenishCheckInterval { get; set; } = TimeSpan.FromSeconds(5);
 
     /// <summary>
+    /// When true, the pool operates in ephemeral mode: each worker is evicted and disposed
+    /// after every lease return rather than being reset and re-queued. A fresh worker is
+    /// created immediately to replace the evicted one (via the fire-and-forget path) so the
+    /// next caller pays runspace creation cost instead of reset cost.
+    ///
+    /// Use ephemeral mode ONLY for characterization measurements that need to isolate
+    /// per-call creation cost vs. reset cost (Decision C §4B same-SDK isolation gate).
+    /// Do NOT use in production: ephemeral mode defeats the pool's purpose of amortizing
+    /// runspace creation overhead.
+    /// Default: false.
+    /// </summary>
+    public bool EphemeralMode { get; set; } = false;
+
+    /// <summary>
     /// Validates the option values and returns a list of error messages.
     /// An empty list means the options are valid.
     /// </summary>

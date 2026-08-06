@@ -73,7 +73,8 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
     {
         await RunModeComparisonAsync("Stateless",
             withScriptConfig: "phase4-stateless.appsettings.json",
-            noScriptConfig: "phase4-stateless-no-script.appsettings.json");
+            noScriptConfig: "phase4-stateless-no-script.appsettings.json",
+            ephemeralConfig: "phase4-stateless-v2ephemeral.appsettings.json");
     }
 
     /// <summary>
@@ -84,7 +85,8 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
     {
         await RunModeComparisonAsync("Stateful",
             withScriptConfig: "phase4-stateful.appsettings.json",
-            noScriptConfig: "phase4-stateful-no-script.appsettings.json");
+            noScriptConfig: "phase4-stateful-no-script.appsettings.json",
+            ephemeralConfig: "phase4-stateful-v2ephemeral.appsettings.json");
     }
 
     // ---------------------------------------------------------------------------
@@ -92,7 +94,8 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
     private async Task RunModeComparisonAsync(
         string transportMode,
         string withScriptConfig,
-        string noScriptConfig)
+        string noScriptConfig,
+        string ephemeralConfig)
     {
         var scenarios = new List<CharacterizationScenario>();
         var modeLabel = transportMode.ToLowerInvariant();
@@ -302,6 +305,77 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
             });
         } // end direct measurement block
 
+        // ── V2-Ephemeral measurement for same-SDK isolation gate (Decision C §4B) ─────────
+        // Skipped in collect-only and deferred modes (baseline not available yet).
+        var ephemeralScenarios = new List<CharacterizationScenario>();
+        if (!_fixture.CollectOnly && !_fixture.LoadSamplesFromArtifact)
+        {
+            _output.WriteLine($"[{transportMode}] V2-Ephemeral measurement (same-SDK isolation gate, Decision C §4B)…");
+            await using var ephServer = new CharacterizationHttpServer();
+            await ephServer.StartAsync(Phase4ComparisonFixture.ResolveAssetPath(ephemeralConfig));
+            _output.WriteLine($"[{transportMode}] V2-Ephemeral server ready at {ephServer.ServerUrl}");
+
+            // Warm-call ephemeral: same N as pool-reset measurement (same-job methodology).
+            _output.WriteLine($"[{transportMode}] V2-Ephemeral warm-call — {WarmCallWarmupRounds} warmup + N={warmCallN}");
+            await using var ephClient = new CharacterizationMcpClient(ephServer.ServerUrl);
+            await ephClient.InitializeAsync();
+            for (var w = 0; w < WarmCallWarmupRounds; w++)
+                await ephClient.CallGetDateAsync();
+
+            var ephWarmSamples = new double[warmCallN];
+            for (var i = 0; i < warmCallN; i++)
+            {
+                ephWarmSamples[i] = await ephClient.CallGetDateAsync();
+                _output.WriteLine($"  v2eph warm {i + 1}/{warmCallN}: {ephWarmSamples[i]:F2} ms");
+            }
+            ephemeralScenarios.Add(new CharacterizationScenario
+            {
+                Scenario = $"warm_call_latency_ms_v2ephemeral_{modeLabel}",
+                Description = $"V2-ephemeral per-call warm latency [{transportMode}] — same-SDK isolation gate baseline",
+                Unit = "milliseconds",
+                Iterations = ephWarmSamples.Length,
+                Stats = CharacterizationStats.FromSamples(ephWarmSamples),
+                RawSamples = ephWarmSamples,
+            });
+
+            // Throughput ephemeral: same N and concurrency as pool-reset measurement.
+            _output.WriteLine($"[{transportMode}] V2-Ephemeral throughput — {ThroughputPerClientWarmupCalls} warmup/client + N={throughputN} × {ThroughputConcurrency}");
+            var ephThrClients = new CharacterizationMcpClient[ThroughputConcurrency];
+            var ephThrSamples = new double[throughputN];
+            try
+            {
+                for (var i = 0; i < ThroughputConcurrency; i++)
+                {
+                    ephThrClients[i] = new CharacterizationMcpClient(ephServer.ServerUrl);
+                    await ephThrClients[i].InitializeAsync();
+                    for (var wc = 0; wc < ThroughputPerClientWarmupCalls; wc++)
+                        await ephThrClients[i].CallGetDateAsync();
+                }
+                for (var burst = 0; burst < throughputN; burst++)
+                {
+                    var bsw = Stopwatch.StartNew();
+                    await Task.WhenAll(ephThrClients.Select(c => c.CallGetDateAsync()));
+                    bsw.Stop();
+                    ephThrSamples[burst] = bsw.Elapsed.TotalMilliseconds;
+                    _output.WriteLine($"  v2eph burst {burst + 1}/{throughputN}: {ephThrSamples[burst]:F2} ms");
+                }
+                ephemeralScenarios.Add(new CharacterizationScenario
+                {
+                    Scenario = $"concurrent_throughput_ms_v2ephemeral_{modeLabel}",
+                    Description = $"V2-ephemeral throughput wall-clock — {ThroughputConcurrency} concurrent [{transportMode}]",
+                    Unit = "milliseconds",
+                    Iterations = ephThrSamples.Length,
+                    Stats = CharacterizationStats.FromSamples(ephThrSamples),
+                    RawSamples = ephThrSamples,
+                });
+            }
+            finally
+            {
+                foreach (var c in ephThrClients)
+                    await c.DisposeAsync();
+            }
+        }
+
         // ── Compare to Phase 0 baseline (skipped in collect-only mode) ─────────
         if (_fixture.CollectOnly || _fixture.Baseline is null)
         {
@@ -318,21 +392,77 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
         {
             _output.WriteLine($"[{transportMode}] Comparing to Phase 0 baseline…");
             var comparison = PerformanceComparator.Compare(transportMode, _fixture.Baseline, scenarios);
+
+            // ── Same-SDK isolation gate (blocking, Decision C §4B) ─────────────
+            Phase4ModeComparison? sameSdkComparison = null;
+            if (ephemeralScenarios.Count > 0)
+            {
+                _output.WriteLine($"[{transportMode}] Same-SDK isolation gate (Decision C §4B)…");
+                sameSdkComparison = PerformanceComparator.CompareSameSdkIsolation(
+                    transportMode, ephemeralScenarios, scenarios);
+
+                _output.WriteLine($"\n── Phase 4 [{transportMode}] same-SDK isolation checks (BLOCKING) ──");
+                foreach (var c in sameSdkComparison.SameSdkIsolationChecks)
+                {
+                    var verdict = c.Passed ? "PASS" : "FAIL";
+                    _output.WriteLine(
+                        $"  [{verdict}] {c.Metric}: " +
+                        $"pool_reset={c.MeasuredValue:F3} ms, ephemeral={c.BaselineValue:F3} ms, " +
+                        $"ratio={c.Ratio * 100:F1}% (max {c.MaxRatio * 100:F1}%)");
+                }
+
+                // Merge same-SDK checks into comparison for artifact recording.
+                comparison.SameSdkIsolationChecks.AddRange(sameSdkComparison.SameSdkIsolationChecks);
+                comparison.Scenarios.AddRange(ephemeralScenarios);
+                // Recompute AllPassed: blocking ThresholdChecks + SameSdkIsolationChecks.
+                var allBlockingPassed =
+                    comparison.ThresholdChecks.All(c => !c.IsBlocking || c.Passed) &&
+                    comparison.SameSdkIsolationChecks.All(c => c.Passed);
+                comparison.AllPassed = allBlockingPassed;
+            }
+
             _fixture.RecordModeComparison(comparison);
 
-            LogComparisonResults(transportMode, comparison);
+            // ── Log cross-SDK warm/throughput as informational (Decision C §4A) ─
+            _output.WriteLine($"\n── Phase 4 [{transportMode}] cross-SDK checks (INFORMATIONAL — Decision C §4A) ──");
+            foreach (var c in comparison.ThresholdChecks.Where(c => !c.IsBlocking))
+            {
+                var verdict = c.Passed ? "INFO-PASS" : "INFO-FAIL";
+                _output.WriteLine(
+                    $"  [{verdict}] {c.Metric}: " +
+                    $"{c.MeasuredValue:F3} / {c.BaselineValue:F3} = {c.Ratio * 100:F1}% " +
+                    $"(threshold {c.MaxRatio * 100:F1}% — informational only, not blocking)");
+            }
+
+            // ── Log blocking cold/memory checks ────────────────────────────────
+            _output.WriteLine($"\n── Phase 4 [{transportMode}] blocking threshold results ──");
+            foreach (var c in comparison.ThresholdChecks.Where(c => c.IsBlocking))
+            {
+                var verdict = c.Passed ? "PASS" : "FAIL";
+                _output.WriteLine(
+                    $"  [{verdict}] {c.Metric}: " +
+                    $"{c.MeasuredValue:F3} / {c.BaselineValue:F3} = {c.Ratio * 100:F1}% " +
+                    $"(max {c.MaxRatio * 100:F1}%)");
+            }
 
             if (!comparison.AllPassed)
             {
-                var failures = comparison.ThresholdChecks
-                    .Where(c => !c.Passed)
+                var blockingFailures = comparison.ThresholdChecks
+                    .Where(c => c.IsBlocking && !c.Passed)
                     .Select(c =>
                         $"  {c.Metric}: measured={c.MeasuredValue:F3} {c.Unit}, " +
                         $"baseline={c.BaselineValue:F3} {c.Unit}, " +
                         $"ratio={c.Ratio * 100:F1}% (max {c.MaxRatio * 100:F1}%)");
+                var sameSdkFailures = comparison.SameSdkIsolationChecks
+                    .Where(c => !c.Passed)
+                    .Select(c =>
+                        $"  {c.Metric}: pool_reset={c.MeasuredValue:F3} {c.Unit}, " +
+                        $"ephemeral={c.BaselineValue:F3} {c.Unit}, " +
+                        $"ratio={c.Ratio * 100:F1}% (max {c.MaxRatio * 100:F1}%)");
+                var allFailures = blockingFailures.Concat(sameSdkFailures).ToList();
                 _output.WriteLine(
-                    $"[{transportMode}] THRESHOLD BREACH (deferred to classifier):\n" +
-                    string.Join("\n", failures));
+                    $"[{transportMode}] BLOCKING THRESHOLD BREACH:\n" +
+                    string.Join("\n", allFailures));
                 thresholdBreached = true;
             }
         }

@@ -182,7 +182,8 @@ public class Phase4ComparatorTests
     [Fact]
     public void ExactlyAtWarmCallThreshold_Passes()
     {
-        // ratio = 2.1 / 2.0 = 1.05 exactly → passes
+        // ratio = 2.1 / 2.0 = 1.05 exactly → check passes (within cross-SDK threshold)
+        // Decision C: this check is informational (IsBlocking=false); does not affect AllPassed.
         var baseline = BuildBaseline(warmCallP95: 2.0);
         var p4 = BuildPhase4Scenarios("Stateless", warmCallP95: 2.1);
 
@@ -191,12 +192,14 @@ public class Phase4ComparatorTests
         var check = result.ThresholdChecks.Find(c => c.Metric == "warm_call_latency_ms.p95");
         Assert.NotNull(check);
         Assert.True(check.Passed, $"warm_call_latency_ms.p95 at ratio 1.05 should pass. Ratio={check.Ratio}");
+        Assert.False(check.IsBlocking, "Cross-SDK warm check must be informational (Decision C §4A)");
     }
 
     [Fact]
-    public void JustAboveWarmCallThreshold_Fails()
+    public void JustAboveWarmCallThreshold_CheckFailsButNotBlocking()
     {
-        // ratio = 2.101 / 2.0 > 1.05 → fails
+        // ratio = 2.101 / 2.0 > 1.05 → check.Passed=false but AllPassed=true (non-blocking)
+        // Decision C: cross-SDK warm check is informational, not EXIT 1.
         var baseline = BuildBaseline(warmCallP95: 2.0);
         var p4 = BuildPhase4Scenarios("Stateless", warmCallP95: 2.101);
 
@@ -204,14 +207,16 @@ public class Phase4ComparatorTests
 
         var check = result.ThresholdChecks.Find(c => c.Metric == "warm_call_latency_ms.p95");
         Assert.NotNull(check);
-        Assert.False(check.Passed, $"warm_call_latency_ms.p95 just above 1.05 should fail. Ratio={check.Ratio}");
+        Assert.False(check.Passed, $"warm_call_latency_ms.p95 just above 1.05 should record as failed. Ratio={check.Ratio}");
+        Assert.False(check.IsBlocking, "Cross-SDK warm check must be non-blocking (Decision C §4A)");
+        Assert.True(result.AllPassed, "AllPassed must be true when only informational checks fail");
     }
 
     [Fact]
     public void ExactlyAtThroughputThreshold_Passes()
     {
         // Throughput maxRatio = 1/0.95 ≈ 1.05263.
-        // Use the same constant the comparator uses to avoid floating-point ULP mismatch.
+        // Decision C: this check is informational (IsBlocking=false); does not affect AllPassed.
         var baseline = BuildBaseline(throughputMean: 5.0);
         var measured = 5.0 * PerformanceComparator.ThroughputMeanMaxRatio;
         var p4 = BuildPhase4Scenarios("Stateless", throughputMean: measured);
@@ -220,14 +225,15 @@ public class Phase4ComparatorTests
 
         var check = result.ThresholdChecks.Find(c => c.Metric == "concurrent_throughput_ms.mean");
         Assert.NotNull(check);
-        // ratio = (5.0 * maxRatio) / 5.0 = maxRatio exactly (same IEEE 754 path)
         Assert.True(check.Passed,
             $"concurrent_throughput_ms.mean at ratio == maxRatio should pass. Ratio={check.Ratio}, MaxRatio={check.MaxRatio}");
+        Assert.False(check.IsBlocking, "Cross-SDK throughput check must be informational (Decision C §4A)");
     }
 
     [Fact]
-    public void JustAboveThroughputThreshold_Fails()
+    public void JustAboveThroughputThreshold_CheckFailsButNotBlocking()
     {
+        // Decision C: concurrent_throughput_ms.mean check is informational, not blocking.
         var baseline = BuildBaseline(throughputMean: 5.0);
         var measured = 5.0 / 0.95 + 0.01; // just above
         var p4 = BuildPhase4Scenarios("Stateless", throughputMean: measured);
@@ -236,7 +242,9 @@ public class Phase4ComparatorTests
 
         var check = result.ThresholdChecks.Find(c => c.Metric == "concurrent_throughput_ms.mean");
         Assert.NotNull(check);
-        Assert.False(check.Passed, $"concurrent_throughput_ms.mean just above 1/0.95 should fail. Ratio={check.Ratio}");
+        Assert.False(check.Passed, $"concurrent_throughput_ms.mean just above 1/0.95 should record as failed. Ratio={check.Ratio}");
+        Assert.False(check.IsBlocking, "Cross-SDK throughput check must be non-blocking (Decision C §4A)");
+        Assert.True(result.AllPassed, "AllPassed must be true when only informational checks fail");
     }
 
     [Fact]
@@ -271,18 +279,229 @@ public class Phase4ComparatorTests
     [Fact]
     public void StatelessPassStatefulFail_IndependentResults()
     {
-        var baseline = BuildBaseline(warmCallP95: 2.0);
+        // Decision C: warm-call is informational (non-blocking). Use cold-start breach to fail stateful.
+        var baseline = BuildBaseline(coldNoScriptP95: 1000.0);
 
-        var statelessP4 = BuildPhase4Scenarios("Stateless", warmCallP95: 2.0); // passes
-        var statefulP4 = BuildPhase4Scenarios("Stateful", warmCallP95: 2.5);   // 125% → fails
+        var statelessP4 = BuildPhase4Scenarios("Stateless", coldNoScriptP95: 1000.0); // passes
+        var statefulP4 = BuildPhase4Scenarios("Stateful", coldNoScriptP95: 2500.0);   // 250% → blocking fail
 
         var statelessResult = PerformanceComparator.Compare("Stateless", baseline, statelessP4);
         var statefulResult = PerformanceComparator.Compare("Stateful", baseline, statefulP4);
 
         Assert.True(statelessResult.AllPassed, "Stateless should pass");
-        Assert.False(statefulResult.AllPassed, "Stateful should fail");
+        Assert.False(statefulResult.AllPassed, "Stateful should fail (cold-start blocking breach)");
         Assert.Equal("Stateless", statelessResult.TransportMode);
         Assert.Equal("Stateful", statefulResult.TransportMode);
+    }
+
+    // ── Decision C: IsBlocking behavior ───────────────────────────────────────
+
+    [Fact]
+    public void WarmCallAboveThreshold_IsInformational_AllPassedStillTrue()
+    {
+        // Decision C §4A: cross-SDK warm check is informational. Even when ratio > maxRatio,
+        // AllPassed remains true because IsBlocking=false for warm call.
+        var baseline = BuildBaseline(warmCallP95: 2.0);
+        var p4 = BuildPhase4Scenarios("Stateless", warmCallP95: 3.0); // 150% > 1.05, but non-blocking
+
+        var result = PerformanceComparator.Compare("Stateless", baseline, p4);
+
+        var check = result.ThresholdChecks.Find(c => c.Metric == "warm_call_latency_ms.p95");
+        Assert.NotNull(check);
+        Assert.False(check.IsBlocking, "warm_call_latency_ms.p95 cross-SDK check must be non-blocking (Decision C §4A)");
+        Assert.False(check.Passed, "Ratio exceeds maxRatio → check.Passed=false (still recorded)");
+        // AllPassed must be true because no BLOCKING check failed.
+        Assert.True(result.AllPassed,
+            "AllPassed must be true when only non-blocking (informational) checks fail (Decision C §4A)");
+    }
+
+    [Fact]
+    public void ThroughputAboveThreshold_IsInformational_AllPassedStillTrue()
+    {
+        // Decision C §4A: cross-SDK throughput check is informational.
+        var baseline = BuildBaseline(throughputMean: 5.0);
+        var p4 = BuildPhase4Scenarios("Stateless", throughputMean: 10.0); // 200% > 1/0.95, but non-blocking
+
+        var result = PerformanceComparator.Compare("Stateless", baseline, p4);
+
+        var check = result.ThresholdChecks.Find(c => c.Metric == "concurrent_throughput_ms.mean");
+        Assert.NotNull(check);
+        Assert.False(check.IsBlocking, "concurrent_throughput_ms.mean cross-SDK check must be non-blocking (Decision C §4A)");
+        Assert.False(check.Passed);
+        Assert.True(result.AllPassed, "AllPassed must be true when only throughput (informational) fails");
+    }
+
+    [Fact]
+    public void ColdStartAboveThreshold_IsBlocking_AllPassedFalse()
+    {
+        // Cold start is still blocking (Decision C §3).
+        var baseline = BuildBaseline(coldNoScriptP95: 1000.0);
+        var p4 = BuildPhase4Scenarios("Stateless", coldNoScriptP95: 1200.0); // 120% > 1.10
+
+        var result = PerformanceComparator.Compare("Stateless", baseline, p4);
+
+        var check = result.ThresholdChecks.Find(c => c.Metric == "cold_start_http_no_script.p95");
+        Assert.NotNull(check);
+        Assert.True(check.IsBlocking, "cold_start_http_no_script.p95 must be blocking");
+        Assert.False(check.Passed);
+        Assert.False(result.AllPassed, "AllPassed must be false when a blocking check fails");
+    }
+
+    [Fact]
+    public void MemoryAboveThreshold_IsBlocking_AllPassedFalse()
+    {
+        // Memory is still blocking (Decision C §3).
+        var baseline = BuildBaseline(memoryModerateMean: 100.0);
+        var p4 = BuildPhase4Scenarios("Stateless", memoryModerateMean: 120.0); // 120% > 1.10
+
+        var result = PerformanceComparator.Compare("Stateless", baseline, p4);
+
+        var check = result.ThresholdChecks.Find(c => c.Metric == "memory_moderate_load_mb.mean");
+        Assert.NotNull(check);
+        Assert.True(check.IsBlocking, "memory_moderate_load_mb.mean must be blocking");
+        Assert.False(check.Passed);
+        Assert.False(result.AllPassed, "AllPassed must be false when memory blocking check fails");
+    }
+
+    // ── CompareSameSdkIsolation tests (Decision C §4B) ────────────────────────
+
+    private static IReadOnlyList<CharacterizationScenario> BuildEphemeralScenarios(
+        string transportMode,
+        double warmCallP95 = 2.0,
+        double throughputMean = 5.0,
+        int warmCallN = 20,
+        int throughputN = 5)
+    {
+        var m = transportMode.ToLowerInvariant();
+
+        static CharacterizationScenario Scenario(string name, int n, double p95, double mean)
+            => new()
+            {
+                Scenario = name,
+                Iterations = n,
+                Stats = new CharacterizationStats
+                {
+                    P95 = p95, Mean = mean, P50 = mean, P99 = p95,
+                    Min = mean * 0.9, Max = p95, StdDev = 0, SampleCount = n,
+                },
+                RawSamples = [mean],
+            };
+
+        return
+        [
+            Scenario($"warm_call_latency_ms_v2ephemeral_{m}",    warmCallN,   warmCallP95,       warmCallP95 * 0.9),
+            Scenario($"concurrent_throughput_ms_v2ephemeral_{m}", throughputN, throughputMean * 1.1, throughputMean),
+        ];
+    }
+
+    [Fact]
+    public void SameSdkIsolation_BelowThreshold_AllPassed()
+    {
+        // pool_reset ≤ 1.10 × ephemeral → passes
+        var ephemeral = BuildEphemeralScenarios("Stateless", warmCallP95: 2.0, throughputMean: 5.0);
+        var poolReset = BuildPhase4Scenarios("Stateless",
+            warmCallP95: 2.1,      // ratio = 2.1/2.0 = 1.05 < 1.10 → pass
+            throughputMean: 5.3);  // ratio = 5.3/5.0 = 1.06 < 1.10 → pass
+
+        var result = PerformanceComparator.CompareSameSdkIsolation("Stateless", ephemeral, poolReset);
+
+        Assert.True(result.AllPassed, "Same-SDK isolation gate should pass when ratios are within 1.10×");
+        Assert.Equal(2, result.SameSdkIsolationChecks.Count);
+        Assert.All(result.SameSdkIsolationChecks, c => Assert.True(c.IsBlocking));
+        Assert.All(result.SameSdkIsolationChecks, c => Assert.True(c.Passed));
+    }
+
+    [Fact]
+    public void SameSdkIsolation_ExactlyAtThreshold_Passes()
+    {
+        // pool_reset = 1.10 × ephemeral exactly → passes (≤ maxRatio)
+        var ephemeral = BuildEphemeralScenarios("Stateless", warmCallP95: 2.0, throughputMean: 5.0);
+        var poolReset = BuildPhase4Scenarios("Stateless",
+            warmCallP95: 2.0 * PerformanceComparator.SameSdkWarmCallP95MaxRatio,
+            throughputMean: 5.0 * PerformanceComparator.SameSdkThroughputMeanMaxRatio);
+
+        var result = PerformanceComparator.CompareSameSdkIsolation("Stateless", ephemeral, poolReset);
+
+        Assert.True(result.AllPassed, "Exactly at 1.10× threshold should pass");
+    }
+
+    [Fact]
+    public void SameSdkIsolation_WarmCallAboveThreshold_Fails()
+    {
+        // pool_reset > 1.10 × ephemeral for warm → fails, IsBlocking=true
+        var ephemeral = BuildEphemeralScenarios("Stateless", warmCallP95: 2.0, throughputMean: 5.0);
+        var poolReset = BuildPhase4Scenarios("Stateless",
+            warmCallP95: 2.5,      // ratio = 1.25 > 1.10 → fail
+            throughputMean: 5.0);  // ratio = 1.00 < 1.10 → pass
+
+        var result = PerformanceComparator.CompareSameSdkIsolation("Stateless", ephemeral, poolReset);
+
+        Assert.False(result.AllPassed, "Same-SDK gate should fail when warm ratio > 1.10×");
+        var warmCheck = result.SameSdkIsolationChecks.Find(c => c.Metric == "warm_call_latency_ms.p95");
+        Assert.NotNull(warmCheck);
+        Assert.True(warmCheck.IsBlocking, "Same-SDK warm check must be blocking");
+        Assert.False(warmCheck.Passed);
+        Assert.InRange(warmCheck.Ratio, 1.24, 1.26);
+    }
+
+    [Fact]
+    public void SameSdkIsolation_ThroughputAboveThreshold_Fails()
+    {
+        // pool_reset > 1.10 × ephemeral for throughput → fails
+        var ephemeral = BuildEphemeralScenarios("Stateless", warmCallP95: 2.0, throughputMean: 5.0);
+        var poolReset = BuildPhase4Scenarios("Stateless",
+            warmCallP95: 2.0,      // ratio = 1.00 → pass
+            throughputMean: 6.0);  // ratio = 1.20 > 1.10 → fail
+
+        var result = PerformanceComparator.CompareSameSdkIsolation("Stateless", ephemeral, poolReset);
+
+        Assert.False(result.AllPassed, "Same-SDK gate should fail when throughput ratio > 1.10×");
+        var thrCheck = result.SameSdkIsolationChecks.Find(c => c.Metric == "concurrent_throughput_ms.mean");
+        Assert.NotNull(thrCheck);
+        Assert.True(thrCheck.IsBlocking, "Same-SDK throughput check must be blocking");
+        Assert.False(thrCheck.Passed);
+    }
+
+    [Fact]
+    public void SameSdkIsolation_EmptyEphemeralList_ThrowsArgument()
+    {
+        var poolReset = BuildPhase4Scenarios("Stateless");
+        Assert.Throws<ArgumentException>(() =>
+            PerformanceComparator.CompareSameSdkIsolation("Stateless", [], poolReset));
+    }
+
+    [Fact]
+    public void SameSdkIsolation_EmptyPoolResetList_ThrowsArgument()
+    {
+        var ephemeral = BuildEphemeralScenarios("Stateless");
+        Assert.Throws<ArgumentException>(() =>
+            PerformanceComparator.CompareSameSdkIsolation("Stateless", ephemeral, []));
+    }
+
+    [Fact]
+    public void SameSdkIsolation_NMismatch_ThrowsInvalidOperation()
+    {
+        var ephemeral = BuildEphemeralScenarios("Stateless", warmCallN: 20, throughputN: 5);
+        var poolReset = BuildPhase4Scenarios("Stateless", warmCallN: 50, throughputN: 15); // different N
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            PerformanceComparator.CompareSameSdkIsolation("Stateless", ephemeral, poolReset));
+        Assert.Contains("N mismatch", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SameSdkIsolation_BothModes_IndependentResults()
+    {
+        var ephStateless = BuildEphemeralScenarios("Stateless", warmCallP95: 2.0);
+        var ephStateful = BuildEphemeralScenarios("Stateful", warmCallP95: 2.0);
+        var prStateless = BuildPhase4Scenarios("Stateless", warmCallP95: 2.1); // 1.05× pass
+        var prStateful = BuildPhase4Scenarios("Stateful", warmCallP95: 2.5);   // 1.25× fail
+
+        var slResult = PerformanceComparator.CompareSameSdkIsolation("Stateless", ephStateless, prStateless);
+        var sfResult = PerformanceComparator.CompareSameSdkIsolation("Stateful", ephStateful, prStateful);
+
+        Assert.True(slResult.AllPassed, "Stateless same-SDK gate should pass");
+        Assert.False(sfResult.AllPassed, "Stateful same-SDK gate should fail");
     }
 
     // ── Invalid input handling ─────────────────────────────────────────────────
