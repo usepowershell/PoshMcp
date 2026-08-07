@@ -381,8 +381,14 @@ public class Phase4ComparatorTests
                 Iterations = n,
                 Stats = new CharacterizationStats
                 {
-                    P95 = p95, Mean = mean, P50 = mean, P99 = p95,
-                    Min = mean * 0.9, Max = p95, StdDev = 0, SampleCount = n,
+                    P95 = p95,
+                    Mean = mean,
+                    P50 = mean,
+                    P99 = p95,
+                    Min = mean * 0.9,
+                    Max = p95,
+                    StdDev = 0,
+                    SampleCount = n,
                 },
                 RawSamples = [mean],
             };
