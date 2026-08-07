@@ -1,19 +1,18 @@
 # PoshMcp SDK v2 Upgrade — Pre-Release Notes
 
-> **Pre-release status.** This document describes changes queued for the next release. Two
-> blockers remain open before the release gate can close:
+> **Release status.** All release-blocking gates have cleared. The SDK v2 warm-call/throughput
+> gate ([#380](https://github.com/usepowershell/PoshMcp/issues/380)) is **GREEN** in enforce
+> mode (`enforceGate=true`) on `d5d715c`
+> (run [31126540107](https://github.com/usepowershell/PoshMcp/actions/runs/31126540107)).
+> Sustained-load soak non-handle gates passed; [#349](https://github.com/usepowershell/PoshMcp/issues/349)
+> and [#385](https://github.com/usepowershell/PoshMcp/issues/385) are closed.
 >
-> - [#349](https://github.com/usepowershell/PoshMcp/issues/349) — Workflow run
->   [30929198633](https://github.com/usepowershell/PoshMcp/actions/runs/30929198633) completed
->   on clean `main@a6c924a` and **FAILED** the handle-floor gate (reported slope `0.13202/s`;
->   excluding the underpopulated two-sample terminal window: `0.04553/s`, above the predeclared
->   `0.010/s` threshold; cooldown plateau at `+802` passed). #349 remains open pending controlled
->   investigation [#385](https://github.com/usepowershell/PoshMcp/issues/385).
-> - [#380](https://github.com/usepowershell/PoshMcp/issues/380) — SDK v2 warm-call/throughput
->   gate is **RED** with unknown root cause.
+> **Known follow-up:** A residual Windows FullMix handle-floor slope was observed on hosted
+> runners during soak. This was assessed as non-blocking for migration and is tracked on
+> [#396](https://github.com/usepowershell/PoshMcp/issues/396). It does not affect stateless
+> HTTP correctness, pool isolation, or the v2 migration path.
 >
-> [#360](https://github.com/usepowershell/PoshMcp/issues/360) (final release verification) is
-> blocked on both issues above. Do not treat this document as release sign-off.
+> Final release verification is tracked on [#360](https://github.com/usepowershell/PoshMcp/issues/360).
 
 ## Summary
 
@@ -166,12 +165,12 @@ The MCP Tasks extension is **deferred** and is not included in this release.
 
 ## Release Gate Status
 
-The following blockers must be resolved before #360 final release verification can proceed:
-
 | Issue | Description | Status |
 |-------|-------------|--------|
-| [#349](https://github.com/usepowershell/PoshMcp/issues/349) | Windows-latest soak: run [30929198633](https://github.com/usepowershell/PoshMcp/actions/runs/30929198633) FAILED handle-floor gate | Open — [#385](https://github.com/usepowershell/PoshMcp/issues/385) investigation pending |
-| [#380](https://github.com/usepowershell/PoshMcp/issues/380) | SDK v2 warm-call/throughput gate | Open — RED, root cause unknown |
+| [#380](https://github.com/usepowershell/PoshMcp/issues/380) | SDK v2 warm-call/throughput gate (`enforceGate=true`, `d5d715c`, run [31126540107](https://github.com/usepowershell/PoshMcp/actions/runs/31126540107)) | ✅ CLOSED — GREEN |
+| [#349](https://github.com/usepowershell/PoshMcp/issues/349) | Sustained-load soak non-handle gates | ✅ CLOSED |
+| [#385](https://github.com/usepowershell/PoshMcp/issues/385) | Handle-floor investigation | ✅ CLOSED — superseded by #396 |
+| [#396](https://github.com/usepowershell/PoshMcp/issues/396) | Residual Windows FullMix handle-floor slope (ops follow-up) | 🔵 OPEN — **not a migration blocker**; deferred post-release |
 
 ## See Also
 
