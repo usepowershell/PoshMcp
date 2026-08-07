@@ -4,7 +4,15 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 
-> **Pre-release status.** Two release blockers remain open: [#349](https://github.com/usepowershell/PoshMcp/issues/349) (authoritative soak FAILED handle-floor gate — run [30929198633](https://github.com/usepowershell/PoshMcp/actions/runs/30929198633) on `main@a6c924a`; investigation [#385](https://github.com/usepowershell/PoshMcp/issues/385) pending) and [#380](https://github.com/usepowershell/PoshMcp/issues/380) (SDK v2 warm-call throughput gate). This entry documents the scope of changes queued for the next release.
+> **Release gate status.** Release-blocking soak non-handle gates passed. The SDK v2
+> warm-call/throughput gate ([#380](https://github.com/usepowershell/PoshMcp/issues/380))
+> is **GREEN** in enforce mode on `d5d715c`
+> (run [31126540107](https://github.com/usepowershell/PoshMcp/actions/runs/31126540107));
+> [#380](https://github.com/usepowershell/PoshMcp/issues/380) and
+> [#349](https://github.com/usepowershell/PoshMcp/issues/349) are closed.
+> **Known follow-up:** residual Windows FullMix handle-floor slope is deferred to
+> [#396](https://github.com/usepowershell/PoshMcp/issues/396) — not a migration blocker.
+> Final release verification: [#360](https://github.com/usepowershell/PoshMcp/issues/360).
 
 ### Added
 - **Stateless HTTP transport (default)** — HTTP now defaults to `Stateless` mode, aligning with MCP SDK v2 semantics. Each tool call leases a clean worker from the shared warm `StatelessRunspacePool`, resets it before use, and returns it after use. No cross-call PowerShell state is preserved.
