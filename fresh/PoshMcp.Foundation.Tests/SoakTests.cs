@@ -1,6 +1,7 @@
 namespace PoshMcp.Foundation.Tests;
 
 [Trait("Category", "Soak")]
+[Collection("External workers")]
 public sealed class SoakTests
 {
     [Fact]

@@ -13,9 +13,13 @@ public static class Program
             {
                 Console.WriteLine(JsonSerializer.Serialize(new
                 {
-                    phase = "P0", rid = Contract.NativeRid, embeddedPowerShell = false,
-                    workerProtocol = Contract.WorkerVersion, targetMcpRevision = Contract.TargetMcpRevision,
-                    mcpImplemented = false, powerShellPrerequisite = Contract.PowerShellVersion
+                    phase = "P0",
+                    rid = Contract.NativeRid,
+                    embeddedPowerShell = false,
+                    workerProtocol = Contract.WorkerVersion,
+                    targetMcpRevision = Contract.TargetMcpRevision,
+                    mcpImplemented = false,
+                    powerShellPrerequisite = Contract.PowerShellVersion
                 }, Contract.Json));
                 return 0;
             }
@@ -35,13 +39,27 @@ public static class Program
                 await Measurements.RunAsync(runtime, Enum.Parse<RuntimeKind>(runtimeKind), output);
                 return 0;
             }
+            if (args is ["--probe", var probeRuntime, var probeKind])
+            {
+                await using var probe = await WorkerProbe.StartAsync(WorkerProbe.Profile(probeRuntime,
+                    Enum.Parse<RuntimeKind>(probeKind), "minimal"), TimeSpan.FromSeconds(30));
+                var (result, measurement) = await probe.InvokeAsync(
+                    new("Invoke-Probe", System.Collections.Immutable.ImmutableDictionary<string, JsonElement>.Empty),
+                    TimeSpan.FromSeconds(10));
+                Console.WriteLine(JsonSerializer.Serialize(new { result, measurement }, Contract.Json));
+                return result.Success ? 0 : 1;
+            }
             Console.Error.WriteLine("P0 foundation only. Use --foundation-info. Production MCP adapters are deferred.");
             return 2;
         }
-        catch (Exception ex) when (ex is ArgumentException or PlatformNotSupportedException or IOException or OperationCanceledException or InvalidOperationException)
+        catch (Exception ex) when (ex is ArgumentException or PlatformNotSupportedException or IOException or InvalidDataException or OperationCanceledException or InvalidOperationException)
         {
             Console.Error.WriteLine(ex.Message);
             return 1;
+        }
+        finally
+        {
+            WorkerAssets.Cleanup();
         }
     }
 }

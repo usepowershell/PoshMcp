@@ -5,6 +5,7 @@ using System.Text.Json;
 namespace PoshMcp.Foundation.Tests;
 
 [Trait("Category", "Worker")]
+[Collection("External workers")]
 public sealed class WorkerTests
 {
     internal static RuntimeProfile Profile(string fixture = "minimal") => WorkerProbe.Profile(

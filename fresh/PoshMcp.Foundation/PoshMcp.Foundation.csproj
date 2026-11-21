@@ -16,10 +16,10 @@
   <ItemGroup>
     <AssemblyMetadata Include="TargetRid" Value="$(TargetRid)" />
     <None Include="../README.md" Pack="true" PackagePath="/" />
-    <Content Include="worker.ps1" Condition="Exists('worker.ps1')" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="../fixtures/**/*" Link="fixtures/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="poshmcp-launcher" Condition="Exists('poshmcp-launcher')" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="poshmcp-launcher.exe" Condition="Exists('poshmcp-launcher.exe')" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <EmbeddedResource Include="worker.ps1" LogicalName="worker.ps1" />
+    <EmbeddedResource Include="../fixtures/*.ps1" LogicalName="%(Filename)%(Extension)" />
+    <Content Include="poshmcp-launcher" Pack="false" Condition="Exists('poshmcp-launcher')" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="poshmcp-launcher.exe" Pack="false" Condition="Exists('poshmcp-launcher.exe')" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="ValidatePackageTarget" BeforeTargets="Pack">
     <Error Condition="'$(TargetRid)' != 'win-x64' and '$(TargetRid)' != 'win-arm64' and '$(TargetRid)' != 'linux-x64' and '$(TargetRid)' != 'linux-arm64'" Text="Pack requires one of the four approved TargetRid values." />

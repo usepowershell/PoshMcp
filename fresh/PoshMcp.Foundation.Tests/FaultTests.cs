@@ -1,8 +1,22 @@
 namespace PoshMcp.Foundation.Tests;
 
 [Trait("Category", "Fault")]
+[Collection("External workers")]
 public sealed class FaultTests
 {
+    [Fact]
+    public async Task WorkerSurvivesLaunchingThreadExitWhileSupervisorLives()
+    {
+        var profile = WorkerTests.Profile();
+        Task<WorkerProbe>? starting = null;
+        var thread = new Thread(() => starting = WorkerProbe.StartAsync(profile, TimeSpan.FromSeconds(30)));
+        thread.Start();
+        thread.Join();
+        await using var probe = await starting!;
+        var (result, _) = await probe.InvokeAsync(WorkerTests.Invoke("Invoke-Probe"), TimeSpan.FromSeconds(10));
+        Assert.True(result.Success);
+    }
+
     [Theory]
     [InlineData("failing", 10)]
     [InlineData("slow", 1)]

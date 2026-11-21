@@ -38,8 +38,8 @@ public sealed class WorkerProbe : IAsyncDisposable
 
     public static RuntimeProfile Profile(string executable, RuntimeKind kind, string fixture)
     {
-        var baseline = StartupFile.FromPath(Path.Combine(AppContext.BaseDirectory, "fixtures", "baseline.ps1"));
-        var startup = StartupFile.FromPath(Path.Combine(AppContext.BaseDirectory, "fixtures", fixture + ".ps1"));
+        var baseline = StartupFile.FromPath(WorkerAssets.Script("baseline.ps1"));
+        var startup = StartupFile.FromPath(WorkerAssets.Script(fixture + ".ps1"));
         return new("probe-" + fixture, kind, Path.GetFullPath(executable),
             kind == RuntimeKind.PowerShell7 ? Contract.PowerShellVersion : "5.1",
             RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(), AppContext.BaseDirectory,
@@ -77,7 +77,7 @@ public sealed class WorkerProbe : IAsyncDisposable
         if (OperatingSystem.IsWindows())
             start.ArgumentList.Add(Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
         start.ArgumentList.Add(profile.Executable);
-        foreach (var arg in new[] { "-NoLogo", "-NoProfile", "-NonInteractive", "-File", Path.Combine(AppContext.BaseDirectory, "worker.ps1") })
+        foreach (var arg in new[] { "-NoLogo", "-NoProfile", "-NonInteractive", "-File", WorkerAssets.Script("worker.ps1") })
             start.ArgumentList.Add(arg);
         var process = new Process { StartInfo = start };
         start.Environment.Clear();
@@ -121,6 +121,11 @@ public sealed class WorkerProbe : IAsyncDisposable
             if (started) await RetireAsync(process);
             if (stdout != null) await stdout;
             if (stderr != null) await stderr;
+            if (started)
+            {
+                process.StandardOutput.Dispose();
+                process.StandardError.Dispose();
+            }
             process.Dispose();
             throw;
         }
@@ -181,6 +186,7 @@ public sealed class WorkerProbe : IAsyncDisposable
         await DisposeAsync();
         var stdout = await _stdout;
         var stderr = await _stderr;
+        deadline.Dispose();
         if (stdout > Contract.MaxDiagnosticChars || stderr > Contract.MaxDiagnosticChars)
             throw new InvalidDataException("Worker stdout/stderr exceeded the diagnostic budget.");
         return (result, new(Contract.NativeRid, Ready, _initializationMs, dispatchMs, result.ExecutionMs,
@@ -225,6 +231,8 @@ public sealed class WorkerProbe : IAsyncDisposable
         {
             await RetireAsync(_process);
             await Task.WhenAll(_stdout, _stderr).WaitAsync(TimeSpan.FromSeconds(10));
+            _process.StandardOutput.Dispose();
+            _process.StandardError.Dispose();
             _process.Dispose();
             _processDisposed = true;
         }

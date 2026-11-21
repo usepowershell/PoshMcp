@@ -2,3 +2,6 @@ PoshMcp.Foundation/poshmcp-launcher
 PoshMcp.Foundation/poshmcp-launcher.exe
 packages/
 .tools/
+.runtime/
+.modules/
+__pycache__/

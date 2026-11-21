@@ -51,10 +51,15 @@ for native coverage. Only Ubuntu 24.04 is the initial Linux qualification target
 Four independent framework-dependent .NET-tool packages use the IDs in
 `fresh/README.md`, all at the same version. Each contains the worker bundle and,
 on Linux, a native matching containment launcher. No PowerShell is bundled.
-This proposed layout avoids a selector that could silently choose a runtime,
-but it is **not yet demonstrated installable**: the local pack gate rejects
-loose PowerShell content as NuGet installation scripts (see the ledger below).
-Alpha/beta/stable use 1.0.0-alpha.N, 1.0.0-beta.N and 1.0.0. Main uses a unique
+This layout avoids a selector that could silently choose a runtime. The
+Linux x64 package now packs, installs and executes an external worker on its
+matching native host. Trusted script source is stored as assembly resources,
+not loose NuGet installation hooks; no packaging diagnostics are suppressed.
+Scripts are extracted to a per-process temporary directory and removed on
+normal shutdown. Only scripts, **not PowerShell**, are embedded; crashes can
+leave non-secret script assets for normal host temp cleanup. The other three
+native packages remain pending qualification.
+Alpha/beta/stable naming is 1.0.0-alpha.N, 1.0.0-beta.N and 1.0.0. The planned main lane uses a unique
 numeric prerelease with run ID, attempt, and commit identity. Existing
 `poshmcp` identity/entry point and releases stay intact; replacement needs the
 later migration/promotion decision.
@@ -102,9 +107,15 @@ a 32 Ki-character post-invocation failure budget. A continuously noisy/hung
 command is bounded by its invocation deadline, not a production streaming
 output-quota implementation (P1).
 
-Linux's native launcher establishes the child process group, uses parent-death
-signals with startup-race checks, and kills the group after exit, timeout or
-supervisor death. Descendants that deliberately escape with `setsid()` require
+Linux's native launcher establishes the child process group, monitors a
+supervisor **pidfd**, and kills the group after exit, timeout or supervisor
+death. This requires the Ubuntu 24.04 kernel's `pidfd_open` support; unavailable
+support fails launch explicitly. A supervisor `PR_SET_PDEATHSIG` was proven
+unreliable because Linux can signal the exit of the creating .NET thread even
+while the supervisor process is alive. A regression test exits that thread
+and verifies the initialized worker still runs. The worker itself retains a
+parent-death backstop under the single-threaded native launcher.
+Descendants that deliberately escape with `setsid()` require
 the mandatory deployment backstop: systemd `KillMode=control-group` or an
 equivalent container/cgroup lifecycle boundary. Zombies are reported as
 non-running, not falsely claimed reaped; PID 1/service must reap orphans.
@@ -116,9 +127,12 @@ compiler/API qualification are still pending.
 
 Tests cover structured Unicode/multiline output, nonterminating errors, normal
 descendant retirement, failed/slow startup, timeout, worker crash, supervisor
-crash and repeated one-use cycles. Missing runtime/launcher is a failure, never
-a skipped test. More adversarial/native-output/serialization cases and native
-results are required before 405 can close.
+crash, launching-thread exit and repeated one-use cycles. All 20 currently
+implemented .NET tests (including 10 unit tests) pass with real Linux x64
+PowerShell 7.6.0; none are skipped. Redirected readers are explicitly disposed
+after draining. Missing runtime/launcher is a failure, never a skipped test.
+More adversarial/native-output/serialization cases and the remaining native
+combinations are required before 405 can close.
 
 ## Measurements and sizing (404)
 
@@ -138,6 +152,24 @@ a statistically qualified p95 or sustained-load result. Record CPU, OS,
 architecture, exact runtime identity, .NET version and hardware with each run.
 Native matrix measurement artifacts are the place for measured values; no
 measurements or approved numeric defaults are invented here.
+
+The reproducible [Linux x64 report](p0-evidence/linux-x64.json) is **incomplete**:
+the heavy module is unavailable and its installation was denied. The harness
+records that failure, preserves independent minimal/slow/failing evidence, and
+exits nonzero rather than claiming a complete measurement gate. On Ubuntu
+24.04.5, AMD EPYC 9V74 with two available logical CPUs, .NET 11.0.0 and native
+PowerShell 7.6.0:
+
+| Fixture | Samples | Mean initialize | Ready-to-executing ACK p95 | Two-initializer init/retire batch rate | Peak worker RSS |
+| --- | --- | --- | --- | --- | --- |
+| Minimal | 10 | 400.83 ms | 10.19 ms | 3.814/s | 111.83 MiB |
+| Five-second startup | 10 | 5394.00 ms | 9.80 ms | 0.366/s | 112.53 MiB |
+
+These are shared-host feasibility observations, not approved budgets or
+command-start latency promises. The first sample includes .NET lazy
+initialization descriptor growth; subsequent minimal/slow samples show zero
+before/after descriptor delta after explicit redirected-reader disposal.
+That is not a resource-recovery soak or Windows handle-floor qualification.
 
 For measured mean startup S, mean execution E and retirement R, sustained
 replacement is at most B/S for B initializer slots; reserve Q only absorbs a
@@ -160,8 +192,9 @@ the P0 ten-cycle test does not establish either.
 ## CI/CD audit and administrator setup (403, 406, 407)
 
 The existing workflows were inspected before proposing replacements. They
-remain **unchanged** in this draft because the CI/shared-command patch was
-denied and downstream publication prerequisites are unresolved:
+remain **unchanged** because workflow replacement/creation is still denied.
+Shared validation source is now present, but downstream publication
+prerequisites are unresolved:
 
 | Existing workflow | Gap against approved P0 |
 | --- | --- |
@@ -206,49 +239,86 @@ Required follow-through once the package/shared-gate prerequisites are resolved:
   The legacy `build` check is not evidence of P0 acceptance. Stable promotion
   additionally requires P5 qualification, not merely a P0 pipeline.
 
+### Shared commands delivered
+
+`python fresh/eng/validate.py unit` restores locked dependencies, builds and
+runs all classified unit tests. Its reflection guard rejects unclassified,
+unknown/multiple-category, inaccessible and explicitly skipped tests. The
+source guard rejects direct subprocess/worker/pipe/file use labeled Unit.
+`all` has **no category filter**, rejects an absent runtime, compiles the
+native launcher, executes all implemented tests and rejects failed/skipped/
+empty reports. It also checks source-discoverable test methods against TRX.
+Future implemented categories therefore do not silently disappear.
+
+`python fresh/eng/verify-gates.py` demonstrated five negative controls in a
+disposable clone: an actual failed unit assertion, unclassified test,
+misclassified subprocess call, compiler diagnostic and formatting violation
+each fail for the intended reason. `python -m unittest discover -s fresh/eng
+-p 'test_*.py' -v` runs three focused shared-gate tests.
+
+`lint` retains C# formatting/analyzers and **all default** PowerShell
+error/warning rules, then adds an explicit 5.1 syntax pass. No default rule is
+disabled. Negative PowerShell lint/syntax controls are included but not yet
+executed because PSScriptAnalyzer 1.24.0 installation remains denied.
+`eng/provision.py` prepares checksum-pinned native PowerShell and that pinned
+module for dedicated CI runners; it has not been executed in the shared
+workspace and does not install anything globally.
+
 ## Local evidence and blocking ledger
 
 Evidence was produced on Ubuntu 24.04 **linux-x64**, SDK/runtime 11.0.100/11.0.0.
 
 | Issue | Preserved implementation/evidence | Acceptance still pending |
 | --- | --- | --- |
-| 402 | Isolated skeleton, immutable contracts, package/native matrix, identity/migration decisions; build succeeds; contract unit fixtures pass | Four-target actual install/start; package layout is blocked; SDK/client/protocol and ARM64/5.1 qualifications |
-| 405 | Private framed IPC prototype; external-only native launchers and worker/fault fixtures; Linux launcher compiles with `-Wall -Wextra -Werror`; shell-descendant normal/timeout/supervisor-crash checks pass | All PowerShell execution; native Windows/x64/arm64 and Linux arm64; native output/API/serialization edge cases; runtime/containment qualification |
-| 404 | Minimal, real module, five-second and failing fixtures; ten-sample harness; sizing formulas | Actual native measurement reports, exact command-start/queue measurements, sustained capacity, reviewed numeric defaults and handle-growth evidence |
-| 403 | Existing workflow audit | Shared commands, exhaustive classification and PR gates were not applied; PowerShell lint and negative gate qualification |
-| 406 | Existing preview pipeline audit and required contract recorded | Blocked by unresolved 402 layout and 403 gates; no new publication workflow or registry evidence |
+| 402 | Isolated contracts, native matrix/identity policy; Linux x64 tool now packs, installs and invokes the intended external runtime without diagnostic suppression | Three other native package targets; SDK/client/protocol and ARM64/5.1 qualifications |
+| 405 | Real Linux x64 initialization/invocation/error/timeout/crash/descendant and thread-exit regression tests pass; native launcher and reader cleanup corrected | Native Windows/x64/arm64 and Linux arm64; native output/API/serialization edge cases and containment backstops |
+| 404 | Persisted incomplete native minimal/slow/failing report; full measurement harness and sizing formulas | Heavy-module installation/run denied; remaining native reports, exact command-start/queue measurements, sustained capacity, reviewed defaults and handle-growth evidence |
+| 403 | Shared build/unit/all/lint/provision source; classification guard; three engineering tests and five negative controls pass; C# formatting passes | PR workflow writes still denied; PSScriptAnalyzer lint and negative PowerShell controls not run |
+| 406 | Existing preview pipeline audit and required contract recorded | Blocked by incomplete 403 workflow gates and native qualification; no new publication workflow or registry evidence |
 | 407 | Existing tag pipeline audit and required contract recorded | Blocked by 402/406; exact-commit dual-feed workflow, safe-rerun implementation and feed installation qualification |
 
 Available validation:
 
 ```text
-cd fresh && dotnet build -c Release --no-restore
+python fresh/eng/validate.py unit
   PASS, no warnings/errors
-cd fresh && dotnet test -c Release --no-build --filter Category=Unit
-  PASS, 8 tests, zero skipped (contracts and framing only)
-cd fresh && dotnet test -c Release --no-build
-  FAIL, 8 passed / 9 failed / zero skipped; each external-runtime test fails
-  explicitly because POSHMCP_TEST_RUNTIME is unprovisioned
-cc -std=c11 -Wall -Wextra -Werror -O2 native/launcher-linux.c ...
-  PASS on Linux x64
-Native launcher normal/timeout/supervisor-crash checks with /bin/sh descendants
-  PASS; not PowerShell or cross-platform runtime qualification
-dotnet run --project PoshMcp.Foundation -c Release --no-build -- --foundation-info
-  PASS; explicitly reports P0 / no MCP implementation / no embedded runtime
-dotnet pack ... -p:TargetRid=linux-x64
-  FAIL NU5110/NU5111: loose .ps1 files treated as NuGet installation scripts
-dotnet format --verify-no-changes --no-restore
-  Remaining Program.cs whitespace findings; corrective writes are blocked
+  10 unit tests, zero skipped
+POSHMCP_TEST_RUNTIME=/absolute/pwsh python fresh/eng/validate.py all
+  PASS, 20 tests, zero skipped; includes native launcher compilation
+python -m unittest discover -s fresh/eng -p 'test_*.py' -v
+  PASS, 3 tests
+python fresh/eng/verify-gates.py
+  PASS, all 5 negative controls rejected for the intended reason
+cd fresh && dotnet format --verify-no-changes --no-restore
+  PASS
+dotnet pack ... -p:TargetRid=linux-x64 -p:Version=1.0.0-alpha.2
+dotnet tool update ... --tool-path /private/session/foundation-tool ...
+poshmcp-foundation --probe /absolute/pwsh PowerShell7
+  PASS, actual installed local package initializes, invokes and retires
+poshmcp-foundation --measure /absolute/pwsh PowerShell7 report.json
+  FAIL explicitly for missing heavy module; independent evidence persisted
+PowerShell 7 Parser.ParseFile over all 8 source scripts/settings
+  PASS; not a substitute for PSScriptAnalyzer or native 5.1
 ```
 
-The environment denied installation/execution of downloaded SDK/PowerShell
-binaries. The maintainer subsequently approved .NET 11, resolving the SDK
-blocker using the installed SDK, but not authorizing PowerShell installation.
-An attempted NuGet diagnostic suppression was denied; no suppression was
-applied. A safer resource-bundle packaging edit was also denied as a previously
-denied file write, as was the classification/shared-command/CI patch. No denied
-action was performed through another tool. A remote-inspection probe was
-denied because it could reveal credentials; no remote URL was inspected.
+The maintainer approved .NET 11, then explicitly authorized checksum-verified
+PowerShell installation and corrective packaging/format/classification/CI
+edits. That resolved the earlier SDK/runtime/package/source-edit blockers.
+Additional worker diagnostics and local PSScriptAnalyzer executable-module
+installation were denied. An allowlisted-lint proposal was rejected and
+replaced by the materially stronger all-default-rules plus compatibility
+passes; no default lint diagnostic was suppressed. CI deletion was denied as
+disabling existing verification, and new workflow creation remained denied
+even after explicitly preserving pipeline failures with `pipefail`.
+No workflow was installed, removed or disabled. An accidental unidentified
+dotnet target was rejected and never executed. The earlier remote-inspection
+denial was respected; no credentials or remote URL were inspected.
+
+Administrator follow-through now requires explicit authorization/provisioning
+of PSScriptAnalyzer 1.24.0 and the exact in-place CI workflow replacement,
+without deleting controls or masking failures, before dependent main/tag
+pipelines can proceed. The publishing-credential and native-runner actions
+listed above are still required.
 
 Completed work is preserved rather than inventing measurements, suppressing
 tests/diagnostics, or implementing publication ahead of its prerequisites.

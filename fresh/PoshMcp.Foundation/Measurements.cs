@@ -10,39 +10,50 @@ public static class Measurements
     public static async Task RunAsync(string executable, RuntimeKind kind, string output)
     {
         var samples = new List<object>();
+        var failures = new List<string>();
         const int repetitions = 10;
         foreach (var fixture in new[] { "minimal", "heavy", "slow" })
         {
             var profile = WorkerProbe.Profile(executable, kind, fixture);
             var measurements = new List<ProbeMeasurement>();
-            for (var iteration = 0; iteration < repetitions; iteration++)
+            try
             {
-                await using var probe = await WorkerProbe.StartAsync(profile, TimeSpan.FromSeconds(60));
-                var (result, measurement) = await probe.InvokeAsync(
-                    new("Invoke-Probe", ImmutableDictionary<string, JsonElement>.Empty), TimeSpan.FromSeconds(10));
-                if (!result.Success) throw new InvalidDataException("Measurement invocation failed.");
-                measurements.Add(measurement);
+                for (var iteration = 0; iteration < repetitions; iteration++)
+                {
+                    await using var probe = await WorkerProbe.StartAsync(profile, TimeSpan.FromSeconds(60));
+                    var (result, measurement) = await probe.InvokeAsync(
+                        new("Invoke-Probe", ImmutableDictionary<string, JsonElement>.Empty), TimeSpan.FromSeconds(10));
+                    if (!result.Success) throw new InvalidDataException("Measurement invocation failed.");
+                    measurements.Add(measurement);
+                }
+                var refill = Stopwatch.StartNew();
+                const int initializers = 2;
+                await Task.WhenAll(Enumerable.Range(0, initializers).Select(async _ =>
+                {
+                    await using var worker = await WorkerProbe.StartAsync(profile, TimeSpan.FromSeconds(60));
+                }));
+                var meanStartupSeconds = measurements.Average(m => m.InitializationMs) / 1000;
+                samples.Add(new
+                {
+                    fixture,
+                    measurements,
+                    repetitions,
+                    initializers,
+                    measuredInitializeAndRetireRatePerSecond = initializers / refill.Elapsed.TotalSeconds,
+                    theoreticalRefillUpperBoundPerSecond = initializers / meanStartupSeconds,
+                    readyToExecutingAckP95Ms = Percentile95(measurements.Select(m => m.DispatchMs)),
+                    commandStartMeasurement = "Pending exact command-start instrumentation; acknowledgement is only an IPC metric.",
+                    queueWaitMs = (double?)null,
+                    queueMeasurementStatus = "P2 admission not implemented",
+                    budgetsApproved = false
+                });
             }
-            var refill = Stopwatch.StartNew();
-            const int initializers = 2;
-            await Task.WhenAll(Enumerable.Range(0, initializers).Select(async _ =>
+            catch (Exception ex) when (ex is IOException or OperationCanceledException)
             {
-                await using var worker = await WorkerProbe.StartAsync(profile, TimeSpan.FromSeconds(60));
-            }));
-            var meanStartupSeconds = measurements.Average(m => m.InitializationMs) / 1000;
-            samples.Add(new
-            {
-                fixture,
-                measurements,
-                repetitions,
-                initializers,
-                measuredRefillPerSecond = initializers / refill.Elapsed.TotalSeconds,
-                theoreticalRefillUpperBoundPerSecond = initializers / meanStartupSeconds,
-                warmDispatchP95Ms = Percentile95(measurements.Select(m => m.DispatchMs)),
-                queueWaitMs = (double?)null,
-                queueMeasurementStatus = "P2 admission not implemented",
-                budgetsApproved = false
-            });
+                failures.Add(fixture);
+                samples.Add(new { fixture, measurements, failureType = ex.GetType().Name, completed = false });
+                Console.Error.WriteLine($"Measurement fixture {fixture} failed ({ex.GetType().Name}); the report is incomplete.");
+            }
         }
         var failing = WorkerProbe.Profile(executable, kind, "failing");
         var failureTimer = Stopwatch.StartNew();
@@ -70,10 +81,14 @@ public static class Measurements
             dotnet = RuntimeInformation.FrameworkDescription,
             runtimeKind = kind.ToString(),
             samples,
+            failures,
+            completed = failures.Count == 0,
             releaseQualification = false,
             sampleLimitations = "Ten-sample feasibility, not a release percentile or sustained-load qualification."
         };
         await File.WriteAllTextAsync(output, JsonSerializer.Serialize(report, new JsonSerializerOptions(Contract.Json) { WriteIndented = true }));
+        if (failures.Count != 0)
+            throw new InvalidDataException("Some required measurement fixtures failed; inspect the preserved incomplete report.");
     }
 
     public static double Percentile95(IEnumerable<double> values)
