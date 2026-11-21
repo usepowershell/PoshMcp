@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>poshmcp-foundation</ToolCommandName>
+    <TargetRid Condition="'$(TargetRid)' == ''">portable</TargetRid>
+    <PackageId>PoshMcp.Foundation.$(TargetRid)</PackageId>
+    <Version>1.0.0-alpha.0</Version>
+    <Authors>PoshMcp contributors</Authors>
+    <Description>PoshMcp P0 foundation and external-worker feasibility probe. Not a production MCP server.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/usepowershell/PoshMcp</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="TargetRid" Value="$(TargetRid)" />
+    <None Include="../README.md" Pack="true" PackagePath="/" />
+    <Content Include="worker.ps1" Condition="Exists('worker.ps1')" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../fixtures/**/*" Link="fixtures/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="poshmcp-launcher" Condition="Exists('poshmcp-launcher')" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="poshmcp-launcher.exe" Condition="Exists('poshmcp-launcher.exe')" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="ValidatePackageTarget" BeforeTargets="Pack">
+    <Error Condition="'$(TargetRid)' != 'win-x64' and '$(TargetRid)' != 'win-arm64' and '$(TargetRid)' != 'linux-x64' and '$(TargetRid)' != 'linux-arm64'" Text="Pack requires one of the four approved TargetRid values." />
+    <Error Condition="$([System.String]::Copy('$(TargetRid)').StartsWith('linux-')) and !Exists('poshmcp-launcher')" Text="Build the native Linux containment launcher before packing." />
+    <Error Condition="$([System.String]::Copy('$(TargetRid)').StartsWith('win-')) and !Exists('poshmcp-launcher.exe')" Text="Build the native Windows containment launcher before packing." />
+  </Target>
+</Project>

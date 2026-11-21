@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="PoshMcp.Foundation/PoshMcp.Foundation.csproj" />
+  <Project Path="PoshMcp.Foundation.Tests/PoshMcp.Foundation.Tests.csproj" />
+</Solution>
