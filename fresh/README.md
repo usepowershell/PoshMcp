@@ -36,5 +36,6 @@ Shared commands: `python eng/validate.py unit`, `all`, or `lint`.
 `lint` needs PSScriptAnalyzer 1.24.0 and `POSHMCP_LINT_RUNTIME` (or `pwsh` on PATH).
 Set `POSHMCP_TEST_MODULE_PATH` for pinned modules provisioned outside the repo.
 `python eng/verify-gates.py` runs five deliberately failing controls in a
-disposable clone. No new PR/main/tag workflow is active yet; permission-blocked
-workflow installation and registry/native qualifications are tracked in the ledger.
+disposable clone. P0 PR/main/tag workflows are implemented; actual native
+matrix and registry execution still need qualification and administrator
+setup documented in the ledger. No tag or package was manually published.

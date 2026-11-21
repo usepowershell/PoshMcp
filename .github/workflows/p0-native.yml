@@ -1,0 +1,73 @@
+name: P0 native qualification
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: P0 native (${{ matrix.rid }}, ${{ matrix.kind }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {rid: linux-x64, kind: PowerShell7, runner: ubuntu-24.04, arch: x64}
+          - {rid: linux-arm64, kind: PowerShell7, runner: ubuntu-24.04-arm, arch: arm64}
+          - {rid: win-x64, kind: PowerShell7, runner: windows-2025, arch: x64}
+          - {rid: win-arm64, kind: PowerShell7, runner: windows-11-arm, arch: arm64}
+          - {rid: win-x64, kind: WindowsPowerShell51, runner: windows-2025, arch: x64}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: fresh/global.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13.9'
+          architecture: ${{ matrix.arch }}
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+        with:
+          arch: ${{ matrix.arch }}
+      - run: python fresh/eng/provision.py ${{ matrix.rid }} ${{ matrix.kind }}
+      - run: python fresh/eng/validate.py all
+      - run: python -m unittest discover -s fresh/eng -p 'test_*.py' -v
+      - name: Measure all startup fixtures
+        shell: bash
+        run: |
+          dotnet fresh/PoshMcp.Foundation/bin/Release/net11.0/PoshMcp.Foundation.dll \
+            --measure "$POSHMCP_TEST_RUNTIME" "$POSHMCP_TEST_KIND" fresh/TestResults/measurements.json
+      - name: Native package and installation test
+        if: matrix.kind == 'PowerShell7'
+        env:
+          PACKAGE_VERSION: ${{ inputs.version }}
+          PACKAGE_RID: ${{ matrix.rid }}
+        run: python fresh/eng/packages.py pack "$PACKAGE_RID" "$PACKAGE_VERSION" "$GITHUB_WORKSPACE/packages"
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        if: matrix.kind == 'PowerShell7'
+        with:
+          name: package-${{ matrix.rid }}-${{ inputs.version }}-${{ github.run_attempt }}
+          path: packages
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-evidence-${{ matrix.rid }}-${{ matrix.kind }}-${{ github.run_attempt }}
+          path: |
+            fresh/TestResults
+            fresh/.runtime/*-inputs.json
+          if-no-files-found: error
+          retention-days: 90

@@ -2,6 +2,11 @@
 
 This document describes how to run the `PoshMcp.Tests` suite locally and how each category maps to a CI phase. It is the contributor reference for the test-suite categorization introduced by [spec 009 — Test Suite Consistency](specs/009-test-suite-consistency/spec.md).
 
+**Fresh P0 core:** use `python fresh/eng/validate.py unit`, `all`, or `lint`
+against the isolated fresh solution. Unclassified/skipped tests fail its
+guard, and `all` has no category filter. The legacy defaults and commands below
+do not control P0 package publication. See [P0 CI and qualification](docs/p0-foundations.md).
+
 ## TL;DR
 
 ```bash

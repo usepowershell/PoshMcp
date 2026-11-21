@@ -4,7 +4,7 @@ Set-StrictMode -Version 2.0
 $utf8 = New-Object System.Text.UTF8Encoding($false, $true)
 $pipe = $null
 
-function Read-Bytes {
+function Read-FrameByte {
     param([int]$Length)
     $bytes = New-Object byte[] $Length
     $offset = 0
@@ -18,10 +18,10 @@ function Read-Bytes {
 
 function Read-Frame {
     param([string]$Kind, [string]$Id)
-    $header = Read-Bytes 4
+    $header = Read-FrameByte 4
     $length = [BitConverter]::ToInt32($header, 0)
     if ($length -le 0 -or $length -gt 1048576) { throw 'Invalid frame size.' }
-    $message = $utf8.GetString((Read-Bytes $length)) | ConvertFrom-Json
+    $message = $utf8.GetString((Read-FrameByte $length)) | ConvertFrom-Json
     if ($message.version -ne 1 -or $message.kind -ne $Kind -or ($Id -and $message.id -ne $Id)) {
         throw 'Invalid version, lifecycle or correlation.'
     }
@@ -74,36 +74,36 @@ try {
     $pipe.Connect(10000)
     Write-Frame 'hello' $bootstrap.nonce @{ nonce = $bootstrap.nonce }
     $initialize = Read-Frame 'initialize' ''
-    $profile = $initialize.payload.profile
+    $runtimeProfile = $initialize.payload.profile
     $architecture = if ([IntPtr]::Size -eq 4) { 'x86' } else { 'x64' }
     if ('System.Runtime.InteropServices.RuntimeInformation' -as [type]) {
         $architecture = [Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant()
     } elseif ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $architecture = 'arm64' }
     $edition = $PSVersionTable.PSEdition
     $version = $PSVersionTable.PSVersion.ToString()
-    if ($architecture -ne $profile.architecture -or
-        ($profile.kind -eq 'PowerShell7' -and ($edition -ne 'Core' -or $version -ne $profile.version)) -or
-        ($profile.kind -eq 'WindowsPowerShell51' -and ($edition -ne 'Desktop' -or -not $version.StartsWith('5.1.')))) {
+    if ($architecture -ne $runtimeProfile.architecture -or
+        ($runtimeProfile.kind -eq 'PowerShell7' -and ($edition -ne 'Core' -or $version -ne $runtimeProfile.version)) -or
+        ($runtimeProfile.kind -eq 'WindowsPowerShell51' -and ($edition -ne 'Desktop' -or -not $version.StartsWith('5.1.')))) {
         throw 'Runtime identity mismatch.'
     }
-    Set-Location -LiteralPath $profile.workingDirectory
-    foreach ($module in $profile.modules) {
+    Set-Location -LiteralPath $runtimeProfile.workingDirectory
+    foreach ($module in $runtimeProfile.modules) {
         Import-Module -Name $module.name -RequiredVersion $module.version -ErrorAction Stop
     }
-    foreach ($startup in $profile.startupFiles) {
+    foreach ($startup in $runtimeProfile.startupFiles) {
         $sha = [Security.Cryptography.SHA256]::Create()
         try { $hash = [BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($startup.path))).Replace('-', '').ToLowerInvariant() }
         finally { $sha.Dispose() }
         if ($hash -ne $startup.sha256) { throw 'Startup generation mismatch.' }
         . $startup.path
     }
-    foreach ($command in $profile.commands) { $null = Get-Command -Name $command -ErrorAction Stop }
+    foreach ($command in $runtimeProfile.commands) { $null = Get-Command -Name $command -ErrorAction Stop }
     Write-Frame 'ready' $initialize.id @{
         pid = $PID; edition = $edition; version = $version; architecture = $architecture
         generation = $initialize.payload.generation
     }
     $invoke = Read-Frame 'invoke' ''
-    if ($profile.commands -notcontains $invoke.payload.command) { throw 'Command is not allowed.' }
+    if ($runtimeProfile.commands -notcontains $invoke.payload.command) { throw 'Command is not allowed.' }
     $metadata = Get-Command -Name $invoke.payload.command -ErrorAction Stop
     $parameters = @{}
     foreach ($property in $invoke.payload.parameters.PSObject.Properties) {
@@ -139,7 +139,7 @@ try {
     $null = Read-Frame 'retire' $invoke.id
 } catch {
     # Never log invocation data or recover a result from console output.
-    [Console]::Error.WriteLine('P0 worker failed initialization, invocation or private IPC.')
+    [Console]::Error.WriteLine(('P0 worker failed ({0}) at bootstrap line {1}.' -f $_.Exception.GetType().Name, $_.InvocationInfo.ScriptLineNumber))
     exit 1
 } finally {
     if ($null -ne $pipe) { $pipe.Dispose() }

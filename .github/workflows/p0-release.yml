@@ -1,0 +1,155 @@
+name: P0 Tag Release
+
+on:
+  push:
+    tags: ['v1.*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0-tag-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      commit: ${{ steps.version.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13.9'
+      - run: python fresh/eng/packages.py version tag
+        id: version
+  checks:
+    needs: version
+    uses: ./.github/workflows/p0-pr.yml
+  native:
+    needs: [version, checks]
+    uses: ./.github/workflows/p0-native.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+  publish:
+    needs: [version, checks, native]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    environment: p0-release
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: fresh/global.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13.9'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: package-*-${{ needs.version.outputs.version }}-${{ github.run_attempt }}
+          merge-multiple: true
+          path: packages
+      - name: Canonical exact-tag publication, with verified partial resume
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          P0_STABLE_QUALIFIED_COMMIT: ${{ vars.P0_STABLE_QUALIFIED_COMMIT }}
+          PACKAGE_VERSION: ${{ needs.version.outputs.version }}
+          PACKAGE_COMMIT: ${{ needs.version.outputs.commit }}
+        shell: bash
+        run: python fresh/eng/publish.py tag packages "$PACKAGE_VERSION" "$PACKAGE_COMMIT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: published-release-${{ github.run_attempt }}
+          path: packages
+          if-no-files-found: error
+          retention-days: 90
+  registry-install:
+    needs: [version, publish]
+    runs-on: ${{ matrix.target.runner }}
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        registry: [github, nuget]
+        target:
+          - {rid: linux-x64, runner: ubuntu-24.04}
+          - {rid: linux-arm64, runner: ubuntu-24.04-arm}
+          - {rid: win-x64, runner: windows-2025}
+          - {rid: win-arm64, runner: windows-11-arm}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: fresh/global.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13.9'
+          architecture: ${{ endsWith(matrix.target.rid, 'arm64') && 'arm64' || 'x64' }}
+      - run: python fresh/eng/provision.py ${{ matrix.target.rid }} PowerShell7
+      - name: Fresh native installation from only the selected registry
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REGISTRY: ${{ matrix.registry }}
+          RID: ${{ matrix.target.rid }}
+          VERSION: ${{ needs.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export NUGET_PACKAGES="$RUNNER_TEMP/registry-cache"
+          if [[ "$REGISTRY" == github ]]; then
+            FEED="https://nuget.pkg.github.com/$GITHUB_REPOSITORY_OWNER/index.json"
+            export NuGetPackageSourceCredentials_Registry="Username=$GITHUB_ACTOR;Password=$GH_TOKEN;ValidAuthenticationTypes=Basic"
+          else
+            FEED="https://api.nuget.org/v3/index.json"
+          fi
+          printf '<configuration><packageSources><clear/><add key="Registry" value="%s"/></packageSources></configuration>' "$FEED" > "$RUNNER_TEMP/feed.config"
+          dotnet tool install "PoshMcp.Foundation.$RID" --version "$VERSION" \
+            --tool-path "$RUNNER_TEMP/registry-tool" --configfile "$RUNNER_TEMP/feed.config" --no-cache
+          mkdir -p fresh/TestResults
+          TOOL="$RUNNER_TEMP/registry-tool/poshmcp-foundation"
+          if [[ "$RID" == win-* ]]; then TOOL="$TOOL.exe"; fi
+          "$TOOL" \
+            --probe "$POSHMCP_TEST_RUNTIME" PowerShell7 | tee "fresh/TestResults/registry-$REGISTRY-$RID.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: registry-${{ matrix.registry }}-${{ matrix.target.rid }}-${{ github.run_attempt }}
+          path: fresh/TestResults
+          if-no-files-found: error
+          retention-days: 90
+  finalize:
+    needs: [version, publish, registry-install]
+    runs-on: ubuntu-24.04
+    environment: p0-release
+    permissions:
+      contents: write
+    steps:
+      - name: Finalize only after both registries install on all four native hosts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.version.outputs.version }}
+        shell: bash
+        run: |
+          if [[ "$VERSION" == *-* ]]; then
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease
+          else
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false
+          fi

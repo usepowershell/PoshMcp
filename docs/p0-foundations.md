@@ -153,23 +153,30 @@ architecture, exact runtime identity, .NET version and hardware with each run.
 Native matrix measurement artifacts are the place for measured values; no
 measurements or approved numeric defaults are invented here.
 
-The reproducible [Linux x64 report](p0-evidence/linux-x64.json) is **incomplete**:
-the heavy module is unavailable and its installation was denied. The harness
-records that failure, preserves independent minimal/slow/failing evidence, and
-exits nonzero rather than claiming a complete measurement gate. On Ubuntu
+The reproducible [Linux x64 report](p0-evidence/linux-x64.json) now includes
+minimal, real PSScriptAnalyzer 1.24.0, five-second and failing fixtures.
+The analyzer was installed privately from its official GitHub release after
+PSGallery DNS was unavailable. Its downloaded archive SHA-256 was
+`e86c97d44bb1bc8a1de35e753b85ea1d938f6f9f881639a181507e079bca4556`.
+This is a complete **local fixture run**, not cross-platform qualification.
+The harness still records fixture failures and exits nonzero if any required
+fixture fails. On Ubuntu
 24.04.5, AMD EPYC 9V74 with two available logical CPUs, .NET 11.0.0 and native
 PowerShell 7.6.0:
 
 | Fixture | Samples | Mean initialize | Ready-to-executing ACK p95 | Two-initializer init/retire batch rate | Peak worker RSS |
 | --- | --- | --- | --- | --- | --- |
-| Minimal | 10 | 400.83 ms | 10.19 ms | 3.814/s | 111.83 MiB |
-| Five-second startup | 10 | 5394.00 ms | 9.80 ms | 0.366/s | 112.53 MiB |
+| Minimal | 10 | 865.11 ms | 35.44 ms | 2.275/s | 112.28 MiB |
+| Real module import | 10 | 773.52 ms | 65.21 ms | 2.146/s | 121.84 MiB |
+| Five-second startup | 10 | 5396.05 ms | 7.94 ms | 0.364/s | 113.81 MiB |
 
 These are shared-host feasibility observations, not approved budgets or
 command-start latency promises. The first sample includes .NET lazy
 initialization descriptor growth; subsequent minimal/slow samples show zero
 before/after descriptor delta after explicit redirected-reader disposal.
 That is not a resource-recovery soak or Windows handle-floor qualification.
+These shared-host measurements overlapped other local validation and are
+deliberately not presented as controlled release-latency percentiles.
 
 For measured mean startup S, mean execution E and retirement R, sustained
 replacement is at most B/S for B initializer slots; reserve Q only absorbs a
@@ -183,6 +190,19 @@ native measurements and downstream latency limits, not arbitrary defaults.
 For the five-second fixture, B=2 implies an ideal ceiling of 0.4 replacements/s,
 not ten requests/s sustained from a ready reserve.
 
+For **review only**, a conservative next Linux fixture experiment could target
+0.2 calls/s on the five-second profile (below the observed 0.364/s batch rate),
+with two initializer slots, one execution slot and two Ready workers. Counting
+two Ready + two initializing + one executing + one retiring + one discovery
+slot gives a seven-process cap. Seven times the observed 121.84 MiB peak is
+about 853 MiB before supervisor/launcher and variability overhead; a 1.5 GiB
+test-envelope ceiling provides headroom to measure rather than a guarantee.
+Start with a queue capacity of two and a 15-second queue/startup experiment
+deadline (nearly three observed slow startups), with the existing ten-second
+probe invocation/containment deadlines. These are **unapproved test proposals**
+for these fixtures only, not shipping defaults or promises for arbitrary
+modules/scripts. Final numbers require sustained/queued/native measurements.
+
 **Blocked:** final capacity/default/release budgets depend on qualified 405
 and reviewed native measurement data. The proposed slow-fixture warm-dispatch
 p95 <250 ms is still a hypothesis. The Windows handle-floor follow-up
@@ -191,22 +211,25 @@ the P0 ten-cycle test does not establish either.
 
 ## CI/CD audit and administrator setup (403, 406, 407)
 
-The existing workflows were inspected before proposing replacements. They
-remain **unchanged** because workflow replacement/creation is still denied.
-Shared validation source is now present, but downstream publication
-prerequisites are unresolved:
+The existing workflows were audited before adding P0 gates. The retained
+legacy `ci.yml` continues its existing checks alongside the new isolated P0
+PR checks; legacy suites are not imported into the fresh execution core.
 
-| Existing workflow | Gap against approved P0 |
+| Workflow | Audit/result |
 | --- | --- |
-| `ci.yml` | Path-filtered PR/main triggers; legacy solution and benchmark/session contract; category filters omit unclassified tests; no fresh-core or worker 5.1 lint gate |
-| `preview-packages.yml` | Main path/message skips; independent Unit/Functional gate; one legacy package; workflow-wide package-write permission; blind duplicate suppression |
-| `publish-packages.yml` | Legacy tag/manual publication; only Unit/Functional tests; no native four-target gate; blind duplicate/release-error suppression; container publication belongs to later delivery |
+| `ci.yml` | Retained legacy checks; its path filters/category assumptions do not control new P0 validation or publication |
+| `p0-pr.yml` | Every PR to main runs read-only fresh build/unit/negative controls and C#/all-default PowerShell lint plus 5.1 syntax; labeled PRs can additionally run the native feasibility matrix |
+| `preview-packages.yml` | Replaced the incomplete preview publisher with unfiltered main triggers, full P0 checks/native matrix, four-target immutable package manifests and GitHub-only publication |
+| `publish-packages.yml` | Existing releases/containers retained for **v0 only**, with an explicit v0 version guard; cannot publish a v1 package manually or race the new tag lane |
+| `p0-native.yml` | Reused five-combination native worker/fault/short-soak/measurement and four-package install gate; no category filter or missing-runner skip |
+| `p0-release.yml` | Exact-commit v1 tag validation, complete gates, canonical artifacts, identical upload bytes to both feeds, native registry installs and final release status |
 
-Do not merge this draft assuming the requested publication cadence is
-operational. Existing releases are untouched; there is no new publishing
-workflow and no package/tag/release was created by this work.
+The workflows are **implemented but not end-to-end qualified**. No package,
+tag or release was published/created by this work. Protected environments,
+credentials and native runner execution remain administrator/qualification
+prerequisites; do not merge this draft treating those as satisfied.
 
-Required follow-through once the package/shared-gate prerequisites are resolved:
+Administrator setup and remaining qualification:
 
 * Read-only PR build/all-unit/C# analyzer-format/PowerShell 5.1 lint gates;
   exhaustive classification must reject new/unclassified/skipped tests and
@@ -239,6 +262,86 @@ Required follow-through once the package/shared-gate prerequisites are resolved:
   The legacy `build` check is not evidence of P0 acceptance. Stable promotion
   additionally requires P5 qualification, not merely a P0 pipeline.
 
+### Trigger, runner and credential contracts
+
+The required PR checks are **P0 build and unit** and **P0 CSharp and PowerShell
+lint**. Enable both in main's branch/ruleset protection; retain any existing
+required legacy checks until an explicit migration decision. PR jobs use
+`contents: read`, do not inherit publishing secrets and never publish.
+
+To qualify a draft before any merge/tag, create and apply **p0-native-qualification** to
+the PR. Its labeled/opened/synchronize/reopened event runs the full native
+matrix after unit/lint succeeds, with local-only
+`1.0.0-alpha.pr.<run-id>.<attempt>` package versions. This opt-in job has no
+registry-write permissions or release credentials. Keep the label through
+fixes so new commits requalify; unlabeled PRs retain the normal unit/lint
+scope. A requested matrix still requires every native combination to succeed.
+Creating this repository label was denied as an administrator metadata
+action; it has not been created/applied in this session. A maintainer must
+perform that action before the opt-in matrix can execute.
+
+The native matrix uses `ubuntu-24.04`, `ubuntu-24.04-arm`, `windows-2025` and
+`windows-11-arm`; Windows x64 additionally selects Desktop 5.1 explicitly.
+Each host must actually execute native Python/.NET/PowerShell. Architecture
+verification and package-start checks fail rather than treat emulation or
+cross-compilation as qualification. Windows compilers use a native MSVC
+developer environment. Unavailable runners remain visible blocking jobs.
+`eng/provision.py` pins the PowerShell release hashes; it currently expects
+PSGallery to be configured/reachable on dedicated CI runners to acquire
+PSScriptAnalyzer 1.24.0. A proposed source provisioning change was denied, so
+that code is unchanged; a repository/feed failure blocks the gate explicitly.
+The local analyzer used the official release because this shared host's
+gallery DNS is unavailable, not a silent CI fallback.
+
+Configure **p0-main-packages** with main-only deployment restrictions and the
+repository/package Actions access needed for `GITHUB_TOKEN` package writes.
+It does not need nuget.org credentials. There are no custom main path/message
+skips or concurrency cancellation. Versions use
+`1.0.0-alpha.ci.<run-id>.<attempt>.g<commit-prefix>`; NuGet build metadata is
+not relied on for uniqueness. GitHub's own platform-level `[skip ci]` behavior
+cannot be removed by a workflow; administrators must disallow that merge
+convention if every push must execute.
+
+Configure **p0-release** for protected `v1.*` tags and required reviewers. Add
+a least-privilege `NUGET_API_KEY` for the four IDs; do not put it in the PR,
+repository files or main lane. The publisher has job-scoped package-write and
+release-content-write permissions only after the complete native gate.
+Stable `v1.0.0` additionally requires
+`P0_STABLE_QUALIFIED_COMMIT` in this protected environment to equal the exact
+tagged commit, set only after the administrator has reviewed P5 evidence.
+This guard does not implement or claim P5 qualification.
+
+### Immutable publication and reruns
+
+The package helper verifies IDs/versions, all four architecture records,
+checksums, tool/launcher payloads and exact commit provenance. A missing target,
+test failure, empty suite or changed package blocks publication. Main uploads
+only to GitHub Packages. A tag builds the tagged commit independently of any
+main artifact, then freezes the first fully validated bytes in
+`canonical.zip` on a **draft GitHub Release** before uploading registries.
+Reruns load and verify that exact-commit canonical set, never overwrite
+conflicting assets/versions, and only push packages absent from each registry.
+All existing versions must verify; there is no `--skip-duplicate` suppression.
+Tag publication is serialized without cancellation.
+
+Use **Re-run all jobs**, not only failed jobs: the native records/artifacts
+are attempt-scoped, preventing accidental mixing with an earlier attempt.
+Main reruns get a new immutable version. Tag reruns revalidate the same commit
+and resume the same canonical bytes. Canonical release assets outlive the
+90-day Actions evidence retention, but a missing/corrupt canonical set must
+be resolved explicitly rather than selecting a different commit.
+
+Both feeds receive the same canonical `.nupkg` upload bytes. nuget.org normally
+adds a repository signature, so downloaded signed ZIP bytes may legitimately
+differ. The publisher requires signature verification and unchanged entry
+payload hashes for that case; GitHub downloads must match SHA-256 exactly.
+This service-signing distinction needs registry qualification/maintainer
+review, not a false claim that downloaded ZIPs always remain byte-identical.
+Fresh native installs use a registry-only config and an empty NuGet cache.
+The GitHub Release stays draft if either registry or any of eight registry/
+architecture installs fails; only then is it finalized as prerelease/stable.
+No P0 container publication was added.
+
 ### Shared commands delivered
 
 `python fresh/eng/validate.py unit` restores locked dependencies, builds and
@@ -254,12 +357,11 @@ Future implemented categories therefore do not silently disappear.
 disposable clone: an actual failed unit assertion, unclassified test,
 misclassified subprocess call, compiler diagnostic and formatting violation
 each fail for the intended reason. `python -m unittest discover -s fresh/eng
--p 'test_*.py' -v` runs three focused shared-gate tests.
+-p 'test_*.py' -v` runs eleven focused shared/package/version/resume tests.
 
 `lint` retains C# formatting/analyzers and **all default** PowerShell
 error/warning rules, then adds an explicit 5.1 syntax pass. No default rule is
-disabled. Negative PowerShell lint/syntax controls are included but not yet
-executed because PSScriptAnalyzer 1.24.0 installation remains denied.
+disabled. Negative PowerShell lint/syntax controls now execute and pass.
 `eng/provision.py` prepares checksum-pinned native PowerShell and that pinned
 module for dedicated CI runners; it has not been executed in the shared
 workspace and does not install anything globally.
@@ -272,10 +374,10 @@ Evidence was produced on Ubuntu 24.04 **linux-x64**, SDK/runtime 11.0.100/11.0.0
 | --- | --- | --- |
 | 402 | Isolated contracts, native matrix/identity policy; Linux x64 tool now packs, installs and invokes the intended external runtime without diagnostic suppression | Three other native package targets; SDK/client/protocol and ARM64/5.1 qualifications |
 | 405 | Real Linux x64 initialization/invocation/error/timeout/crash/descendant and thread-exit regression tests pass; native launcher and reader cleanup corrected | Native Windows/x64/arm64 and Linux arm64; native output/API/serialization edge cases and containment backstops |
-| 404 | Persisted incomplete native minimal/slow/failing report; full measurement harness and sizing formulas | Heavy-module installation/run denied; remaining native reports, exact command-start/queue measurements, sustained capacity, reviewed defaults and handle-growth evidence |
-| 403 | Shared build/unit/all/lint/provision source; classification guard; three engineering tests and five negative controls pass; C# formatting passes | PR workflow writes still denied; PSScriptAnalyzer lint and negative PowerShell controls not run |
-| 406 | Existing preview pipeline audit and required contract recorded | Blocked by incomplete 403 workflow gates and native qualification; no new publication workflow or registry evidence |
-| 407 | Existing tag pipeline audit and required contract recorded | Blocked by 402/406; exact-commit dual-feed workflow, safe-rerun implementation and feed installation qualification |
+| 404 | Complete local minimal/real-module/slow/failing report, sizing formulas and review-only experiment envelope | Other native reports, exact command-start/queue measurements, sustained capacity, approved defaults and handle-growth evidence |
+| 403 | New read-only PR workflow, shared classification/commands, eleven engineering tests and five negative controls; all C#/PowerShell lint passes locally | Actual PR Actions result and administrator-required checks; runner provisioning still needs native CI execution |
+| 406 | Every-main full-gate/native/four-package pipeline and immutable publication helper implemented | Native Windows/ARM64 execution, protected environment/package access and real GitHub registry publication qualification |
+| 407 | Exact-tag dual-feed/canonical safe-resume, checksums/release notes, eight native registry installs and finalization workflow implemented | Native/registry end-to-end execution, protected release credentials, repository-signature review and P5 stable promotion |
 
 Available validation:
 
@@ -286,22 +388,21 @@ python fresh/eng/validate.py unit
 POSHMCP_TEST_RUNTIME=/absolute/pwsh python fresh/eng/validate.py all
   PASS, 20 tests, zero skipped; includes native launcher compilation
 python -m unittest discover -s fresh/eng -p 'test_*.py' -v
-  PASS, 3 tests
+  PASS, 11 tests
 python fresh/eng/verify-gates.py
   PASS, all 5 negative controls rejected for the intended reason
 cd fresh && dotnet format --verify-no-changes --no-restore
   PASS
-dotnet pack ... -p:TargetRid=linux-x64 -p:Version=1.0.0-alpha.2
-dotnet tool update ... --tool-path /private/session/foundation-tool ...
-poshmcp-foundation --probe /absolute/pwsh PowerShell7
-  PASS, actual installed local package initializes, invokes and retires
+python fresh/eng/packages.py pack linux-x64 1.0.0-alpha.3 /private/session/output
+  PASS, actual registry-free local package install initializes/invokes/retires
 poshmcp-foundation --measure /absolute/pwsh PowerShell7 report.json
-  FAIL explicitly for missing heavy module; independent evidence persisted
-PowerShell 7 Parser.ParseFile over all 8 source scripts/settings
-  PASS; not a substitute for PSScriptAnalyzer or native 5.1
+  PASS, all required local fixtures, including the real pinned module
+python fresh/eng/validate.py lint
+  PASS, C# formatting, all default PowerShell warnings/errors and 5.1 syntax,
+  including deliberately failing PowerShell lint/syntax controls
 ```
 
-The maintainer approved .NET 11, then explicitly authorized checksum-verified
+Before the latest authorization, the maintainer approved .NET 11, then explicitly authorized checksum-verified
 PowerShell installation and corrective packaging/format/classification/CI
 edits. That resolved the earlier SDK/runtime/package/source-edit blockers.
 Additional worker diagnostics and local PSScriptAnalyzer executable-module
@@ -310,15 +411,27 @@ replaced by the materially stronger all-default-rules plus compatibility
 passes; no default lint diagnostic was suppressed. CI deletion was denied as
 disabling existing verification, and new workflow creation remained denied
 even after explicitly preserving pipeline failures with `pipefail`.
-No workflow was installed, removed or disabled. An accidental unidentified
+At that earlier checkpoint no workflow was installed, removed or disabled. An accidental unidentified
 dotnet target was rejected and never executed. The earlier remote-inspection
 denial was respected; no credentials or remote URL were inspected.
 
-Administrator follow-through now requires explicit authorization/provisioning
-of PSScriptAnalyzer 1.24.0 and the exact in-place CI workflow replacement,
-without deleting controls or masking failures, before dependent main/tag
-pipelines can proceed. The publishing-credential and native-runner actions
-listed above are still required.
+On the latest authorization, the analyzer was installed privately and the
+worker diagnostics and workflow additions/in-place publishing changes were
+applied. The legacy CI was **not deleted**. A source edit to `provision.py`
+and a new registry-install helper were denied as beyond the specific grant;
+neither was applied. The latter is unnecessary because native registry
+installation is directly specified in the authorized workflow. Installation/
+execution of an external workflow-validator executable was denied, so a local
+actionlint result is **not** claimed. An optional YAML parser was missing;
+no substitute/tool installation was used to bypass that denial. GitHub must
+validate and execute the new workflow definitions.
+Repository-label creation for the opt-in draft qualification trigger was
+also denied; no dependent label application or alternate trigger was attempted.
+
+The remaining native runner, feed configuration, protected publishing
+credential and required-check actions are listed above. Earlier denied
+patches/commands were not executed through alternative tools; later
+successful work followed explicit new authorization.
 
 Completed work is preserved rather than inventing measurements, suppressing
 tests/diagnostics, or implementing publication ahead of its prerequisites.
