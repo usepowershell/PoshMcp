@@ -66,12 +66,31 @@ public sealed class WorkerTests
                 using var process = Process.GetProcessById(pid);
                 if (process.HasExited) return;
                 // Linux zombies have no execution resources; the service/container init must reap them.
-                if (OperatingSystem.IsLinux() && File.ReadAllText($"/proc/{pid}/stat").Split(')')[1].TrimStart().StartsWith("Z ", StringComparison.Ordinal)) return;
+                if (OperatingSystem.IsLinux() && LinuxProcessIsGoneOrZombie(() => File.ReadAllText($"/proc/{pid}/stat"))) return;
             }
             catch (ArgumentException) { return; }
             catch (FileNotFoundException) { return; }
             await Task.Delay(100);
         }
         Assert.Fail($"Owned process {pid} survived containment deadline.");
+    }
+
+    internal static bool LinuxProcessIsGoneOrZombie(Func<string> readStatus)
+    {
+        try { return readStatus().Split(')')[1].TrimStart().StartsWith("Z ", StringComparison.Ordinal); }
+        catch (FileNotFoundException) { return true; }
+        // procfs can return ESRCH after opening the file but before reading it.
+        catch (IOException error) when (error.HResult == 3) { return true; }
+    }
+
+    [Fact]
+    public void ProcessStatusExitRaceDoesNotMaskLiveProcessesOrUnrelatedIoFailures()
+    {
+        Assert.True(LinuxProcessIsGoneOrZombie(() => throw new IOException("No such process", 3)));
+        Assert.True(LinuxProcessIsGoneOrZombie(() => throw new FileNotFoundException()));
+        Assert.True(LinuxProcessIsGoneOrZombie(() => "1 (pwsh) Z 0"));
+        Assert.False(LinuxProcessIsGoneOrZombie(() => "1 (pwsh) R 0"));
+        Assert.Throws<IOException>(() => LinuxProcessIsGoneOrZombie(() => throw new IOException("I/O error", 5)));
+        Assert.Throws<UnauthorizedAccessException>(() => LinuxProcessIsGoneOrZombie(() => throw new UnauthorizedAccessException()));
     }
 }

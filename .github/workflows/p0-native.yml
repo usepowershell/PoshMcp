@@ -29,19 +29,31 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Record native runner context
+        shell: bash
+        run: |
+          mkdir -p fresh/TestResults
+          printf 'os=%s\narchitecture=%s\nimage=%s\nimageVersion=%s\n' \
+            "$RUNNER_OS" "$RUNNER_ARCH" "$ImageOS" "$ImageVersion" > fresh/TestResults/runner.txt
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: fresh/global.json
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13.9'
+          python-version: '3.13'
           architecture: ${{ matrix.arch }}
+      - shell: bash
+        run: python --version | tee -a fresh/TestResults/runner.txt
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
         with:
           arch: ${{ matrix.arch }}
       - run: python fresh/eng/provision.py ${{ matrix.rid }} ${{ matrix.kind }}
-      - run: python fresh/eng/validate.py all
+      - name: Run every implemented test
+        shell: bash
+        run: |
+          set -o pipefail
+          python fresh/eng/validate.py all 2>&1 | tee fresh/TestResults/all-tests.log
       - run: python -m unittest discover -s fresh/eng -p 'test_*.py' -v
       - name: Measure all startup fixtures
         shell: bash
@@ -71,3 +83,4 @@ jobs:
             fresh/.runtime/*-inputs.json
           if-no-files-found: error
           retention-days: 90
+          include-hidden-files: true

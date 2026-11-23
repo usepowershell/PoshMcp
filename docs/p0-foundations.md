@@ -277,8 +277,8 @@ registry-write permissions or release credentials. Keep the label through
 fixes so new commits requalify; unlabeled PRs retain the normal unit/lint
 scope. A requested matrix still requires every native combination to succeed.
 Creating this repository label was denied as an administrator metadata
-action; it has not been created/applied in this session. A maintainer must
-perform that action before the opt-in matrix can execute.
+action in the implementation session. The maintainer created/applied it on
+2026-11-23, enabling the draft matrix without changing publication permissions.
 
 The native matrix uses `ubuntu-24.04`, `ubuntu-24.04-arm`, `windows-2025` and
 `windows-11-arm`; Windows x64 additionally selects Desktop 5.1 explicitly.
@@ -286,6 +286,12 @@ Each host must actually execute native Python/.NET/PowerShell. Architecture
 verification and package-start checks fail rather than treat emulation or
 cross-compilation as qualification. Windows compilers use a native MSVC
 developer environment. Unavailable runners remain visible blocking jobs.
+Native and registry-install jobs select the runner's native Python 3.13 patch
+instead of downgrading an already installed 3.13 runtime to 3.13.9; the exact
+version and runner image are recorded in native evidence. Managed `dotnet`
+commands exclude MSVC's inherited `Platform` variable, while native compiler
+commands retain the toolchain environment. This affects solution configuration,
+not executable architecture or the required native identity checks.
 `eng/provision.py` pins the PowerShell release hashes; it currently expects
 PSGallery to be configured/reachable on dedicated CI runners to acquire
 PSScriptAnalyzer 1.24.0. A proposed source provisioning change was denied, so
@@ -357,7 +363,7 @@ Future implemented categories therefore do not silently disappear.
 disposable clone: an actual failed unit assertion, unclassified test,
 misclassified subprocess call, compiler diagnostic and formatting violation
 each fail for the intended reason. `python -m unittest discover -s fresh/eng
--p 'test_*.py' -v` runs eleven focused shared/package/version/resume tests.
+-p 'test_*.py' -v` runs twelve focused shared/package/version/resume tests.
 
 `lint` retains C# formatting/analyzers and **all default** PowerShell
 error/warning rules, then adds an explicit 5.1 syntax pass. No default rule is
@@ -375,7 +381,7 @@ Evidence was produced on Ubuntu 24.04 **linux-x64**, SDK/runtime 11.0.100/11.0.0
 | 402 | Isolated contracts, native matrix/identity policy; Linux x64 tool now packs, installs and invokes the intended external runtime without diagnostic suppression | Three other native package targets; SDK/client/protocol and ARM64/5.1 qualifications |
 | 405 | Real Linux x64 initialization/invocation/error/timeout/crash/descendant and thread-exit regression tests pass; native launcher and reader cleanup corrected | Native Windows/x64/arm64 and Linux arm64; native output/API/serialization edge cases and containment backstops |
 | 404 | Complete local minimal/real-module/slow/failing report, sizing formulas and review-only experiment envelope | Other native reports, exact command-start/queue measurements, sustained capacity, approved defaults and handle-growth evidence |
-| 403 | New read-only PR workflow, shared classification/commands, eleven engineering tests and five negative controls; all C#/PowerShell lint passes locally | Actual PR Actions result and administrator-required checks; runner provisioning still needs native CI execution |
+| 403 | New read-only PR workflow, shared classification/commands, twelve engineering tests and five negative controls; all C#/PowerShell lint passes locally and initial PR Actions gates pass | Administrator-required checks; full native qualification remains pending |
 | 406 | Every-main full-gate/native/four-package pipeline and immutable publication helper implemented | Native Windows/ARM64 execution, protected environment/package access and real GitHub registry publication qualification |
 | 407 | Exact-tag dual-feed/canonical safe-resume, checksums/release notes, eight native registry installs and finalization workflow implemented | Native/registry end-to-end execution, protected release credentials, repository-signature review and P5 stable promotion |
 
@@ -386,9 +392,9 @@ python fresh/eng/validate.py unit
   PASS, no warnings/errors
   10 unit tests, zero skipped
 POSHMCP_TEST_RUNTIME=/absolute/pwsh python fresh/eng/validate.py all
-  PASS, 20 tests, zero skipped; includes native launcher compilation
+  PASS, 21 tests, zero skipped; includes native launcher compilation
 python -m unittest discover -s fresh/eng -p 'test_*.py' -v
-  PASS, 11 tests
+  PASS, 12 tests
 python fresh/eng/verify-gates.py
   PASS, all 5 negative controls rejected for the intended reason
 cd fresh && dotnet format --verify-no-changes --no-restore
@@ -401,6 +407,26 @@ python fresh/eng/validate.py lint
   PASS, C# formatting, all default PowerShell warnings/errors and 5.1 syntax,
   including deliberately failing PowerShell lint/syntax controls
 ```
+
+### Native qualification corrections (2026-11-23)
+
+The initial PR run `44954122223` passed unit/lint after maintainer execution
+approval. The labeled native run `45232930951` then passed Linux x64 but failed
+the other four combinations. Windows x64/7 and x64/5.1 restored an invalid
+`Debug|x64` solution configuration inherited from MSVC. Linux ARM64 hit a procfs
+`ESRCH` read race after the owned process disappeared. Windows ARM64's Python
+3.13.9 installer failed while downgrading the image's cached 3.13.17.
+
+Corrections isolate managed commands from MSVC's `Platform`, accept only the
+specific process-gone read error (unrelated I/O/permission failures still
+propagate), and select native Python 3.13 without the downgrade. New regressions
+cover managed/native environment separation and process-state error handling.
+All 21 tests pass locally even with `Platform=x64`; twelve engineering tests,
+lint and all five negative gates pass. This is not Windows/ARM64 evidence.
+Runner context and all-test output are preserved even on setup/test failures,
+and the explicitly selected hidden provisioning-receipt JSON files are
+included without uploading runtime directories or credentials. All five
+native combinations still must pass before qualification is claimed.
 
 Before the latest authorization, the maintainer approved .NET 11, then explicitly authorized checksum-verified
 PowerShell installation and corrective packaging/format/classification/CI

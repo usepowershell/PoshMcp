@@ -100,7 +100,7 @@ jobs:
           global-json-file: fresh/global.json
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13.9'
+          python-version: '3.13'
           architecture: ${{ endsWith(matrix.target.rid, 'arm64') && 'arm64' || 'x64' }}
       - run: python fresh/eng/provision.py ${{ matrix.target.rid }} PowerShell7
       - name: Fresh native installation from only the selected registry

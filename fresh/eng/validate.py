@@ -13,6 +13,12 @@ PROJECT = "PoshMcp.Foundation/PoshMcp.Foundation.csproj"
 
 
 def run(*args, env=None, capture=False):
+    if str(args[0]) == "dotnet":
+        # MSVC's native target Platform must not select a managed solution configuration.
+        env = dict(os.environ if env is None else env)
+        for key in tuple(env):
+            if key.casefold() == "platform":
+                del env[key]
     return subprocess.run(
         [str(arg) for arg in args], cwd=ROOT, env=env, check=True,
         text=True, stdout=subprocess.PIPE if capture else None
