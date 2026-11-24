@@ -96,6 +96,14 @@ foreach ($required in @('schemaVersion', 'sdkAssembly', 'baselineProvenance', 's
     }
 }
 
+if ($violations.Count -gt 0) {
+    foreach ($violation in $violations) {
+        Emit-Annotation 'error' "Phase 4 INFRASTRUCTURE/METHODOLOGY failure: $violation"
+        Add-Summary "- **INFRASTRUCTURE / METHODOLOGY failure**: $violation"
+    }
+    Complete 2
+}
+
 # Provenance / SDK migration-pair (mirrors PerformanceComparator.ValidateSdkVersionPair).
 $curMajor = $null; $curSha = $null
 if ((Has-Prop $art 'sdkAssembly') -and ($null -ne $art.sdkAssembly)) {

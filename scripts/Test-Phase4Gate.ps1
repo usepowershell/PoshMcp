@@ -322,6 +322,13 @@ $pisoMissing = Join-Path $work 'isolation-missing.json'; Write-Json $isoPass $pi
 Assert-Exit "schema 1.1 missing same-SDK checks / advisory" (Invoke-Gate $pisoMissing 'advisory') 2
 Assert-Exit "schema 1.1 missing same-SDK checks / release" (Invoke-Gate $pisoMissing 'release') 2
 
+$missingSchema = New-IsolationArtifact
+$missingSchema.Remove('schemaVersion')
+$path = Join-Path $work 'missing-schema.json'
+Write-Json $missingSchema $path
+Assert-Exit 'missing schema / advisory' (Invoke-Gate $path 'advisory') 2
+Assert-Exit 'missing schema / release' (Invoke-Gate $path 'release') 2
+
 Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
 
 Write-Host ""
