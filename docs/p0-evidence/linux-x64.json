@@ -1,0 +1,665 @@
+{
+  "schema": 1,
+  "recordedAtUtc": "2026-11-21T21:47:00.2756042+00:00",
+  "rid": "linux-x64",
+  "os": "Ubuntu 24.04.5 LTS",
+  "cpuIdentifier": "model name\t: AMD EPYC 9V74 80-Core Processor",
+  "logicalCpus": 2,
+  "supervisorPeakBytes": 77651968,
+  "supervisorCpuMs": 1671.568,
+  "dotnet": ".NET 11.0.0",
+  "runtimeKind": "PowerShell7",
+  "samples": [
+    {
+      "fixture": "minimal",
+      "measurements": [
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 3650,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "a8e64a9faab3614ec0aa49b7c9c0966208da0864ead2fb9d81cf7c44b006d468"
+          },
+          "initializationMs": 688.4017,
+          "dispatchMs": 12.8809,
+          "executionMs": 37.5064,
+          "retirementMs": 84.2363,
+          "workerCpuMs": 420,
+          "workerPeakBytes": 117411840,
+          "supervisorHandlesBefore": 36,
+          "supervisorHandlesAfter": 71,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 3715,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "a8e64a9faab3614ec0aa49b7c9c0966208da0864ead2fb9d81cf7c44b006d468"
+          },
+          "initializationMs": 997.9046,
+          "dispatchMs": 12.9173,
+          "executionMs": 53.9966,
+          "retirementMs": 100.0018,
+          "workerCpuMs": 440,
+          "workerPeakBytes": 117374976,
+          "supervisorHandlesBefore": 71,
+          "supervisorHandlesAfter": 71,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 3757,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "a8e64a9faab3614ec0aa49b7c9c0966208da0864ead2fb9d81cf7c44b006d468"
+          },
+          "initializationMs": 904.0092,
+          "dispatchMs": 22.8185,
+          "executionMs": 80.3084,
+          "retirementMs": 150.7774,
+          "workerCpuMs": 420,
+          "workerPeakBytes": 117321728,
+          "supervisorHandlesBefore": 71,
+          "supervisorHandlesAfter": 71,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 3813,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "a8e64a9faab3614ec0aa49b7c9c0966208da0864ead2fb9d81cf7c44b006d468"
+          },
+          "initializationMs": 785.1986,
+          "dispatchMs": 10.7583,
+          "executionMs": 63.1652,
+          "retirementMs": 143.2315,
+          "workerCpuMs": 400,
+          "workerPeakBytes": 117567488,
+          "supervisorHandlesBefore": 71,
+          "supervisorHandlesAfter": 71,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 3871,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "a8e64a9faab3614ec0aa49b7c9c0966208da0864ead2fb9d81cf7c44b006d468"
+          },
+          "initializationMs": 934.0558,
+          "dispatchMs": 8.2708,
+          "executionMs": 54.206,
+          "retirementMs": 150.4877,
+          "workerCpuMs": 420,
+          "workerPeakBytes": 117698560,
+          "supervisorHandlesBefore": 71,
+          "supervisorHandlesAfter": 71,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 3937,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "a8e64a9faab3614ec0aa49b7c9c0966208da0864ead2fb9d81cf7c44b006d468"
+          },
+          "initializationMs": 723.191,
+          "dispatchMs": 10.1417,
+          "executionMs": 30.4764,
+          "retirementMs": 126.1342,
+          "workerCpuMs": 409.9999,
+          "workerPeakBytes": 117288960,
+          "supervisorHandlesBefore": 71,
+          "supervisorHandlesAfter": 71,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 3976,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "a8e64a9faab3614ec0aa49b7c9c0966208da0864ead2fb9d81cf7c44b006d468"
+          },
+          "initializationMs": 936.7938,
+          "dispatchMs": 15.6374,
+          "executionMs": 85.2053,
+          "retirementMs": 147.205,
+          "workerCpuMs": 440,
+          "workerPeakBytes": 117526528,
+          "supervisorHandlesBefore": 71,
+          "supervisorHandlesAfter": 71,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4013,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "a8e64a9faab3614ec0aa49b7c9c0966208da0864ead2fb9d81cf7c44b006d468"
+          },
+          "initializationMs": 994.0514,
+          "dispatchMs": 35.44,
+          "executionMs": 106.5458,
+          "retirementMs": 157.4858,
+          "workerCpuMs": 430,
+          "workerPeakBytes": 117198848,
+          "supervisorHandlesBefore": 71,
+          "supervisorHandlesAfter": 71,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4082,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "a8e64a9faab3614ec0aa49b7c9c0966208da0864ead2fb9d81cf7c44b006d468"
+          },
+          "initializationMs": 950.1192,
+          "dispatchMs": 27.4179,
+          "executionMs": 105.114,
+          "retirementMs": 149.3829,
+          "workerCpuMs": 440,
+          "workerPeakBytes": 117735424,
+          "supervisorHandlesBefore": 71,
+          "supervisorHandlesAfter": 71,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4104,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "a8e64a9faab3614ec0aa49b7c9c0966208da0864ead2fb9d81cf7c44b006d468"
+          },
+          "initializationMs": 737.3915,
+          "dispatchMs": 10.947,
+          "executionMs": 53.4989,
+          "retirementMs": 86.2851,
+          "workerCpuMs": 420,
+          "workerPeakBytes": 117374976,
+          "supervisorHandlesBefore": 71,
+          "supervisorHandlesAfter": 71,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        }
+      ],
+      "repetitions": 10,
+      "initializers": 2,
+      "measuredInitializeAndRetireRatePerSecond": 2.2750346231831715,
+      "theoreticalRefillUpperBoundPerSecond": 2.3118402470303026,
+      "readyToExecutingAckP95Ms": 35.44,
+      "commandStartMeasurement": "Pending exact command-start instrumentation; acknowledgement is only an IPC metric.",
+      "queueWaitMs": null,
+      "queueMeasurementStatus": "P2 admission not implemented",
+      "budgetsApproved": false
+    },
+    {
+      "fixture": "heavy",
+      "measurements": [
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4194,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "6c27f592f6ee34d6dabf8fad79ae12aa1373f20b2123c6c317a70d1c23e57d76"
+          },
+          "initializationMs": 754.9304,
+          "dispatchMs": 42.2383,
+          "executionMs": 26.7336,
+          "retirementMs": 90.8387,
+          "workerCpuMs": 460,
+          "workerPeakBytes": 127541248,
+          "supervisorHandlesBefore": 75,
+          "supervisorHandlesAfter": 75,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4246,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "6c27f592f6ee34d6dabf8fad79ae12aa1373f20b2123c6c317a70d1c23e57d76"
+          },
+          "initializationMs": 650.0695,
+          "dispatchMs": 65.2148,
+          "executionMs": 95.419,
+          "retirementMs": 146.3791,
+          "workerCpuMs": 460,
+          "workerPeakBytes": 127528960,
+          "supervisorHandlesBefore": 75,
+          "supervisorHandlesAfter": 75,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4301,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "6c27f592f6ee34d6dabf8fad79ae12aa1373f20b2123c6c317a70d1c23e57d76"
+          },
+          "initializationMs": 968.7881,
+          "dispatchMs": 42.6951,
+          "executionMs": 96.8849,
+          "retirementMs": 155.6031,
+          "workerCpuMs": 480,
+          "workerPeakBytes": 127664128,
+          "supervisorHandlesBefore": 75,
+          "supervisorHandlesAfter": 75,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4355,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "6c27f592f6ee34d6dabf8fad79ae12aa1373f20b2123c6c317a70d1c23e57d76"
+          },
+          "initializationMs": 968.7367,
+          "dispatchMs": 43.9039,
+          "executionMs": 72.5582,
+          "retirementMs": 103.1598,
+          "workerCpuMs": 480,
+          "workerPeakBytes": 127668224,
+          "supervisorHandlesBefore": 75,
+          "supervisorHandlesAfter": 75,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4400,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "6c27f592f6ee34d6dabf8fad79ae12aa1373f20b2123c6c317a70d1c23e57d76"
+          },
+          "initializationMs": 861.1865,
+          "dispatchMs": 38.2953,
+          "executionMs": 64.1987,
+          "retirementMs": 101.622,
+          "workerCpuMs": 470,
+          "workerPeakBytes": 127676416,
+          "supervisorHandlesBefore": 75,
+          "supervisorHandlesAfter": 75,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4421,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "6c27f592f6ee34d6dabf8fad79ae12aa1373f20b2123c6c317a70d1c23e57d76"
+          },
+          "initializationMs": 678.2269,
+          "dispatchMs": 45.0766,
+          "executionMs": 42.7992,
+          "retirementMs": 90.8792,
+          "workerCpuMs": 460,
+          "workerPeakBytes": 127750144,
+          "supervisorHandlesBefore": 75,
+          "supervisorHandlesAfter": 75,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4473,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "6c27f592f6ee34d6dabf8fad79ae12aa1373f20b2123c6c317a70d1c23e57d76"
+          },
+          "initializationMs": 670.2709,
+          "dispatchMs": 23.9009,
+          "executionMs": 57.65,
+          "retirementMs": 103.3578,
+          "workerCpuMs": 470,
+          "workerPeakBytes": 127754240,
+          "supervisorHandlesBefore": 75,
+          "supervisorHandlesAfter": 75,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4526,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "6c27f592f6ee34d6dabf8fad79ae12aa1373f20b2123c6c317a70d1c23e57d76"
+          },
+          "initializationMs": 685.1957,
+          "dispatchMs": 40.4872,
+          "executionMs": 80.5003,
+          "retirementMs": 131.3068,
+          "workerCpuMs": 500,
+          "workerPeakBytes": 127713280,
+          "supervisorHandlesBefore": 75,
+          "supervisorHandlesAfter": 75,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4569,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "6c27f592f6ee34d6dabf8fad79ae12aa1373f20b2123c6c317a70d1c23e57d76"
+          },
+          "initializationMs": 742.7421,
+          "dispatchMs": 36.0321,
+          "executionMs": 59.4732,
+          "retirementMs": 118.5429,
+          "workerCpuMs": 460,
+          "workerPeakBytes": 127520768,
+          "supervisorHandlesBefore": 75,
+          "supervisorHandlesAfter": 75,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4600,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "6c27f592f6ee34d6dabf8fad79ae12aa1373f20b2123c6c317a70d1c23e57d76"
+          },
+          "initializationMs": 755.0912,
+          "dispatchMs": 54.9685,
+          "executionMs": 71.9728,
+          "retirementMs": 68.8953,
+          "workerCpuMs": 490,
+          "workerPeakBytes": 127696896,
+          "supervisorHandlesBefore": 75,
+          "supervisorHandlesAfter": 75,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        }
+      ],
+      "repetitions": 10,
+      "initializers": 2,
+      "measuredInitializeAndRetireRatePerSecond": 2.1457201465956004,
+      "theoreticalRefillUpperBoundPerSecond": 2.5855700884704516,
+      "readyToExecutingAckP95Ms": 65.2148,
+      "commandStartMeasurement": "Pending exact command-start instrumentation; acknowledgement is only an IPC metric.",
+      "queueWaitMs": null,
+      "queueMeasurementStatus": "P2 admission not implemented",
+      "budgetsApproved": false
+    },
+    {
+      "fixture": "slow",
+      "measurements": [
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4687,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "af2c1dc412333ea35790cda68cc9075ae491906177b09ecd369fdfc0e35e4a8e"
+          },
+          "initializationMs": 5531.8336,
+          "dispatchMs": 7.9441,
+          "executionMs": 38.3466,
+          "retirementMs": 69.9354,
+          "workerCpuMs": 420,
+          "workerPeakBytes": 119336960,
+          "supervisorHandlesBefore": 75,
+          "supervisorHandlesAfter": 75,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4730,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "af2c1dc412333ea35790cda68cc9075ae491906177b09ecd369fdfc0e35e4a8e"
+          },
+          "initializationMs": 5401.9391,
+          "dispatchMs": 7.0849,
+          "executionMs": 28.5106,
+          "retirementMs": 62.1629,
+          "workerCpuMs": 480,
+          "workerPeakBytes": 118632448,
+          "supervisorHandlesBefore": 75,
+          "supervisorHandlesAfter": 75,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4752,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "af2c1dc412333ea35790cda68cc9075ae491906177b09ecd369fdfc0e35e4a8e"
+          },
+          "initializationMs": 5364.9737,
+          "dispatchMs": 7.211,
+          "executionMs": 28.8488,
+          "retirementMs": 48.4825,
+          "workerCpuMs": 450,
+          "workerPeakBytes": 118464512,
+          "supervisorHandlesBefore": 75,
+          "supervisorHandlesAfter": 75,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4775,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "af2c1dc412333ea35790cda68cc9075ae491906177b09ecd369fdfc0e35e4a8e"
+          },
+          "initializationMs": 5361.9593,
+          "dispatchMs": 7.034,
+          "executionMs": 28.9064,
+          "retirementMs": 53.5911,
+          "workerCpuMs": 430,
+          "workerPeakBytes": 118706176,
+          "supervisorHandlesBefore": 75,
+          "supervisorHandlesAfter": 75,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4798,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "af2c1dc412333ea35790cda68cc9075ae491906177b09ecd369fdfc0e35e4a8e"
+          },
+          "initializationMs": 5388.591,
+          "dispatchMs": 7.1978,
+          "executionMs": 28.4435,
+          "retirementMs": 50.7879,
+          "workerCpuMs": 470,
+          "workerPeakBytes": 118681600,
+          "supervisorHandlesBefore": 75,
+          "supervisorHandlesAfter": 75,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4820,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "af2c1dc412333ea35790cda68cc9075ae491906177b09ecd369fdfc0e35e4a8e"
+          },
+          "initializationMs": 5365.7572,
+          "dispatchMs": 7.0788,
+          "executionMs": 28.6312,
+          "retirementMs": 46.2513,
+          "workerCpuMs": 440,
+          "workerPeakBytes": 118755328,
+          "supervisorHandlesBefore": 75,
+          "supervisorHandlesAfter": 75,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4849,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "af2c1dc412333ea35790cda68cc9075ae491906177b09ecd369fdfc0e35e4a8e"
+          },
+          "initializationMs": 5398.3646,
+          "dispatchMs": 7.2486,
+          "executionMs": 29.0302,
+          "retirementMs": 43.6855,
+          "workerCpuMs": 450,
+          "workerPeakBytes": 118530048,
+          "supervisorHandlesBefore": 75,
+          "supervisorHandlesAfter": 75,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4878,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "af2c1dc412333ea35790cda68cc9075ae491906177b09ecd369fdfc0e35e4a8e"
+          },
+          "initializationMs": 5381.2284,
+          "dispatchMs": 7.2557,
+          "executionMs": 28.5664,
+          "retirementMs": 57.8606,
+          "workerCpuMs": 440,
+          "workerPeakBytes": 118521856,
+          "supervisorHandlesBefore": 75,
+          "supervisorHandlesAfter": 75,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4899,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "af2c1dc412333ea35790cda68cc9075ae491906177b09ecd369fdfc0e35e4a8e"
+          },
+          "initializationMs": 5370.2351,
+          "dispatchMs": 7.2344,
+          "executionMs": 29.1491,
+          "retirementMs": 45.8603,
+          "workerCpuMs": 440,
+          "workerPeakBytes": 118784000,
+          "supervisorHandlesBefore": 75,
+          "supervisorHandlesAfter": 75,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        },
+        {
+          "rid": "linux-x64",
+          "runtime": {
+            "pid": 4923,
+            "edition": "Core",
+            "version": "7.6.0",
+            "architecture": "x64",
+            "generation": "af2c1dc412333ea35790cda68cc9075ae491906177b09ecd369fdfc0e35e4a8e"
+          },
+          "initializationMs": 5395.5903,
+          "dispatchMs": 7.9269,
+          "executionMs": 31.669,
+          "retirementMs": 69.267,
+          "workerCpuMs": 480,
+          "workerPeakBytes": 118829056,
+          "supervisorHandlesBefore": 75,
+          "supervisorHandlesAfter": 75,
+          "stdoutChars": 55,
+          "stderrChars": 19
+        }
+      ],
+      "repetitions": 10,
+      "initializers": 2,
+      "measuredInitializeAndRetireRatePerSecond": 0.36405044785395085,
+      "theoreticalRefillUpperBoundPerSecond": 0.37064167801956033,
+      "readyToExecutingAckP95Ms": 7.9441,
+      "commandStartMeasurement": "Pending exact command-start instrumentation; acknowledgement is only an IPC metric.",
+      "queueWaitMs": null,
+      "queueMeasurementStatus": "P2 admission not implemented",
+      "budgetsApproved": false
+    },
+    {
+      "fixture": "failing",
+      "failureMs": 403.7036,
+      "ready": false
+    }
+  ],
+  "failures": [],
+  "completed": true,
+  "releaseQualification": false,
+  "sampleLimitations": "Ten-sample feasibility, not a release percentile or sustained-load qualification."
+}

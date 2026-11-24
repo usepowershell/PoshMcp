@@ -2,6 +2,22 @@
 
 This document describes how to run the `PoshMcp.Tests` suite locally and how each category maps to a CI phase. It is the contributor reference for the test-suite categorization introduced by [spec 009 — Test Suite Consistency](specs/009-test-suite-consistency/spec.md).
 
+The legacy Phase 4 classifier includes blocking cross-SDK thresholds and
+same-SDK isolation checks. Valid threshold breaches remain visibly RED but
+advisory on PRs; release mode fails. Missing schema 1.1 isolation checks,
+downgraded blocking flags and inconsistent overall verdicts fail in both modes.
+Run `pwsh -NoProfile -File scripts/Test-Phase4Gate.ps1` for deterministic checks.
+For `current_first`, collect-only artifacts must include both pool-reset and
+V2-ephemeral samples before V1 collection. Deferred comparison validates and
+loads both strategies without remeasurement; missing or partial isolation
+samples are methodology failures. `Phase4PreloadedSamplesTests` covers this
+artifact contract without starting servers.
+
+**Fresh P0 core:** use `python fresh/eng/validate.py unit`, `all`, or `lint`
+against the isolated fresh solution. Unclassified/skipped tests fail its
+guard, and `all` has no category filter. The legacy defaults and commands below
+do not control P0 package publication. See [P0 CI and qualification](docs/p0-foundations.md).
+
 ## TL;DR
 
 ```bash

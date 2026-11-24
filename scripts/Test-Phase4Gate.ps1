@@ -268,6 +268,67 @@ $pnb = Join-Path $work 'nonblocking.json'; Write-Json $nb $pnb
 Assert-Exit "non-blocking fail, blocking pass / advisory (exit 0)" (Invoke-Gate $pnb 'advisory') 0
 Assert-Exit "non-blocking fail, blocking pass / release (exit 0)"  (Invoke-Gate $pnb 'release')  0
 
+function New-IsolationArtifact {
+    $artifact = New-BaseArtifact
+    $artifact.schemaVersion = 'poshmcp/v4-comparison/1.1'
+    foreach ($mode in $artifact.modes) {
+        $mode['sameSdkIsolationChecks'] = @(
+            [ordered]@{ metric = 'warm_call_latency_ms.p95'; ratio = 1.0; passed = $true; isBlocking = $true },
+            [ordered]@{ metric = 'concurrent_throughput_ms.mean'; ratio = 1.0; passed = $true; isBlocking = $true }
+        )
+    }
+    return $artifact
+}
+
+$iso = New-IsolationArtifact
+$iso.modes[0].sameSdkIsolationChecks[1].passed = $false
+$iso.modes[0].sameSdkIsolationChecks[1].ratio = 1.25
+$iso.modes[0].allPassed = $false
+$iso.overallPassed = $false
+$iso.exitCode = 1
+$piso = Join-Path $work 'isolation-breach.json'; Write-Json $iso $piso
+Assert-Exit "same-SDK breach / advisory (RED, not infra)" (Invoke-Gate $piso 'advisory') 0
+Assert-Exit "same-SDK breach / release (RED)" (Invoke-Gate $piso 'release') 1
+$isoSummary = Join-Path $work 'isolation-summary.md'
+$null = Invoke-Gate $piso 'advisory' '' $isoSummary
+$script:count++
+$summaryText = Get-Content -Raw $isoSummary
+if ($summaryText -match 'RED' -and $summaryText -match 'same-SDK/concurrent_throughput_ms.mean' -and $summaryText -match 'release gate would FAIL') {
+    Write-Host "  PASS  same-SDK advisory summary preserves breach and release failure"
+}
+else {
+    Write-Host "  FAIL  same-SDK advisory summary lost breach or release failure"
+    $script:failures++
+}
+
+$iso.overallPassed = $true
+$pisoInconsistent = Join-Path $work 'isolation-inconsistent.json'; Write-Json $iso $pisoInconsistent
+Assert-Exit "same-SDK breach falsely marked overall pass / advisory" (Invoke-Gate $pisoInconsistent 'advisory') 2
+Assert-Exit "same-SDK breach falsely marked overall pass / release" (Invoke-Gate $pisoInconsistent 'release') 2
+
+$iso.overallPassed = $false
+$iso.modes[0].sameSdkIsolationChecks[1].isBlocking = $false
+$pisoNonblocking = Join-Path $work 'isolation-nonblocking.json'; Write-Json $iso $pisoNonblocking
+Assert-Exit "same-SDK check cannot be downgraded / advisory" (Invoke-Gate $pisoNonblocking 'advisory') 2
+Assert-Exit "same-SDK check cannot be downgraded / release" (Invoke-Gate $pisoNonblocking 'release') 2
+
+$isoPass = New-IsolationArtifact
+$pisoPass = Join-Path $work 'isolation-pass.json'; Write-Json $isoPass $pisoPass
+Assert-Exit "all same-SDK checks pass / advisory" (Invoke-Gate $pisoPass 'advisory') 0
+Assert-Exit "all same-SDK checks pass / release" (Invoke-Gate $pisoPass 'release') 0
+
+$isoPass.modes[1].Remove('sameSdkIsolationChecks')
+$pisoMissing = Join-Path $work 'isolation-missing.json'; Write-Json $isoPass $pisoMissing
+Assert-Exit "schema 1.1 missing same-SDK checks / advisory" (Invoke-Gate $pisoMissing 'advisory') 2
+Assert-Exit "schema 1.1 missing same-SDK checks / release" (Invoke-Gate $pisoMissing 'release') 2
+
+$missingSchema = New-IsolationArtifact
+$missingSchema.Remove('schemaVersion')
+$path = Join-Path $work 'missing-schema.json'
+Write-Json $missingSchema $path
+Assert-Exit 'missing schema / advisory' (Invoke-Gate $path 'advisory') 2
+Assert-Exit 'missing schema / release' (Invoke-Gate $path 'release') 2
+
 Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
 
 Write-Host ""

@@ -1,115 +1,70 @@
-name: Preview Packages
+name: P0 Main
 
 on:
   push:
     branches: [main]
-    paths:
-      - '**.cs'
-      - '**.csproj'
-      - '**.sln'
-      - 'PoshMcp.Server/**.ps1'
-      - '.github/workflows/preview-packages.yml'
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
-  preview:
-    runs-on: ubuntu-latest
-    name: Build & Publish Preview NuGet Package
-    if: "!contains(github.event.head_commit.message, '[skip ci]') && !contains(github.event.head_commit.message, '[no preview]')"
+  version:
+    runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
-
+      commit: ${{ steps.version.outputs.commit }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+          persist-credentials: false
+      - uses: actions/setup-python@v5
         with:
-          dotnet-version: '10.x'
-
-      - name: Determine preview version
+          python-version: '3.13.9'
+      - run: python fresh/eng/packages.py version main
         id: version
-        run: |
-          BASE_VERSION=$(grep -m1 '<Version>' PoshMcp.Server/PoshMcp.csproj | sed 's/.*<Version>\(.*\)<\/Version>.*/\1/')
-          PREVIEW_VERSION="${BASE_VERSION}-preview.${GITHUB_RUN_NUMBER}"
-          echo "base_version=${BASE_VERSION}" >> $GITHUB_OUTPUT
-          echo "version=${PREVIEW_VERSION}" >> $GITHUB_OUTPUT
-          echo "Preview version: ${PREVIEW_VERSION}"
-
-      - name: Restore dependencies
-        run: dotnet restore
-
-      - name: Build Release
-        run: dotnet build --configuration Release --no-restore
-        env:
-          DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
-          DOTNET_CLI_TELEMETRY_OPTOUT: true
-
-      - name: Test (Unit)
-        run: |
-          dotnet test --no-build --configuration Release \
-            --filter "FullyQualifiedName~Unit" \
-            --logger "trx;LogFileName=unit-tests.trx" \
-            --results-directory ./TestResults
-
-      - name: Test (Functional)
-        run: |
-          dotnet test --blame --no-build --configuration Release \
-            --filter "FullyQualifiedName~Functional" \
-            --logger "trx;LogFileName=functional-tests.trx" \
-            --results-directory ./TestResults
-
-      - name: Pack preview NuGet package
-        run: |
-          dotnet pack PoshMcp.Server/PoshMcp.csproj \
-            --configuration Release \
-            --no-build \
-            --output ./nupkg \
-            /p:Version=${{ steps.version.outputs.version }}
-
-          echo "::group::Package Contents"
-          ls -lah ./nupkg/
-          echo "::endgroup::"
-
-      - name: Publish to GitHub Packages
-        run: |
-          dotnet nuget add source \
-            --username ${{ github.actor }} \
-            --password "${{ secrets.GITHUB_TOKEN }}" \
-            --store-password-in-clear-text \
-            --name github \
-            "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
-
-          dotnet nuget push ./nupkg/*.nupkg \
-            --api-key "${{ secrets.GITHUB_TOKEN }}" \
-            --source github \
-            --skip-duplicate
-
-          echo "✓ Preview package published to GitHub Packages"
-
-      - name: Upload artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
+  checks:
+    uses: ./.github/workflows/p0-pr.yml
+  native:
+    needs: [version, checks]
+    uses: ./.github/workflows/p0-native.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+  publish:
+    needs: [version, checks, native]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      packages: write
+    environment: p0-main-packages
+    steps:
+      - uses: actions/checkout@v4
         with:
-          name: preview-nupkg-${{ steps.version.outputs.version }}
-          path: ./nupkg/*.nupkg
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Write job summary
-        run: |
-          echo "## 📦 Preview Package Published" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Version | \`${{ steps.version.outputs.version }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Run | [\`#${GITHUB_RUN_NUMBER}\`](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
-          echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**GitHub Packages:** https://github.com/${{ github.repository }}/packages" >> $GITHUB_STEP_SUMMARY
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: fresh/global.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13.9'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: package-*-${{ needs.version.outputs.version }}-${{ github.run_attempt }}
+          merge-multiple: true
+          path: packages
+      - name: Validate complete immutable set and publish to GitHub only
+        env:
+          PACKAGE_VERSION: ${{ needs.version.outputs.version }}
+          PACKAGE_COMMIT: ${{ needs.version.outputs.commit }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: python fresh/eng/publish.py main packages "$PACKAGE_VERSION" "$PACKAGE_COMMIT"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: immutable-main-${{ needs.version.outputs.version }}
+          path: packages
+          if-no-files-found: error
+          retention-days: 90

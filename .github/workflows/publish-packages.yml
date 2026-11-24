@@ -6,7 +6,7 @@ name: Build and Publish Packages
 on:
   push:
     tags:
-      - 'v*'
+      - 'v0.*'
   workflow_dispatch:
     inputs:
       version:
@@ -54,6 +54,15 @@ jobs:
             VERSION=$(grep -m1 '<Version>' PoshMcp.Server/PoshMcp.csproj | sed 's/.*<Version>\(.*\)<\/Version>.*/\1/')
             echo "version=${VERSION}" >> $GITHUB_OUTPUT
             echo "source=project file" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Restrict retained legacy publisher to the v0 release line
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [[ ! "$VERSION" =~ ^0\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::The legacy workflow accepts v0 versions only; v1 uses the native P0 tag gate."
+            exit 1
           fi
 
       - name: Display build information

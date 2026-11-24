@@ -1,0 +1,70 @@
+name: P0 PR
+
+on:
+  workflow_call:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: P0 build and unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: fresh/global.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13.9'
+      - run: python fresh/eng/validate.py unit
+      - run: python -m unittest discover -s fresh/eng -p 'test_*.py' -v
+      - run: python fresh/eng/verify-gates.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr-unit-reports-${{ github.run_attempt }}
+          path: fresh/TestResults
+          if-no-files-found: error
+          retention-days: 30
+  qualification:
+    name: P0 opt-in native qualification
+    if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'p0-native-qualification')
+    needs: [unit, lint]
+    uses: ./.github/workflows/p0-native.yml
+    with:
+      version: 1.0.0-alpha.pr.${{ github.run_id }}.${{ github.run_attempt }}
+  lint:
+    name: P0 CSharp and PowerShell lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: fresh/global.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13.9'
+      - run: python fresh/eng/provision.py linux-x64 PowerShell7
+      - run: python fresh/eng/validate.py build
+      - shell: bash
+        run: |
+          set -o pipefail
+          python fresh/eng/validate.py lint 2>&1 | tee lint.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr-lint-log-${{ github.run_attempt }}
+          path: lint.log
+          if-no-files-found: error
+          retention-days: 30

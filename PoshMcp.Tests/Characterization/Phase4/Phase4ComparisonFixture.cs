@@ -427,36 +427,7 @@ public sealed class Phase4ComparisonFixture : IAsyncLifetime
                     $"Collect-only artifact at '{artifactPath}' does not contain mode '{mode}'. " +
                     $"Present modes: [{string.Join(", ", artifact.Modes.Select(m => m.TransportMode))}].");
 
-            // Validate required gated scenarios are present with non-empty samples.
-            var required = new[]
-            {
-                $"cold_start_http_with_script_{mode}",
-                $"cold_start_http_no_script_{mode}",
-                $"warm_call_latency_ms_{mode}",
-                $"concurrent_throughput_ms_{mode}",
-            };
-            foreach (var name in required)
-            {
-                var s = modeComparison.Scenarios.FirstOrDefault(sc => sc.Scenario == name);
-                if (s is null || s.RawSamples is null || s.RawSamples.Length == 0)
-                    throw new InvalidOperationException(
-                        $"Collect-only artifact missing or has empty RawSamples for scenario '{name}' " +
-                        $"in mode '{mode}'. Fail-closed: deferred comparison requires pre-collected samples.");
-            }
-
-            double[] GetSamples(string scenario) =>
-                modeComparison.Scenarios.First(s => s.Scenario == scenario).RawSamples!;
-
-            // Derive per-call PS execution estimates from all scenarios (for diagnostic use).
-            var allScenarios = modeComparison.Scenarios;
-
-            _preloadedData[mode] = new PreloadedModeData(
-                ColdWithScript: GetSamples($"cold_start_http_with_script_{mode}"),
-                ColdNoScript: GetSamples($"cold_start_http_no_script_{mode}"),
-                WarmSamples: GetSamples($"warm_call_latency_ms_{mode}"),
-                ThroughputSamples: GetSamples($"concurrent_throughput_ms_{mode}"),
-                AllScenarios: allScenarios,
-                CapturedAt: artifact.CapturedAt);
+            _preloadedData[mode] = PreloadedModeData.FromComparison(modeComparison, artifact.CapturedAt);
 
             _preloadedProvenance.Add(new PreloadedSampleProvenance
             {
@@ -481,4 +452,43 @@ internal sealed record PreloadedModeData(
     double[] WarmSamples,
     double[] ThroughputSamples,
     List<CharacterizationScenario> AllScenarios,
-    string CapturedAt);
+    List<CharacterizationScenario> EphemeralScenarios,
+    string CapturedAt)
+{
+    internal static PreloadedModeData FromComparison(Phase4ModeComparison comparison, string capturedAt)
+    {
+        var mode = comparison.TransportMode.ToLowerInvariant();
+        var required = new[]
+        {
+            $"cold_start_http_with_script_{mode}",
+            $"cold_start_http_no_script_{mode}",
+            $"warm_call_latency_ms_{mode}",
+            $"concurrent_throughput_ms_{mode}",
+            $"warm_call_latency_ms_v2ephemeral_{mode}",
+            $"concurrent_throughput_ms_v2ephemeral_{mode}",
+        };
+        foreach (var name in required)
+        {
+            var scenario = comparison.Scenarios.SingleOrDefault(s => s.Scenario == name);
+            if (scenario?.RawSamples is not { Length: > 0 } ||
+                scenario.Iterations != scenario.RawSamples.Length ||
+                scenario.Stats.SampleCount != scenario.RawSamples.Length)
+                throw new InvalidOperationException(
+                    $"Collect-only artifact missing or has incomplete RawSamples for scenario '{name}' " +
+                    $"in mode '{mode}'. Fail-closed: deferred comparison requires pre-collected samples.");
+        }
+
+        double[] GetSamples(string name) =>
+            comparison.Scenarios.Single(s => s.Scenario == name).RawSamples!;
+
+        var ephemeralNames = required.Skip(4).ToHashSet(StringComparer.Ordinal);
+        return new(
+            GetSamples(required[0]),
+            GetSamples(required[1]),
+            GetSamples(required[2]),
+            GetSamples(required[3]),
+            comparison.Scenarios.Where(s => !ephemeralNames.Contains(s.Scenario)).ToList(),
+            comparison.Scenarios.Where(s => ephemeralNames.Contains(s.Scenario)).ToList(),
+            capturedAt);
+    }
+}
