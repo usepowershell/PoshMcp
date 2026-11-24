@@ -37,3 +37,29 @@ function Invoke-ProbeDescendant {
     $child.Id
     $child.Dispose()
 }
+
+function Invoke-ProbeNative {
+    [CmdletBinding()]
+    param()
+    & (Get-Process -Id $PID).Path -NoLogo -NoProfile -NonInteractive -Command '[Console]::Out.WriteLine("native stdout"); [Console]::Error.WriteLine("native stderr"); exit 17'
+}
+
+function Invoke-ProbeSerialization {
+    [CmdletBinding()]
+    param([ValidateSet('tagged', 'unsupported', 'depth')][string]$Case)
+    switch ($Case) {
+        'tagged' {
+            [pscustomobject]@{
+                Integer = [long]::MaxValue
+                Decimal = [decimal]::Parse('1234567890.123456789', [Globalization.CultureInfo]::InvariantCulture)
+                Timestamp = [datetime]::Parse('2026-01-02T03:04:05Z', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AdjustToUniversal)
+            }
+        }
+        'unsupported' { [version]'1.2.3' }
+        'depth' {
+            $value = @{ leaf = 'value' }
+            for ($index = 0; $index -lt 20; $index++) { $value = @{ nested = $value } }
+            $value
+        }
+    }
+}

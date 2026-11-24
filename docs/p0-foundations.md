@@ -57,8 +57,10 @@ matching native host. Trusted script source is stored as assembly resources,
 not loose NuGet installation hooks; no packaging diagnostics are suppressed.
 Scripts are extracted to a per-process temporary directory and removed on
 normal shutdown. Only scripts, **not PowerShell**, are embedded; crashes can
-leave non-secret script assets for normal host temp cleanup. The other three
-native packages remain pending qualification.
+leave non-secret script assets for normal host temp cleanup. All four native packages were built, locally installed and invoked in
+[P0 qualification run 45298145337](https://github.com/usepowershell/PoshMcp/actions/runs/45298145337)
+at commit `73f8a0c8767cda7ac209e887fd67df99ed938c01`. These are local-source
+installation checks on native matching hosts, not registry installation claims.
 Alpha/beta/stable naming is 1.0.0-alpha.N, 1.0.0-beta.N and 1.0.0. The planned main lane uses a unique
 numeric prerelease with run ID, attempt, and commit identity. Existing
 `poshmcp` identity/entry point and releases stay intact; replacement needs the
@@ -122,8 +124,11 @@ non-running, not falsely claimed reaped; PID 1/service must reap orphans.
 Windows's native launcher uses an atomic process-creation job-list attribute,
 a non-inherited kill-on-close Job Object, restricted inherited stdio handles,
 and a supervisor process handle. The child cannot execute in a pre-assignment
-gap. Windows native execution, Job Object nesting/host policy, and ARM64
-compiler/API qualification are still pending.
+gap. Windows x64/ARM64 native compilation and execution, normal descendant retirement,
+and supervisor-crash Job Object cleanup passed in run 45298145337. This qualifies
+the tested GitHub-hosted runner policies, not every nested Job Object deployment.
+The Linux service/container backstop for descendants that escape the process
+group still requires deployment-specific qualification.
 
 Tests cover structured Unicode/multiline output, nonterminating errors, normal
 descendant retirement, failed/slow startup, timeout, worker crash, supervisor
@@ -131,8 +136,11 @@ crash, launching-thread exit and repeated one-use cycles. All 20 currently
 implemented .NET tests (including 10 unit tests) pass with real Linux x64
 PowerShell 7.6.0; none are skipped. Redirected readers are explicitly disposed
 after draining. Missing runtime/launcher is a failure, never a skipped test.
-More adversarial/native-output/serialization cases and the remaining native
-combinations are required before 405 can close.
+Run 45298145337 executed all 21 then-implemented tests on each of the five
+native combinations with no failures or skips. The follow-up adds real native
+stdout/stderr/nonzero-exit and tagged/unsupported/deep serialization cases;
+those additions must pass the same native matrix before their coverage is
+claimed. Deployment containment backstop limitations remain explicit.
 
 ## Measurements and sizing (404)
 
@@ -141,11 +149,16 @@ select `WindowsPowerShell51` explicitly on Windows x64. Provision
 PSScriptAnalyzer 1.24.0 in `POSHMCP_TEST_MODULE_PATH` first. The heavy profile
 imports that real module; it is not an arbitrary workload throughput claim.
 The minimal, heavy, controlled five-second and failing profiles are repeatable.
-Reports separate initialization, acknowledged warm dispatch (an IPC metric,
-**not yet the required admitted-request-to-command-start measurement**),
+Reports separate initialization, acknowledged warm dispatch (an IPC metric),
+and Ready-to-command-start (supervisor invoke-frame send to PowerShell command
+invocation, measured using the same host monotonic clock),
 execution, retirement, worker CPU/peak working
 set, supervisor CPU/peak memory and before/after handles or Linux descriptors.
-Queue wait is explicitly **unmeasured** until P2 admission exists.
+Queue wait and admitted-request-to-command-start remain explicitly
+**unmeasured** until P2 admission exists. Worker command-start timestamps are
+validated against the supervisor clock; missing/inconsistent clocks fail
+rather than substitute acknowledgment latency. The command-start metric is a
+follow-up addition and is not retroactively claimed for older reports.
 
 Ten serial samples and a two-initializer batch are feasibility data only, not
 a statistically qualified p95 or sustained-load result. Record CPU, OS,
@@ -209,6 +222,58 @@ p95 <250 ms is still a hypothesis. The Windows handle-floor follow-up
 <=0.010 handles/s and 60-minute mixed-load release soak remain P5 concerns;
 the P0 ten-cycle test does not establish either.
 
+### Native evidence and acceptance disposition
+
+[Run 45298145337](https://github.com/usepowershell/PoshMcp/actions/runs/45298145337)
+at `73f8a0c8767cda7ac209e887fd67df99ed938c01` passed all 21 then-implemented
+tests on all five native combinations, all four package build/install/invoke
+checks, and minimal/heavy/slow/failing measurements. The table summarizes
+its ten serial samples per successful profile; these are observations, not
+approved release gates. The heavy fixture imports PSScriptAnalyzer 1.24.0.
+
+| Native combination | Minimal / heavy / slow mean initialization (ms) | Slow two-initializer init/retire rate (/s) | Maximum observed worker peak (MiB) |
+| --- | --- | --- | --- |
+| Linux x64 / PowerShell 7 | 639.85 / 660.42 / 5634.40 | 0.35 | 158.26 |
+| Linux ARM64 / PowerShell 7 | 1165.82 / 1233.46 / 6217.93 | 0.32 | 162.55 |
+| Windows x64 / PowerShell 7 | 427.21 / 482.21 / 5408.90 | 0.37 | 103.31 |
+| Windows ARM64 / PowerShell 7 | 684.99 / 677.66 / 5579.30 | 0.35 | 94.00 |
+| Windows x64 / Desktop 5.1 | 423.76 / 498.51 / 5463.31 | 0.36 | 108.95 |
+
+Linux reports show an initial +35 supervisor descriptors and zero per-sample
+deltas thereafter. Windows reports show an initial +52 handles and recurring
+approximately +1 to +2 per-sample deltas, with occasional negative deltas.
+These short observations do **not** establish a stable handle floor or prove
+a leak; disposal alone is not evidence of recovery. Preserve the P5
+handle-growth/60-minute mixed-load follow-up and investigate with longer
+baseline-adjusted measurements before any release qualification claim.
+
+The follow-up harness additionally records ten initialize/invoke/retire
+replacements through two independent initializer slots per profile, with raw
+measurements, elapsed duration and completed replacement rate. This tests
+finite replacement capacity separately from prewarmed command-start latency;
+it still does not implement a production queue or a long-running load soak.
+
+| P0 issue | Evidence-supported disposition | Remaining acceptance |
+| --- | --- | --- |
+| #402 | Isolated skeleton/contracts, identity boundary, explicit runtime matrix and four-target local package layout demonstrated | Reviewer acceptance of compatibility/deferral decisions; ARM64/5.1 remains unsupported, never substituted |
+| #403 | Read-only unit/lint lanes, classification and negative controls demonstrated; reports retained | Administrator required-check configuration, outside code qualification |
+| #405 | Five-native initialization/invocation/retirement/fault/descendant matrix demonstrated | Added native-output/serialization cases require rerun; deployment-specific service/container and nested-job backstop qualification |
+| #404 | Five-native fixtures and raw startup/resource evidence available; burst versus replacement capacity distinguished | Review numeric proposals; production queue wait/admission belongs to P2, Windows handle-floor/release soak to P5 |
+| #406 | Complete native gate and four-target local package installation demonstrated; immutable-version/conflict controls exercised | Protected main publishing environment/access and an authorized actual GitHub registry run |
+| #407 | Exact-tag, canonical-artifact/conflict/partial-resume controls implemented and tested locally | Authorized dual-feed publication, registry-only native installs, repository-signature and real partial-failure recovery qualification |
+
+For review, retain the two-initializer, two-Ready, one-execution experiment
+at 0.2 calls/s for the controlled slow fixture. The worst observed slow mean
+of 6.218 seconds implies an ideal two-initializer ceiling of 0.322/s, so a
+Ready reserve absorbs bursts rather than raising sustained capacity. A
+seven-process experimental envelope at the worst observed 162.55 MiB worker
+peak is approximately 1.11 GiB of workers alone; the proposed 1.5 GiB envelope
+still needs supervisor/launcher and variability validation. Queue capacity
+two, 15-second queue/startup experiment deadlines and the <250 ms prewarmed
+command-start hypothesis remain **unapproved**, not production defaults.
+Only a reviewer can accept or adjust numeric release budgets. No P0 issue is
+closed and no P1-P5 acceptance or registry publication is inferred here.
+
 ## CI/CD audit and administrator setup (403, 406, 407)
 
 The existing workflows were audited before adding P0 gates. The retained
@@ -226,7 +291,7 @@ PR checks; legacy suites are not imported into the fresh execution core.
 
 The workflows are **implemented but not end-to-end qualified**. No package,
 tag or release was published/created by this work. Protected environments,
-credentials and native runner execution remain administrator/qualification
+credentials and actual registry publication remain administrator/qualification
 prerequisites; do not merge this draft treating those as satisfied.
 
 Administrator setup and remaining qualification:

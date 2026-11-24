@@ -111,6 +111,7 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
         double[] coldNoScript;
         double[] warmSamples;
         double[] thrSamples;
+        var ephemeralScenarios = new List<CharacterizationScenario>();
 
         // ── DEFERRED COMPARISON: load pre-collected samples, do NOT re-measure ──────────────
         if (_fixture.LoadSamplesFromArtifact)
@@ -132,6 +133,7 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
             warmSamples = preloaded.WarmSamples;
             thrSamples = preloaded.ThroughputSamples;
             scenarios.AddRange(preloaded.AllScenarios);
+            ephemeralScenarios.AddRange(preloaded.EphemeralScenarios);
         }
         else
         {
@@ -306,9 +308,8 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
         } // end direct measurement block
 
         // ── V2-Ephemeral measurement for same-SDK isolation gate (Decision C §4B) ─────────
-        // Skipped in collect-only and deferred modes (baseline not available yet).
-        var ephemeralScenarios = new List<CharacterizationScenario>();
-        if (!_fixture.CollectOnly && !_fixture.LoadSamplesFromArtifact)
+        // Collect both V2 strategies before V1 in current_first; deferred comparison only loads them.
+        if (!_fixture.LoadSamplesFromArtifact)
         {
             _output.WriteLine($"[{transportMode}] V2-Ephemeral measurement (same-SDK isolation gate, Decision C §4B)…");
             await using var ephServer = new CharacterizationHttpServer();
@@ -384,7 +385,7 @@ public class Phase4ComparisonTests : IClassFixture<Phase4ComparisonFixture>
             {
                 TransportMode = transportMode,
                 AllPassed = false,
-                Scenarios = scenarios,
+                Scenarios = scenarios.Concat(ephemeralScenarios).ToList(),
                 ThresholdChecks = [],
             });
         }

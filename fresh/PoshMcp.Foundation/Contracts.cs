@@ -79,7 +79,8 @@ public sealed record Catalog(string Generation, ImmutableArray<ToolContract> Too
 public sealed record WorkerEnvelope(int Version, string Kind, string Id, JsonElement Payload);
 public sealed record WorkerReady(int Pid, string Edition, string Version, string Architecture, string Generation);
 public sealed record Invocation(string Command, ImmutableDictionary<string, JsonElement> Parameters);
-public sealed record WorkerResult(bool Success, JsonElement Output, string[] Errors, string[] Warnings, int? NativeExitCode, double ExecutionMs);
+public sealed record WorkerResult(bool Success, JsonElement Output, string[] Errors, string[] Warnings,
+    int? NativeExitCode, double ExecutionMs, long CommandStartTimestamp, long TimestampFrequency);
 
 public sealed class SingleUseLease
 {

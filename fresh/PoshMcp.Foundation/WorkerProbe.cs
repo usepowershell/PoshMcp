@@ -8,7 +8,7 @@ using System.Text.Json;
 namespace PoshMcp.Foundation;
 
 public sealed record ProbeMeasurement(string Rid, WorkerReady Runtime, double InitializationMs,
-    double DispatchMs, double ExecutionMs, double RetirementMs, double WorkerCpuMs,
+    double DispatchMs, double CommandStartMs, double ExecutionMs, double RetirementMs, double WorkerCpuMs,
     long WorkerPeakBytes, int SupervisorHandlesBefore, int SupervisorHandlesAfter,
     long StdoutChars, long StderrChars);
 
@@ -44,7 +44,8 @@ public sealed class WorkerProbe : IAsyncDisposable
             kind == RuntimeKind.PowerShell7 ? Contract.PowerShellVersion : "5.1",
             RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(), AppContext.BaseDirectory,
             [baseline, startup], fixture == "heavy" ? [new("PSScriptAnalyzer", "1.24.0")] : [],
-            ["Invoke-Probe", "Invoke-ProbeError", "Invoke-ProbeHang", "Invoke-ProbeCrash", "Invoke-ProbeDescendant"],
+            ["Invoke-Probe", "Invoke-ProbeError", "Invoke-ProbeHang", "Invoke-ProbeCrash", "Invoke-ProbeDescendant",
+                "Invoke-ProbeNative", "Invoke-ProbeSerialization"],
             Environment.GetEnvironmentVariable("POSHMCP_TEST_MODULE_PATH") is { } modulePath
                 ? ImmutableDictionary<string, string>.Empty.Add("PSModulePath", modulePath)
                 : ImmutableDictionary<string, string>.Empty);
@@ -155,18 +156,24 @@ public sealed class WorkerProbe : IAsyncDisposable
         var dispatch = Stopwatch.StartNew();
         WorkerResult result;
         double dispatchMs;
+        double commandStartMs;
         double cpuMs;
         long peakBytes;
         using (var worker = Process.GetProcessById(Ready.Pid))
         {
             try
             {
+                var sentAt = Stopwatch.GetTimestamp();
                 await Framing.WriteAsync(_pipe, Framing.Message("invoke", id, invocation), deadline.Token);
                 await Framing.ReadAsync(_pipe, "executing", id, deadline.Token);
                 dispatchMs = dispatch.Elapsed.TotalMilliseconds;
                 var message = await Framing.ReadAsync(_pipe, "result", id, deadline.Token);
                 result = message.Payload.Deserialize<WorkerResult>(Contract.Json)
                     ?? throw new InvalidDataException("Missing structured worker result.");
+                if (result.TimestampFrequency != Stopwatch.Frequency ||
+                    result.CommandStartTimestamp < sentAt || result.CommandStartTimestamp > Stopwatch.GetTimestamp())
+                    throw new InvalidDataException("Worker command-start clock does not match the supervisor monotonic clock.");
+                commandStartMs = (result.CommandStartTimestamp - sentAt) * 1000.0 / Stopwatch.Frequency;
                 // Worker waits for retire so resource sampling cannot race process exit.
                 worker.Refresh();
                 cpuMs = worker.TotalProcessorTime.TotalMilliseconds;
@@ -189,7 +196,7 @@ public sealed class WorkerProbe : IAsyncDisposable
         deadline.Dispose();
         if (stdout > Contract.MaxDiagnosticChars || stderr > Contract.MaxDiagnosticChars)
             throw new InvalidDataException("Worker stdout/stderr exceeded the diagnostic budget.");
-        return (result, new(Contract.NativeRid, Ready, _initializationMs, dispatchMs, result.ExecutionMs,
+        return (result, new(Contract.NativeRid, Ready, _initializationMs, dispatchMs, commandStartMs, result.ExecutionMs,
             retirement.Elapsed.TotalMilliseconds, cpuMs, peakBytes, _handlesBefore, HandleCount(), stdout, stderr));
     }
 

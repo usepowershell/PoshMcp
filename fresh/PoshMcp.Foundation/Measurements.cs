@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -32,6 +33,22 @@ public static class Measurements
                 {
                     await using var worker = await WorkerProbe.StartAsync(profile, TimeSpan.FromSeconds(60));
                 }));
+                refill.Stop();
+                const int replacementsPerInitializer = 5;
+                var replacements = new ConcurrentBag<ProbeMeasurement>();
+                var replacementTimer = Stopwatch.StartNew();
+                await Task.WhenAll(Enumerable.Range(0, initializers).Select(async _ =>
+                {
+                    for (var iteration = 0; iteration < replacementsPerInitializer; iteration++)
+                    {
+                        await using var worker = await WorkerProbe.StartAsync(profile, TimeSpan.FromSeconds(60));
+                        var (result, measurement) = await worker.InvokeAsync(
+                            new("Invoke-Probe", ImmutableDictionary<string, JsonElement>.Empty), TimeSpan.FromSeconds(10));
+                        if (!result.Success) throw new InvalidDataException("Replacement measurement invocation failed.");
+                        replacements.Add(measurement);
+                    }
+                }));
+                replacementTimer.Stop();
                 var meanStartupSeconds = measurements.Average(m => m.InitializationMs) / 1000;
                 samples.Add(new
                 {
@@ -40,9 +57,15 @@ public static class Measurements
                     repetitions,
                     initializers,
                     measuredInitializeAndRetireRatePerSecond = initializers / refill.Elapsed.TotalSeconds,
+                    replacementMeasurements = replacements.ToArray(),
+                    replacementCount = replacements.Count,
+                    replacementDurationSeconds = replacementTimer.Elapsed.TotalSeconds,
+                    measuredInitializeInvokeRetireRatePerSecond = replacements.Count / replacementTimer.Elapsed.TotalSeconds,
+                    replacementMeasurementStatus = "Two independent initializer slots, five single-use replacements each; finite closed-loop feasibility, not queued production throughput or a release soak.",
                     theoreticalRefillUpperBoundPerSecond = initializers / meanStartupSeconds,
                     readyToExecutingAckP95Ms = Percentile95(measurements.Select(m => m.DispatchMs)),
-                    commandStartMeasurement = "Pending exact command-start instrumentation; acknowledgement is only an IPC metric.",
+                    readyToCommandStartP95Ms = Percentile95(measurements.Select(m => m.CommandStartMs)),
+                    commandStartMeasurement = "Supervisor invoke-frame send to worker PowerShell command invocation, using the same host monotonic clock; excludes P2 admission/queue wait.",
                     queueWaitMs = (double?)null,
                     queueMeasurementStatus = "P2 admission not implemented",
                     budgetsApproved = false

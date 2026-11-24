@@ -116,8 +116,10 @@ try {
     $invocationWarnings = @()
     $output = @()
     $success = $true
+    $commandStart = 0L
     try {
         $ErrorActionPreference = 'Continue'
+        $commandStart = [Diagnostics.Stopwatch]::GetTimestamp()
         $output = @(& $invoke.payload.command @parameters -ErrorVariable invocationErrors -WarningVariable invocationWarnings)
         $ErrorActionPreference = 'Stop'
         $output = ConvertTo-PlainData $output
@@ -134,6 +136,7 @@ try {
         success = $success; output = @($output); errors = @($invocationErrors | ForEach-Object { $_.ToString() })
         warnings = @($invocationWarnings | ForEach-Object { $_.ToString() })
         nativeExitCode = $nativeCode; executionMs = $timer.Elapsed.TotalMilliseconds
+        commandStartTimestamp = $commandStart; timestampFrequency = [Diagnostics.Stopwatch]::Frequency
     }
     Write-Frame 'result' $invoke.id $result
     $null = Read-Frame 'retire' $invoke.id

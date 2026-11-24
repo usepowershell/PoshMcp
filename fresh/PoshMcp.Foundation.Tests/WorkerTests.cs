@@ -48,6 +48,51 @@ public sealed class WorkerTests
     }
 
     [Fact]
+    public async Task NativeOutputAndNonzeroExitRemainStructured()
+    {
+        await using var probe = await WorkerProbe.StartAsync(Profile(), TimeSpan.FromSeconds(30));
+        var (result, measurement) = await probe.InvokeAsync(Invoke("Invoke-ProbeNative"), TimeSpan.FromSeconds(15));
+        Assert.False(result.Success);
+        Assert.Equal(17, result.NativeExitCode);
+        Assert.Contains(result.Output.EnumerateArray(), item => item.GetString() == "native stdout");
+        Assert.True(measurement.CommandStartMs >= 0);
+        Assert.True(result.CommandStartTimestamp > 0);
+        Assert.Equal(Stopwatch.Frequency, result.TimestampFrequency);
+    }
+
+    [Theory]
+    [InlineData("tagged")]
+    [InlineData("unsupported")]
+    [InlineData("depth")]
+    public async Task SerializationPolicyIsQualifiedOnTheSelectedRuntime(string serializationCase)
+    {
+        await using var probe = await WorkerProbe.StartAsync(Profile(), TimeSpan.FromSeconds(30));
+        var invocation = Invoke("Invoke-ProbeSerialization") with
+        {
+            Parameters = ImmutableDictionary<string, JsonElement>.Empty
+                .Add("Case", JsonSerializer.SerializeToElement(serializationCase))
+        };
+        var (result, _) = await probe.InvokeAsync(invocation, TimeSpan.FromSeconds(10));
+        if (serializationCase == "tagged")
+        {
+            Assert.True(result.Success);
+            var output = result.Output[0];
+            Assert.Equal("Int64", output.GetProperty("Integer").GetProperty("kind").GetString());
+            Assert.Equal("9223372036854775807", output.GetProperty("Integer").GetProperty("value").GetString());
+            Assert.Equal("Decimal", output.GetProperty("Decimal").GetProperty("kind").GetString());
+            Assert.Equal("1234567890.123456789", output.GetProperty("Decimal").GetProperty("value").GetString());
+            Assert.Equal("DateTime", output.GetProperty("Timestamp").GetProperty("kind").GetString());
+            Assert.Equal("2026-01-02T03:04:05.0000000Z", output.GetProperty("Timestamp").GetProperty("value").GetString());
+        }
+        else
+        {
+            Assert.False(result.Success);
+            Assert.Empty(result.Output.EnumerateArray());
+            Assert.NotEmpty(result.Errors);
+        }
+    }
+
+    [Fact]
     public async Task NormalRetirementKillsWorkerCreatedDescendant()
     {
         await using var probe = await WorkerProbe.StartAsync(Profile(), TimeSpan.FromSeconds(30));
