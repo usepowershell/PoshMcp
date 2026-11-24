@@ -11,7 +11,7 @@
       * INFRA / METHODOLOGY failure  -> always fails (both advisory and release modes).
         Missing/malformed artifact, provenance/SDK-pair violation, missing/partial modes,
         unmeasured scenarios, same-job-paired = false, overallPassed inconsistent with the
-        threshold checks, or (when a baseline is supplied) a methodology-parity mismatch.
+        blocking cross-SDK/same-SDK checks, or (when a baseline is supplied) a methodology-parity mismatch.
 
       * Valid comparison, only red thresholds -> advisory (exit 0, prominent warnings) on PRs,
         RELEASE-RED (exit 1) when -Mode release.
@@ -174,6 +174,28 @@ if ((Has-Prop $art 'modes') -and $null -ne $art.modes) {
                 $breaches.Add(("{0}/check#{1} ratio={2:N3} isBlocking=$isBlocking" -f $tm, $idx, $ratio))
             }
             $idx++
+        }
+        $isolationChecks = @()
+        if ((Has-Prop $m 'sameSdkIsolationChecks') -and ($null -ne $m.sameSdkIsolationChecks)) {
+            $isolationChecks = @($m.sameSdkIsolationChecks)
+        }
+        if ($art.schemaVersion -eq 'poshmcp/v4-comparison/1.1' -and $isolationChecks.Count -ne 2) {
+            $violations.Add("mode '$tm' has $($isolationChecks.Count) same-SDK isolation checks, expected 2")
+        }
+        foreach ($c in $isolationChecks) {
+            if (-not (Has-Prop $c 'passed') -or $c.passed -isnot [bool]) {
+                $violations.Add("mode '$tm' same-SDK isolation check has no boolean passed verdict")
+                continue
+            }
+            if ((Has-Prop $c 'isBlocking') -and $c.isBlocking -ne $true) {
+                $violations.Add("mode '$tm' same-SDK isolation check must be blocking")
+            }
+            if (-not $c.passed) {
+                $allChecksPassed = $false
+                $metric = if (Has-Prop $c 'metric') { [string]$c.metric } else { 'unknown' }
+                $ratio = if (Has-Prop $c 'ratio') { [double]$c.ratio } else { [double]::NaN }
+                $breaches.Add(("{0}/same-SDK/{1} ratio={2:N3} isBlocking=True" -f $tm, $metric, $ratio))
+            }
         }
     }
 }
