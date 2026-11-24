@@ -41,7 +41,10 @@ function Invoke-ProbeDescendant {
 function Invoke-ProbeNative {
     [CmdletBinding()]
     param()
-    & (Get-Process -Id $PID).Path -NoLogo -NoProfile -NonInteractive -Command '[Console]::Out.WriteLine("native stdout"); [Console]::Error.WriteLine("native stderr"); exit 17'
+    # Avoid native argument quote stripping in Windows PowerShell 5.1.
+    $encodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes(
+        '[Console]::Out.WriteLine("native stdout"); [Console]::Error.WriteLine("native stderr"); exit 17'))
+    & (Get-Process -Id $PID).Path -NoLogo -NoProfile -NonInteractive -EncodedCommand $encodedCommand
 }
 
 function Invoke-ProbeSerialization {

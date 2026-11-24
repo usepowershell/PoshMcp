@@ -141,6 +141,12 @@ native combinations with no failures or skips. The follow-up adds real native
 stdout/stderr/nonzero-exit and tagged/unsupported/deep serialization cases;
 those additions must pass the same native matrix before their coverage is
 claimed. Deployment containment backstop limitations remain explicit.
+The added native-output regression exposed a Windows environment defect:
+dropping `PATHEXT` caused PowerShell to classify `.exe` paths as documents,
+returning empty output without a native exit status. The trusted environment
+allowlist now preserves `PATHEXT`; the regression requires actual native
+stdout plus exit 17 and a failed structured verdict. Its fixture uses an
+encoded constant script to avoid Desktop 5.1 native-argument quote stripping.
 
 ## Measurements and sizing (404)
 

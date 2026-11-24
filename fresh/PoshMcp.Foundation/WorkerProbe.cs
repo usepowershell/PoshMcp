@@ -82,7 +82,8 @@ public sealed class WorkerProbe : IAsyncDisposable
             start.ArgumentList.Add(arg);
         var process = new Process { StartInfo = start };
         start.Environment.Clear();
-        foreach (var key in new[] { "PATH", "HOME", "USERPROFILE", "SystemRoot", "WINDIR", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "DOTNET_ROOT" })
+        // Without PATHEXT, Windows PowerShell treats .exe paths as documents instead of native commands.
+        foreach (var key in new[] { "PATH", "PATHEXT", "HOME", "USERPROFILE", "SystemRoot", "WINDIR", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "DOTNET_ROOT" })
             if (Environment.GetEnvironmentVariable(key) is { } value) start.Environment[key] = value;
         foreach (var pair in profile.EnvironmentVariables) start.Environment[pair.Key] = pair.Value;
         Task<long>? stdout = null;

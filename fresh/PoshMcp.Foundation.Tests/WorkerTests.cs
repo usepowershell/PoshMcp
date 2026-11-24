@@ -52,7 +52,7 @@ public sealed class WorkerTests
     {
         await using var probe = await WorkerProbe.StartAsync(Profile(), TimeSpan.FromSeconds(30));
         var (result, measurement) = await probe.InvokeAsync(Invoke("Invoke-ProbeNative"), TimeSpan.FromSeconds(15));
-        Assert.False(result.Success);
+        Assert.False(result.Success, $"Native fixture result: {JsonSerializer.Serialize(result, Contract.Json)}");
         Assert.Equal(17, result.NativeExitCode);
         Assert.Contains(result.Output.EnumerateArray(), item => item.GetString() == "native stdout");
         Assert.True(measurement.CommandStartMs >= 0);
